@@ -1,4 +1,5 @@
-import StudentProfile from "../models/StudentProfile"
+import StudentProfile from "../models/StudentProfile.js"
+import Complaint from "../models/Complaint.js"
 
 export const createStudentProfile = async (req, res) => {
   const { userId } = req.params
@@ -179,11 +180,30 @@ export const reactToLostItem = async (req, res) => {
 export const fileComplaint = async (req, res) => {
   const { userId } = req.params
   try {
+    const {
+      title,
+      description,
+      complaintType,
+      priority,
+      attachments,
+      location,
+      hostel,
+      roomNumber,
+    } = req.body
+
     const newComplaint = new Complaint({
       userId,
-      ...req.body,
+      title,
+      description,
+      complaintType,
+      priority,
+      attachments,
+      location,
+      hostel,
+      roomNumber,
     })
     await newComplaint.save()
+
     res.status(201).json(newComplaint)
   } catch (error) {
     console.error(error)
@@ -191,10 +211,12 @@ export const fileComplaint = async (req, res) => {
   }
 }
 
-// get all complaints
+// get all complaints created by user
 export const getAllComplaints = async (req, res) => {
   try {
-    const complaints = await Complaint.find().populate("userId", "name email role").exec()
+    const complaints = await Complaint.find({ userId: req.params.userId })
+      .populate("userId", "name email role")
+      .exec()
     res.status(200).json(complaints)
   } catch (error) {
     console.error(error)
@@ -208,13 +230,13 @@ export const updateComplaint = async (req, res) => {
   try {
     const updatedComplaint = await Complaint.findOneAndUpdate(
       { _id: complaintId },
-      { $set: req.body },
+      { $set: { ...req.body } },
       { new: true } // return the updated complaint
     ) // findOneAndUpdate returns the original document by default
     if (!updatedComplaint) {
       return res.status(404).json({ message: "Complaint not found" })
     }
-    res.status(200).json(updatedComplaint)
+    res.status(200).json({ message: "Complaint deleted successfully" })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Server error" })
