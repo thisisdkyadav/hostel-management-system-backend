@@ -1,6 +1,9 @@
 import StudentProfile from "../models/StudentProfile.js"
 import Complaint from "../models/Complaint.js"
 import Poll from "../models/Poll.js"
+import RoomChangeRequest from "../models/RoomChangeRequest.js"
+import RoomAllocation from "../models/RoomAllocation.js"
+import Room from "../models/Room.js"
 
 export const createStudentProfile = async (req, res) => {
   const { userId } = req.params
@@ -56,21 +59,58 @@ export const updateStudentProfile = async (req, res) => {
   }
 }
 
-// function to handle room change request
+// Request room change
 export const requestRoomChange = async (req, res) => {
   const { userId } = req.params
   try {
-    // check if room change request already exists
+    // Get student profile
+    const studentProfile = await StudentProfile.findOne({ userId })
+    if (!studentProfile) {
+      return res.status(404).json({ message: "Student profile not found" })
+    }
+
+    // Get current room allocation
+    const currentAllocation = await RoomAllocation.findOne({
+      studentId: userId,
+      status: "Active",
+    })
+    if (!currentAllocation) {
+      return res.status(404).json({ message: "No active room allocation found" })
+    }
+
+    // Check if room change request already exists
     const existingRequest = await RoomChangeRequest.findOne({
-      userId,
+      studentId: userId,
+      status: { $in: ["Pending", "Approved"] },
     })
     if (existingRequest) {
-      return res.status(400).json({ message: "Room change request already exists" })
+      return res.status(400).json({ message: "You already have an active room change request" })
     }
+
+    // Validate requested room exists
+    const { requestedRoomId, requestedBedNumber, reason, priorityRequest } = req.body
+    const requestedRoom = await Room.findById(requestedRoomId)
+    if (!requestedRoom) {
+      return res.status(404).json({ message: "Requested room not found" })
+    }
+
+    // Check room capacity vs requested bed number
+    if (requestedBedNumber > requestedRoom.capacity) {
+      return res.status(400).json({ message: "Invalid bed number for requested room" })
+    }
+
+    // Create new request
     const newRequest = new RoomChangeRequest({
-      userId,
-      ...req.body,
+      studentId: userId,
+      studentProfileId: studentProfile._id,
+      currentAllocationId: currentAllocation._id,
+      requestedRoomId,
+      requestedBedNumber,
+      reason,
+      priorityRequest: priorityRequest || false,
+      requiresWardenApproval: requestedRoom.hostelId !== currentAllocation.roomId.hostelId,
     })
+
     await newRequest.save()
     res.status(201).json(newRequest)
   } catch (error) {
@@ -79,12 +119,30 @@ export const requestRoomChange = async (req, res) => {
   }
 }
 
-// get room change request status
+// Get room change request status
 export const getRoomChangeRequestStatus = async (req, res) => {
   const { userId } = req.params
   try {
-    const request = await RoomChangeRequest.findOne({ userId })
-      .populate("userId", "name email role")
+    const request = await RoomChangeRequest.findOne({ studentId: userId })
+      .populate("studentId", "name email role")
+      .populate("studentProfileId", "rollNumber department yearOfStudy")
+      .populate({
+        path: "currentAllocationId",
+        populate: {
+          path: "roomId",
+          select: "roomNumber unitId hostelId",
+        },
+      })
+      .populate("requestedRoomId", "roomNumber capacity hostelId unitId")
+      .populate("reviewedBy", "name role")
+      .populate("implementedBy", "name role")
+      .populate({
+        path: "newAllocationId",
+        populate: {
+          path: "roomId",
+          select: "roomNumber unitId hostelId",
+        },
+      })
       .exec()
 
     if (!request) {
@@ -98,15 +156,93 @@ export const getRoomChangeRequestStatus = async (req, res) => {
   }
 }
 
-// delete room change request
+// Update room change request
+export const updateRoomChangeRequest = async (req, res) => {
+  const { userId } = req.params
+  try {
+    // Find the existing pending request
+    const existingRequest = await RoomChangeRequest.findOne({
+      studentId: userId,
+      status: "Pending", // Only pending requests can be updated
+    })
+
+    if (!existingRequest) {
+      return res.status(404).json({ message: "No pending room change request found" })
+    }
+
+    const { requestedRoomId, requestedBedNumber, reason, priorityRequest } = req.body
+    const updateData = {}
+
+    // Only process fields that are provided in the request body
+    if (requestedRoomId) {
+      // Validate the requested room exists
+      const requestedRoom = await Room.findById(requestedRoomId)
+      if (!requestedRoom) {
+        return res.status(404).json({ message: "Requested room not found" })
+      }
+
+      // If bed number is also being updated, validate against the new room
+      if (requestedBedNumber && requestedBedNumber > requestedRoom.capacity) {
+        return res.status(400).json({ message: "Invalid bed number for requested room" })
+      }
+
+      updateData.requestedRoomId = requestedRoomId
+
+      // Check if new room requires warden approval (different hostel)
+      const currentAllocation = await RoomAllocation.findById(
+        existingRequest.currentAllocationId
+      ).populate("roomId")
+
+      if (currentAllocation) {
+        updateData.requiresWardenApproval =
+          requestedRoom.hostelId.toString() !== currentAllocation.roomId.hostelId.toString()
+      }
+    } else if (requestedBedNumber) {
+      // If only bed number is updated, validate against existing room
+      const existingRoom = await Room.findById(existingRequest.requestedRoomId)
+      if (requestedBedNumber > existingRoom.capacity) {
+        return res.status(400).json({ message: "Invalid bed number for requested room" })
+      }
+    }
+
+    // Update other fields if provided
+    if (requestedBedNumber) updateData.requestedBedNumber = requestedBedNumber
+    if (reason) updateData.reason = reason
+    if (priorityRequest !== undefined) updateData.priorityRequest = priorityRequest
+
+    // Update the request
+    const updatedRequest = await RoomChangeRequest.findByIdAndUpdate(
+      existingRequest._id,
+      { $set: updateData },
+      { new: true }
+    )
+
+    res.status(200).json(updatedRequest)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
+
+// Delete room change request
 export const deleteRoomChangeRequest = async (req, res) => {
   const { userId } = req.params
   try {
-    const deletedRequest = await RoomChangeRequest.findOneAndDelete({ userId })
-    if (!deletedRequest) {
-      return res.status(404).json({ message: "Room change request not found" })
+    // Only allow deletion of pending requests
+    const request = await RoomChangeRequest.findOne({
+      studentId: userId,
+      status: "Pending",
+    })
+
+    if (!request) {
+      return res.status(404).json({
+        message: "Room change request not found or cannot be deleted in its current status",
+      })
     }
-    res.status(200).json({ message: "Room change request deleted successfully" })
+
+    // Delete the request
+    await RoomChangeRequest.findByIdAndDelete(request._id)
+    res.status(200).json({ message: "Room change request cancelled successfully" })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Server error" })
