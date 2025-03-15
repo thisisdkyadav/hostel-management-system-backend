@@ -8,6 +8,10 @@ const StudentProfileSchema = new mongoose.Schema({
   profilePic: { type: String },
   address: { type: String },
   dateOfBirth: { type: Date },
+  currentRoomAllocation: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "RoomAllocation",
+  },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 })
