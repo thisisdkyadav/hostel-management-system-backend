@@ -1,5 +1,6 @@
 import StudentProfile from "../models/StudentProfile.js"
 import Complaint from "../models/Complaint.js"
+import Poll from "../models/Poll.js"
 
 export const createStudentProfile = async (req, res) => {
   const { userId } = req.params
@@ -101,8 +102,7 @@ export const getRoomChangeRequestStatus = async (req, res) => {
 export const deleteRoomChangeRequest = async (req, res) => {
   const { userId } = req.params
   try {
-    const deletedRequest = await RoomChangeRequest.findOneAnd
-    Delete({ userId })
+    const deletedRequest = await RoomChangeRequest.findOneAndDelete({ userId })
     if (!deletedRequest) {
       return res.status(404).json({ message: "Room change request not found" })
     }
@@ -252,6 +252,65 @@ export const deleteComplaint = async (req, res) => {
       return res.status(404).json({ message: "Complaint not found" })
     }
     res.status(200).json({ message: "Complaint deleted successfully" })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
+
+// get all active polls
+export const getAllActivePolls = async (req, res) => {
+  try {
+    const polls = await Poll.find({ isActive: true })
+      .populate("createdBy", "name email role")
+      .exec()
+    res.status(200).json(polls)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
+
+// react to a poll
+export const reactToPoll = async (req, res) => {
+  const { pollId } = req.params
+  const { userId, optionId } = req.body
+  try {
+    const poll = await Poll.findById(pollId)
+    if (!poll) {
+      return res.status(404).json({ message: "Poll not found" })
+    }
+    const option = poll.options.id(optionId)
+    if (!option) {
+      return res.status(404).json({ message: "Option not found" })
+    }
+    option.votes.push(userId)
+    option.voteCount += 1
+    await poll.save()
+    res.status(200).json(poll)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
+
+// remove reaction from a poll
+export const removeReactionFromPoll = async (req, res) => {
+  const { pollId } = req.params
+  const { userId, optionId } = req.body
+  try {
+    const poll = await Poll.findById(pollId)
+    if (!poll) {
+      return res.status(404).json({ message: "Poll not found" })
+    }
+    const option = poll.options.id(optionId)
+    if (!option) {
+      return res.status(404).json({ message: "Option not found" })
+    }
+    option.votes.pull(userId)
+    option.voteCount -= 1
+    await poll.save()
+    res.status(200).json(poll)
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Server error" })
