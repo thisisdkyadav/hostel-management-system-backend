@@ -4,6 +4,7 @@ import Poll from "../models/Poll.js"
 import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 import Room from "../models/Room.js"
+import LostAndFound from "../models/LostAndFound.js"
 
 export const createStudentProfile = async (req, res) => {
   const { userId } = req.params
@@ -252,7 +253,10 @@ export const deleteRoomChangeRequest = async (req, res) => {
 // get all lost and found items
 export const getAllLostAndFoundItems = async (req, res) => {
   try {
-    const items = await LostAndFoundItem.find().populate("userId", "name email role").exec()
+    const items = await LostAndFound.find({ status: { $ne: "deleted" } })
+      .populate("reportedBy", "name email role")
+      .sort({ createdAt: -1 })
+      .exec()
     res.status(200).json(items)
   } catch (error) {
     console.error(error)
@@ -264,10 +268,20 @@ export const getAllLostAndFoundItems = async (req, res) => {
 export const addLostItem = async (req, res) => {
   const { userId } = req.params
   try {
-    const newItem = new LostAndFoundItem({
-      userId,
-      ...req.body,
+    const { itemName, category, description, locationFound, images } = req.body
+
+    const newItem = new LostAndFound({
+      itemName,
+      category,
+      description,
+      locationFound,
+      dateFound: req.body.dateFound || new Date(),
+      images: images || [],
+      reportedBy: userId,
+      userType: "student", // Since this is in studentController
+      status: "active",
     })
+
     await newItem.save()
     res.status(201).json(newItem)
   } catch (error) {
@@ -276,35 +290,116 @@ export const addLostItem = async (req, res) => {
   }
 }
 
-// delete a lost item if the user is the owner
+// mark a lost item as deleted if the user is the owner
 export const deleteLostItem = async (req, res) => {
   const { itemId } = req.params
   try {
-    const deletedItem = await LostAndFoundItem.findOneAndDelete({
+    const item = await LostAndFound.findOne({
       _id: itemId,
-      userId: req.user._id,
+      reportedBy: req.user._id,
     })
-    if (!deletedItem) {
-      return res.status(404).json({ message: "Item not found or you are not the owner" })
+
+    if (!item) {
+      return res.status(404).json({ message: "Item not found or you are not the reporter" })
     }
-    res.status(200).json({ message: "Item deleted successfully" })
+
+    // Instead of deleting, mark as deleted
+    item.status = "deleted"
+    item.updatedAt = new Date()
+    await item.save()
+
+    res.status(200).json({ message: "Item marked as deleted successfully" })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Server error" })
   }
 }
 
-// react to a lost item
-export const reactToLostItem = async (req, res) => {
+// claim a lost item
+export const claimLostItem = async (req, res) => {
   const { itemId } = req.params
-  const { userId, reaction } = req.body
+  const { userId, claimDescription } = req.body
+
   try {
-    const item = await LostAndFoundItem.findById(itemId)
+    const item = await LostAndFound.findById(itemId)
+
     if (!item) {
       return res.status(404).json({ message: "Item not found" })
     }
-    item.reactions.push({ userId, reaction })
+
+    if (item.status !== "active") {
+      return res.status(400).json({ message: "This item is no longer available for claiming" })
+    }
+
+    // Update the claim information
+    item.claim = {
+      claimantId: userId,
+      claimDescription,
+      claimDate: new Date(),
+      claimStatus: "pending",
+    }
+
+    // If user provides their name
+    if (req.body.claimantName) {
+      item.claim.claimantName = req.body.claimantName
+    }
+
+    // Update status
+    item.status = "claimed"
+    item.updatedAt = new Date()
+
     await item.save()
+    res.status(200).json(item)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
+
+// get all lost items reported by a user
+export const getUserLostItems = async (req, res) => {
+  const { userId } = req.params
+  try {
+    const items = await LostAndFound.find({
+      reportedBy: userId,
+      status: { $ne: "deleted" },
+    })
+      .sort({ createdAt: -1 })
+      .exec()
+
+    res.status(200).json(items)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
+
+// update a lost item
+export const updateLostItem = async (req, res) => {
+  const { itemId } = req.params
+
+  try {
+    const item = await LostAndFound.findOne({
+      _id: itemId,
+      reportedBy: req.user._id,
+    })
+
+    if (!item) {
+      return res.status(404).json({ message: "Item not found or you are not the reporter" })
+    }
+
+    const allowedUpdates = ["itemName", "category", "description", "locationFound", "images"]
+
+    // Only update allowed fields
+    for (const field of allowedUpdates) {
+      if (req.body[field] !== undefined) {
+        item[field] = req.body[field]
+      }
+    }
+
+    item.updatedAt = new Date()
+    await item.save()
+
     res.status(200).json(item)
   } catch (error) {
     console.error(error)
