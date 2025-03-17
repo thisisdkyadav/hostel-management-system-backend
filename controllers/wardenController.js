@@ -146,9 +146,13 @@ export const createPoll = async (req, res) => {
 
   try {
     const newPoll = new Poll({
-      wardenId,
       question,
-      options
+      options: options.map(option => ({
+        option,
+        votes: [],
+        voteCount: 0
+      })),
+      createdBy: wardenId
     });
 
     await newPoll.save();
