@@ -3,6 +3,7 @@ import cors from "cors"
 import cookieParser from "cookie-parser"
 import authRoutes from "./routes/authRoutes.js"
 import { PORT } from "./config/environment.js"
+import connectDB from "./config/db.js"
 
 const app = express()
 app.use(express.json())
@@ -24,4 +25,8 @@ app.get("/", (req, res) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`)
+  // Connect to MongoDB
+  console.log("Connecting to MongoDB...")
+  connectDB()
+  console.log("MongoDB connected successfully")
 })
