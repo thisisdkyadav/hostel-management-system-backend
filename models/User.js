@@ -1,7 +1,3 @@
-// User model
-// user can login with email and password or google so password is not required when user login with google
-// all personal info is in student profile model
-
 import mongoose from "mongoose"
 
 const UserSchema = new mongoose.Schema({

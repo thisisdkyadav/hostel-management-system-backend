@@ -10,7 +10,6 @@ const UnitSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
-// Compound index to ensure unique unit numbers within a hostel
 UnitSchema.index({ hostelId: 1, unitNumber: 1 }, { unique: true })
 
 UnitSchema.pre("save", function (next) {

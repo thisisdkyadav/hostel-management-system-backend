@@ -5,58 +5,203 @@ import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 import Room from "../models/Room.js"
 import LostAndFound from "../models/LostAndFound.js"
+import mongoose from "mongoose"
+import { isDevelopmentEnvironment } from "../config/environment.js"
+import User from "../models/User.js"
 
 export const createStudentProfile = async (req, res) => {
-  const { userId } = req.params
   try {
-    const existingProfile = await StudentProfile.findOne({
-      userId,
-    })
+    const isMultipleStudents = Array.isArray(req.body)
+    const studentsData = isMultipleStudents ? req.body : [req.body]
 
-    if (existingProfile) {
-      return res.status(400).json({ message: "Profile already exists" })
+    for (const student of studentsData) {
+      const { email, name, rollNumber } = student
+
+      if (!email || !name || !rollNumber) {
+        return res.status(400).json({
+          success: false,
+          message: "Missing required fields: email, name, rollNumber",
+        })
+      }
     }
 
-    const newProfile = new StudentProfile({ userId, ...req.body })
-    await newProfile.save()
-    res.status(201).json(newProfile)
+    const userDocs = []
+    const studentProfileData = []
+
+    const results = []
+    const errors = []
+
+    for (const student of studentsData) {
+      const { email, password, name, rollNumber, ...otherProfileFields } = student
+
+      const newUser = new User({ email, password, name, role: "Student" })
+
+      userDocs.push(newUser)
+
+      studentProfileData.push({
+        rollNumber,
+        ...otherProfileFields,
+      })
+    }
+
+    let savedUsers
+    savedUsers = await User.insertMany(userDocs, { ordered: false })
+
+    const profileDocs = []
+
+    for (const savedUser of savedUsers) {
+      const originalIndex = userDocs.findIndex((doc) => doc.email === savedUser.email)
+
+      if (originalIndex !== -1) {
+        profileDocs.push(
+          new StudentProfile({
+            userId: savedUser._id,
+            ...studentProfileData[originalIndex],
+            createdBy: req.user._id,
+            lastUpdatedBy: req.user._id,
+          })
+        )
+      }
+    }
+
+    const savedProfiles = await StudentProfile.insertMany(profileDocs, { ordered: false })
+
+    for (let i = 0; i < savedUsers.length; i++) {
+      results.push({
+        user: {
+          _id: savedUsers[i]._id,
+          email: savedUsers[i].email,
+          name: savedUsers[i].name,
+          role: savedUsers[i].role,
+        },
+        profile: savedProfiles[i],
+      })
+    }
+
+    if (errors.length === 0) {
+      return res.status(201).json({
+        success: true,
+        data: isMultipleStudents ? results : results[0],
+        message: isMultipleStudents
+          ? `${results.length} student profiles created successfully`
+          : "Student profile created successfully",
+      })
+    } else if (results.length === 0) {
+      return res.status(400).json({
+        success: false,
+        errors,
+        message: "Failed to create any student profiles",
+      })
+    } else {
+      return res.status(207).json({
+        success: true,
+        data: results,
+        errors,
+        message: `Created ${results.length} out of ${studentsData.length} student profiles`,
+      })
+    }
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Server error" })
+    console.error("Create student profile error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Failed to create student profile(s)",
+      error: isDevelopmentEnvironment ? error.message : undefined,
+    })
   }
 }
 
 export const getStudentProfile = async (req, res) => {
+  console.log("Fetching student profile for userId:", req.params.userId) // Debugging line;
+
   const { userId } = req.params
+
   try {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format",
+      })
+    }
+
     const studentProfile = await StudentProfile.findOne({ userId })
       .populate("userId", "name email role")
       .exec()
+
     if (!studentProfile) {
-      return res.status(404).json({ message: "Student profile not found" })
+      return res.status(404).json({
+        success: false,
+        message: "Student profile not found",
+      })
     }
-    res.status(200).json(studentProfile)
+
+    res.status(200).json({
+      success: true,
+      data: studentProfile,
+    })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Server error" })
+    console.error("Get student profile error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve student profile",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    })
   }
 }
 
 export const updateStudentProfile = async (req, res) => {
   const { userId } = req.params
+
   try {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format",
+      })
+    }
+
+    const updateData = { ...req.body }
+    delete updateData.userId
+    delete updateData.createdBy
+    delete updateData.createdAt
+
+    updateData.lastUpdatedBy = req.user._id
+    updateData.updatedAt = Date.now()
+
     const updatedProfile = await StudentProfile.findOneAndUpdate(
       { userId },
-      { $set: req.body },
-      { new: true }
+      { $set: updateData },
+      {
+        new: true,
+      }
     )
+
     if (!updatedProfile) {
-      return res.status(404).json({ message: "Profile update failed" })
+      return res.status(404).json({
+        success: false,
+        message: "Student profile not found or update failed",
+      })
     }
-    res.status(200).json(updatedProfile)
+
+    res.status(200).json({
+      success: true,
+      data: updatedProfile,
+      message: "Student profile updated successfully",
+    })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Server error" })
+    console.error("Update student profile error:", error)
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: `Duplicate value: ${Object.keys(error.keyPattern)[0]} already exists`,
+      })
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update student profile",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    })
   }
 }
 
@@ -64,13 +209,11 @@ export const updateStudentProfile = async (req, res) => {
 export const requestRoomChange = async (req, res) => {
   const { userId } = req.params
   try {
-    // Get student profile
     const studentProfile = await StudentProfile.findOne({ userId })
     if (!studentProfile) {
       return res.status(404).json({ message: "Student profile not found" })
     }
 
-    // Get current room allocation
     const currentAllocation = await RoomAllocation.findOne({
       studentId: userId,
       status: "Active",
@@ -79,7 +222,6 @@ export const requestRoomChange = async (req, res) => {
       return res.status(404).json({ message: "No active room allocation found" })
     }
 
-    // Check if room change request already exists
     const existingRequest = await RoomChangeRequest.findOne({
       studentId: userId,
       status: { $in: ["Pending", "Approved"] },
@@ -88,19 +230,16 @@ export const requestRoomChange = async (req, res) => {
       return res.status(400).json({ message: "You already have an active room change request" })
     }
 
-    // Validate requested room exists
     const { requestedRoomId, requestedBedNumber, reason, priorityRequest } = req.body
     const requestedRoom = await Room.findById(requestedRoomId)
     if (!requestedRoom) {
       return res.status(404).json({ message: "Requested room not found" })
     }
 
-    // Check room capacity vs requested bed number
     if (requestedBedNumber > requestedRoom.capacity) {
       return res.status(400).json({ message: "Invalid bed number for requested room" })
     }
 
-    // Create new request
     const newRequest = new RoomChangeRequest({
       studentId: userId,
       studentProfileId: studentProfile._id,
@@ -161,10 +300,9 @@ export const getRoomChangeRequestStatus = async (req, res) => {
 export const updateRoomChangeRequest = async (req, res) => {
   const { userId } = req.params
   try {
-    // Find the existing pending request
     const existingRequest = await RoomChangeRequest.findOne({
       studentId: userId,
-      status: "Pending", // Only pending requests can be updated
+      status: "Pending",
     })
 
     if (!existingRequest) {
@@ -174,22 +312,18 @@ export const updateRoomChangeRequest = async (req, res) => {
     const { requestedRoomId, requestedBedNumber, reason, priorityRequest } = req.body
     const updateData = {}
 
-    // Only process fields that are provided in the request body
     if (requestedRoomId) {
-      // Validate the requested room exists
       const requestedRoom = await Room.findById(requestedRoomId)
       if (!requestedRoom) {
         return res.status(404).json({ message: "Requested room not found" })
       }
 
-      // If bed number is also being updated, validate against the new room
       if (requestedBedNumber && requestedBedNumber > requestedRoom.capacity) {
         return res.status(400).json({ message: "Invalid bed number for requested room" })
       }
 
       updateData.requestedRoomId = requestedRoomId
 
-      // Check if new room requires warden approval (different hostel)
       const currentAllocation = await RoomAllocation.findById(
         existingRequest.currentAllocationId
       ).populate("roomId")
@@ -199,19 +333,16 @@ export const updateRoomChangeRequest = async (req, res) => {
           requestedRoom.hostelId.toString() !== currentAllocation.roomId.hostelId.toString()
       }
     } else if (requestedBedNumber) {
-      // If only bed number is updated, validate against existing room
       const existingRoom = await Room.findById(existingRequest.requestedRoomId)
       if (requestedBedNumber > existingRoom.capacity) {
         return res.status(400).json({ message: "Invalid bed number for requested room" })
       }
     }
 
-    // Update other fields if provided
     if (requestedBedNumber) updateData.requestedBedNumber = requestedBedNumber
     if (reason) updateData.reason = reason
     if (priorityRequest !== undefined) updateData.priorityRequest = priorityRequest
 
-    // Update the request
     const updatedRequest = await RoomChangeRequest.findByIdAndUpdate(
       existingRequest._id,
       { $set: updateData },

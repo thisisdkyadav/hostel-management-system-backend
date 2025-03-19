@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken"
 import axios from "axios"
-import { JWT_SECRET, isDev } from "../config/environment.js"
+import { JWT_SECRET, isDevelopmentEnvironment } from "../config/environment.js"
 import User from "../models/User.js"
 import bcrypt from "bcrypt"
 
@@ -44,7 +44,7 @@ export const login = async (req, res) => {
     // Set HTTP-only cookie
     res.cookie("token", token, {
       httpOnly: true,
-      secure: !isDev,
+      secure: !isDevelopmentEnvironment,
       sameSite: "Strict",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     })
@@ -82,7 +82,7 @@ export const loginWithGoogle = async (req, res) => {
     } else {
       res.cookie("token", jwtToken, {
         httpOnly: true,
-        secure: !isDev,
+        secure: !isDevelopmentEnvironment,
         sameSite: "Strict",
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       })
