@@ -1,5 +1,6 @@
 import express from "express"
-import { addHostel, getHostels } from "../controllers/hostelControllers.js"
+import { addHostel, getHostels, getHostelList } from "../controllers/hostelController.js"
+import { createWarden, getAllWardens, updateWarden, deleteWarden } from "../controllers/adminController.js"
 import {
   authenticate,
   // ,
@@ -14,5 +15,11 @@ router.use(authenticate)
 
 router.get("/hostels", getHostels)
 router.post("/hostel/add", addHostel)
+router.get("/hostel/list", getHostelList)
+
+router.get("/wardens", getAllWardens)
+router.post("/warden/add", createWarden)
+router.post("/warden/update/:id", updateWarden)
+router.delete("/warden/delete/:id", deleteWarden)
 
 export default router

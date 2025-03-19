@@ -169,3 +169,12 @@ export const updateHostel = async (req, res) => {
     res.status(500).json({ message: "Error updating hostel", error: error.message })
   }
 }
+
+export const getHostelList = async (req, res) => {
+  try {
+    const hostels = await Hostel.find({}, { _id: 1, name: 1 })
+    res.status(200).json(hostels)
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching hostels", error: error.message })
+  }
+}
