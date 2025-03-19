@@ -64,9 +64,7 @@ export const login = async (req, res) => {
 export const loginWithGoogle = async (req, res) => {
   const { token, isMobile = false } = req.body
   try {
-    const googleResponse = await axios.get(
-      `https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${token}`
-    )
+    const googleResponse = await axios.get(`https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${token}`)
 
     const { email } = googleResponse.data
 
@@ -87,7 +85,13 @@ export const loginWithGoogle = async (req, res) => {
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       })
 
-      res.json({ message: "Login successful!" })
+      const userResponse = user.toObject ? user.toObject() : JSON.parse(JSON.stringify(user))
+      delete userResponse.password
+
+      res.json({
+        user: userResponse,
+        message: "Login successful",
+      })
     }
   } catch (error) {
     res.status(401).json({ message: "Invalid Google Token" })
@@ -97,4 +101,20 @@ export const loginWithGoogle = async (req, res) => {
 export const logout = async (req, res) => {
   res.clearCookie("token")
   res.json({ message: "Logged out successfully" })
+}
+
+export const getUser = async (req, res) => {
+  const user = req.user
+  const userId = user._id
+
+  try {
+    const user = await User.findById(userId).select("-password").exec()
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+    res.json(user)
+  } catch (error) {
+    console.error("Error fetching user:", error)
+    res.status(500).json({ message: "Server error" })
+  }
 }
