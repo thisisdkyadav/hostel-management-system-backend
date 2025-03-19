@@ -9,9 +9,9 @@ const ComplaintSchema = new mongoose.Schema({
     enum: ["Pending", "Resolved", "In Progress"],
     default: "Pending",
   },
-  complaintType: {
+  category: {
     type: String,
-    enum: ["Electricity", "Water", "Internet", "Cleaning", "Civil", "Other"],
+    enum: ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other"],
     default: "Other",
   },
   priority: {
