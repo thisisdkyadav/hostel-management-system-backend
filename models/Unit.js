@@ -3,8 +3,7 @@ import mongoose from "mongoose"
 const UnitSchema = new mongoose.Schema({
   hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },
   unitNumber: { type: String, required: true },
-  floor: { type: Number, required: true },
-  capacity: { type: Number, required: true },
+  floor: { type: Number },
   commonAreaDetails: { type: String },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

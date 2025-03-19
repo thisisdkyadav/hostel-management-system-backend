@@ -6,7 +6,6 @@ const RoomSchema = new mongoose.Schema({
   roomNumber: { type: String, required: true }, // For unit-based: A, B, C... For room-only: 101, 102...
   capacity: { type: Number, required: true, default: 1 },
   occupancy: { type: Number, default: 0 },
-  roomType: { type: String, enum: ["Single", "Double"], required: true },
   status: {
     type: String,
     enum: ["Available", "Occupied", "Maintenance", "Reserved"],

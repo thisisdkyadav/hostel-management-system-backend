@@ -20,8 +20,9 @@ const ComplaintSchema = new mongoose.Schema({
     default: "Low",
   },
   location: { type: String }, // Location of the complaint for complaints outside hostel room/unit
-  hostel: { type: String }, // Hostel name
-  roomNumber: { type: String }, // Room number
+  hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel" }, // Reference to the hostel
+  unitId: { type: mongoose.Schema.Types.ObjectId, ref: "Unit" }, // Reference to the unit (if applicable)
+  roomId: { type: mongoose.Schema.Types.ObjectId, ref: "Room" }, // Reference to the room (if applicable)
   attachments: [{ type: String }], // Array of file paths or URLs
   assignedTo: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // Staff member assigned to the complaint
   resolutionNotes: { type: String }, // Notes from the staff member after resolving the complaint
