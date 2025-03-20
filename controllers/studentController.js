@@ -113,7 +113,7 @@ export const createStudentProfile = async (req, res) => {
 export const getStudentProfile = async (req, res) => {
   const { userId } = req.params;
 
-  console.log(`Fetching student profile: userId=${userId || "undefined"}`); // Debugging log
+  console.log(`Fetching student profile: userId=${userId || "undefined"}`); 
 
   try {
     if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
@@ -124,7 +124,7 @@ export const getStudentProfile = async (req, res) => {
     }
 
     const studentProfile = await StudentProfile.findOne({ userId })
-      .populate("userId", "name email role") // Populate only necessary fields
+      .populate("userId", "name email role") 
       .exec();
 
     if (!studentProfile) {
