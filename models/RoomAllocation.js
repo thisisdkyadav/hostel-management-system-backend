@@ -1,7 +1,7 @@
 import mongoose from "mongoose"
 
 const RoomAllocationSchema = new mongoose.Schema({
-  studentId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   studentProfileId: { type: mongoose.Schema.Types.ObjectId, ref: "StudentProfile", required: true },
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: "Room", required: true },
   bedNumber: { type: Number, required: true }, // 1, 2, 3, etc. for student position in multi-occupancy rooms
@@ -14,7 +14,7 @@ const RoomAllocationSchema = new mongoose.Schema({
 
 // Ensure a student can't be allocated to multiple rooms when active
 RoomAllocationSchema.index(
-  { studentId: 1, status: 1 },
+  { userId: 1, status: 1 },
   {
     unique: true,
     partialFilterExpression: { status: "Active" },

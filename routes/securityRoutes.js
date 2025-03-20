@@ -1,5 +1,5 @@
 import express from "express"
-import { getSecurity } from "../controllers/securityController.js"
+import { getSecurity, addVisitor, getVisitors, updateVisitor } from "../controllers/securityController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 const router = express.Router()
@@ -8,5 +8,8 @@ const router = express.Router()
 router.use(authenticate)
 
 router.get("/info", getSecurity)
+router.post("/visitors", addVisitor)
+router.get("/visitors", getVisitors)
+router.put("/visitors/:visitorId", updateVisitor)
 
 export default router
