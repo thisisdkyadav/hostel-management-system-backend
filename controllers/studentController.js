@@ -111,42 +111,43 @@ export const createStudentProfile = async (req, res) => {
 }
 
 export const getStudentProfile = async (req, res) => {
-  console.log("Fetching student profile for userId:", req.params.userId) // Debugging line;
+  const { userId } = req.params;
 
-  const { userId } = req.params
+  console.log(`Fetching student profile: userId=${userId || "undefined"}`); // Debugging log
 
   try {
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid user ID format",
-      })
+        message: "Invalid or missing user ID",
+      });
     }
 
     const studentProfile = await StudentProfile.findOne({ userId })
-      .populate("userId", "name email role")
-      .exec()
+      .populate("userId", "name email role") // Populate only necessary fields
+      .exec();
 
     if (!studentProfile) {
       return res.status(404).json({
         success: false,
         message: "Student profile not found",
-      })
+      });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: studentProfile,
-    })
+    });
   } catch (error) {
-    console.error("Get student profile error:", error)
+    console.error("Get student profile error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve student profile",
       error: process.env.NODE_ENV === "development" ? error.message : undefined,
-    })
+    });
   }
-}
+};
+
 
 export const updateStudentProfile = async (req, res) => {
   const { userId } = req.params
