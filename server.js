@@ -5,6 +5,7 @@ import authRoutes from "./routes/authRoutes.js"
 import studentRoutes from "./routes/studentRoutes.js"
 import adminRoutes from "./routes/adminRoutes.js"
 import complaintRoutes from "./routes/complaintRoutes.js"
+import securityRoutes from "./routes/securityRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -23,6 +24,7 @@ app.use("/api/auth", authRoutes)
 app.use("/api/student", studentRoutes)
 app.use("/api/admin", adminRoutes)
 app.use("/api/complaint", complaintRoutes)
+app.use("/api/security", securityRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!")
