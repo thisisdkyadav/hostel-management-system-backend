@@ -4,14 +4,11 @@ import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 
 const router = express.Router()
-
-// Middleware to authenticate and authorize admin
 router.use(authenticate)
 
+router.get("/", authorizeRoles(["Admin", "Warden", "Security", "Student"]), getLostAndFound)
 router.post("/", authorizeRoles(["Admin", "Warden", "Security"]), createLostAndFound)
-router.delete("/:id", authorizeRoles(["Admin", "Warden", "Security"]), deleteLostAndFound)
 router.put("/:id", authorizeRoles(["Admin", "Warden", "Security"]), updateLostAndFound)
-
-router.get("/", getLostAndFound)
+router.delete("/:id", authorizeRoles(["Admin", "Warden", "Security"]), deleteLostAndFound)
 
 export default router
