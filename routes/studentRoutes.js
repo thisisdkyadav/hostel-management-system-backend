@@ -1,6 +1,8 @@
 import express from "express"
 import {
-  createStudentProfile,
+  createStudentsProfile,
+  getStudents,
+  getStudentDetails,
   getStudentProfile,
   updateStudentProfile,
   requestRoomChange,
@@ -27,12 +29,10 @@ import { authorizeRoles } from "../middlewares/authorize.js"
 const router = express.Router()
 
 // Student profile routes
-router.post(
-  "/profiles",
-  authenticate,
-  authorizeRoles(["admin", "warden", "Student"]),
-  createStudentProfile
-)
+router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), createStudentsProfile)
+router.get("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), getStudents)
+router.get("/profile/details/:studentProfileId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
+
 router.get("/profiles/:userId", authenticate, getStudentProfile)
 router.put("/profiles/:userId", authenticate, updateStudentProfile)
 

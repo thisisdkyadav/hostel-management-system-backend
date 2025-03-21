@@ -1,6 +1,7 @@
 import Security from "../models/Security.js"
 import Hostel from "../models/Hostel.js"
 import User from "../models/User.js"
+import Warden from "../models/Warden.js"
 import Visitor from "../models/Visitors.js"
 
 export const getSecurity = async (req, res) => {
@@ -62,14 +63,24 @@ export const getVisitors = async (req, res) => {
   const user = req.user
 
   try {
-    const security = await Security.findOne({ userId: user._id }).populate("hostelId").exec()
-    console.log("Security:", security)
+    const userRole = user.role
 
-    if (!security) {
-      return res.status(404).json({ message: "Security not found" })
+    let hostelId
+    if (userRole === "Security") {
+      const security = await Security.findOne({ userId: user._id })
+      hostelId = security.hostelId
+    } else if (userRole === "Warden") {
+      const warden = await Warden.findOne({ userId: user._id })
+      hostelId = warden.hostelId
+    } else {
+      return res.status(403).json({ message: "Access denied" })
     }
 
-    const visitors = await Visitor.find({ hostelId: security.hostelId._id }).exec()
+    if (!hostelId) {
+      return res.status(404).json({ message: "Hostel not found" })
+    }
+
+    const visitors = await Visitor.find({ hostelId }).exec()
 
     res.status(200).json(visitors)
   } catch (error) {

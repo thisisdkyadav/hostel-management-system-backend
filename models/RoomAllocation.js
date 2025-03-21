@@ -4,12 +4,7 @@ const RoomAllocationSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   studentProfileId: { type: mongoose.Schema.Types.ObjectId, ref: "StudentProfile", required: true },
   roomId: { type: mongoose.Schema.Types.ObjectId, ref: "Room", required: true },
-  bedNumber: { type: Number, required: true }, // 1, 2, 3, etc. for student position in multi-occupancy rooms
-  allocationDate: { type: Date, default: Date.now },
-  vacatedDate: { type: Date },
-  status: { type: String, enum: ["Active", "Vacated", "Temporary"], default: "Active" },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
+  bedNumber: { type: Number, required: true },
 })
 
 // Ensure a student can't be allocated to multiple rooms when active

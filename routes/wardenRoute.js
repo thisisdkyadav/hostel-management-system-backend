@@ -1,29 +1,33 @@
-import express from 'express';
-import { 
-  getResolvedAndPendingComplaints, 
-  getAllComplaints, 
-  assignComplaint, 
-  getComplaintStatus,
-  createPoll,
-  getPollResults,
-  getRecentPolls,
-  createStudent
-} from '../controllers/wardenController.js';
+import express from "express"
+import {
+  getWardenProfile,
+  // getResolvedAndPendingComplaints,
+  // getAllComplaints,
+  // assignComplaint,
+  // getComplaintStatus,
+  // createPoll,
+  // getPollResults,
+  // getRecentPolls,
+  // createStudent
+} from "../controllers/wardenController.js"
+import { authenticate } from "../middlewares/auth.js"
 
-const router = express.Router();
+const router = express.Router()
 
-// Complaint-related routes
-router.get('/complaints/status/:wardenId', getResolvedAndPendingComplaints);
-router.get('/complaints/:wardenId', getAllComplaints);
-router.post('/complaints/assign', assignComplaint);
-router.get('/complaints/details/:wardenId', getComplaintStatus);
+router.get("/profile", authenticate, getWardenProfile) // Get warden profile details
 
-// Poll-related routes
-router.post('/polls/create/:wardenId', createPoll);
-router.get('/polls/results/:pollId', getPollResults);
-router.get('/polls/recent', getRecentPolls);
+// // Complaint-related routes
+// router.get("/complaints/status/:wardenId", getResolvedAndPendingComplaints)
+// router.get("/complaints/:wardenId", getAllComplaints)
+// router.post("/complaints/assign", assignComplaint)
+// router.get("/complaints/details/:wardenId", getComplaintStatus)
 
-// Student-related routes
-router.post('/students/create', createStudent); // Store student details
+// // Poll-related routes
+// router.post("/polls/create/:wardenId", createPoll)
+// router.get("/polls/results/:pollId", getPollResults)
+// router.get("/polls/recent", getRecentPolls)
 
-export default router;
+// // Student-related routes
+// router.post("/students/create", createStudent) // Store student details
+
+export default router

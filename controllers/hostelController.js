@@ -19,8 +19,12 @@ export const addHostel = async (req, res) => {
       location: location || "",
     })
 
+    console.log("New Hostel Data:", newHostel)
+
     const savedHostel = await newHostel.save()
     const hostelId = savedHostel._id
+
+    console.log("Hostel ID:", hostelId)
 
     const createdUnits = {}
     if (type === "unit-based" && Array.isArray(units)) {
@@ -42,6 +46,8 @@ export const addHostel = async (req, res) => {
         createdUnits[unitNumber] = savedUnit._id
       }
     }
+
+    console.log("Created Units:", createdUnits)
 
     if (Array.isArray(rooms)) {
       for (const roomData of rooms) {

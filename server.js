@@ -2,6 +2,7 @@ import express from "express"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import authRoutes from "./routes/authRoutes.js"
+import wardenRoutes from "./routes/wardenRoute.js"
 import studentRoutes from "./routes/studentRoutes.js"
 import adminRoutes from "./routes/adminRoutes.js"
 import complaintRoutes from "./routes/complaintRoutes.js"
@@ -21,6 +22,7 @@ app.use(
 )
 
 app.use("/api/auth", authRoutes)
+app.use("/api/warden", wardenRoutes)
 app.use("/api/student", studentRoutes)
 app.use("/api/admin", adminRoutes)
 app.use("/api/complaint", complaintRoutes)

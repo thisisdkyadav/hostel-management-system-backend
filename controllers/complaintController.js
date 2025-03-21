@@ -87,3 +87,67 @@ export const getAllComplaints = async (req, res) => {
     res.status(500).json({ message: "Error fetching complaints", error: error.message })
   }
 }
+
+// export const getComplaintById = async (req, res) => {
+//   const { id } = req.params
+
+//   try {
+//     const complaint = await Complaint.findById(id).populate("userId", "name email phone profilePic").populate("hostelId", "name").populate("unitId", "unitNumber").populate("roomId", "roomNumber").populate("assignedTo", "name email phone profilePic").populate("resolvedBy", "name")
+
+//     if (!complaint) {
+//       return res.status(404).json({ message: "Complaint not found" })
+//     }
+
+//     res.status(200).json(complaint)
+//   } catch (error) {
+//     console.error(error)
+//     res.status(500).json({ message: "Error fetching complaint", error: error.message })
+//   }
+// }
+
+export const updateComplaintStatus = async (req, res) => {
+  const { id } = req.params
+  const { status, assignedTo, resolutionNotes, feedback, feedbackRating } = req.body
+
+  try {
+    const complaint = await Complaint.findByIdAndUpdate(
+      id,
+      {
+        status,
+        assignedTo,
+        resolutionNotes,
+        feedback,
+        feedbackRating,
+        resolutionDate: status === "Resolved" ? new Date() : null,
+      },
+      { new: true }
+    )
+
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" })
+    }
+    res.status(200).json({ message: "Complaint updated successfully", complaint })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Error updating complaint", error: error.message })
+  }
+}
+
+export const getStats = async (req, res) => {
+  try {
+    const total = await Complaint.countDocuments()
+    const pending = await Complaint.countDocuments({ status: "Pending" })
+    const inProgress = await Complaint.countDocuments({ status: "In Progress" })
+    const resolved = await Complaint.countDocuments({ status: "Resolved" })
+
+    res.status(200).json({
+      total,
+      pending,
+      inProgress,
+      resolved,
+    })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Error fetching stats", error: error.message })
+  }
+}
