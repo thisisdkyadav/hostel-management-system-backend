@@ -31,26 +31,6 @@ export const getLostAndFound = async (req, res) => {
   }
 }
 
-export const getActiveLostAndFound = async (req, res) => {
-  try {
-    const activeLostAndFoundItems = await LostAndFound.find({ status: "active" })
-    res.status(200).json({ activeLostAndFoundItems })
-  } catch (error) {
-    console.error("Error fetching active lost and found items:", error)
-    res.status(500).json({ message: "Internal server error" })
-  }
-}
-
-export const getClaimedLostAndFound = async (req, res) => {
-  try {
-    const claimedLostAndFoundItems = await LostAndFound.find({ status: "claimed" })
-    res.status(200).json({ claimedLostAndFoundItems })
-  } catch (error) {
-    console.error("Error fetching claimed lost and found items:", error)
-    res.status(500).json({ message: "Internal server error" })
-  }
-}
-
 export const updateLostAndFound = async (req, res) => {
   const { id } = req.params
   const { itemName, description, dateFound, images, status } = req.body
@@ -62,7 +42,7 @@ export const updateLostAndFound = async (req, res) => {
       return res.status(404).json({ message: "Lost and found item not found" })
     }
 
-    res.status(200).json({ message: "Lost and found item updated successfully", lostAndFoundItem })
+    res.status(200).json({ message: "Lost and found item updated successfully", success: true, lostAndFoundItem })
   } catch (error) {
     console.error("Error updating lost and found item:", error)
     res.status(500).json({ message: "Internal server error" })
@@ -79,7 +59,7 @@ export const deleteLostAndFound = async (req, res) => {
       return res.status(404).json({ message: "Lost and found item not found" })
     }
 
-    res.status(200).json({ message: "Lost and found item deleted successfully" })
+    res.status(200).json({ message: "Lost and found item deleted successfully", success: true })
   } catch (error) {
     console.error("Error deleting lost and found item:", error)
     res.status(500).json({ message: "Internal server error" })

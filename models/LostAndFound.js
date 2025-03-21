@@ -21,8 +21,8 @@ const lostAndFoundSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["active", "claimed"],
-    default: "active",
+    enum: ["Active", "Claimed"],
+    default: "Active",
   },
   images: [
     {
