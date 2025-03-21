@@ -495,15 +495,15 @@ export const getStudentDetails = async (req, res) => {
 }
 
 export const getStudentProfile = async (req, res) => {
-  console.log("Fetching student profile for userId:", req.params.userId) // Debugging line;
-
   const { userId } = req.params
 
+  console.log(`Fetching student profile: userId=${userId || "undefined"}`)
+
   try {
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid user ID format",
+        message: "Invalid or missing user ID",
       })
     }
 
@@ -516,7 +516,7 @@ export const getStudentProfile = async (req, res) => {
       })
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       data: studentProfile,
     })
