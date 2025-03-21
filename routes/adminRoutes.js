@@ -1,6 +1,6 @@
 import express from "express"
 import { addHostel, getHostels, getHostelList } from "../controllers/hostelController.js"
-import { createWarden, getAllWardens, updateWarden, deleteWarden, createSecurity, getAllSecurities, updateSecurity } from "../controllers/adminController.js"
+import { createWarden, getAllWardens, updateWarden, deleteWarden, createSecurity, getAllSecurities, updateSecurity, updateUserPassword } from "../controllers/adminController.js"
 import {
   authenticate,
   // ,
@@ -25,5 +25,7 @@ router.delete("/warden/delete/:id", deleteWarden)
 router.post("/security/add", createSecurity)
 router.get("/security", getAllSecurities)
 router.post("/security/update/:id", updateSecurity)
+
+router.post("/user/update-password", updateUserPassword)
 
 export default router
