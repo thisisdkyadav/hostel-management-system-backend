@@ -8,6 +8,13 @@ const RoomChangeRequestSchema = new mongoose.Schema({
     required: true,
   },
 
+  // Hostel where the request is made
+  hostelId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Hostel",
+    required: true,
+  },
+
   // Student profile for additional details
   studentProfileId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -25,7 +32,7 @@ const RoomChangeRequestSchema = new mongoose.Schema({
   // Requested room and bed
   requestedUnitId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "Room",
+    ref: "Unit",
     required: true,
   },
 
@@ -41,7 +48,6 @@ const RoomChangeRequestSchema = new mongoose.Schema({
     type: String,
     required: true,
     trim: true,
-    minlength: 10,
     maxlength: 1000,
   },
 
@@ -52,10 +58,20 @@ const RoomChangeRequestSchema = new mongoose.Schema({
     default: "Pending",
   },
 
+  rejectionReason: {
+    type: String,
+    trim: true,
+    maxlength: 1000,
+  },
+
   // New allocation reference (after implementation)
   newAllocationId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "RoomAllocation",
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
   },
 })
 

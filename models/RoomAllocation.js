@@ -7,7 +7,11 @@ const RoomAllocationSchema = new mongoose.Schema(
     roomId: { type: mongoose.Schema.Types.ObjectId, ref: "Room", required: true },
     bedNumber: { type: Number, required: true },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 )
 
 // Ensure a student can only be allocated one room
@@ -15,6 +19,27 @@ RoomAllocationSchema.index({ studentProfileId: 1 }, { unique: true })
 
 // Ensure unique bed assignments within a room
 RoomAllocationSchema.index({ roomId: 1, bedNumber: 1 }, { unique: true })
+
+// Populate room and unit information for display
+RoomAllocationSchema.virtual("room", {
+  ref: "Room",
+  localField: "roomId",
+  foreignField: "_id",
+  justOne: true,
+})
+
+// Virtual to get formatted room display number
+RoomAllocationSchema.virtual("displayRoomNumber").get(function () {
+  if (!this.room) return ""
+
+  if (this.room.unitId && typeof this.room.unitId === "object" && this.room.unitId.unitNumber) {
+    // For unit-based hostels: <unit><room>-<bed>
+    return `${this.room.unitId.unitNumber}${this.room.roomNumber}-${this.bedNumber}`
+  } else {
+    // For room-only hostels: <room>-<bed>
+    return `${this.room.roomNumber}-${this.bedNumber}`
+  }
+})
 
 // When creating a new allocation, update the student profile and room occupancy
 RoomAllocationSchema.post("save", async function () {
