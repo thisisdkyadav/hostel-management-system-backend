@@ -3,6 +3,8 @@ import Room from "../models/Room.js"
 import Unit from "../models/Unit.js"
 import Complaint from "../models/Complaint.js"
 import Warden from "../models/Warden.js"
+import RoomAllocation from "../models/RoomAllocation.js"
+import StudentProfile from "../models/StudentProfile.js"
 
 export const addHostel = async (req, res) => {
   try {
@@ -182,5 +184,132 @@ export const getHostelList = async (req, res) => {
     res.status(200).json(hostels)
   } catch (error) {
     res.status(500).json({ message: "Error fetching hostels", error: error.message })
+  }
+}
+
+export const getUnits = async (req, res) => {
+  const { hostelId } = req.params
+  try {
+    const unitsWithRooms = await Unit.find({ hostelId: hostelId }).populate("hostelId").populate("rooms")
+
+    const finalResult = unitsWithRooms.map((unit) => ({
+      id: unit._id,
+      unitNumber: unit.unitNumber,
+      hostel: unit.hostelId.name,
+      floor: unit.floor,
+      commonAreaDetails: unit.commonAreaDetails,
+      roomCount: unit.roomCount,
+      capacity: unit.capacity,
+      occupancy: unit.occupancy,
+    }))
+
+    res.status(200).json(finalResult)
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching units", error: error.message })
+  }
+}
+
+export const getRoomsByUnit = async (req, res) => {
+  const { unitId } = req.params
+  try {
+    const roomsWithStudents = await Room.find({ unitId: unitId })
+      .populate({
+        path: "allocations",
+        populate: {
+          path: "studentProfileId",
+          populate: {
+            path: "userId",
+            select: "name email",
+          },
+        },
+      })
+      .populate("hostelId", "name type")
+      .populate("unitId", "unitNumber floor")
+
+    console.log("Rooms with Students Data:", roomsWithStudents[0].allocations)
+
+    let finalResults = roomsWithStudents.map((room) => ({
+      id: room._id,
+      unit: room.unitId,
+      hostel: room.hostelId,
+      roomNumber: room.roomNumber,
+      capacity: room.capacity,
+      currentOccupancy: room.occupancy,
+      status: room.status,
+      students:
+        room.allocations.map((allocation) => ({
+          id: allocation.studentProfileId._id,
+          name: allocation.studentProfileId.userId.name,
+          email: allocation.studentProfileId.userId.email,
+          rollNumber: allocation.studentProfileId.rollNumber,
+          department: allocation.studentProfileId.department,
+          bedNumber: allocation.bedNumber,
+          allocationId: allocation._id,
+        })) || [],
+    }))
+
+    res.status(200).json({
+      data: finalResults,
+      message: "Rooms fetched successfully",
+      status: "success",
+      meta: {
+        total: roomsWithStudents.length,
+      },
+    })
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching rooms", error: error.message })
+  }
+}
+
+export const updateRoomStatus = async (req, res) => {
+  const { roomId } = req.params
+  const { status } = req.body
+  try {
+    const updatedRoom = await Room.findByIdAndUpdate(roomId, { status, occupancy: status === "Inactive" ? 0 : undefined }, { new: true })
+    if (!updatedRoom) {
+      return res.status(404).json({ message: "Room not found" })
+    }
+    console.log("Updated Room:", updatedRoom)
+
+    if (status === "Inactive") {
+      await RoomAllocation.deleteMany({ roomId })
+    }
+    res.status(200).json({ message: "Room status updated successfully", updatedRoom })
+  } catch (error) {
+    res.status(500).json({ message: "Error updating room status", error: error.message })
+  }
+}
+
+export const allocateRoom = async (req, res) => {
+  const user = req.user
+  const { roomId, studentId, bedNumber } = req.body
+  try {
+    const newAllocation = new RoomAllocation({
+      userId: user._id,
+      roomId,
+      studentProfileId: studentId,
+      bedNumber,
+    })
+
+    const savedAllocation = await newAllocation.save()
+
+    const studentProfile = await StudentProfile.findByIdAndUpdate(studentId, { currentRoomAllocation: savedAllocation._id }, { new: true })
+
+    res.status(200).json({ message: "Room allocated successfully", success: true })
+  } catch (error) {
+    res.status(500).json({ message: "Error allocating room", error: error.message })
+  }
+}
+
+export const deleteAllocation = async (req, res) => {
+  const { allocationId } = req.params
+  try {
+    const allocation = await RoomAllocation.findByIdAndDelete(allocationId)
+    if (!allocation) {
+      return res.status(404).json({ message: "Allocation not found" })
+    }
+    res.status(200).json({ message: "Room allocation deleted successfully", success: true })
+  } catch (error) {
+    res.status(500).json({ message: "Error deallocating room", error: error.message })
   }
 }

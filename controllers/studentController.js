@@ -259,6 +259,8 @@ export const getStudents = async (req, res) => {
   try {
     const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, yearOfStudy, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc" } = req.query
 
+    console.log(hasAllocation, "hasAllocation")
+
     const query = {}
 
     if (rollNumber) query.rollNumber = new RegExp(rollNumber, "i")
@@ -320,8 +322,6 @@ export const getStudents = async (req, res) => {
 
     // Apply post-query filtering for hostel, unit, and room
     let filteredProfiles = studentProfiles
-
-    console.log("Filtering profiles with hostelId:", hostelId, "unitNumber:", unitNumber, "roomNumber:", roomNumber) // Debugging line;
 
     if (hostelId || unitNumber || roomNumber) {
       filteredProfiles = studentProfiles.filter((profile) => {
