@@ -1,11 +1,5 @@
 import express from "express"
-import {
-  createComplaint,
-  getAllComplaints,
-  // getComplaintById,
-  updateComplaintStatus,
-  getStats,
-} from "../controllers/complaintController.js"
+import { createComplaint, getAllComplaints, updateComplaintStatus, getStats } from "../controllers/complaintController.js"
 import { authenticate } from "../middlewares/auth.js"
 
 const router = express.Router()

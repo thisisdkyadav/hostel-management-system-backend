@@ -15,13 +15,21 @@ const checkInOutSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  unit: {
+    type: String,
+    required: true,
+  },
+  bed: {
+    type: String,
+    required: true,
+  },
   dateAndTime: {
     type: Date,
     default: Date.now,
   },
   status: {
     type: String,
-    enum: ["checkedIn", "checkedOut"],
+    enum: ["Checked In", "Checked Out"],
     required: true,
   },
 })
