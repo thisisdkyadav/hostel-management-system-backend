@@ -5,7 +5,8 @@ import { authenticate } from "../middlewares/auth.js"
 const router = express.Router()
 router.use(authenticate)
 
-router.post("/complaint/add", createComplaint)
+router.post("/student/complaints", createComplaint)
+// router.get("/:id", getComplaintById)
 router.get("/all", getAllComplaints)
 router.put("/update-status/:id", updateComplaintStatus)
 router.get("/stats", getStats)
