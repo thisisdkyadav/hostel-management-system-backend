@@ -13,6 +13,7 @@ router.use(authenticate)
 // router.use(authorizeAdmin)
 
 router.get("/hostels", getHostels)
+
 router.post("/hostel", addHostel)
 router.get("/hostel/list", getHostelList)
 
