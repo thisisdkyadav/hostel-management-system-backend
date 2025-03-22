@@ -223,6 +223,24 @@ export const updateSecurity = async (req, res) => {
   }
 }
 
+export const deleteSecurity = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const deletedSecurity = await Security.findByIdAndDelete(id)
+    if (!deletedSecurity) {
+      return res.status(404).json({ message: "Security not found" })
+    }
+
+    await User.findByIdAndDelete(deletedSecurity.userId)
+
+    res.status(200).json({ message: "Security deleted successfully" })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
 export const updateUserPassword = async (req, res) => {
   const { email, newPassword } = req.body
   console.log("Updating password for email:", email)
