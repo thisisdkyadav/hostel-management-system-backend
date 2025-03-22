@@ -24,8 +24,8 @@ router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), crea
 router.get("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), getStudents)
 router.get("/profile/details/:studentProfileId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
 
-router.get("/profiles/:userId", authenticate, getStudentProfile)
-router.put("/profiles/:userId", authenticate, updateStudentProfile)
+router.get("/profile/:userId", authenticate, getStudentProfile)
+router.put("/profile/:userId", authenticate, updateStudentProfile)
 
 // Room change request routes
 router.post("/:userId/room-change", authenticate, requestRoomChange)
