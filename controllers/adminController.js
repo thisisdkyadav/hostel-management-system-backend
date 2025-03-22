@@ -222,3 +222,27 @@ export const updateSecurity = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message })
   }
 }
+
+export const updateUserPassword = async (req, res) => {
+  const { email, newPassword } = req.body
+  console.log("Updating password for email:", email)
+  console.log("New password:", newPassword)
+
+  try {
+    const salt = await bcrypt.genSalt(10)
+    const hashedPassword = await bcrypt.hash(newPassword, salt)
+
+    const updatedUser = await User.findOneAndUpdate({ email }, { password: hashedPassword }, { new: true })
+
+    console.log("Updated User:", updatedUser)
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    res.status(200).json({ message: "Password updated successfully", success: true })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
