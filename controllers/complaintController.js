@@ -1,31 +1,51 @@
+import mongoose from "mongoose";
 import Complaint from "../models/Complaint.js"
+import Unit from "../models/Unit.js"
+import Room from "../models/Room.js"
+
 
 export const createComplaint = async (req, res) => {
   try {
-    const { userId, title, description, status, category, priority, location, hostelId, unitId, roomId, attachments } = req.body
+    console.log("Received complaint creation request:", req.body);
+    const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body;
 
+    const studentUnit = await Unit.findOne({ unitNumber: unit, hostelId })
+    console.log(studentUnit);
+    
+    if (!studentUnit) {
+      return res.status(404).json({ message: "Unit not found" })
+    }
+
+    const studentRoom = await Room.findOne({ unitId: studentUnit._id, hostelId, roomNumber: room })
+    if (!studentRoom) {
+      return res.status(404).json({ message: "Room not found" })
+    }
+
+    console.log(studentUnit,studentRoom );
+
+  
     const newComplaint = new Complaint({
       userId,
       title,
       description,
-      status,
       category,
       priority,
-      location,
       hostelId,
-      unitId,
-      roomId,
+      unitId:studentUnit._id,
+      roomId:studentRoom._id,
       attachments,
-    })
+    });
 
-    await newComplaint.save()
+    console.log("Saving new complaint:", newComplaint);
+    await newComplaint.save();
 
-    res.status(201).json({ message: "Complaint created successfully", complaint: newComplaint })
+    res.status(201).json({ message: "Complaint created successfully" });
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Error creating complaint", error: error.message })
+    console.error("Error creating complaint:", error);
+    res.status(500).json({ message: "Error creating complaint", error: error.message });
   }
-}
+};
+
 
 export const getAllComplaints = async (req, res) => {
   try {
