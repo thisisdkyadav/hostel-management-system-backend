@@ -6,12 +6,11 @@ import Room from "../models/Room.js"
 
 export const createComplaint = async (req, res) => {
   try {
-    console.log("Received complaint creation request:", req.body);
+    
     const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body;
 
     const studentUnit = await Unit.findOne({ unitNumber: unit, hostelId })
-    console.log(studentUnit);
-    
+   
     if (!studentUnit) {
       return res.status(404).json({ message: "Unit not found" })
     }
@@ -21,9 +20,6 @@ export const createComplaint = async (req, res) => {
       return res.status(404).json({ message: "Room not found" })
     }
 
-    console.log(studentUnit,studentRoom );
-
-  
     const newComplaint = new Complaint({
       userId,
       title,
@@ -36,7 +32,6 @@ export const createComplaint = async (req, res) => {
       attachments,
     });
 
-    console.log("Saving new complaint:", newComplaint);
     await newComplaint.save();
 
     res.status(201).json({ message: "Complaint created successfully" });
