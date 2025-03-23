@@ -1,16 +1,15 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"
 import Complaint from "../models/Complaint.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
 
-
 export const createComplaint = async (req, res) => {
+  const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body
   try {
-    
-    const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body;
+    console.log("Creating complaint with data:", req.body)
 
     const studentUnit = await Unit.findOne({ unitNumber: unit, hostelId })
-   
+
     if (!studentUnit) {
       return res.status(404).json({ message: "Unit not found" })
     }
@@ -27,24 +26,76 @@ export const createComplaint = async (req, res) => {
       category,
       priority,
       hostelId,
-      unitId:studentUnit._id,
-      roomId:studentRoom._id,
+      unitId: studentUnit._id,
+      roomId: studentRoom._id,
       attachments,
-    });
+    })
 
-    await newComplaint.save();
+    await newComplaint.save()
 
-    res.status(201).json({ message: "Complaint created successfully" });
+    res.status(201).json({ message: "Complaint created successfully" })
   } catch (error) {
-    console.error("Error creating complaint:", error);
-    res.status(500).json({ message: "Error creating complaint", error: error.message });
+    console.error("Error creating complaint:", error)
+    res.status(500).json({ message: "Error creating complaint", error: error.message })
   }
-};
-
+}
 
 export const getAllComplaints = async (req, res) => {
+  console.log("Fetching all complaints with query:", req.query)
+
   try {
-    const complaints = await Complaint.find({})
+    const user = req.user
+    const { role } = user
+    const { page = 1, limit = 10, category, status, priority, hostelId, startDate, endDate } = req.query
+
+    // Build query object based on role and filters
+    const query = {}
+
+    // Role-based filtering
+    if (["Student"].includes(role)) {
+      query.userId = user._id
+    } else if (["Maintenance Staff"].includes(role)) {
+      query.$or = [{ assignedTo: user._id }, { assignedTo: { $exists: false } }, { assignedTo: null }]
+    } else if (["Warden"].includes(role)) {
+      if (user.hostelId) {
+        query.hostelId = user.hostelId
+      }
+    }
+
+    if (category) {
+      query.category = category
+    }
+
+    if (status) {
+      query.status = status
+    }
+
+    if (priority) {
+      query.priority = priority
+    }
+
+    if (hostelId && ["Admin"].includes(role)) {
+      query.hostelId = hostelId
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {}
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate)
+      }
+      if (endDate) {
+        const endDateObj = new Date(endDate)
+        endDateObj.setDate(endDateObj.getDate() + 1)
+        query.createdAt.$lte = endDateObj
+      }
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const limitNum = parseInt(limit)
+
+    const totalCount = await Complaint.countDocuments(query)
+
+    const complaints = await Complaint.find(query)
       .populate("userId", "name email phone profilePic")
       .populate("hostelId", "name")
       .populate("unitId", "unitNumber")
@@ -52,9 +103,11 @@ export const getAllComplaints = async (req, res) => {
       .populate("assignedTo", "name email phone profilePic")
       .populate("resolvedBy", "name")
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
 
+    // Format the results
     const formattedComplaints = complaints.map((complaint) => {
-      // Format room number display
       let roomNumber = ""
       if (complaint.unitId && complaint.roomId) {
         roomNumber = `${complaint.unitId.unitNumber}-${complaint.roomId.roomNumber}`
@@ -72,6 +125,7 @@ export const getAllComplaints = async (req, res) => {
         hostel: complaint.hostelId ? complaint.hostelId.name : "N/A",
         roomNumber: roomNumber,
         reportedBy: {
+          id: complaint.userId._id,
           email: complaint.userId.email,
           name: complaint.userId.name,
           image: complaint.userId.profilePic || null,
@@ -79,6 +133,7 @@ export const getAllComplaints = async (req, res) => {
         },
         assignedTo: complaint.assignedTo
           ? {
+              id: complaint.assignedTo._id,
               email: complaint.assignedTo.email,
               name: complaint.assignedTo.name,
               image: complaint.assignedTo.profilePic || null,
@@ -89,17 +144,29 @@ export const getAllComplaints = async (req, res) => {
         images: complaint.attachments || [],
         createdDate: complaint.createdAt.toISOString(),
         lastUpdated: complaint.updatedAt.toISOString(),
-        // Add additional fields as needed
         feedback: complaint.feedback || "",
         feedbackRating: complaint.feedbackRating || null,
         resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null,
       }
     })
 
-    res.status(200).json(formattedComplaints)
+    res.status(200).json({
+      data: formattedComplaints || [],
+      meta: {
+        total: totalCount,
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / limitNum),
+      },
+      message: "Complaints fetched successfully",
+      status: "success",
+    })
   } catch (error) {
-    console.error(error)
-    res.status(500).json({ message: "Error fetching complaints", error: error.message })
+    console.error("Error fetching complaints:", error)
+    res.status(500).json({
+      message: "Error fetching complaints",
+      error: error.message,
+      status: "error",
+    })
   }
 }
 
@@ -124,7 +191,7 @@ export const updateComplaintStatus = async (req, res) => {
     if (!complaint) {
       return res.status(404).json({ message: "Complaint not found" })
     }
-    res.status(200).json({ message: "Complaint updated successfully", complaint })
+    res.status(200).json({ message: "Complaint updated successfully", data: complaint })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Error updating complaint", error: error.message })

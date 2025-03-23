@@ -56,14 +56,41 @@ RoomAllocationSchema.post("save", async function () {
   }
 })
 
-// When an allocation is deleted, remove it from the student profile and update room occupancy
+RoomAllocationSchema.pre("findOneAndUpdate", async function () {
+  try {
+    const update = this.getUpdate()
+    if (update && update.roomId) {
+      const allocation = await this.model.findOne(this.getQuery())
+
+      if (allocation) {
+        this._oldRoomId = allocation.roomId
+        this._newRoomId = update.roomId
+      }
+    }
+  } catch (error) {
+    console.error("Error in pre-findOneAndUpdate hook:", error)
+  }
+})
+
+RoomAllocationSchema.post("findOneAndUpdate", async function (result) {
+  try {
+    if (this._oldRoomId && this._newRoomId) {
+      const Room = mongoose.model("Room")
+
+      await Room.findByIdAndUpdate(this._oldRoomId, { $inc: { occupancy: -1 } })
+
+      await Room.findByIdAndUpdate(this._newRoomId, { $inc: { occupancy: 1 } })
+    }
+  } catch (error) {
+    console.error("Error in post-findOneAndUpdate hook:", error)
+  }
+})
+
 RoomAllocationSchema.pre("deleteOne", { document: true, query: false }, async function () {
   try {
-    // Remove allocation reference from student profile
     const StudentProfile = mongoose.model("StudentProfile")
     await StudentProfile.findByIdAndUpdate(this.studentProfileId, { $unset: { currentRoomAllocation: "" } })
 
-    // Decrease room occupancy
     const Room = mongoose.model("Room")
     await Room.findByIdAndUpdate(this.roomId, { $inc: { occupancy: -1 } })
   } catch (error) {
@@ -71,17 +98,14 @@ RoomAllocationSchema.pre("deleteOne", { document: true, query: false }, async fu
   }
 })
 
-// Handle findOneAndDelete/findByIdAndDelete operations
 RoomAllocationSchema.pre("findOneAndDelete", async function () {
   try {
     const allocation = await this.model.findOne(this.getQuery())
 
     if (allocation) {
-      // Remove allocation reference from student profile
       const StudentProfile = mongoose.model("StudentProfile")
       await StudentProfile.findByIdAndUpdate(allocation.studentProfileId, { $unset: { currentRoomAllocation: "" } })
 
-      // Decrease room occupancy
       const Room = mongoose.model("Room")
       await Room.findByIdAndUpdate(allocation.roomId, { $inc: { occupancy: -1 } })
     }

@@ -75,7 +75,69 @@ const RoomChangeRequestSchema = new mongoose.Schema({
   },
 })
 
-// Update timestamp before save
+RoomChangeRequestSchema.statics.findRequestsWithFilters = async function (hostelId, options = {}) {
+  const { page = 1, limit = 10, status = "Pending" } = options
+
+  const matchStage = { hostelId: new mongoose.Types.ObjectId(hostelId) }
+
+  if (["Pending", "Approved", "Rejected"].includes(status)) {
+    matchStage.status = status
+  }
+
+  const skip = (parseInt(page) - 1) * parseInt(limit)
+  const limitNum = parseInt(limit)
+
+  const totalCount = await this.countDocuments(matchStage)
+
+  const roomChangeRequests = await this.find(matchStage)
+    .populate("userId", "name email")
+    .populate("studentProfileId", "rollNumber department")
+    .populate({
+      path: "currentAllocationId",
+      populate: {
+        path: "roomId",
+        model: "Room",
+        populate: { path: "unitId" },
+      },
+    })
+    .populate("requestedRoomId")
+    .populate("requestedUnitId")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limitNum)
+
+  const formattedRequests = roomChangeRequests.map((request) => ({
+    id: request._id,
+    student: {
+      name: request.userId?.name,
+      email: request.userId?.email,
+      rollNumber: request.studentProfileId?.rollNumber,
+      department: request.studentProfileId?.department,
+    },
+    currentRoom: {
+      roomNumber: request.currentAllocationId?.roomId?.roomNumber || null,
+      unitNumber: request.currentAllocationId?.roomId?.unitId?.unitNumber || null,
+    },
+    requestedRoom: {
+      roomNumber: request.requestedRoomId?.roomNumber || null,
+      unitNumber: request.requestedUnitId?.unitNumber || null,
+    },
+    reason: request.reason,
+    status: request.status,
+    createdAt: request.createdAt,
+  }))
+
+  return {
+    data: formattedRequests,
+    meta: {
+      totalCount,
+      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalCount / limitNum),
+      limit: limitNum,
+    },
+  }
+}
+
 RoomChangeRequestSchema.pre("save", function (next) {
   this.updatedAt = Date.now()
   next()

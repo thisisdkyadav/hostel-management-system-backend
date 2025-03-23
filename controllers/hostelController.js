@@ -6,7 +6,7 @@ import Warden from "../models/Warden.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 import StudentProfile from "../models/StudentProfile.js"
 import RoomChangeRequest from "../models/RoomChangeRequest.js"
-import { populate } from "dotenv"
+import mongoose from "mongoose"
 
 export const addHostel = async (req, res) => {
   try {
@@ -318,45 +318,23 @@ export const deleteAllocation = async (req, res) => {
 
 export const getRoomChangeRequests = async (req, res) => {
   const { hostelId } = req.params
+  const { page = 1, limit = 10, status = "Pending" } = req.query
+
+  console.log("Query Parameters:", req.query)
 
   try {
-    const roomChangeRequests = await RoomChangeRequest.find({ status: "Pending", hostelId: hostelId })
-      .populate("userId", "name email")
-      .populate("studentProfileId", "rollNumber department")
-      .populate({
-        path: "currentAllocationId",
-        populate: {
-          path: "room",
-          populate: { path: "unitId" },
-        },
-      })
-      .populate("requestedRoomId")
-      .populate("requestedUnitId")
-
-    console.log("Room Change Requests:", roomChangeRequests)
-
-    const formattedRequests = roomChangeRequests.map((request) => {
-      return {
-        id: request._id,
-        student: {
-          name: request.userId.name,
-          email: request.userId.email,
-        },
-        currentRoom: {
-          roomNumber: request.currentAllocationId && request.currentAllocationId.room ? request.currentAllocationId.room.roomNumber : null,
-          unitNumber: request.currentAllocationId && request.currentAllocationId.room ? request.currentAllocationId.room.unitId.unitNumber : null,
-        },
-        requestedRoom: {
-          roomNumber: request.requestedRoomId ? request.requestedRoomId.roomNumber : null,
-          unitNumber: request.requestedUnitId ? request.requestedUnitId.unitNumber : null,
-        },
-        reason: request.reason,
-        status: request.status,
-        createdAt: request.createdAt,
-      }
+    const result = await RoomChangeRequest.findRequestsWithFilters(hostelId, {
+      page,
+      limit,
+      status,
     })
 
-    res.status(200).json(formattedRequests)
+    res.status(200).json({
+      data: result.data,
+      meta: result.meta,
+      message: "Room change requests fetched successfully",
+      status: "success",
+    })
   } catch (error) {
     console.error("Error fetching room change requests:", error)
     res.status(500).json({ message: "Error fetching room change requests", error: error.message })
@@ -427,11 +405,162 @@ export const getRoomChangeRequestById = async (req, res) => {
       reason: roomChangeRequest.reason,
       status: roomChangeRequest.status,
       createdAt: roomChangeRequest.createdAt,
+      rejectionReason: roomChangeRequest.rejectionReason,
     }
 
     res.status(200).json(finalResult)
   } catch (error) {
     console.error("Error fetching room change request:", error)
     res.status(500).json({ message: "Error fetching room change request", error: error.message })
+  }
+}
+
+export const approveRoomChangeRequest = async (req, res) => {
+  const { requestId } = req.params
+  const { bedNumber } = req.body
+
+  const session = await mongoose.startSession()
+  session.startTransaction()
+
+  try {
+    const request = await RoomChangeRequest.findById(requestId).populate("currentAllocationId").session(session)
+
+    if (!request) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(404).json({ message: "Room change request not found", success: false })
+    }
+
+    if (request.status !== "Pending") {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(400).json({
+        message: "This request has already been processed",
+        success: false,
+        status: request.status,
+      })
+    }
+
+    const requestedRoom = await Room.findById(request.requestedRoomId).session(session)
+
+    if (!requestedRoom) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(404).json({ message: "Requested room not found", success: false })
+    }
+
+    if (requestedRoom.occupancy >= requestedRoom.capacity) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(400).json({ message: "Requested room is at full capacity", success: false })
+    }
+
+    if (!bedNumber) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(400).json({ message: "Bed number is required", success: false })
+    }
+
+    const existingBedAllocation = await RoomAllocation.findOne({
+      roomId: request.requestedRoomId,
+      bedNumber: bedNumber,
+    }).session(session)
+
+    if (existingBedAllocation) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(400).json({ message: "The requested bed is already occupied", success: false })
+    }
+
+    const updatedAllocation = await RoomAllocation.findByIdAndUpdate(
+      request.currentAllocationId._id,
+      {
+        roomId: request.requestedRoomId,
+        bedNumber: bedNumber,
+      },
+      { new: true, session }
+    )
+
+    if (!updatedAllocation) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(500).json({ message: "Failed to update room allocation", success: false })
+    }
+
+    request.status = "Approved"
+    request.newAllocationId = updatedAllocation._id
+    await request.save({ session })
+
+    await session.commitTransaction()
+    session.endSession()
+
+    res.status(200).json({
+      message: "Room change request approved successfully",
+      success: true,
+      data: {
+        requestId: request._id,
+        student: request.studentProfileId,
+        newRoom: {
+          roomId: requestedRoom._id,
+          roomNumber: requestedRoom.roomNumber,
+          bedNumber: bedNumber,
+        },
+        status: "Approved",
+      },
+    })
+  } catch (error) {
+    // Rollback in case of error
+    await session.abortTransaction()
+    session.endSession()
+
+    console.error("Error approving room change request:", error)
+    res.status(500).json({
+      message: "Error approving room change request",
+      success: false,
+      error: error.message,
+    })
+  }
+}
+
+export const rejectRoomChangeRequest = async (req, res) => {
+  const { requestId } = req.params
+  const { reason } = req.body
+
+  try {
+    const request = await RoomChangeRequest.findById(requestId)
+
+    if (!request) {
+      return res.status(404).json({ message: "Room change request not found", success: false })
+    }
+
+    if (request.status !== "Pending") {
+      return res.status(400).json({
+        message: "This request has already been processed",
+        success: false,
+        status: request.status,
+      })
+    }
+
+    request.status = "Rejected"
+    request.rejectionReason = reason
+
+    await request.save()
+
+    res.status(200).json({
+      message: "Room change request rejected successfully",
+      success: true,
+      data: {
+        requestId: request._id,
+        student: request.studentProfileId,
+        status: "Rejected",
+        rejectionReason: reason,
+      },
+    })
+  } catch (error) {
+    console.error("Error rejecting room change request:", error)
+    res.status(500).json({
+      message: "Error rejecting room change request",
+      error: error.message,
+    })
   }
 }
