@@ -23,9 +23,10 @@ const router = express.Router()
 router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), createStudentsProfile)
 router.get("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), getStudents)
 router.get("/profile/details/:studentProfileId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
-
+console.log("just above updateStudentProfile")
+router.put("/profile/update/:userId", authenticate, updateStudentProfile)
 router.get("/profile/:userId", authenticate, getStudentProfile)
-router.put("/profile/:userId", authenticate, updateStudentProfile)
+
 
 // Room change request routes
 router.post("/:userId/room-change", authenticate, requestRoomChange)

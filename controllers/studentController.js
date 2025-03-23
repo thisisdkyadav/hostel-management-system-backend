@@ -531,7 +531,11 @@ export const getStudentProfile = async (req, res) => {
 }
 
 export const updateStudentProfile = async (req, res) => {
+    console.log("inside updateStudentProfile")
   const { userId } = req.params
+  
+
+
 
   try {
     if (!mongoose.Types.ObjectId.isValid(userId)) {
@@ -542,12 +546,15 @@ export const updateStudentProfile = async (req, res) => {
     }
 
     const updateData = { ...req.body }
+    console.log("updateData is: ", updateData)
+    
     delete updateData.userId
     delete updateData.createdBy
     delete updateData.createdAt
-
+    
     updateData.lastUpdatedBy = req.user._id
     updateData.updatedAt = Date.now()
+    console.log("updateData is: ", updateData)
 
     const updatedProfile = await StudentProfile.findOneAndUpdate(
       { userId },
@@ -556,6 +563,15 @@ export const updateStudentProfile = async (req, res) => {
         new: true,
       }
     )
+    const updatedUser = await User.findOneAndUpdate(
+        { _id: userId },
+        {
+            $set: updateData
+        },
+        {
+            new: true,
+        }
+    )
 
     if (!updatedProfile) {
       return res.status(404).json({
@@ -563,6 +579,9 @@ export const updateStudentProfile = async (req, res) => {
         message: "Student profile not found or update failed",
       })
     }
+    console.log("updatedProfile is: ", updatedProfile);
+    console.log("updatedUser is: ", updatedUser);
+    
 
     res.status(200).json({
       success: true,
