@@ -9,6 +9,7 @@ import complaintRoutes from "./routes/complaintRoutes.js"
 import LostAndFoundRoutes from "./routes/lostAndFoundRoutes.js"
 import securityRoutes from "./routes/securityRoutes.js"
 import eventRoutes from "./routes/eventRoutes.js"
+import hostelRoutes from "./routes/hostelRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -31,6 +32,7 @@ app.use("/api/complaint", complaintRoutes)
 app.use("/api/security", securityRoutes)
 app.use("/api/lost-and-found", LostAndFoundRoutes)
 app.use("/api/event", eventRoutes)
+app.use("/api/hostel", hostelRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!")
