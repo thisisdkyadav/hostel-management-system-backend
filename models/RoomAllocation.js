@@ -4,7 +4,9 @@ const RoomAllocationSchema = new mongoose.Schema(
   {
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     studentProfileId: { type: mongoose.Schema.Types.ObjectId, ref: "StudentProfile", required: true },
+    hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },
     roomId: { type: mongoose.Schema.Types.ObjectId, ref: "Room", required: true },
+    unitId: { type: mongoose.Schema.Types.ObjectId, ref: "Unit" },
     bedNumber: { type: Number, required: true },
   },
   {
@@ -14,13 +16,6 @@ const RoomAllocationSchema = new mongoose.Schema(
   }
 )
 
-// Ensure a student can only be allocated one room
-RoomAllocationSchema.index({ studentProfileId: 1 }, { unique: true })
-
-// Ensure unique bed assignments within a room
-RoomAllocationSchema.index({ roomId: 1, bedNumber: 1 }, { unique: true })
-
-// Populate room and unit information for display
 RoomAllocationSchema.virtual("room", {
   ref: "Room",
   localField: "roomId",
@@ -28,7 +23,6 @@ RoomAllocationSchema.virtual("room", {
   justOne: true,
 })
 
-// Virtual to get formatted room display number
 RoomAllocationSchema.virtual("displayRoomNumber").get(function () {
   if (!this.room) return ""
 
@@ -41,14 +35,11 @@ RoomAllocationSchema.virtual("displayRoomNumber").get(function () {
   }
 })
 
-// When creating a new allocation, update the student profile and room occupancy
 RoomAllocationSchema.post("save", async function () {
   try {
-    // Update student profile with the allocation reference
     const StudentProfile = mongoose.model("StudentProfile")
     await StudentProfile.findByIdAndUpdate(this.studentProfileId, { currentRoomAllocation: this._id })
 
-    // Increase room occupancy
     const Room = mongoose.model("Room")
     await Room.findByIdAndUpdate(this.roomId, { $inc: { occupancy: 1 } })
   } catch (error) {

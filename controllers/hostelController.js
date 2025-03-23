@@ -284,18 +284,24 @@ export const updateRoomStatus = async (req, res) => {
 
 export const allocateRoom = async (req, res) => {
   const user = req.user
-  const { roomId, studentId, bedNumber } = req.body
+  const { roomId, hostelId, unitId, studentId, bedNumber, userId } = req.body
   try {
+    console.log("body", req.body)
+
+    if (!roomId || !hostelId || !unitId || !studentId || !bedNumber || !userId) {
+      return res.status(400).json({ message: "Missing required fields" })
+    }
+
     const newAllocation = new RoomAllocation({
-      userId: user._id,
+      userId: userId,
       roomId,
+      unitId,
+      hostelId,
       studentProfileId: studentId,
       bedNumber,
     })
 
-    const savedAllocation = await newAllocation.save()
-
-    const studentProfile = await StudentProfile.findByIdAndUpdate(studentId, { currentRoomAllocation: savedAllocation._id }, { new: true })
+    await newAllocation.save()
 
     res.status(200).json({ message: "Room allocated successfully", success: true })
   } catch (error) {
