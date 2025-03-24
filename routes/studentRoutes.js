@@ -1,6 +1,6 @@
 import express from "express"
 import {
-  createStudentsProfile,
+  createStudentsProfiles,
   getStudents,
   getStudentDetails,
   getStudentProfile,
@@ -13,6 +13,7 @@ import {
   getAllComplaints,
   updateComplaint,
   deleteComplaint,
+  updateStudentsProfiles,
 } from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -20,12 +21,13 @@ import { authorizeRoles } from "../middlewares/authorize.js"
 const router = express.Router()
 
 // Student profile routes
-router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), createStudentsProfile)
+router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), createStudentsProfiles)
 router.get("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), getStudents)
 router.get("/profile/details/:userId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
 
 router.get("/profile", authenticate, getStudentProfile)
 router.get("/profile/:userId", authenticate, getStudentProfile)
+router.put("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), updateStudentsProfiles)
 router.put("/profile/:userId", authenticate, authorizeRoles(["Admin", "Warden"]), updateStudentProfile)
 
 // Room change request routes
