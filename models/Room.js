@@ -12,6 +12,10 @@ const RoomSchema = new mongoose.Schema(
       enum: ["Active", "Inactive"],
       default: "Active",
     },
+    currentRoomAllocation: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RoomAllocation",
+    },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },
@@ -24,7 +28,6 @@ const RoomSchema = new mongoose.Schema(
 // Compound index for room identification
 RoomSchema.index({ hostelId: 1, unitId: 1, roomNumber: 1 }, { unique: true })
 
-// Virtual field to get all room allocations for this room
 RoomSchema.virtual("allocations", {
   ref: "RoomAllocation",
   localField: "_id",
@@ -32,7 +35,6 @@ RoomSchema.virtual("allocations", {
   justOne: false,
 })
 
-// Virtual field to get all students in this room (via allocations)
 RoomSchema.virtual("students", {
   ref: "StudentProfile",
   localField: "allocations.studentProfileId",

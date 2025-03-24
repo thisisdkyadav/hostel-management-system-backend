@@ -17,7 +17,6 @@ const UnitSchema = new mongoose.Schema(
 
 UnitSchema.index({ hostelId: 1, unitNumber: 1 }, { unique: true })
 
-// Virtual to get all rooms in this unit
 UnitSchema.virtual("rooms", {
   ref: "Room",
   localField: "_id",
@@ -25,18 +24,15 @@ UnitSchema.virtual("rooms", {
   justOne: false,
 })
 
-// Virtual to get room count
 UnitSchema.virtual("roomCount").get(function () {
   return this.rooms ? this.rooms.length : 0
 })
 
-// Virtual to get capacity of Active rooms
 UnitSchema.virtual("capacity").get(function () {
   if (!this.rooms) return 0
   return this.rooms.filter((room) => room.status === "Active").reduce((total, room) => total + room.capacity, 0)
 })
 
-// Virtual to get occupancy
 UnitSchema.virtual("occupancy").get(function () {
   if (!this.rooms) return 0
   return this.rooms.filter((room) => room.status === "Active").reduce((total, room) => total + room.occupancy, 0)

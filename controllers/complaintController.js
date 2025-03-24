@@ -49,10 +49,8 @@ export const getAllComplaints = async (req, res) => {
     const { role } = user
     const { page = 1, limit = 10, category, status, priority, hostelId, startDate, endDate } = req.query
 
-    // Build query object based on role and filters
     const query = {}
 
-    // Role-based filtering
     if (["Student"].includes(role)) {
       query.userId = user._id
     } else if (["Maintenance Staff"].includes(role)) {
