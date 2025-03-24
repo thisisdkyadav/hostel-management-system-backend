@@ -2,6 +2,7 @@ import mongoose from "mongoose"
 import Complaint from "../models/Complaint.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
+import MaintenanceStaff from "../models/MaintenanceStaff.js"
 
 export const createComplaint = async (req, res) => {
   const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body
@@ -55,6 +56,10 @@ export const getAllComplaints = async (req, res) => {
     if (["Student"].includes(role)) {
       query.userId = user._id
     } else if (["Maintenance Staff"].includes(role)) {
+      const staffProfile = await MaintenanceStaff.findOne({ userId: user._id })
+      if (staffProfile && staffProfile.category) {
+        query.category = staffProfile.category
+      }
       query.$or = [{ assignedTo: user._id }, { assignedTo: { $exists: false } }, { assignedTo: null }]
     } else if (["Warden"].includes(role)) {
       if (user.hostelId) {
@@ -200,10 +205,22 @@ export const updateComplaintStatus = async (req, res) => {
 
 export const getStats = async (req, res) => {
   try {
-    const total = await Complaint.countDocuments()
-    const pending = await Complaint.countDocuments({ status: "Pending" })
-    const inProgress = await Complaint.countDocuments({ status: "In Progress" })
-    const resolved = await Complaint.countDocuments({ status: "Resolved" })
+    const user = req.user
+    const { role } = user
+
+    const query = {}
+
+    if (role === "Maintenance Staff") {
+      const staffProfile = await MaintenanceStaff.findOne({ userId: user._id })
+      if (staffProfile && staffProfile.category) {
+        query.category = staffProfile.category
+      }
+    }
+
+    const total = await Complaint.countDocuments(query)
+    const pending = await Complaint.countDocuments({ ...query, status: "Pending" })
+    const inProgress = await Complaint.countDocuments({ ...query, status: "In Progress" })
+    const resolved = await Complaint.countDocuments({ ...query, status: "Resolved" })
 
     res.status(200).json({
       total,

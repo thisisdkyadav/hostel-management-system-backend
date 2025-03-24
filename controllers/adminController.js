@@ -2,6 +2,7 @@ import Warden from "../models/Warden.js"
 import User from "../models/User.js"
 import bcrypt from "bcrypt"
 import Security from "../models/Security.js"
+import MaintenanceStaff from "../models/MaintenanceStaff.js"
 
 export const createWarden = async (req, res) => {
   try {
@@ -40,14 +41,6 @@ export const createWarden = async (req, res) => {
 
     res.status(201).json({
       message: "Warden created successfully",
-      warden: {
-        ...savedWarden._doc,
-        user: {
-          name: savedUser.name,
-          email: savedUser.email,
-          phone: savedUser.phone,
-        },
-      },
     })
   } catch (error) {
     console.error(error)
@@ -259,6 +252,114 @@ export const updateUserPassword = async (req, res) => {
     }
 
     res.status(200).json({ message: "Password updated successfully", success: true })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const createMaintenanceStaff = async (req, res) => {
+  try {
+    const { email, password, name, phone, category } = req.body
+
+    if (!email || !password || !name || !category) {
+      return res.status(400).json({ message: "Email, password, name, and category are required" })
+    }
+
+    const existingUser = await User.findOne({ email })
+    if (existingUser) {
+      return res.status(400).json({ message: "User with this email already exists" })
+    }
+
+    const salt = await bcrypt.genSalt(10)
+    const hashedPassword = await bcrypt.hash(password, salt)
+
+    const newUser = new User({
+      name,
+      email,
+      password: hashedPassword,
+      role: "Maintenance Staff",
+      phone: phone || null,
+    })
+
+    const savedUser = await newUser.save()
+
+    const newMaintenanceStaff = new MaintenanceStaff({
+      userId: savedUser._id,
+      category,
+    })
+
+    await newMaintenanceStaff.save()
+
+    res.status(201).json({
+      message: "Maintenance staff created successfully",
+      success: true,
+    })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const getAllMaintenanceStaff = async (req, res) => {
+  try {
+    const maintenanceStaff = await MaintenanceStaff.find().populate("userId", "name email phone profilePic").exec()
+
+    const formattedMaintenanceStaff = maintenanceStaff.map((staff) => ({
+      id: staff._id,
+      name: staff.userId.name,
+      email: staff.userId.email,
+      phone: staff.userId.phone,
+      category: staff.category || null,
+      profilePic: staff.userId.profilePic,
+    }))
+    res.status(200).json(formattedMaintenanceStaff)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const updateMaintenanceStaff = async (req, res) => {
+  try {
+    const { id } = req.params
+    const { phone, category } = req.body
+
+    const updateData = {}
+
+    if (category !== undefined) {
+      updateData.category = category
+    }
+
+    const updatedStaff = await MaintenanceStaff.findByIdAndUpdate(id, updateData, { new: true })
+
+    if (!updatedStaff) {
+      return res.status(404).json({ message: "Maintenance staff not found" })
+    }
+
+    if (phone !== undefined) {
+      await User.findByIdAndUpdate(updatedStaff.userId, { phone })
+    }
+
+    res.status(200).json({ message: "Maintenance staff updated successfully" })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const deleteMaintenanceStaff = async (req, res) => {
+  try {
+    const { id } = req.params
+
+    const deletedStaff = await MaintenanceStaff.findByIdAndDelete(id)
+    if (!deletedStaff) {
+      return res.status(404).json({ message: "Maintenance staff not found" })
+    }
+
+    await User.findByIdAndDelete(deletedStaff.userId)
+
+    res.status(200).json({ message: "Maintenance staff deleted successfully" })
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Server error", error: error.message })
