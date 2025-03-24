@@ -12,6 +12,7 @@ const RoomSchema = new mongoose.Schema(
       enum: ["Active", "Inactive"],
       default: "Active",
     },
+    originalCapacity: { type: Number },
     currentRoomAllocation: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "RoomAllocation",
@@ -25,7 +26,6 @@ const RoomSchema = new mongoose.Schema(
   }
 )
 
-// Compound index for room identification
 RoomSchema.index({ hostelId: 1, unitId: 1, roomNumber: 1 }, { unique: true })
 
 RoomSchema.virtual("allocations", {
@@ -42,10 +42,28 @@ RoomSchema.virtual("students", {
   justOne: false,
 })
 
-RoomSchema.pre("save", function (next) {
-  this.updatedAt = Date.now()
-  next()
-})
+RoomSchema.statics.deactivateRoom = async function (roomId) {
+  const room = await this.findById(roomId)
+  if (!room) return null
+
+  room.originalCapacity = room.capacity
+  room.occupancy = 0
+  room.capacity = 0
+  room.status = "Inactive"
+  return await room.save()
+}
+
+RoomSchema.statics.activateRoom = async function (roomId) {
+  const room = await this.findById(roomId)
+  if (!room) return null
+
+  if (room.originalCapacity) {
+    room.capacity = room.originalCapacity
+    room.originalCapacity = undefined
+  }
+  room.status = "Active"
+  return await room.save()
+}
 
 const Room = mongoose.model("Room", RoomSchema)
 export default Room

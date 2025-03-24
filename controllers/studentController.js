@@ -519,6 +519,7 @@ export const getStudents = async (req, res) => {
         email: profile.userId.email,
         hostel: null,
         displayRoom: null,
+        gender: profile.gender,
       }
 
       // Add hostel and room information if available
@@ -581,6 +582,61 @@ export const getStudentDetails = async (req, res) => {
     })
   } catch (error) {
     console.error("Get student details error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve student details",
+      error: isDevelopmentEnvironment ? error.message : undefined,
+    })
+  }
+}
+
+export const getMultipleStudentDetails = async (req, res) => {
+  try {
+    const { userIds } = req.body
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide an array of user IDs",
+      })
+    }
+
+    if (userIds.length > 50) {
+      return res.status(400).json({
+        success: false,
+        message: "Maximum of 50 student profiles can be fetched at once",
+      })
+    }
+
+    const studentsData = await StudentProfile.getFullStudentData(userIds)
+
+    console.log(studentsData, "studentsData")
+
+    if (studentsData.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No student profiles found",
+      })
+    }
+
+    const foundUserIds = studentsData.map((student) => student.userId.toString())
+    const missingUserIds = userIds.filter((id) => !foundUserIds.includes(id))
+
+    const errors = missingUserIds.map((userId) => ({
+      userId,
+      message: "Student profile not found",
+    }))
+
+    const responseStatus = errors.length > 0 ? 207 : 200
+
+    return res.status(responseStatus).json({
+      success: true,
+      data: studentsData,
+      errors: errors.length > 0 ? errors : undefined,
+      message: `Retrieved ${studentsData.length} out of ${userIds.length} student profiles`,
+    })
+  } catch (error) {
+    console.error("Get multiple student details error:", error)
     res.status(500).json({
       success: false,
       message: "Failed to retrieve student details",

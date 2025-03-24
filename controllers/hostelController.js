@@ -10,7 +10,7 @@ import mongoose from "mongoose"
 
 export const addHostel = async (req, res) => {
   try {
-    const { name, gender, type, location, wardenId, units, rooms } = req.body
+    const { name, gender, type, location, units, rooms } = req.body
 
     if (!name || !gender || !type) {
       return res.status(400).json({ message: "Missing required hostel information" })
@@ -264,10 +264,21 @@ export const getRoomsByUnit = async (req, res) => {
 }
 
 export const updateRoomStatus = async (req, res) => {
+  console.log("Request Body:", req.body)
+
   const { roomId } = req.params
   const { status } = req.body
   try {
-    const updatedRoom = await Room.findByIdAndUpdate(roomId, { status, occupancy: status === "Inactive" ? 0 : undefined }, { new: true })
+    let updatedRoom = null
+
+    if (status === "Inactive") {
+      updatedRoom = await Room.deactivateRoom(roomId)
+    } else if (status === "Active") {
+      updatedRoom = await Room.activateRoom(roomId)
+    } else {
+      return res.status(400).json({ message: "Invalid status value" })
+    }
+
     if (!updatedRoom) {
       return res.status(404).json({ message: "Room not found" })
     }

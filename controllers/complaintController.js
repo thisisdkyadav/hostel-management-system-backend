@@ -46,6 +46,9 @@ export const getAllComplaints = async (req, res) => {
 
   try {
     const user = req.user
+
+    console.log("Fetching complaints for user:", user)
+
     const { role } = user
     const { page = 1, limit = 10, category, status, priority, hostelId, startDate, endDate } = req.query
 
@@ -204,6 +207,9 @@ export const updateComplaintStatus = async (req, res) => {
 export const getStats = async (req, res) => {
   try {
     const user = req.user
+
+    console.log("Fetching stats for user:", user._id)
+
     const { role } = user
 
     const query = {}

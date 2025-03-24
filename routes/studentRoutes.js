@@ -14,32 +14,34 @@ import {
   updateComplaint,
   deleteComplaint,
   updateStudentsProfiles,
+  getMultipleStudentDetails,
 } from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 
 const router = express.Router()
 
-// Student profile routes
-router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), createStudentsProfiles)
-router.get("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), getStudents)
-router.get("/profile/details/:userId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
+router.use(authenticate)
 
-router.get("/profile", authenticate, getStudentProfile)
-router.get("/profile/:userId", authenticate, getStudentProfile)
-router.put("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), updateStudentsProfiles)
-router.put("/profile/:userId", authenticate, authorizeRoles(["Admin", "Warden"]), updateStudentProfile)
+router.get("/profile", authorizeRoles(["Student"]), getStudentProfile)
+
+router.get("/profiles", authorizeRoles(["Admin", "Warden"]), getStudents)
+router.post("/profiles", authorizeRoles(["Admin", "Warden"]), createStudentsProfiles)
+router.put("/profiles", authorizeRoles(["Admin", "Warden"]), updateStudentsProfiles)
+router.post("/profiles/ids", authorizeRoles(["Admin", "Warden"]), getMultipleStudentDetails)
+router.get("/profile/details/:userId", authorizeRoles(["Admin", "Warden"]), getStudentDetails)
+router.put("/profile/:userId", authorizeRoles(["Admin", "Warden"]), updateStudentProfile)
 
 // Room change request routes
-router.post("/room-change", authenticate, createRoomChangeRequest)
-router.get("/room-change", authenticate, getRoomChangeRequestStatus)
-router.put("/room-change", authenticate, updateRoomChangeRequest)
-router.delete("/room-change", authenticate, deleteRoomChangeRequest)
+router.post("/room-change", createRoomChangeRequest)
+router.get("/room-change", getRoomChangeRequestStatus)
+router.put("/room-change", updateRoomChangeRequest)
+router.delete("/room-change", deleteRoomChangeRequest)
 
 // Complaint routes
-router.post("/:userId/complaints", authenticate, fileComplaint)
-router.get("/:userId/complaints", authenticate, getAllComplaints)
-router.put("/complaints/:complaintId", authenticate, updateComplaint)
-router.delete("/complaints/:complaintId", authenticate, deleteComplaint)
+router.post("/:userId/complaints", fileComplaint)
+router.get("/:userId/complaints", getAllComplaints)
+router.put("/complaints/:complaintId", updateComplaint)
+router.delete("/complaints/:complaintId", deleteComplaint)
 
 export default router
