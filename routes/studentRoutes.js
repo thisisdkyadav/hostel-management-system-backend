@@ -22,11 +22,11 @@ const router = express.Router()
 // Student profile routes
 router.post("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), createStudentsProfile)
 router.get("/profiles", authenticate, authorizeRoles(["Admin", "Warden"]), getStudents)
-router.get("/profile/details/:studentProfileId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
+router.get("/profile/details/:userId", authenticate, authorizeRoles(["Admin", "Warden"]), getStudentDetails)
 
 router.get("/profile", authenticate, getStudentProfile)
 router.get("/profile/:userId", authenticate, getStudentProfile)
-router.put("/profile/:userId", authenticate, updateStudentProfile)
+router.put("/profile/:userId", authenticate, authorizeRoles(["Admin", "Warden"]), updateStudentProfile)
 
 // Room change request routes
 router.post("/room-change", authenticate, createRoomChangeRequest)

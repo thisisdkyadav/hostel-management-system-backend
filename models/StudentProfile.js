@@ -43,7 +43,7 @@ const StudentProfileSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
-  guardianContact: {
+  guardianPhone: {
     type: String,
     trim: true,
   },
@@ -73,7 +73,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
           },
           {
             path: "hostelId",
-            select: "name",
+            select: "name type",
           },
         ],
       })
@@ -108,6 +108,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
     const formattedDOB = studentProfile.dateOfBirth ? studentProfile.dateOfBirth.toISOString().split("T")[0] : ""
 
     const fullData = {
+      userId: studentProfile.userId?._id || "",
       id: studentProfile._id,
       name: studentProfile.userId?.name || "",
       email: studentProfile.userId?.email || "",
@@ -121,7 +122,8 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
       dateOfBirth: formattedDOB,
       address: studentProfile.address || "",
       guardian: studentProfile.guardian || "",
-      guardianPhone: studentProfile.guardianContact || "",
+      guardianPhone: studentProfile.guardianPhone || "",
+      admissionDate: studentProfile.admissionDate,
     }
 
     if (studentProfile.currentRoomAllocation) {
@@ -130,6 +132,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
       fullData.room = studentProfile.currentRoomAllocation.roomId?.roomNumber || ""
       fullData.bedNumber = studentProfile.currentRoomAllocation.bedNumber?.toString() || ""
       fullData.allocationId = studentProfile.currentRoomAllocation._id
+      fullData.hostelType = studentProfile.currentRoomAllocation.hostelId?.type || ""
     }
 
     return fullData

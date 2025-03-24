@@ -321,9 +321,11 @@ export const getAllMaintenanceStaff = async (req, res) => {
 }
 
 export const updateMaintenanceStaff = async (req, res) => {
+  console.log("Updating maintenance staff with data:", req.body)
+
   try {
     const { id } = req.params
-    const { phone, category } = req.body
+    const { name, phone, category } = req.body
 
     const updateData = {}
 
@@ -337,9 +339,21 @@ export const updateMaintenanceStaff = async (req, res) => {
       return res.status(404).json({ message: "Maintenance staff not found" })
     }
 
-    if (phone !== undefined) {
-      await User.findByIdAndUpdate(updatedStaff.userId, { phone })
+    const updateUserData = {}
+
+    if (name !== undefined) {
+      updateUserData.name = name
     }
+
+    if (phone !== undefined) {
+      updateUserData.phone = phone
+    }
+
+    if (Object.keys(updateUserData).length > 0) {
+      await User.findByIdAndUpdate(updatedStaff.userId, updateUserData)
+    }
+
+    console.log("Updated Maintenance Staff:", updatedStaff)
 
     res.status(200).json({ message: "Maintenance staff updated successfully" })
   } catch (error) {

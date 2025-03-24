@@ -407,28 +407,9 @@ export const getStudents = async (req, res) => {
 }
 
 export const getStudentDetails = async (req, res) => {
-  const { studentProfileId } = req.params
+  const { userId } = req.params
   try {
-    if (!mongoose.Types.ObjectId.isValid(studentProfileId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid student profile ID format",
-      })
-    }
-
-    const studentProfile = await StudentProfile.findById(studentProfileId)
-      .populate("userId", "name email")
-      .populate({
-        path: "currentRoomAllocation",
-        populate: {
-          path: "roomId",
-          populate: [
-            { path: "hostelId", select: "name type gender" },
-            { path: "unitId", select: "unitNumber" },
-          ],
-        },
-      })
-      .exec()
+    const studentProfile = await StudentProfile.getFullStudentData(userId)
 
     if (!studentProfile) {
       return res.status(404).json({
@@ -437,55 +418,9 @@ export const getStudentDetails = async (req, res) => {
       })
     }
 
-    const response = {
-      name: studentProfile.userId.name,
-      email: studentProfile.userId.email,
-      rollNumber: studentProfile.rollNumber,
-      gender: studentProfile.gender || "",
-      dateOfBirth: studentProfile.dateOfBirth || "",
-      degree: studentProfile.degree || "",
-      department: studentProfile.department || "",
-      year: "",
-      phone: "",
-      address: studentProfile.address || "",
-      admissionDate: studentProfile.admissionDate || "",
-    }
-
-    if (studentProfile.currentRoomAllocation && studentProfile.currentRoomAllocation.roomId) {
-      const allocation = studentProfile.currentRoomAllocation
-      const room = allocation.roomId
-
-      response.hostel = {
-        id: room.hostelId._id,
-        name: room.hostelId.name,
-        type: room.hostelId.type,
-      }
-
-      response.room = {
-        id: room._id,
-        roomNumber: room.roomNumber,
-      }
-
-      response.bed = allocation.bedNumber
-
-      if (room.hostelId.type === "unit-based" && room.unitId) {
-        response.unit = {
-          id: room.unitId._id,
-          unitNumber: room.unitId.unitNumber,
-        }
-      } else {
-        response.unit = null
-      }
-    } else {
-      response.hostel = null
-      response.unit = null
-      response.room = null
-      response.bed = null
-    }
-
     return res.status(200).json({
       success: true,
-      data: response,
+      data: studentProfile,
     })
   } catch (error) {
     console.error("Get student details error:", error)
@@ -526,22 +461,29 @@ export const getStudentProfile = async (req, res) => {
 
 export const updateStudentProfile = async (req, res) => {
   const { userId } = req.params
+  const { name, email, rollNumber, phone, gender, dateOfBirth, address, department, degree, admissionDate, guardian, guardianPhone } = req.body
 
   try {
-    if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({
+    const updatedUser = await User.findByIdAndUpdate(userId, { name, email, phone }, { new: true })
+
+    if (!updatedUser) {
+      return res.status(404).json({
         success: false,
-        message: "Invalid user ID format",
+        message: "User not found or update failed",
       })
     }
 
-    const updateData = { ...req.body }
-    delete updateData.userId
-    delete updateData.createdBy
-    delete updateData.createdAt
-
-    updateData.lastUpdatedBy = req.user._id
-    updateData.updatedAt = Date.now()
+    const updateData = {
+      rollNumber,
+      gender,
+      dateOfBirth,
+      address,
+      department,
+      degree,
+      admissionDate,
+      guardian,
+      guardianPhone,
+    }
 
     const updatedProfile = await StudentProfile.findOneAndUpdate(
       { userId },
@@ -560,7 +502,6 @@ export const updateStudentProfile = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      data: updatedProfile,
       message: "Student profile updated successfully",
     })
   } catch (error) {
