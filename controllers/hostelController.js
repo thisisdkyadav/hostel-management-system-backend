@@ -130,14 +130,12 @@ export const getHostels = async (req, res) => {
       const rooms = await Room.find({ hostelId: hostel._id })
 
       const totalRooms = rooms.length
-      const occupiedRooms = rooms.filter((room) => room.status === "Occupied").length
-      const vacantRooms = rooms.filter((room) => room.status === "Available").length
+      const occupiedRooms = rooms.filter((room) => room.occupancy > 0).length
+      const vacantRooms = rooms.filter((room) => room.occupancy === 0).length
 
       const capacity = rooms.reduce((sum, room) => sum + room.capacity, 0)
       const currentOccupancy = rooms.reduce((sum, room) => sum + room.occupancy, 0)
       const occupancyRate = totalRooms > 0 ? Math.round((currentOccupancy / capacity) * 100) : 0
-
-      console.log("Hostel:", hostel.name)
 
       const maintenanceIssues = await Complaint.countDocuments({
         hostelId: hostel._id,
@@ -145,19 +143,12 @@ export const getHostels = async (req, res) => {
         complaintType: { $in: ["Electricity", "Water", "Civil", "Other"] },
       })
 
-      console.log("Maintenance Issues:", maintenanceIssues)
-
-      const wardenDocs = await Warden.find({ hostelId: hostel._id }).populate("userId")
-      const wardens = wardenDocs.map((warden) => warden.userId.name || `Warden ID: ${warden.userId._id}`)
-
-      console.log("Wardens:", wardens)
-
       hostels.push({
         id: hostel._id,
         name: hostel.name,
         type: hostel.type,
         gender: hostel.gender,
-        wardens: wardens,
+        location: hostel.location,
         totalRooms: totalRooms,
         occupiedRooms: occupiedRooms,
         vacantRooms: vacantRooms,
@@ -176,10 +167,12 @@ export const getHostels = async (req, res) => {
 }
 
 export const updateHostel = async (req, res) => {
+  console.log("Request Body:", req.body)
+
   const { id } = req.params
-  const { name, type, gender, location } = req.body
+  const { name, gender, location } = req.body
   try {
-    const updatedHostel = await Hostel.findByIdAndUpdate(id, { name, type, gender, location }, { new: true })
+    const updatedHostel = await Hostel.findByIdAndUpdate(id, { name, gender, location }, { new: true })
     if (!updatedHostel) {
       return res.status(404).json({ message: "Hostel not found" })
     }
@@ -191,7 +184,7 @@ export const updateHostel = async (req, res) => {
 
 export const getHostelList = async (req, res) => {
   try {
-    const hostels = await Hostel.find({}, { _id: 1, name: 1 })
+    const hostels = await Hostel.find({}, { _id: 1, name: 1, type: 1 })
     res.status(200).json(hostels)
   } catch (error) {
     res.status(500).json({ message: "Error fetching hostels", error: error.message })
@@ -272,6 +265,55 @@ export const getRoomsByUnit = async (req, res) => {
   }
 }
 
+// for room-only hostels
+export const getRooms = async (req, res) => {
+  console.log("Request Query:", req.query)
+
+  const { hostelId } = req.query
+  try {
+    const roomsWithStudents = await Room.find({ hostelId: hostelId }).populate({
+      path: "allocations",
+      populate: {
+        path: "studentProfileId",
+        populate: {
+          path: "userId",
+          select: "name email",
+        },
+      },
+    })
+
+    const finalResult = roomsWithStudents.map((room) => ({
+      id: room._id,
+      roomNumber: room.roomNumber,
+      capacity: room.capacity,
+      currentOccupancy: room.occupancy,
+      status: room.status,
+      hostel: room.hostelId,
+      students:
+        room.allocations.map((allocation) => ({
+          id: allocation.studentProfileId._id,
+          name: allocation.studentProfileId.userId.name,
+          email: allocation.studentProfileId.userId.email,
+          rollNumber: allocation.studentProfileId.rollNumber,
+          department: allocation.studentProfileId.department,
+          bedNumber: allocation.bedNumber,
+          allocationId: allocation._id,
+        })) || [],
+    }))
+
+    res.status(200).json({
+      data: finalResult,
+      message: "Rooms fetched successfully",
+      status: "success",
+      meta: {
+        total: roomsWithStudents.length,
+      },
+    })
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching rooms", error: error.message })
+  }
+}
+
 export const updateRoomStatus = async (req, res) => {
   console.log("Request Body:", req.body)
 
@@ -303,28 +345,83 @@ export const updateRoomStatus = async (req, res) => {
 }
 
 export const allocateRoom = async (req, res) => {
-  const user = req.user
   const { roomId, hostelId, unitId, studentId, bedNumber, userId } = req.body
   try {
-    console.log("body", req.body)
+    console.log("Room allocation request:", req.body)
 
-    if (!roomId || !hostelId || !unitId || !studentId || !bedNumber || !userId) {
+    if (!roomId || !hostelId || !studentId || !bedNumber || !userId) {
       return res.status(400).json({ message: "Missing required fields" })
     }
 
-    const newAllocation = new RoomAllocation({
-      userId: userId,
+    const hostel = await Hostel.findById(hostelId)
+    if (!hostel) {
+      return res.status(404).json({ message: "Hostel not found" })
+    }
+
+    if (hostel.type === "unit-based" && !unitId) {
+      return res.status(400).json({ message: "Unit ID is required for unit-based hostels" })
+    }
+
+    const room = await Room.findById(roomId)
+    if (!room) {
+      return res.status(404).json({ message: "Room not found" })
+    }
+
+    if (room.status !== "Active") {
+      return res.status(400).json({ message: "Cannot allocate an inactive room" })
+    }
+
+    if (room.occupancy >= room.capacity) {
+      return res.status(400).json({ message: "Room is already at full capacity" })
+    }
+
+    if (bedNumber <= 0 || bedNumber > room.capacity) {
+      return res.status(400).json({
+        message: `Invalid bed number. Must be between 1 and ${room.capacity}`,
+      })
+    }
+
+    const existingBedAllocation = await RoomAllocation.findOne({
       roomId,
-      unitId,
-      hostelId,
-      studentProfileId: studentId,
       bedNumber,
     })
 
+    if (existingBedAllocation) {
+      return res.status(400).json({ message: "The selected bed is already occupied" })
+    }
+
+    const existingAllocation = await RoomAllocation.findOne({
+      studentProfileId: studentId,
+    })
+
+    if (existingAllocation) {
+      return res.status(400).json({
+        message: "Student already has a room allocation. Please deallocate first.",
+      })
+    }
+
+    const allocationData = {
+      userId,
+      roomId,
+      hostelId,
+      studentProfileId: studentId,
+      bedNumber,
+    }
+
+    if (hostel.type === "unit-based") {
+      allocationData.unitId = unitId
+    }
+
+    const newAllocation = new RoomAllocation(allocationData)
     await newAllocation.save()
 
-    res.status(200).json({ message: "Room allocated successfully", success: true })
+    res.status(200).json({
+      message: "Room allocated successfully",
+      success: true,
+      allocation: newAllocation,
+    })
   } catch (error) {
+    console.error("Room allocation error:", error)
     res.status(500).json({ message: "Error allocating room", error: error.message })
   }
 }

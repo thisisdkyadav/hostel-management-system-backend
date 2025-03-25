@@ -1,5 +1,5 @@
 import express from "express"
-import { addHostel, getHostels, getHostelList } from "../controllers/hostelController.js"
+import { addHostel, getHostels, getHostelList, updateHostel } from "../controllers/hostelController.js"
 import { createWarden, getAllWardens, updateWarden, deleteWarden, createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff } from "../controllers/adminController.js"
 import {
   authenticate,
@@ -15,6 +15,7 @@ router.use(authenticate)
 router.get("/hostels", getHostels)
 
 router.post("/hostel", addHostel)
+router.put("/hostel/:id", updateHostel)
 router.get("/hostel/list", getHostelList)
 
 router.get("/wardens", getAllWardens)

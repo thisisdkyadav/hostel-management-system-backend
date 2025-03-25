@@ -1,5 +1,5 @@
 import express from "express"
-import { getUnits, getRoomsByUnit, allocateRoom, updateRoomStatus, deleteAllocation, getRoomChangeRequests, getRoomChangeRequestById, approveRoomChangeRequest, rejectRoomChangeRequest } from "../controllers/hostelController.js"
+import { getRooms, getUnits, getRoomsByUnit, allocateRoom, updateRoomStatus, deleteAllocation, getRoomChangeRequests, getRoomChangeRequestById, approveRoomChangeRequest, rejectRoomChangeRequest } from "../controllers/hostelController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 
@@ -8,6 +8,7 @@ router.use(authenticate)
 
 router.get("/units/:hostelId", getUnits)
 router.get("/rooms/:unitId", getRoomsByUnit)
+router.get("/rooms-room-only", getRooms)
 router.post("/allocate", allocateRoom)
 router.put("/rooms/:roomId/status", updateRoomStatus)
 router.delete("/deallocate/:allocationId", deleteAllocation)

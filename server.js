@@ -10,6 +10,7 @@ import LostAndFoundRoutes from "./routes/lostAndFoundRoutes.js"
 import securityRoutes from "./routes/securityRoutes.js"
 import eventRoutes from "./routes/eventRoutes.js"
 import hostelRoutes from "./routes/hostelRoutes.js"
+import statsRoutes from "./routes/statsRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -36,6 +37,7 @@ app.use("/api/security", securityRoutes)
 app.use("/api/lost-and-found", LostAndFoundRoutes)
 app.use("/api/event", eventRoutes)
 app.use("/api/hostel", hostelRoutes)
+app.use("/api/stats", statsRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!")
