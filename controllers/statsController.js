@@ -188,19 +188,19 @@ export const getVisitorStats = async (req, res) => {
   }
 }
 
-// required stats totalComplaints, pendingComplaints, resolvedComplaints, inProcessComplaints
+// required stats totalComplaints, pendingComplaints, resolvedComplaints, inProgressComplaints
 export const getComplaintsStats = async (req, res) => {
   try {
     const totalComplaints = await Complaint.countDocuments()
     const pendingComplaints = await Complaint.countDocuments({ status: "Pending" })
     const resolvedComplaints = await Complaint.countDocuments({ status: "Resolved" })
-    const inProcessComplaints = await Complaint.countDocuments({ status: "In Process" })
+    const inProgressComplaints = await Complaint.countDocuments({ status: "In Progress" })
 
     res.status(200).json({
       total: totalComplaints,
       pending: pendingComplaints,
       resolved: resolvedComplaints,
-      inProcess: inProcessComplaints,
+      inProgress: inProgressComplaints,
     })
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message })
