@@ -23,7 +23,15 @@ app.set("trust proxy", 1)
 
 app.use(
   cors({
-    origin: ["http://localhost:5000", "http://localhost:5173", "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net/", "https://hostel-management-system.web.app"], // Web app URLs
+    origin: [
+      "https://flask-vercel-ashen.vercel.app/",
+      "http://localhost:5000",
+      "http://localhost:5173",
+      "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net/",
+      "https://hostel-management-system.web.app",
+      "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
+      "https://hms.andiindia.in/",
+    ],
     credentials: true, // Allow cookies for web
   })
 )
