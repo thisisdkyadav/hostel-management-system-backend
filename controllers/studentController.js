@@ -229,6 +229,38 @@ export const createStudentsProfiles = async (req, res) => {
 
     if (allocationsToCreate.length > 0) {
       await RoomAllocation.insertMany(allocationsToCreate, { session })
+
+      // Now manually handle what the post-save middleware would do
+
+      // 1. Update student profiles with their allocations
+      const profileBulkOps = []
+      for (const [profileId, allocationId] of profileUpdates.entries()) {
+        profileBulkOps.push({
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(profileId) },
+            update: { $set: { currentRoomAllocation: allocationId } },
+          },
+        })
+      }
+
+      if (profileBulkOps.length > 0) {
+        await StudentProfile.bulkWrite(profileBulkOps, { session })
+      }
+
+      // 2. Update room occupancy counts
+      const roomBulkOps = []
+      for (const [roomId, occupancyChange] of roomUpdates.entries()) {
+        roomBulkOps.push({
+          updateOne: {
+            filter: { _id: new mongoose.Types.ObjectId(roomId) },
+            update: { $inc: { occupancy: occupancyChange } },
+          },
+        })
+      }
+
+      if (roomBulkOps.length > 0) {
+        await Room.bulkWrite(roomBulkOps, { session })
+      }
     }
 
     console.log("allocations created")
