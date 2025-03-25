@@ -14,13 +14,15 @@ import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
 const app = express()
-app.use(express.json())
+// app.use(express.json())
+app.use(express.json({ limit: "1mb" }))
+app.use(express.urlencoded({ limit: "1mb", extended: true }))
 app.use(cookieParser())
 app.set("trust proxy", 1)
 
 app.use(
   cors({
-    origin: ["http://localhost:5000", "http://localhost:5173", "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net/"], // Web app URLs
+    origin: ["http://localhost:5000", "http://localhost:5173", "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net/", "https://hostel-management-system.web.app"], // Web app URLs
     credentials: true, // Allow cookies for web
   })
 )
@@ -36,7 +38,7 @@ app.use("/api/event", eventRoutes)
 app.use("/api/hostel", hostelRoutes)
 
 app.get("/", (req, res) => {
-  res.send("Hello World2!")
+  res.send("Hello World!")
 })
 
 // Start server

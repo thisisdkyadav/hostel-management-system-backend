@@ -11,31 +11,6 @@ import { isDevelopmentEnvironment } from "../config/environment.js"
 import User from "../models/User.js"
 import bcrypt from "bcrypt"
 
-// input format
-// [
-//   {
-//     "hostelId": "67dcaaf4d9a3ae5ef9710c22",
-//     "name": "name2",
-//     "email": "name2@iiti.ac.in",
-//     "phone": "",
-//     "password": "name2",
-//     "profilePic": "",
-//     "rollNumber": "cse230001002",
-//     "gender": "Male",
-//     "dateOfBirth": "",
-//     "degree": "",
-//     "department": "cse",
-//     "year": "2",
-//     "unit": "101",
-//     "room": "A",
-//     "bedNumber": "2",
-//     "address": "",
-//     "admissionDate": "2025-03-24",
-//     "guardian": "",
-//     "guardianPhone": "",
-//     "displayRoom": "101-A"
-//   }
-// ]
 export const createStudentsProfiles = async (req, res) => {
   const session = await mongoose.startSession()
   session.startTransaction()
@@ -43,6 +18,7 @@ export const createStudentsProfiles = async (req, res) => {
   try {
     const studentsData = Array.isArray(req.body) ? req.body : [req.body]
 
+    // Validate all data upfront
     for (const student of studentsData) {
       const { email, name, rollNumber } = student
       if (!email || !name || !rollNumber) {
@@ -58,9 +34,14 @@ export const createStudentsProfiles = async (req, res) => {
     const results = []
     const errors = []
 
+    // Bulk create users in a single operation
+    const userDocs = []
+    const userMap = new Map()
+
+    // Prepare user documents
     for (const student of studentsData) {
       try {
-        const { email, password, name, phone, profilePic, rollNumber, gender, dateOfBirth, degree, department, address, admissionDate, guardian, guardianPhone, hostelId, unit, room, bedNumber } = student
+        const { email, password, name, phone, profilePic } = student
 
         const userData = {
           email,
@@ -75,11 +56,37 @@ export const createStudentsProfiles = async (req, res) => {
           userData.password = await bcrypt.hash(password, salt)
         }
 
-        const newUser = new User(userData)
-        const savedUser = await newUser.save({ session })
+        const userDoc = new User(userData)
+        userDocs.push(userDoc)
+        userMap.set(email, userDoc)
+      } catch (error) {
+        errors.push({
+          student: student.email || student.rollNumber,
+          message: error.message,
+        })
+      }
+    }
 
-        const studentProfile = new StudentProfile({
-          userId: savedUser._id,
+    // Insert all users at once
+    if (userDocs.length > 0) {
+      await User.insertMany(userDocs, { session })
+    }
+
+    console.log("users created")
+
+    // Now create student profiles
+    const profileDocs = []
+    const profileMap = new Map()
+
+    for (const student of studentsData) {
+      try {
+        const { email, rollNumber, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
+
+        const userDoc = userMap.get(email)
+        if (!userDoc) continue
+
+        const profileData = {
+          userId: userDoc._id,
           rollNumber,
           department: department || "",
           degree: degree || "",
@@ -89,89 +96,128 @@ export const createStudentsProfiles = async (req, res) => {
           admissionDate: admissionDate || null,
           guardian: guardian || "",
           guardianPhone: guardianPhone || "",
+        }
+
+        const profileDoc = new StudentProfile(profileData)
+        profileDocs.push(profileDoc)
+        profileMap.set(email, profileDoc)
+      } catch (error) {
+        errors.push({
+          student: student.email || student.rollNumber,
+          message: error.message,
+        })
+      }
+    }
+
+    // Insert all profiles at once
+    if (profileDocs.length > 0) {
+      await StudentProfile.insertMany(profileDocs, { session })
+    }
+
+    console.log("profiles created")
+
+    const allocationsToCreate = []
+    const roomUpdates = new Map() // Track room occupancy updates by roomId
+    const profileUpdates = new Map() // Track profile updates by profileId
+
+    for (const student of studentsData) {
+      try {
+        const { email, hostelId, unit, room, bedNumber } = student
+
+        if (!hostelId || !room || !bedNumber) continue
+
+        const userDoc = userMap.get(email)
+        const profileDoc = profileMap.get(email)
+
+        if (!userDoc || !profileDoc) continue
+
+        const hostel = await mongoose.model("Hostel").findById(hostelId).session(session)
+
+        if (!hostel) {
+          throw new Error(`Hostel with ID ${hostelId} not found`)
+        }
+
+        let roomQuery = {
+          hostelId,
+          roomNumber: room,
+        }
+
+        if (hostel.type === "unit-based") {
+          if (!unit) {
+            throw new Error(`Unit number is required for unit-based hostel ${hostel.name}`)
+          }
+
+          const unitDoc = await Unit.findOne({
+            hostelId,
+            unitNumber: unit,
+          }).session(session)
+
+          if (!unitDoc) {
+            throw new Error(`Unit ${unit} not found in hostel ${hostel.name}`)
+          }
+
+          roomQuery.unitId = unitDoc._id
+        }
+
+        const roomDoc = await Room.findOne(roomQuery).session(session)
+
+        if (!roomDoc) {
+          const locationDesc = hostel.type === "unit-based" ? `unit ${unit}` : "hostel"
+          throw new Error(`Room ${room} not found in ${locationDesc}`)
+        }
+
+        if (roomDoc.status !== "Active") {
+          throw new Error(`Room ${room} is not active`)
+        }
+
+        // Track room occupancy change
+        const roomKey = roomDoc._id.toString()
+        const currentOccupancyChange = roomUpdates.get(roomKey) || 0
+        const newOccupancyChange = currentOccupancyChange + 1
+
+        // Check if we'll exceed capacity
+        if (roomDoc.occupancy + newOccupancyChange > roomDoc.capacity) {
+          throw new Error(`Room ${room} cannot exceed capacity`)
+        }
+
+        roomUpdates.set(roomKey, newOccupancyChange)
+
+        const bedNum = parseInt(bedNumber)
+        if (isNaN(bedNum) || bedNum <= 0 || bedNum > roomDoc.capacity) {
+          throw new Error(`Invalid bed number: ${bedNumber}. Capacity is ${roomDoc.capacity}`)
+        }
+
+        // Create allocation document
+        const allocationId = new mongoose.Types.ObjectId()
+        const allocationData = {
+          _id: allocationId,
+          userId: userDoc._id,
+          studentProfileId: profileDoc._id,
+          hostelId,
+          roomId: roomDoc._id,
+          unitId: roomDoc.unitId,
+          bedNumber: bedNum,
+          status: "Active",
           createdBy: req.user?._id,
           lastUpdatedBy: req.user?._id,
-        })
-
-        const savedProfile = await studentProfile.save({ session })
-
-        let allocation = null
-        if (hostelId && room && bedNumber) {
-          const hostel = await mongoose.model("Hostel").findById(hostelId).session(session)
-
-          if (!hostel) {
-            throw new Error(`Hostel with ID ${hostelId} not found`)
-          }
-
-          let roomQuery = {
-            hostelId,
-            roomNumber: room,
-          }
-
-          if (hostel.type === "unit-based") {
-            if (!unit) {
-              throw new Error(`Unit number is required for unit-based hostel ${hostel.name}`)
-            }
-
-            const unitDoc = await Unit.findOne({
-              hostelId,
-              unitNumber: unit,
-            }).session(session)
-
-            if (!unitDoc) {
-              throw new Error(`Unit ${unit} not found in hostel ${hostel.name}`)
-            }
-
-            roomQuery.unitId = unitDoc._id
-          }
-
-          const roomDoc = await Room.findOne(roomQuery).session(session)
-
-          if (!roomDoc) {
-            const locationDesc = hostel.type === "unit-based" ? `unit ${unit}` : "hostel"
-            throw new Error(`Room ${room} not found in ${locationDesc}`)
-          }
-
-          if (roomDoc.status !== "Active") {
-            throw new Error(`Room ${room} is not active`)
-          }
-
-          if (roomDoc.occupancy >= roomDoc.capacity) {
-            throw new Error(`Room ${room} is already at full capacity`)
-          }
-
-          const bedNum = parseInt(bedNumber)
-          if (isNaN(bedNum) || bedNum <= 0 || bedNum > roomDoc.capacity) {
-            throw new Error(`Invalid bed number: ${bedNumber}. Capacity is ${roomDoc.capacity}`)
-          }
-
-          const roomAllocation = new RoomAllocation({
-            userId: savedUser._id,
-            studentProfileId: savedProfile._id,
-            hostelId,
-            roomId: roomDoc._id,
-            unitId: roomDoc.unitId,
-            bedNumber: bedNum,
-            status: "Active",
-            createdBy: req.user?._id,
-            lastUpdatedBy: req.user?._id,
-          })
-
-          allocation = await roomAllocation.save({ session })
-
-          savedProfile.currentRoomAllocation = allocation._id
-          await savedProfile.save({ session })
+          createdAt: new Date(),
+          updatedAt: new Date(),
         }
+
+        allocationsToCreate.push(allocationData)
+
+        // Track profile update needs
+        profileUpdates.set(profileDoc._id.toString(), allocationId)
 
         results.push({
           user: {
-            _id: savedUser._id,
-            name: savedUser.name,
-            email: savedUser.email,
-            role: savedUser.role,
+            _id: userDoc._id,
+            name: userDoc.name,
+            email: userDoc.email,
+            role: userDoc.role,
           },
-          profile: savedProfile,
-          allocation,
+          profile: profileDoc,
+          allocation: allocationData,
         })
       } catch (error) {
         errors.push({
@@ -180,6 +226,12 @@ export const createStudentsProfiles = async (req, res) => {
         })
       }
     }
+
+    if (allocationsToCreate.length > 0) {
+      await RoomAllocation.insertMany(allocationsToCreate, { session })
+    }
+
+    console.log("allocations created")
 
     if (results.length > 0) {
       await session.commitTransaction()

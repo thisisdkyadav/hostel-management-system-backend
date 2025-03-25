@@ -9,6 +9,9 @@ import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import mongoose from "mongoose"
 
 export const addHostel = async (req, res) => {
+  const session = await mongoose.startSession()
+  session.startTransaction()
+
   try {
     const { name, gender, type, location, units, rooms } = req.body
 
@@ -25,7 +28,7 @@ export const addHostel = async (req, res) => {
 
     console.log("New Hostel Data:", newHostel)
 
-    const savedHostel = await newHostel.save()
+    const savedHostel = await newHostel.save({ session })
     const hostelId = savedHostel._id
 
     console.log("Hostel ID:", hostelId)
@@ -46,7 +49,7 @@ export const addHostel = async (req, res) => {
           commonAreaDetails: commonAreaDetails || "",
         })
 
-        const savedUnit = await unit.save()
+        const savedUnit = await unit.save({ session })
         createdUnits[unitNumber] = savedUnit._id
       }
     }
@@ -74,9 +77,12 @@ export const addHostel = async (req, res) => {
         }
 
         const room = new Room(roomFields)
-        await room.save()
+        await room.save({ session })
       }
     }
+
+    await session.commitTransaction()
+    session.endSession()
 
     const totalRooms = Array.isArray(rooms) ? rooms.length : 0
 
@@ -93,6 +99,9 @@ export const addHostel = async (req, res) => {
       },
     })
   } catch (error) {
+    await session.abortTransaction()
+    session.endSession()
+
     if (error.code === 11000) {
       if (error.keyPattern?.name) {
         return res.status(400).json({ message: "A hostel with this name already exists" })
