@@ -68,7 +68,7 @@ export const addHostel = async (req, res) => {
           hostelId,
           roomNumber,
           capacity,
-          status: status || "Available",
+          status: status || "Active",
           occupancy: 0,
         }
 

@@ -18,7 +18,6 @@ export const createStudentsProfiles = async (req, res) => {
   try {
     const studentsData = Array.isArray(req.body) ? req.body : [req.body]
 
-    // Validate all data upfront
     for (const student of studentsData) {
       const { email, name, rollNumber } = student
       if (!email || !name || !rollNumber) {
@@ -34,11 +33,9 @@ export const createStudentsProfiles = async (req, res) => {
     const results = []
     const errors = []
 
-    // Bulk create users in a single operation
     const userDocs = []
     const userMap = new Map()
 
-    // Prepare user documents
     for (const student of studentsData) {
       try {
         const { email, password, name, phone, profilePic } = student
@@ -67,14 +64,12 @@ export const createStudentsProfiles = async (req, res) => {
       }
     }
 
-    // Insert all users at once
     if (userDocs.length > 0) {
       await User.insertMany(userDocs, { session })
     }
 
     console.log("users created")
 
-    // Now create student profiles
     const profileDocs = []
     const profileMap = new Map()
 
@@ -109,7 +104,6 @@ export const createStudentsProfiles = async (req, res) => {
       }
     }
 
-    // Insert all profiles at once
     if (profileDocs.length > 0) {
       await StudentProfile.insertMany(profileDocs, { session })
     }
@@ -117,8 +111,8 @@ export const createStudentsProfiles = async (req, res) => {
     console.log("profiles created")
 
     const allocationsToCreate = []
-    const roomUpdates = new Map() // Track room occupancy updates by roomId
-    const profileUpdates = new Map() // Track profile updates by profileId
+    const roomUpdates = new Map()
+    const profileUpdates = new Map()
 
     for (const student of studentsData) {
       try {
@@ -170,12 +164,10 @@ export const createStudentsProfiles = async (req, res) => {
           throw new Error(`Room ${room} is not active`)
         }
 
-        // Track room occupancy change
         const roomKey = roomDoc._id.toString()
         const currentOccupancyChange = roomUpdates.get(roomKey) || 0
         const newOccupancyChange = currentOccupancyChange + 1
 
-        // Check if we'll exceed capacity
         if (roomDoc.occupancy + newOccupancyChange > roomDoc.capacity) {
           throw new Error(`Room ${room} cannot exceed capacity`)
         }
@@ -187,7 +179,6 @@ export const createStudentsProfiles = async (req, res) => {
           throw new Error(`Invalid bed number: ${bedNumber}. Capacity is ${roomDoc.capacity}`)
         }
 
-        // Create allocation document
         const allocationId = new mongoose.Types.ObjectId()
         const allocationData = {
           _id: allocationId,
@@ -206,7 +197,6 @@ export const createStudentsProfiles = async (req, res) => {
 
         allocationsToCreate.push(allocationData)
 
-        // Track profile update needs
         profileUpdates.set(profileDoc._id.toString(), allocationId)
 
         results.push({
@@ -230,9 +220,6 @@ export const createStudentsProfiles = async (req, res) => {
     if (allocationsToCreate.length > 0) {
       await RoomAllocation.insertMany(allocationsToCreate, { session })
 
-      // Now manually handle what the post-save middleware would do
-
-      // 1. Update student profiles with their allocations
       const profileBulkOps = []
       for (const [profileId, allocationId] of profileUpdates.entries()) {
         profileBulkOps.push({
@@ -247,7 +234,6 @@ export const createStudentsProfiles = async (req, res) => {
         await StudentProfile.bulkWrite(profileBulkOps, { session })
       }
 
-      // 2. Update room occupancy counts
       const roomBulkOps = []
       for (const [roomId, occupancyChange] of roomUpdates.entries()) {
         roomBulkOps.push({
@@ -301,6 +287,8 @@ export const createStudentsProfiles = async (req, res) => {
 export const updateStudentsProfiles = async (req, res) => {
   const session = await mongoose.startSession()
   session.startTransaction()
+
+  let transactionCommitted = false // Flag to track if transaction was committed
 
   try {
     const studentsData = Array.isArray(req.body) ? req.body : [req.body]
@@ -405,7 +393,9 @@ export const updateStudentsProfiles = async (req, res) => {
             const existingAllocation = await RoomAllocation.findById(existingProfile.currentRoomAllocation).session(session)
 
             if (existingAllocation) {
-              if (existingAllocation.roomId.toString() !== roomDoc._id.toString()) {
+              const isSameRoom = existingAllocation.roomId.toString() === roomDoc._id.toString()
+
+              if (!isSameRoom) {
                 await Room.findByIdAndUpdate(existingAllocation.roomId, { $inc: { occupancy: -1 } }, { session })
 
                 await Room.findByIdAndUpdate(roomDoc._id, { $inc: { occupancy: 1 } }, { session })
@@ -422,6 +412,26 @@ export const updateStudentsProfiles = async (req, res) => {
                 },
                 { new: true, session }
               )
+            } else {
+              if (roomDoc.occupancy >= roomDoc.capacity) {
+                throw new Error(`Room ${room} is already at full capacity`)
+              }
+
+              const roomAllocation = new RoomAllocation({
+                userId: existingProfile.userId._id,
+                studentProfileId: existingProfile._id,
+                hostelId,
+                roomId: roomDoc._id,
+                unitId: roomDoc.unitId,
+                bedNumber: bedNum,
+                status: "Active",
+                createdBy: req.user?._id,
+                lastUpdatedBy: req.user?._id,
+              })
+
+              allocation = await roomAllocation.save({ session })
+
+              await Room.findByIdAndUpdate(roomDoc._id, { $inc: { occupancy: 1 } }, { session })
             }
           } else {
             if (roomDoc.occupancy >= roomDoc.capacity) {
@@ -467,6 +477,7 @@ export const updateStudentsProfiles = async (req, res) => {
 
     if (results.length > 0) {
       await session.commitTransaction()
+      transactionCommitted = true
 
       const isMultipleStudents = Array.isArray(req.body)
       const responseStatus = errors.length > 0 ? 207 : 200
@@ -486,7 +497,9 @@ export const updateStudentsProfiles = async (req, res) => {
       })
     }
   } catch (error) {
-    await session.abortTransaction()
+    if (!transactionCommitted) {
+      await session.abortTransaction()
+    }
     console.error("Update student profile error:", error)
     return res.status(500).json({
       success: false,

@@ -105,5 +105,22 @@ RoomAllocationSchema.pre("findOneAndDelete", async function () {
   }
 })
 
+RoomAllocationSchema.pre("deleteMany", async function () {
+  try {
+    const query = this.getQuery()
+    const allocations = await this.model.find(query).lean()
+
+    if (allocations && allocations.length > 0) {
+      const StudentProfile = mongoose.model("StudentProfile")
+
+      const studentProfileIds = allocations.map((a) => a.studentProfileId)
+
+      await StudentProfile.updateMany({ _id: { $in: studentProfileIds } }, { $unset: { currentRoomAllocation: "" } })
+    }
+  } catch (error) {
+    console.error("Error in pre-deleteMany hook:", error)
+  }
+})
+
 const RoomAllocation = mongoose.model("RoomAllocation", RoomAllocationSchema)
 export default RoomAllocation
