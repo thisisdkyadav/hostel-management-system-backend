@@ -15,6 +15,7 @@ import {
   deleteComplaint,
   updateStudentsProfiles,
   getMultipleStudentDetails,
+  getStudentDashboard,
 } from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -22,6 +23,8 @@ import { authorizeRoles } from "../middlewares/authorize.js"
 const router = express.Router()
 
 router.use(authenticate)
+
+router.get("/dashboard", authorizeRoles(["Student"]), getStudentDashboard)
 
 router.get("/profile", authorizeRoles(["Student"]), getStudentProfile)
 

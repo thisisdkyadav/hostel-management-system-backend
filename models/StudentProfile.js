@@ -132,6 +132,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
 
       if (studentProfile.currentRoomAllocation) {
         fullData.hostel = studentProfile.currentRoomAllocation.hostelId?.name || ""
+        fullData.hostelId = studentProfile.currentRoomAllocation.hostelId?._id || ""
         fullData.unit = studentProfile.currentRoomAllocation.roomId?.unitId?.unitNumber || ""
         fullData.room = studentProfile.currentRoomAllocation.roomId?.roomNumber || ""
         fullData.bedNumber = studentProfile.currentRoomAllocation.bedNumber?.toString() || ""

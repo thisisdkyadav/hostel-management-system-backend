@@ -1,6 +1,6 @@
 import StudentProfile from "../models/StudentProfile.js"
 import Complaint from "../models/Complaint.js"
-import Poll from "../models/Poll.js"
+import Events from "../models/Events.js"
 import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 import Room from "../models/Room.js"
@@ -819,7 +819,186 @@ export const updateStudentProfile = async (req, res) => {
   }
 }
 
-// Request room change
+export const getStudentDashboard = async (req, res) => {
+  const user = req.user
+
+  try {
+    const studentProfile = await StudentProfile.getFullStudentData(user._id)
+
+    if (!studentProfile) return res.status(404).json({ success: false, message: "Student profile not found" })
+
+    const dashboardData = {
+      profile: {
+        name: studentProfile.name,
+        rollNumber: studentProfile.rollNumber,
+        degree: studentProfile.degree,
+        year: studentProfile.year,
+        hostelName: studentProfile.hostel || null,
+      },
+      roomInfo: null,
+      stats: {
+        complaints: {
+          pending: 0,
+          inProgress: 0,
+          resolved: 0,
+          total: 0,
+        },
+        lostAndFound: {
+          active: 0,
+          claimed: 0,
+          total: 0,
+        },
+        events: {
+          upcoming: 0,
+          past: 0,
+          total: 0,
+        },
+      },
+      activeComplaints: [],
+      upcomingEvents: [],
+    }
+
+    if (studentProfile.allocationId) {
+      const roomAllocation = await RoomAllocation.findById(studentProfile.allocationId)
+        .populate({
+          path: "roomId",
+          populate: {
+            path: "unitId",
+            select: "unitNumber",
+          },
+        })
+        .populate("hostelId", "name type")
+
+      if (roomAllocation) {
+        const allRoomAllocations = await RoomAllocation.find({
+          roomId: roomAllocation.roomId._id,
+          _id: { $ne: studentProfile.allocationId },
+        }).populate({
+          path: "studentProfileId",
+          select: "rollNumber userId",
+          populate: {
+            path: "userId",
+            select: "name profilePic",
+          },
+        })
+
+        let displayRoom
+        if (studentProfile.hostelType === "unit-based" && studentProfile.unit) {
+          displayRoom = `${studentProfile.unit}${studentProfile.room}(${studentProfile.bedNumber})`
+        } else {
+          displayRoom = `${studentProfile.room}(${studentProfile.bedNumber})`
+        }
+
+        const roomCapacity = roomAllocation.roomId.capacity || 0
+        const beds = []
+        for (let i = 1; i <= roomCapacity; i++) {
+          const allocation = [roomAllocation, ...allRoomAllocations].find((a) => a.bedNumber === i)
+          beds.push({
+            id: i,
+            bedNumber: i.toString(),
+            isOccupied: !!allocation,
+            isCurrentUser: allocation && allocation._id.toString() === studentProfile.allocationId.toString(),
+          })
+        }
+
+        const roommates = allRoomAllocations
+          .filter((allocation) => allocation.studentProfileId)
+          .map((allocation) => ({
+            rollNumber: allocation.studentProfileId.rollNumber,
+            name: allocation.studentProfileId.userId?.name || "Unknown",
+            avatar: allocation.studentProfileId.userId?.profilePic || null,
+          }))
+
+        dashboardData.roomInfo = {
+          roomNumber: displayRoom,
+          bedNumber: studentProfile.bedNumber,
+          hostelName: studentProfile.hostel,
+          occupiedBeds: allRoomAllocations.length + 1,
+          totalBeds: roomCapacity,
+          beds,
+          roommates,
+        }
+      }
+    }
+
+    const complaints = await Complaint.find({ userId: user._id })
+
+    if (complaints.length > 0) {
+      dashboardData.stats.complaints = {
+        pending: complaints.filter((c) => c.status === "Pending").length,
+        inProgress: complaints.filter((c) => c.status === "In Progress").length,
+        resolved: complaints.filter((c) => c.status === "Resolved").length,
+        total: complaints.length,
+      }
+
+      dashboardData.activeComplaints = complaints
+        .filter((c) => c.status !== "Resolved")
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 5)
+        .map((complaint) => ({
+          id: complaint._id,
+          title: complaint.title,
+          status: complaint.status,
+          priority: complaint.priority,
+          category: complaint.category,
+          description: complaint.description,
+          hostel: studentProfile.hostel,
+          roomNumber: dashboardData.roomInfo?.roomNumber || "",
+          createdDate: complaint.createdAt,
+        }))
+    }
+
+    const lostAndFoundItems = await LostAndFound.find()
+
+    if (lostAndFoundItems.length > 0) {
+      dashboardData.stats.lostAndFound = {
+        active: lostAndFoundItems.filter((item) => item.status === "Active").length,
+        claimed: lostAndFoundItems.filter((item) => item.status === "Claimed").length,
+        total: lostAndFoundItems.length,
+      }
+    }
+
+    const now = new Date()
+
+    console.log(studentProfile.hostelId, "studentProfile.hostel")
+
+    const events = await Events.find({ hostelId: studentProfile.hostelId })
+
+    console.log(events, "events")
+
+    if (events.length > 0) {
+      const upcomingEvents = events.filter((e) => new Date(e.dateAndTime) > now)
+      const pastEvents = events.filter((e) => new Date(e.dateAndTime) <= now)
+
+      dashboardData.stats.events = {
+        upcoming: upcomingEvents.length,
+        past: pastEvents.length,
+        total: events.length,
+      }
+      dashboardData.upcomingEvents = upcomingEvents
+        .sort((a, b) => new Date(a.dateAndTime) - new Date(b.dateAndTime))
+        .slice(0, 5)
+        .map((event) => ({
+          _id: event._id,
+          eventName: event.eventName,
+          description: event.description,
+          dateAndTime: event.dateAndTime,
+        }))
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: dashboardData,
+    })
+  } catch (error) {
+    console.error("Get student dashboard error:", error)
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve student dashboard information",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    })
+  }
+}
 
 export const createRoomChangeRequest = async (req, res) => {
   const user = req.user
@@ -829,7 +1008,11 @@ export const createRoomChangeRequest = async (req, res) => {
 
     console.log("body", req.body, user)
 
-    if (!currentAllocationId || !preferredRoom || !preferredUnit || !reason) {
+    if (!currentAllocationId) {
+      return res.status(400).json({ message: "No room is allocated to you", success: false })
+    }
+
+    if (!preferredRoom || !preferredUnit || !reason) {
       return res.status(400).json({ message: "All fields are required", success: false })
     }
 

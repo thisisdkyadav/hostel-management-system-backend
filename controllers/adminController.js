@@ -197,7 +197,7 @@ export const getAllSecurities = async (req, res) => {
 export const updateSecurity = async (req, res) => {
   try {
     const { id } = req.params
-    const { hostelId } = req.body
+    const { hostelId, name } = req.body
 
     const updateData = {}
 
@@ -207,6 +207,10 @@ export const updateSecurity = async (req, res) => {
 
     if (!updatedSecurity) {
       return res.status(404).json({ message: "Security not found" })
+    }
+
+    if (name !== undefined) {
+      await User.findByIdAndUpdate(updatedSecurity.userId, { name })
     }
 
     res.status(200).json({ message: "Security updated successfully" })

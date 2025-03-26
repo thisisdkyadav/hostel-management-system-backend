@@ -88,7 +88,7 @@ export const addHostel = async (req, res) => {
 
     res.status(201).json({
       message: "Hostel added successfully",
-      hostel: {
+      data: {
         id: hostelId,
         name,
         gender,
@@ -97,6 +97,7 @@ export const addHostel = async (req, res) => {
         totalUnits: Object.keys(createdUnits).length,
         totalRooms,
       },
+      success: true,
     })
   } catch (error) {
     await session.abortTransaction()
