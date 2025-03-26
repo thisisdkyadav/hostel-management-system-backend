@@ -256,3 +256,31 @@ export const updateVisitor = async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 }
+
+export const deleteStudentEntry = async (req, res) => {
+  const { entryId } = req.params
+  try {
+    const studentEntry = await CheckInOut.findByIdAndDelete(entryId)
+    if (!studentEntry) {
+      return res.status(404).json({ message: "Entry not found" })
+    }
+    res.status(200).json({ message: "Student entry deleted successfully", success: true })
+  } catch (error) {
+    console.error("Error deleting student entry:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+}
+
+export const deleteVisitor = async (req, res) => {
+  const { visitorId } = req.params
+  try {
+    const visitor = await Visitor.findByIdAndDelete(visitorId)
+    if (!visitor) {
+      return res.status(404).json({ message: "Visitor not found" })
+    }
+    res.status(200).json({ message: "Visitor deleted successfully", success: true })
+  } catch (error) {
+    console.error("Error deleting visitor:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+}

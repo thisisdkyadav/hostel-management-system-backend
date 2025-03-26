@@ -77,15 +77,20 @@ RoomAllocationSchema.post("findOneAndUpdate", async function (result) {
   }
 })
 
-RoomAllocationSchema.pre("deleteOne", { document: true, query: false }, async function () {
+RoomAllocationSchema.pre("deleteOne", { query: true, document: false }, async function () {
   try {
-    const StudentProfile = mongoose.model("StudentProfile")
-    await StudentProfile.findByIdAndUpdate(this.studentProfileId, { $unset: { currentRoomAllocation: "" } })
+    const query = this.getQuery()
+    const allocation = await this.model.findOne(query).lean()
 
-    const Room = mongoose.model("Room")
-    await Room.findByIdAndUpdate(this.roomId, { $inc: { occupancy: -1 } })
+    if (allocation) {
+      const StudentProfile = mongoose.model("StudentProfile")
+      await StudentProfile.findByIdAndUpdate(allocation.studentProfileId, { $unset: { currentRoomAllocation: "" } })
+
+      const Room = mongoose.model("Room")
+      await Room.findByIdAndUpdate(allocation.roomId, { $inc: { occupancy: -1 } })
+    }
   } catch (error) {
-    console.error("Error in pre-deleteOne hook:", error)
+    console.error("Error in pre-deleteOne hook (query middleware):", error)
   }
 })
 

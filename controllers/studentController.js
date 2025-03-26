@@ -13,32 +13,24 @@ import bcrypt from "bcrypt"
 
 export const createStudentsProfiles = async (req, res) => {
   const session = await mongoose.startSession()
-  session.startTransaction()
+  const studentsData = Array.isArray(req.body) ? req.body : [req.body]
+  let results = []
+  let errors = []
 
   try {
-    const studentsData = Array.isArray(req.body) ? req.body : [req.body]
+    await session.withTransaction(async () => {
+      const userOps = []
+      const profileOps = []
+      studentsData.forEach((student) => {
+        const { email, name, rollNumber, password, phone, profilePic, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
 
-    for (const student of studentsData) {
-      const { email, name, rollNumber } = student
-      if (!email || !name || !rollNumber) {
-        await session.abortTransaction()
-        session.endSession()
-        return res.status(400).json({
-          success: false,
-          message: "Missing required fields: email, name, rollNumber",
-        })
-      }
-    }
-
-    const results = []
-    const errors = []
-
-    const userDocs = []
-    const userMap = new Map()
-
-    for (const student of studentsData) {
-      try {
-        const { email, password, name, phone, profilePic } = student
+        if (!email || !name || !rollNumber) {
+          errors.push({
+            student: student.rollNumber || student.email,
+            message: "Missing required fields: email, name, rollNumber",
+          })
+          return
+        }
 
         const userData = {
           email,
@@ -48,466 +40,304 @@ export const createStudentsProfiles = async (req, res) => {
           profilePic: profilePic || "",
         }
 
-        if (password) {
-          const salt = await bcrypt.genSalt(10)
-          userData.password = await bcrypt.hash(password, salt)
-        }
-
-        const userDoc = new User(userData)
-        userDocs.push(userDoc)
-        userMap.set(email, userDoc)
-      } catch (error) {
-        errors.push({
-          student: student.email || student.rollNumber,
-          message: error.message,
+        userOps.push({
+          insertOne: { document: userData },
+          metadata: { student, password },
         })
-      }
-    }
-
-    if (userDocs.length > 0) {
-      await User.insertMany(userDocs, { session })
-    }
-
-    console.log("users created")
-
-    const profileDocs = []
-    const profileMap = new Map()
-
-    for (const student of studentsData) {
-      try {
-        const { email, rollNumber, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
-
-        const userDoc = userMap.get(email)
-        if (!userDoc) continue
-
-        const profileData = {
-          userId: userDoc._id,
-          rollNumber,
-          department: department || "",
-          degree: degree || "",
-          gender: gender || "",
-          dateOfBirth: dateOfBirth || null,
-          address: address || "",
-          admissionDate: admissionDate || null,
-          guardian: guardian || "",
-          guardianPhone: guardianPhone || "",
-        }
-
-        const profileDoc = new StudentProfile(profileData)
-        profileDocs.push(profileDoc)
-        profileMap.set(email, profileDoc)
-      } catch (error) {
-        errors.push({
-          student: student.email || student.rollNumber,
-          message: error.message,
-        })
-      }
-    }
-
-    if (profileDocs.length > 0) {
-      await StudentProfile.insertMany(profileDocs, { session })
-    }
-
-    console.log("profiles created")
-
-    const allocationsToCreate = []
-    const roomUpdates = new Map()
-    const profileUpdates = new Map()
-
-    for (const student of studentsData) {
-      try {
-        const { email, hostelId, unit, room, bedNumber } = student
-
-        if (!hostelId || !room || !bedNumber) continue
-
-        const userDoc = userMap.get(email)
-        const profileDoc = profileMap.get(email)
-
-        if (!userDoc || !profileDoc) continue
-
-        const hostel = await mongoose.model("Hostel").findById(hostelId).session(session)
-
-        if (!hostel) {
-          throw new Error(`Hostel with ID ${hostelId} not found`)
-        }
-
-        let roomQuery = {
-          hostelId,
-          roomNumber: room,
-        }
-
-        if (hostel.type === "unit-based") {
-          if (!unit) {
-            throw new Error(`Unit number is required for unit-based hostel ${hostel.name}`)
-          }
-
-          const unitDoc = await Unit.findOne({
-            hostelId,
-            unitNumber: unit,
-          }).session(session)
-
-          if (!unitDoc) {
-            throw new Error(`Unit ${unit} not found in hostel ${hostel.name}`)
-          }
-
-          roomQuery.unitId = unitDoc._id
-        }
-
-        const roomDoc = await Room.findOne(roomQuery).session(session)
-
-        if (!roomDoc) {
-          const locationDesc = hostel.type === "unit-based" ? `unit ${unit}` : "hostel"
-          throw new Error(`Room ${room} not found in ${locationDesc}`)
-        }
-
-        if (roomDoc.status !== "Active") {
-          throw new Error(`Room ${room} is not active`)
-        }
-
-        const roomKey = roomDoc._id.toString()
-        const currentOccupancyChange = roomUpdates.get(roomKey) || 0
-        const newOccupancyChange = currentOccupancyChange + 1
-
-        if (roomDoc.occupancy + newOccupancyChange > roomDoc.capacity) {
-          throw new Error(`Room ${room} cannot exceed capacity`)
-        }
-
-        roomUpdates.set(roomKey, newOccupancyChange)
-
-        const bedNum = parseInt(bedNumber)
-        if (isNaN(bedNum) || bedNum <= 0 || bedNum > roomDoc.capacity) {
-          throw new Error(`Invalid bed number: ${bedNumber}. Capacity is ${roomDoc.capacity}`)
-        }
-
-        const allocationId = new mongoose.Types.ObjectId()
-        const allocationData = {
-          _id: allocationId,
-          userId: userDoc._id,
-          studentProfileId: profileDoc._id,
-          hostelId,
-          roomId: roomDoc._id,
-          unitId: roomDoc.unitId,
-          bedNumber: bedNum,
-          status: "Active",
-          createdBy: req.user?._id,
-          lastUpdatedBy: req.user?._id,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }
-
-        allocationsToCreate.push(allocationData)
-
-        profileUpdates.set(profileDoc._id.toString(), allocationId)
-
-        results.push({
-          user: {
-            _id: userDoc._id,
-            name: userDoc.name,
-            email: userDoc.email,
-            role: userDoc.role,
-          },
-          profile: profileDoc,
-          allocation: allocationData,
-        })
-      } catch (error) {
-        errors.push({
-          student: student.email || student.rollNumber,
-          message: error.message,
-        })
-      }
-    }
-
-    if (allocationsToCreate.length > 0) {
-      await RoomAllocation.insertMany(allocationsToCreate, { session })
-
-      const profileBulkOps = []
-      for (const [profileId, allocationId] of profileUpdates.entries()) {
-        profileBulkOps.push({
-          updateOne: {
-            filter: { _id: new mongoose.Types.ObjectId(profileId) },
-            update: { $set: { currentRoomAllocation: allocationId } },
-          },
-        })
-      }
-
-      if (profileBulkOps.length > 0) {
-        await StudentProfile.bulkWrite(profileBulkOps, { session })
-      }
-
-      const roomBulkOps = []
-      for (const [roomId, occupancyChange] of roomUpdates.entries()) {
-        roomBulkOps.push({
-          updateOne: {
-            filter: { _id: new mongoose.Types.ObjectId(roomId) },
-            update: { $inc: { occupancy: occupancyChange } },
-          },
-        })
-      }
-
-      if (roomBulkOps.length > 0) {
-        await Room.bulkWrite(roomBulkOps, { session })
-      }
-    }
-
-    console.log("allocations created")
-
-    if (results.length > 0) {
-      await session.commitTransaction()
-
-      const isMultipleStudents = Array.isArray(req.body)
-      const responseStatus = errors.length > 0 ? 207 : 201
-
-      return res.status(responseStatus).json({
-        success: true,
-        data: isMultipleStudents ? results : results[0],
-        errors: errors.length > 0 ? errors : undefined,
-        message: isMultipleStudents ? `Created ${results.length} out of ${studentsData.length} student profiles` : "Student profile created successfully",
       })
-    } else {
-      await session.abortTransaction()
-      return res.status(400).json({
-        success: false,
-        errors,
-        message: "Failed to create any student profiles",
-      })
-    }
+
+      if (userOps.length > 0) {
+        const bulkUserOps = userOps.map((op) => op.insertOne.document)
+        const userInsertResult = await User.collection.insertMany(bulkUserOps, { session })
+        const insertedUserIds = userInsertResult.insertedIds
+
+        let index = 0
+        studentsData.forEach((student) => {
+          const { email, rollNumber, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
+          if (!email || !rollNumber) return
+          const userId = insertedUserIds[index++]
+          const profileData = {
+            userId,
+            rollNumber,
+            department: department || "",
+            degree: degree || "",
+            gender: gender || "",
+            dateOfBirth: dateOfBirth || null,
+            address: address || "",
+            admissionDate: admissionDate || null,
+            guardian: guardian || "",
+            guardianPhone: guardianPhone || "",
+          }
+          profileOps.push({
+            insertOne: { document: profileData },
+          })
+        })
+
+        if (profileOps.length > 0) {
+          const profileInsertResult = await StudentProfile.collection.insertMany(
+            profileOps.map((op) => op.insertOne.document),
+            { session }
+          )
+          Object.values(userInsertResult.insertedIds).forEach((id, idx) => {
+            results.push({
+              user: { _id: id },
+              profile: {
+                _id: profileInsertResult.insertedIds[idx],
+                rollNumber: studentsData[idx].rollNumber,
+              },
+            })
+          })
+        }
+      }
+    })
+    const isMultipleStudents = Array.isArray(req.body)
+    const responseStatus = errors.length > 0 ? 207 : 201
+    return res.status(responseStatus).json({
+      success: true,
+      data: isMultipleStudents ? results : results[0],
+      errors: errors.length > 0 ? errors : undefined,
+      message: isMultipleStudents ? `Created ${results.length} out of ${studentsData.length} student profiles` : "Student profile created successfully",
+    })
   } catch (error) {
-    await session.abortTransaction()
-    console.error("Create student profile error:", error)
+    if (session.inTransaction()) {
+      try {
+        await session.abortTransaction()
+      } catch (abortErr) {
+        console.error("Abort transaction error:", abortErr)
+      }
+    }
     return res.status(500).json({
       success: false,
-      message: "Failed to create student profile(s)",
-      error: isDevelopmentEnvironment ? error.message : undefined,
+      message: "Failed to create student profiles",
+      error: error.message,
     })
   } finally {
-    session.endSession()
+    await session.endSession()
   }
 }
 
 export const updateStudentsProfiles = async (req, res) => {
   const session = await mongoose.startSession()
-  session.startTransaction()
-
-  let transactionCommitted = false // Flag to track if transaction was committed
-
+  await session.startTransaction()
   try {
     const studentsData = Array.isArray(req.body) ? req.body : [req.body]
-
-    for (const student of studentsData) {
-      const { rollNumber } = student
-      if (!rollNumber) {
-        await session.abortTransaction()
-        session.endSession()
-        return res.status(400).json({
-          success: false,
-          message: "Missing required field: rollNumber",
-        })
-      }
-    }
-
-    const results = []
     const errors = []
+    const results = []
 
+    // Validate and collect rollNumbers
+    const rollNumbers = []
     for (const student of studentsData) {
-      try {
-        const { email, rollNumber } = student
-
-        const existingProfile = await StudentProfile.findOne({ rollNumber }).populate("userId").session(session)
-
-        if (!existingProfile) {
-          throw new Error(`Student with roll number ${rollNumber} not found`)
-        }
-
-        const { name, phone, profilePic, gender, dateOfBirth, degree, department, address, admissionDate, guardian, guardianPhone, hostelId, unit, room, bedNumber } = student
-
-        const userData = {}
-        if (name) userData.name = name
-        if (email) userData.email = email
-        if (phone) userData.phone = phone || ""
-        if (profilePic) userData.profilePic = profilePic || ""
-
-        if (Object.keys(userData).length > 0) {
-          await User.findByIdAndUpdate(existingProfile.userId._id, userData, { session })
-        }
-
-        const profileData = {}
-        if (gender) profileData.gender = gender
-        if (dateOfBirth) profileData.dateOfBirth = dateOfBirth
-        if (department) profileData.department = department
-        if (degree) profileData.degree = degree
-        if (address) profileData.address = address
-        if (admissionDate) profileData.admissionDate = admissionDate
-        if (guardian) profileData.guardian = guardian
-        if (guardianPhone) profileData.guardianPhone = guardianPhone
-        profileData.lastUpdatedBy = req.user?._id
-
-        const updatedProfile = await StudentProfile.findByIdAndUpdate(existingProfile._id, profileData, { new: true, session })
-
-        let allocation = null
-        if (hostelId && room && bedNumber) {
-          const hostel = await mongoose.model("Hostel").findById(hostelId).session(session)
-
-          if (!hostel) {
-            throw new Error(`Hostel with ID ${hostelId} not found`)
-          }
-
-          let roomQuery = {
-            hostelId,
-            roomNumber: room,
-          }
-
-          if (hostel.type === "unit-based") {
-            if (!unit) {
-              throw new Error(`Unit number is required for unit-based hostel ${hostel.name}`)
-            }
-
-            const unitDoc = await Unit.findOne({
-              hostelId,
-              unitNumber: unit,
-            }).session(session)
-
-            if (!unitDoc) {
-              throw new Error(`Unit ${unit} not found in hostel ${hostel.name}`)
-            }
-
-            roomQuery.unitId = unitDoc._id
-          }
-
-          const roomDoc = await Room.findOne(roomQuery).session(session)
-
-          if (!roomDoc) {
-            const locationDesc = hostel.type === "unit-based" ? `unit ${unit}` : "hostel"
-            throw new Error(`Room ${room} not found in ${locationDesc}`)
-          }
-
-          if (roomDoc.status !== "Active") {
-            throw new Error(`Room ${room} is not active`)
-          }
-
-          const bedNum = parseInt(bedNumber)
-          if (isNaN(bedNum) || bedNum <= 0 || bedNum > roomDoc.capacity) {
-            throw new Error(`Invalid bed number: ${bedNumber}. Capacity is ${roomDoc.capacity}`)
-          }
-
-          if (existingProfile.currentRoomAllocation) {
-            const existingAllocation = await RoomAllocation.findById(existingProfile.currentRoomAllocation).session(session)
-
-            if (existingAllocation) {
-              const isSameRoom = existingAllocation.roomId.toString() === roomDoc._id.toString()
-
-              if (!isSameRoom) {
-                await Room.findByIdAndUpdate(existingAllocation.roomId, { $inc: { occupancy: -1 } }, { session })
-
-                await Room.findByIdAndUpdate(roomDoc._id, { $inc: { occupancy: 1 } }, { session })
-              }
-
-              allocation = await RoomAllocation.findByIdAndUpdate(
-                existingAllocation._id,
-                {
-                  hostelId,
-                  roomId: roomDoc._id,
-                  unitId: roomDoc.unitId,
-                  bedNumber: bedNum,
-                  lastUpdatedBy: req.user?._id,
-                },
-                { new: true, session }
-              )
-            } else {
-              if (roomDoc.occupancy >= roomDoc.capacity) {
-                throw new Error(`Room ${room} is already at full capacity`)
-              }
-
-              const roomAllocation = new RoomAllocation({
-                userId: existingProfile.userId._id,
-                studentProfileId: existingProfile._id,
-                hostelId,
-                roomId: roomDoc._id,
-                unitId: roomDoc.unitId,
-                bedNumber: bedNum,
-                status: "Active",
-                createdBy: req.user?._id,
-                lastUpdatedBy: req.user?._id,
-              })
-
-              allocation = await roomAllocation.save({ session })
-
-              await Room.findByIdAndUpdate(roomDoc._id, { $inc: { occupancy: 1 } }, { session })
-            }
-          } else {
-            if (roomDoc.occupancy >= roomDoc.capacity) {
-              throw new Error(`Room ${room} is already at full capacity`)
-            }
-
-            const roomAllocation = new RoomAllocation({
-              userId: existingProfile.userId._id,
-              studentProfileId: existingProfile._id,
-              hostelId,
-              roomId: roomDoc._id,
-              unitId: roomDoc.unitId,
-              bedNumber: bedNum,
-              status: "Active",
-              createdBy: req.user?._id,
-              lastUpdatedBy: req.user?._id,
-            })
-
-            allocation = await roomAllocation.save({ session })
-
-            updatedProfile.currentRoomAllocation = allocation._id
-            await updatedProfile.save({ session })
-          }
-        }
-
-        results.push({
-          user: {
-            _id: existingProfile.userId._id,
-            name: existingProfile.userId.name,
-            email: existingProfile.userId.email,
-            role: existingProfile.userId.role,
-          },
-          profile: updatedProfile,
-          allocation,
-        })
-      } catch (error) {
+      if (!student.rollNumber) {
         errors.push({
           student: student.email || student.rollNumber,
-          message: error.message,
+          message: "Missing required field: rollNumber",
         })
+      } else {
+        // Assume roll numbers are stored in uppercase
+        rollNumbers.push(student.rollNumber.toUpperCase())
       }
     }
-
-    if (results.length > 0) {
-      await session.commitTransaction()
-      transactionCommitted = true
-
-      const isMultipleStudents = Array.isArray(req.body)
-      const responseStatus = errors.length > 0 ? 207 : 200
-
-      return res.status(responseStatus).json({
-        success: true,
-        data: isMultipleStudents ? results : results[0],
-        errors: errors.length > 0 ? errors : undefined,
-        message: isMultipleStudents ? `Updated ${results.length} out of ${studentsData.length} student profiles` : "Student profile updated successfully",
-      })
-    } else {
+    if (rollNumbers.length === 0) {
       await session.abortTransaction()
       return res.status(400).json({
         success: false,
         errors,
-        message: "Failed to update any student profiles",
+        message: "No valid rollNumber provided",
       })
     }
-  } catch (error) {
-    if (!transactionCommitted) {
-      await session.abortTransaction()
+
+    // Retrieve existing profiles by rollNumber
+    const existingProfiles = await StudentProfile.find({
+      rollNumber: { $in: rollNumbers },
+    })
+      .populate("userId")
+      .session(session)
+
+    // Build a map of rollNumber => profile
+    const profileMap = {}
+    existingProfiles.forEach((profile) => {
+      // rollNumber is stored uppercase according to schema config
+      profileMap[profile.rollNumber] = profile
+    })
+
+    // Prepare bulk update operations for User and StudentProfile
+    const userBulkOps = []
+    const profileBulkOps = []
+
+    for (const student of studentsData) {
+      const roll = student.rollNumber
+      if (!roll) continue
+      // Use uppercase for lookup
+      const existingProfile = profileMap[roll.toUpperCase()]
+      if (!existingProfile) {
+        errors.push({
+          student: roll,
+          message: `Student with roll number ${roll} not found`,
+        })
+        continue
+      }
+      // Prepare User update data
+      const userUpdate = {}
+      if (student.name) userUpdate.name = student.name
+      if (student.email) userUpdate.email = student.email
+      if (student.phone !== undefined) userUpdate.phone = student.phone || ""
+      if (student.profilePic) userUpdate.profilePic = student.profilePic || ""
+      if (Object.keys(userUpdate).length > 0) {
+        userBulkOps.push({
+          updateOne: {
+            filter: { _id: existingProfile.userId._id },
+            update: { $set: userUpdate },
+          },
+        })
+      }
+      // Prepare StudentProfile update data
+      const profileUpdate = {}
+      if (student.gender) profileUpdate.gender = student.gender
+      if (student.dateOfBirth) profileUpdate.dateOfBirth = student.dateOfBirth
+      if (student.department) profileUpdate.department = student.department
+      if (student.degree) profileUpdate.degree = student.degree
+      if (student.address) profileUpdate.address = student.address
+      if (student.admissionDate) profileUpdate.admissionDate = student.admissionDate
+      if (student.guardian) profileUpdate.guardian = student.guardian
+      if (student.guardianPhone) profileUpdate.guardianPhone = student.guardianPhone
+      // Always update lastUpdatedBy
+      profileUpdate.lastUpdatedBy = req.user?._id
+      if (Object.keys(profileUpdate).length > 0) {
+        profileBulkOps.push({
+          updateOne: {
+            filter: { _id: existingProfile._id },
+            update: { $set: profileUpdate },
+          },
+        })
+      }
+      // Return minimal result info
+      results.push({ rollNumber: roll, userId: existingProfile.userId._id })
     }
+
+    // Execute bulk update operations in parallel (if any)
+    if (userBulkOps.length > 0) {
+      await User.bulkWrite(userBulkOps, { session })
+    }
+    if (profileBulkOps.length > 0) {
+      await StudentProfile.bulkWrite(profileBulkOps, { session })
+    }
+
+    await session.commitTransaction()
+    session.endSession()
+    const isMultipleStudents = Array.isArray(req.body)
+    const responseStatus = errors.length > 0 ? 207 : 200
+    return res.status(responseStatus).json({
+      success: true,
+      data: isMultipleStudents ? results : results[0],
+      errors: errors.length > 0 ? errors : undefined,
+      message: isMultipleStudents ? `Updated ${results.length} out of ${studentsData.length} student profiles` : "Student profile updated successfully",
+    })
+  } catch (error) {
+    await session.abortTransaction()
+    session.endSession()
     console.error("Update student profile error:", error)
     return res.status(500).json({
       success: false,
       message: "Failed to update student profile(s)",
       error: isDevelopmentEnvironment ? error.message : undefined,
     })
-  } finally {
+  }
+}
+
+export const updateRoomAllocations = async (req, res) => {
+  const session = await mongoose.startSession()
+  session.startTransaction()
+  try {
+    const allocations = Array.isArray(req.body) ? req.body : [req.body]
+    const results = []
+    const errors = []
+
+    for (const alloc of allocations) {
+      const { unit, room, bedNumber, rollNumber } = alloc
+      if (!unit || !room || bedNumber === undefined || !rollNumber) {
+        errors.push({ rollNumber, message: "Missing required fields" })
+        continue
+      }
+
+      const studentProfile = await StudentProfile.findOne({ rollNumber: rollNumber.toUpperCase() }).session(session)
+      if (!studentProfile) {
+        errors.push({ rollNumber, message: "Student profile not found" })
+        continue
+      }
+
+      const unitDoc = await Unit.findOne({ unitNumber: unit }).session(session)
+      if (!unitDoc) {
+        errors.push({ rollNumber, message: "Unit not found" })
+        continue
+      }
+      const roomDoc = await Room.findOne({ unitId: unitDoc._id, roomNumber: room }).session(session)
+      if (!roomDoc) {
+        errors.push({ rollNumber, message: "Room not found in specified unit" })
+        continue
+      }
+
+      if (roomDoc.status !== "Active") {
+        errors.push({ rollNumber, message: "Room is not active" })
+        continue
+      }
+
+      const existingAllocation = await RoomAllocation.findOne({ roomId: roomDoc._id, bedNumber }).session(session)
+      if (existingAllocation) {
+        await RoomAllocation.deleteOne({ _id: existingAllocation._id }).session(session)
+      }
+
+      if (studentProfile.currentRoomAllocation) {
+        const currentAlloc = await RoomAllocation.findById(studentProfile.currentRoomAllocation).session(session)
+        if (currentAlloc) {
+          if (String(currentAlloc.roomId) !== String(roomDoc._id) || currentAlloc.bedNumber !== bedNumber) {
+            await RoomAllocation.deleteOne({ _id: currentAlloc._id }).session(session)
+          }
+        }
+      }
+
+      const newAllocation = new RoomAllocation({
+        userId: studentProfile.userId,
+        studentProfileId: studentProfile._id,
+        hostelId: roomDoc.hostelId,
+        roomId: roomDoc._id,
+        unitId: roomDoc.unitId,
+        bedNumber,
+      })
+      await newAllocation.save({ session })
+
+      results.push({
+        rollNumber: studentProfile.rollNumber,
+        allocation: newAllocation,
+      })
+    }
+
+    if (errors.length > 0) {
+      await session.commitTransaction()
+      session.endSession()
+      return res.status(207).json({
+        success: true,
+        data: results,
+        errors,
+        message: "Room allocations updated with some errors. Please review the errors for details.",
+      })
+    } else {
+      await session.commitTransaction()
+      session.endSession()
+      return res.status(200).json({
+        success: true,
+        data: results,
+        message: "Room allocations updated successfully",
+      })
+    }
+  } catch (err) {
+    await session.abortTransaction()
     session.endSession()
+    console.error("Error in updateRoomAllocations:", err)
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update room allocations",
+      error: err.message,
+    })
   }
 }
 

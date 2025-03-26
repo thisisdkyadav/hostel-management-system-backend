@@ -2,6 +2,7 @@ import express from "express"
 import { getRooms, getUnits, getRoomsByUnit, allocateRoom, updateRoomStatus, deleteAllocation, getRoomChangeRequests, getRoomChangeRequestById, approveRoomChangeRequest, rejectRoomChangeRequest } from "../controllers/hostelController.js"
 
 import { authenticate } from "../middlewares/auth.js"
+import { updateRoomAllocations } from "../controllers/studentController.js"
 
 const router = express.Router()
 router.use(authenticate)
@@ -16,5 +17,7 @@ router.get("/room-change-requests/:hostelId", getRoomChangeRequests)
 router.get("/room-change-request/:requestId", getRoomChangeRequestById)
 router.put("/room-change-request/approve/:requestId", approveRoomChangeRequest)
 router.put("/room-change-request/reject/:requestId", rejectRoomChangeRequest)
+
+router.put("/update-allocations", updateRoomAllocations)
 
 export default router
