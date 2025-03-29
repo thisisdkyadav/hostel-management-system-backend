@@ -1,4 +1,4 @@
-import Event from "../models/Events.js"
+import Event from "../models/Event.js"
 import StudentProfile from "../models/StudentProfile.js"
 import Warden from "../models/Warden.js"
 import AssociateWarden from "../models/AssociateWarden.js"
