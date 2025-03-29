@@ -5,10 +5,10 @@ import {
   getStudentDetails,
   getStudentProfile,
   updateStudentProfile,
-  createRoomChangeRequest,
-  getRoomChangeRequestStatus,
-  updateRoomChangeRequest,
-  deleteRoomChangeRequest,
+  // createRoomChangeRequest,
+  // getRoomChangeRequestStatus,
+  // updateRoomChangeRequest,
+  // deleteRoomChangeRequest,
   fileComplaint,
   getAllComplaints,
   updateComplaint,
@@ -36,10 +36,10 @@ router.get("/profile/details/:userId", authorizeRoles(["Admin", "Warden", "Assoc
 router.put("/profile/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden"]), updateStudentProfile)
 
 // Room change request routes
-router.post("/room-change", createRoomChangeRequest)
-router.get("/room-change", getRoomChangeRequestStatus)
-router.put("/room-change", updateRoomChangeRequest)
-router.delete("/room-change", deleteRoomChangeRequest)
+// router.post("/room-change", createRoomChangeRequest)
+// router.get("/room-change", getRoomChangeRequestStatus)
+// router.put("/room-change", updateRoomChangeRequest)
+// router.delete("/room-change", deleteRoomChangeRequest)
 
 // Complaint routes
 router.post("/:userId/complaints", fileComplaint)

@@ -47,6 +47,9 @@ const StudentProfileSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  guardianEmail: {
+    type: String,
+  },
   currentRoomAllocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "RoomAllocation",
@@ -126,6 +129,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         dateOfBirth: formattedDOB,
         address: studentProfile.address || "",
         guardian: studentProfile.guardian || "",
+        guardianEmail: studentProfile.guardianEmail || "",
         guardianPhone: studentProfile.guardianPhone || "",
         admissionDate: studentProfile.admissionDate,
       }
@@ -148,6 +152,162 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
     console.error("Error fetching full student data:", error)
     throw error
   }
+}
+
+StudentProfileSchema.statics.searchStudents = async function (params) {
+  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc" } = params
+
+  const pipeline = []
+
+  const matchProfile = {}
+  if (rollNumber) matchProfile.rollNumber = { $regex: rollNumber, $options: "i" }
+  if (department) matchProfile.department = { $regex: department, $options: "i" }
+  if (degree) matchProfile.degree = { $regex: degree, $options: "i" }
+  if (gender) matchProfile.gender = gender
+  if (admissionDateFrom || admissionDateTo) {
+    matchProfile.admissionDate = {}
+    if (admissionDateFrom) matchProfile.admissionDate.$gte = new Date(admissionDateFrom)
+    if (admissionDateTo) matchProfile.admissionDate.$lte = new Date(admissionDateTo)
+  }
+  pipeline.push({ $match: matchProfile })
+
+  pipeline.push({
+    $lookup: {
+      from: "users",
+      localField: "userId",
+      foreignField: "_id",
+      as: "user",
+    },
+  })
+  pipeline.push({ $unwind: "$user" })
+
+  const matchUser = {}
+  if (name) matchUser["user.name"] = { $regex: name, $options: "i" }
+  if (email) matchUser["user.email"] = { $regex: email, $options: "i" }
+  if (Object.keys(matchUser).length) {
+    pipeline.push({ $match: matchUser })
+  }
+
+  if (hasAllocation === "true") {
+    pipeline.push({ $match: { currentRoomAllocation: { $ne: null } } })
+  } else if (hasAllocation === "false") {
+    pipeline.push({ $match: { currentRoomAllocation: null } })
+  }
+
+  pipeline.push({
+    $lookup: {
+      from: "roomallocations",
+      localField: "currentRoomAllocation",
+      foreignField: "_id",
+      as: "allocation",
+    },
+  })
+  pipeline.push({
+    $unwind: { path: "$allocation", preserveNullAndEmptyArrays: true },
+  })
+
+  pipeline.push({
+    $lookup: {
+      from: "rooms",
+      localField: "allocation.roomId",
+      foreignField: "_id",
+      as: "room",
+    },
+  })
+  pipeline.push({
+    $unwind: { path: "$room", preserveNullAndEmptyArrays: true },
+  })
+
+  pipeline.push({
+    $lookup: {
+      from: "hostels",
+      localField: "room.hostelId",
+      foreignField: "_id",
+      as: "hostel",
+    },
+  })
+  pipeline.push({
+    $unwind: { path: "$hostel", preserveNullAndEmptyArrays: true },
+  })
+
+  pipeline.push({
+    $lookup: {
+      from: "units",
+      localField: "room.unitId",
+      foreignField: "_id",
+      as: "unit",
+    },
+  })
+  pipeline.push({
+    $unwind: { path: "$unit", preserveNullAndEmptyArrays: true },
+  })
+
+  const matchAllocation = {}
+  if (hostelId) {
+    const matchAllocation = {}
+    if (hostelId) {
+      matchAllocation["hostel._id"] = new mongoose.Types.ObjectId(hostelId)
+    }
+    if (unitNumber) {
+      matchAllocation["unit.unitNumber"] = unitNumber
+    }
+    if (roomNumber) {
+      matchAllocation["room.roomNumber"] = { $regex: roomNumber, $options: "i" }
+    }
+    if (Object.keys(matchAllocation).length) {
+      pipeline.push({ $match: matchAllocation })
+    }
+  }
+  if (unitNumber) {
+    matchAllocation["unit.unitNumber"] = unitNumber
+  }
+  if (roomNumber) {
+    matchAllocation["room.roomNumber"] = { $regex: roomNumber, $options: "i" }
+  }
+  if (Object.keys(matchAllocation).length) {
+    pipeline.push({ $match: matchAllocation })
+  }
+
+  pipeline.push({
+    $project: {
+      id: "$_id",
+      rollNumber: 1,
+      gender: 1,
+      userId: "$user._id",
+      name: "$user.name",
+      profilePic: "$user.profilePic",
+      email: "$user.email",
+      hostel: {
+        $cond: {
+          if: { $and: [{ $ne: ["$allocation", null] }, { $ne: ["$room", null] }, { $ne: ["$hostel", null] }] },
+          then: "$hostel.name",
+          else: null,
+        },
+      },
+      displayRoom: {
+        $cond: {
+          if: { $and: [{ $ne: ["$allocation", null] }, { $ne: ["$room", null] }] },
+          then: {
+            $cond: {
+              if: { $and: [{ $ne: ["$hostel", null] }, { $eq: ["$hostel.type", "unit-based"] }, { $ne: ["$unit", null] }] },
+              then: { $concat: ["$unit.unitNumber", "-", "$room.roomNumber", "-", { $toString: "$allocation.bedNumber" }] },
+              else: { $concat: ["$room.roomNumber", "-", { $toString: "$allocation.bedNumber" }] },
+            },
+          },
+          else: null,
+        },
+      },
+    },
+  })
+
+  pipeline.push({
+    $facet: {
+      data: [{ $sort: { [sortBy]: sortOrder === "desc" ? -1 : 1 } }, { $skip: (parseInt(page) - 1) * parseInt(limit) }, { $limit: parseInt(limit) }],
+      totalCount: [{ $count: "count" }],
+    },
+  })
+
+  return this.aggregate(pipeline)
 }
 
 const StudentProfile = mongoose.model("StudentProfile", StudentProfileSchema)

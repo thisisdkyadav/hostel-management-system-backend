@@ -28,6 +28,7 @@ export const login = async (req, res) => {
         id: user._id,
         role: user.role,
         email: user.email,
+        hostel: user.hostel ? user.hostel : null,
       },
       JWT_SECRET,
       { expiresIn: "7d" }
@@ -66,7 +67,16 @@ export const loginWithGoogle = async (req, res) => {
       return res.status(401).json({ message: "User not found" })
     }
 
-    const jwtToken = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: "7d" })
+    const jwtToken = jwt.sign(
+      {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        hostel: user.hostel ? user.hostel.name : null,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    )
 
     if (isMobile) {
       return res.json({ jwt: jwtToken })
@@ -119,10 +129,6 @@ export const getUser = async (req, res) => {
 export const updatePassword = async (req, res) => {
   const { oldPassword, newPassword } = req.body
   const userId = req.user._id
-
-  console.log("Updating password for user:", userId)
-  console.log("Old Password:", oldPassword)
-  console.log("New Password:", newPassword)
 
   if (!oldPassword || !newPassword) {
     return res.status(400).json({ message: "Old password and new password are required" })

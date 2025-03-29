@@ -24,8 +24,6 @@ export const createEvent = async (req, res) => {
 }
 
 export const getEvents = async (req, res) => {
-  console.log("Fetching events...")
-
   const user = req.user
   try {
     if (user.role === "Student") {
