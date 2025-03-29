@@ -1,10 +1,16 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
 const alertSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ["fire", "medical", "security-issue"],
+    enum: ["fire", "medical", "security-issue", "other"],
     required: true,
+  },
+  description: {
+    type: String,
+    required: function () {
+      return this.type === "other"; 
+    },
   },
   triggeredBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -17,11 +23,6 @@ const alertSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
-  status: {
-    type: String,
-    enum: ["pending", "resolved"],
-    default: "pending",
-  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -29,4 +30,4 @@ const alertSchema = new mongoose.Schema({
 });
 
 const Alert = mongoose.model("Alert", alertSchema);
-export default Alert;
+module.exports = Alert;
