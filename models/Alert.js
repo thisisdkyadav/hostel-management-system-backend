@@ -14,7 +14,7 @@ const alertSchema = new mongoose.Schema({
   },
   triggeredBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User", 
+    ref: "User",
     required: true,
   },
   recipients: [
@@ -23,11 +23,20 @@ const alertSchema = new mongoose.Schema({
       ref: "User",
     },
   ],
+  resolved: {
+    type: Boolean,
+    default: false,
+  },
+  resolvedBy: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User", 
+    },
+  ],
   createdAt: {
     type: Date,
     default: Date.now,
   },
 });
 
-const Alert = mongoose.model("Alert", alertSchema);
-module.exports = Alert;
+module.exports = mongoose.model("Alert", alertSchema);
