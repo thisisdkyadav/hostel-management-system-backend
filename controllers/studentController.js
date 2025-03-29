@@ -1,6 +1,6 @@
 import StudentProfile from "../models/StudentProfile.js"
 import Complaint from "../models/Complaint.js"
-import Events from "../models/Events.js"
+import Events from "../models/Event.js"
 // import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 import Room from "../models/Room.js"

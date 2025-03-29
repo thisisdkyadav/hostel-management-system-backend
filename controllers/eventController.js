@@ -26,40 +26,28 @@ export const createEvent = async (req, res) => {
 export const getEvents = async (req, res) => {
   const user = req.user
   try {
-    if (user.role === "Student") {
-      const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate({
-        path: "currentRoomAllocation",
-        populate: {
-          path: "roomId",
-          select: "hostelId",
-        },
-      })
-
-      const events =
-        (await Event.find({
-          hostelId: studentProfile.currentRoomAllocation.roomId.hostelId,
-        })) || []
-
-      return res.status(200).json({ events })
-    } else if (user.role === "Warden") {
-      const warden = await Warden.findOne({ userId: user._id })
-      const events = (await Event.find({ hostelId: warden.hostelId })) || []
-      return res.status(200).json({ events })
-    } else if (user.role === "Associate Warden") {
-      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
-      const events = (await Event.find({ hostelId: associateWarden.hostelId })) || []
-      return res.status(200).json({ events })
-    } else if (user.role === "Admin") {
-      const events = (await Event.find()) || []
-      return res.status(200).json({ events })
+    const query = {}
+    const role = user.role
+    const hostel = user.hostel
+    if (role === "Student") {
+      const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation")
+      const hostelId = studentProfile.currentRoomAllocation.hostelId
+      query.hostelId = { $in: [hostelId, null] }
+    } else if (hostel) {
+      query.hostelId = { $in: [hostel._id, null] }
     }
-    res.status(404).json({ message: "No events found" })
+
+    const events = await Event.find(query).populate("hostelId")
+    if (events.length > 0) {
+      return res.status(200).json({ events })
+    } else {
+      res.status(404).json({ message: "No events found" })
+    }
   } catch (error) {
     console.error("Error fetching events:", error)
     res.status(500).json({ message: "Internal server error" })
   }
 }
-
 // export const getEventByHostelId = async (req, res) => {
 //   const { id } = req.params
 
@@ -77,10 +65,16 @@ export const getEvents = async (req, res) => {
 
 export const updateEvent = async (req, res) => {
   const { id } = req.params
-  const { eventName, description, dateAndTime } = req.body
+  const { eventName, description, dateAndTime, hostelId } = req.body
 
   try {
-    const event = await Event.findByIdAndUpdate(id, { eventName, description, dateAndTime }, { new: true })
+    const updates = {
+      eventName,
+      description,
+      dateAndTime,
+      hostelId: hostelId ? hostelId : null,
+    }
+    const event = await Event.findByIdAndUpdate(id, updates, { new: true })
 
     if (!event) {
       return res.status(404).json({ message: "Event not found" })
