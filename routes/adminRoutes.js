@@ -1,16 +1,14 @@
 import express from "express"
 import { addHostel, getHostels, getHostelList, updateHostel } from "../controllers/hostelController.js"
-import { createWarden, getAllWardens, updateWarden, deleteWarden, createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff } from "../controllers/adminController.js"
-import {
-  authenticate,
-  // ,
-  // authorizeAdmin
-} from "../middlewares/auth.js"
-// import { validateUserUpdate } from "../middlewares/validation.js"
+import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff } from "../controllers/adminController.js"
+import { createWarden, getAllWardens, updateWarden, deleteWarden } from "../controllers/wardenController.js"
+import { createAssociateWarden, getAllAssociateWardens, updateAssociateWarden, deleteAssociateWarden } from "../controllers/associateWardenController.js"
+import { authenticate } from "../middlewares/auth.js"
+import { authorizeRoles } from "../middlewares/authorize.js"
 
 const router = express.Router()
 router.use(authenticate)
-// router.use(authorizeAdmin)
+// router.use(authorizeRoles(["admin"]))
 
 router.get("/hostels", getHostels)
 
@@ -22,6 +20,11 @@ router.get("/wardens", getAllWardens)
 router.post("/warden", createWarden)
 router.put("/warden/:id", updateWarden)
 router.delete("/warden/:id", deleteWarden)
+
+router.get("/associate-wardens", getAllAssociateWardens)
+router.post("/associate-warden", createAssociateWarden)
+router.put("/associate-warden/:id", updateAssociateWarden)
+router.delete("/associate-warden/:id", deleteAssociateWarden)
 
 router.get("/security", getAllSecurities)
 router.post("/security", createSecurity)

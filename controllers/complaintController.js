@@ -3,6 +3,8 @@ import Complaint from "../models/Complaint.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
 import MaintenanceStaff from "../models/MaintenanceStaff.js"
+import Warden from "../models/Warden.js"
+import AssociateWarden from "../models/AssociateWarden.js"
 
 export const createComplaint = async (req, res) => {
   const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body
@@ -63,9 +65,21 @@ export const getAllComplaints = async (req, res) => {
       }
       query.$or = [{ assignedTo: user._id }, { assignedTo: { $exists: false } }, { assignedTo: null }]
     } else if (["Warden"].includes(role)) {
-      if (user.hostelId) {
-        query.hostelId = user.hostelId
+      const wardenProfile = await Warden.findOne({ userId: user._id })
+      if (!wardenProfile) {
+        return res.status(403).json({ message: "Warden profile not found" })
       }
+      query.hostelId = wardenProfile.hostelId
+    } else if (["Associate Warden"].includes(role)) {
+      const associateWardenProfile = await AssociateWarden.findOne({ userId: user._id })
+      if (!associateWardenProfile) {
+        return res.status(403).json({ message: "Associate Warden profile not found" })
+      }
+      query.hostelId = associateWardenProfile.hostelId
+    }
+
+    if (user.hostelId) {
+      query.hostelId = user.hostelId
     }
 
     if (category) {

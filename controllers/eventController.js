@@ -1,6 +1,7 @@
 import Event from "../models/Events.js"
 import StudentProfile from "../models/StudentProfile.js"
 import Warden from "../models/Warden.js"
+import AssociateWarden from "../models/AssociateWarden.js"
 
 export const createEvent = async (req, res) => {
   const { eventName, description, dateAndTime, hostelId } = req.body
@@ -45,6 +46,10 @@ export const getEvents = async (req, res) => {
     } else if (user.role === "Warden") {
       const warden = await Warden.findOne({ userId: user._id })
       const events = (await Event.find({ hostelId: warden.hostelId })) || []
+      return res.status(200).json({ events })
+    } else if (user.role === "Associate Warden") {
+      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
+      const events = (await Event.find({ hostelId: associateWarden.hostelId })) || []
       return res.status(200).json({ events })
     } else if (user.role === "Admin") {
       const events = (await Event.find()) || []

@@ -71,11 +71,11 @@ export const loginWithGoogle = async (req, res) => {
     if (isMobile) {
       return res.json({ jwt: jwtToken })
     } else {
-      res.cookie("token", jwtToken, {
+      res.cookie("token", token, {
         httpOnly: true,
         secure: !isDevelopmentEnvironment,
-        sameSite: "Strict",
-        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
       })
 
       const userResponse = user.toObject ? user.toObject() : JSON.parse(JSON.stringify(user))
@@ -92,7 +92,11 @@ export const loginWithGoogle = async (req, res) => {
 }
 
 export const logout = async (req, res) => {
-  res.clearCookie("token")
+  res.clearCookie("token", {
+    httpOnly: true,
+    secure: !isDevelopmentEnvironment,
+    sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
+  })
   res.json({ message: "Logged out successfully" })
 }
 

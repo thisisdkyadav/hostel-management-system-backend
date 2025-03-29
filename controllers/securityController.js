@@ -5,6 +5,7 @@ import CheckInOut from "../models/CheckInOut.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
+import AssociateWarden from "../models/AssociateWarden.js"
 
 export const getSecurity = async (req, res) => {
   const user = req.user
@@ -98,6 +99,9 @@ export const getRecentEntries = async (req, res) => {
     } else if (userRole === "Warden") {
       const warden = await Warden.findOne({ userId: user._id })
       hostelId = warden.hostelId
+    } else if (userRole === "Associate Warden") {
+      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
+      hostelId = associateWarden.hostelId
     } else {
       return res.status(403).json({ message: "Access denied" })
     }
@@ -127,6 +131,9 @@ export const getStudentEntries = async (req, res) => {
     } else if (userRole === "Warden") {
       const warden = await Warden.findOne({ userId: user._id })
       hostelId = warden.hostelId
+    } else if (userRole === "Associate Warden") {
+      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
+      hostelId = associateWarden.hostelId
     } else {
       return res.status(403).json({ message: "Access denied" })
     }
@@ -217,6 +224,9 @@ export const getVisitors = async (req, res) => {
     } else if (userRole === "Warden") {
       const warden = await Warden.findOne({ userId: user._id })
       hostelId = warden.hostelId
+    } else if (userRole === "Associate Warden") {
+      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
+      hostelId = associateWarden.hostelId
     } else {
       return res.status(403).json({ message: "Access denied" })
     }

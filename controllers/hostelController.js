@@ -2,9 +2,7 @@ import Hostel from "../models/Hostel.js"
 import Room from "../models/Room.js"
 import Unit from "../models/Unit.js"
 import Complaint from "../models/Complaint.js"
-import Warden from "../models/Warden.js"
 import RoomAllocation from "../models/RoomAllocation.js"
-import StudentProfile from "../models/StudentProfile.js"
 import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import mongoose from "mongoose"
 
@@ -13,7 +11,7 @@ export const addHostel = async (req, res) => {
   session.startTransaction()
 
   try {
-    const { name, gender, type, location, units, rooms } = req.body
+    const { name, gender, type, units, rooms } = req.body
 
     if (!name || !gender || !type) {
       return res.status(400).json({ message: "Missing required hostel information" })
@@ -23,7 +21,6 @@ export const addHostel = async (req, res) => {
       name,
       gender,
       type,
-      location: location || "",
     })
 
     console.log("New Hostel Data:", newHostel)
@@ -93,7 +90,6 @@ export const addHostel = async (req, res) => {
         name,
         gender,
         type,
-        location: location || "",
         totalUnits: Object.keys(createdUnits).length,
         totalRooms,
       },
@@ -266,7 +262,6 @@ export const getRoomsByUnit = async (req, res) => {
   }
 }
 
-// for room-only hostels
 export const getRooms = async (req, res) => {
   console.log("Request Query:", req.query)
 
