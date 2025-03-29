@@ -64,22 +64,12 @@ export const getAllComplaints = async (req, res) => {
         query.category = staffProfile.category
       }
       query.$or = [{ assignedTo: user._id }, { assignedTo: { $exists: false } }, { assignedTo: null }]
-    } else if (["Warden"].includes(role)) {
-      const wardenProfile = await Warden.findOne({ userId: user._id })
-      if (!wardenProfile) {
-        return res.status(403).json({ message: "Warden profile not found" })
-      }
-      query.hostelId = wardenProfile.hostelId
-    } else if (["Associate Warden"].includes(role)) {
-      const associateWardenProfile = await AssociateWarden.findOne({ userId: user._id })
-      if (!associateWardenProfile) {
-        return res.status(403).json({ message: "Associate Warden profile not found" })
-      }
-      query.hostelId = associateWardenProfile.hostelId
     }
 
-    if (user.hostelId && ["Admin", "Maintenance Staff"].includes(role)) {
-      query.hostelId = user.hostelId
+    if (user.hostel) {
+      query.hostelId = user.hostel._id
+    } else if (hostelId && ["Admin", "Maintenance Staff"].includes(role)) {
+      query.hostelId = hostelId
     }
 
     if (category) {
@@ -92,10 +82,6 @@ export const getAllComplaints = async (req, res) => {
 
     if (priority) {
       query.priority = priority
-    }
-
-    if (hostelId && ["Admin"].includes(role)) {
-      query.hostelId = hostelId
     }
 
     if (startDate || endDate) {

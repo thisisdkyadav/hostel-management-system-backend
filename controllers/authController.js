@@ -28,7 +28,6 @@ export const login = async (req, res) => {
         id: user._id,
         role: user.role,
         email: user.email,
-        hostel: user.hostel ? user.hostel : null,
       },
       JWT_SECRET,
       { expiresIn: "7d" }
@@ -72,7 +71,6 @@ export const loginWithGoogle = async (req, res) => {
         id: user._id,
         email: user.email,
         role: user.role,
-        hostel: user.hostel ? user.hostel.name : null,
       },
       JWT_SECRET,
       { expiresIn: "7d" }
