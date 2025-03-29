@@ -78,7 +78,7 @@ export const getAllComplaints = async (req, res) => {
       query.hostelId = associateWardenProfile.hostelId
     }
 
-    if (user.hostelId) {
+    if (user.hostelId && ["Admin", "Maintenance Staff"].includes(role)) {
       query.hostelId = user.hostelId
     }
 
@@ -126,7 +126,6 @@ export const getAllComplaints = async (req, res) => {
       .skip(skip)
       .limit(limitNum)
 
-    // Format the results
     const formattedComplaints = complaints.map((complaint) => {
       let roomNumber = ""
       if (complaint.unitId && complaint.roomId) {
