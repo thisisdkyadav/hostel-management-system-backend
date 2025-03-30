@@ -64,7 +64,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
     const studentProfiles = await this.find({ userId: { $in: userIds } })
       .populate({
         path: "userId",
-        select: "name email phone profilePic",
+        select: "name email phone profileImage",
       })
       .populate({
         path: "currentRoomAllocation",
@@ -120,7 +120,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         name: studentProfile.userId?.name || "",
         email: studentProfile.userId?.email || "",
         phone: studentProfile.userId?.phone || "",
-        profilePic: studentProfile.userId?.profilePic || "",
+        profileImage: studentProfile.userId?.profileImage || "",
         rollNumber: studentProfile.rollNumber,
         department: studentProfile.department || "",
         degree: studentProfile.degree || "",
@@ -275,7 +275,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
       gender: 1,
       userId: "$user._id",
       name: "$user.name",
-      profilePic: "$user.profilePic",
+      profileImage: "$user.profileImage",
       email: "$user.email",
       hostel: {
         $cond: {

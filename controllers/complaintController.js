@@ -102,11 +102,11 @@ export const getAllComplaints = async (req, res) => {
     const totalCount = await Complaint.countDocuments(query)
 
     const complaints = await Complaint.find(query)
-      .populate("userId", "name email phone profilePic")
+      .populate("userId", "name email phone profileImage")
       .populate("hostelId", "name")
       .populate("unitId", "unitNumber")
       .populate("roomId", "roomNumber")
-      .populate("assignedTo", "name email phone profilePic")
+      .populate("assignedTo", "name email phone profileImage")
       .populate("resolvedBy", "name")
       .sort({ createdAt: -1 })
       .skip(skip)
@@ -133,7 +133,7 @@ export const getAllComplaints = async (req, res) => {
           id: complaint.userId._id,
           email: complaint.userId.email,
           name: complaint.userId.name,
-          image: complaint.userId.profilePic || null,
+          image: complaint.userId.profileImage || null,
           phone: complaint.userId.phone || "N/A",
         },
         assignedTo: complaint.assignedTo
@@ -141,7 +141,7 @@ export const getAllComplaints = async (req, res) => {
               id: complaint.assignedTo._id,
               email: complaint.assignedTo.email,
               name: complaint.assignedTo.name,
-              image: complaint.assignedTo.profilePic || null,
+              image: complaint.assignedTo.profileImage || null,
               phone: complaint.assignedTo.phone || "N/A",
             }
           : null,

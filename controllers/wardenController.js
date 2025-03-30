@@ -65,7 +65,7 @@ export const createWarden = async (req, res) => {
 
 export const getAllWardens = async (req, res) => {
   try {
-    const wardens = await Warden.find().populate("userId", "name email phone profilePic").exec()
+    const wardens = await Warden.find().populate("userId", "name email phone profileImage").exec()
 
     const formattedWardens = wardens.map((warden) => ({
       id: warden._id,
@@ -74,7 +74,7 @@ export const getAllWardens = async (req, res) => {
       phone: warden.userId.phone,
       hostelAssigned: warden.hostelId || null,
       joinDate: warden.joinDate.toISOString().split("T")[0],
-      profilePic: warden.userId.profilePic,
+      profileImage: warden.userId.profileImage,
       status: warden.status,
     }))
     res.status(200).json(formattedWardens)

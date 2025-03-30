@@ -22,7 +22,7 @@ export const createStudentsProfiles = async (req, res) => {
       const userOps = []
       const profileOps = []
       studentsData.forEach(async (student) => {
-        const { email, name, rollNumber, password, phone, profilePic, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
+        const { email, name, rollNumber, password, phone, profileImage, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
 
         if (!email || !name || !rollNumber) {
           errors.push({
@@ -40,7 +40,7 @@ export const createStudentsProfiles = async (req, res) => {
           name,
           role: "Student",
           phone: phone || "",
-          profilePic: profilePic || "",
+          profileImage: profileImage || "",
           password: hashedPassword,
         }
 
@@ -178,7 +178,7 @@ export const updateStudentsProfiles = async (req, res) => {
       if (student.name) userUpdate.name = student.name
       if (student.email) userUpdate.email = student.email
       if (student.phone !== undefined) userUpdate.phone = student.phone || ""
-      if (student.profilePic) userUpdate.profilePic = student.profilePic || ""
+      if (student.profileImage) userUpdate.profileImage = student.profileImage || ""
       if (Object.keys(userUpdate).length > 0) {
         userBulkOps.push({
           updateOne: {
@@ -478,10 +478,10 @@ export const getStudentProfile = async (req, res) => {
 
 export const updateStudentProfile = async (req, res) => {
   const { userId } = req.params
-  const { name, email, rollNumber, phone, gender, dateOfBirth, address, department, degree, admissionDate, guardian, guardianPhone, guardianEmail } = req.body
+  const { name, email, rollNumber, phone, gender, dateOfBirth, address, department, degree, admissionDate, guardian, guardianPhone, guardianEmail, profileImage } = req.body
 
   try {
-    const updatedUser = await User.findByIdAndUpdate(userId, { name, email, phone }, { new: true })
+    const updatedUser = await User.findByIdAndUpdate(userId, { name, email, phone, profileImage }, { new: true })
 
     if (!updatedUser) {
       return res.status(404).json({
@@ -599,7 +599,7 @@ export const getStudentDashboard = async (req, res) => {
           select: "rollNumber userId",
           populate: {
             path: "userId",
-            select: "name profilePic",
+            select: "name profileImage",
           },
         })
 
@@ -627,7 +627,7 @@ export const getStudentDashboard = async (req, res) => {
           .map((allocation) => ({
             rollNumber: allocation.studentProfileId.rollNumber,
             name: allocation.studentProfileId.userId?.name || "Unknown",
-            avatar: allocation.studentProfileId.userId?.profilePic || null,
+            avatar: allocation.studentProfileId.userId?.profileImage || null,
           }))
 
         dashboardData.roomInfo = {
