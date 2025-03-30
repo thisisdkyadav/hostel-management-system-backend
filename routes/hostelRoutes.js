@@ -18,6 +18,6 @@ router.get("/room-change-request/:requestId", getRoomChangeRequestById)
 router.put("/room-change-request/approve/:requestId", approveRoomChangeRequest)
 router.put("/room-change-request/reject/:requestId", rejectRoomChangeRequest)
 
-router.put("/update-allocations", updateRoomAllocations)
+router.put("/update-allocations/:hostelId", updateRoomAllocations)
 
 export default router
