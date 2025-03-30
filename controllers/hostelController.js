@@ -139,7 +139,6 @@ export const getHostels = async (req, res) => {
         name: hostel.name,
         type: hostel.type,
         gender: hostel.gender,
-        location: hostel.location,
         totalRooms: totalRooms,
         occupiedRooms: occupiedRooms,
         vacantRooms: vacantRooms,
@@ -161,9 +160,9 @@ export const updateHostel = async (req, res) => {
   console.log("Request Body:", req.body)
 
   const { id } = req.params
-  const { name, gender, location } = req.body
+  const { name, gender } = req.body
   try {
-    const updatedHostel = await Hostel.findByIdAndUpdate(id, { name, gender, location }, { new: true })
+    const updatedHostel = await Hostel.findByIdAndUpdate(id, { name, gender }, { new: true })
     if (!updatedHostel) {
       return res.status(404).json({ message: "Hostel not found" })
     }

@@ -4,7 +4,6 @@ const HostelSchema = new mongoose.Schema({
   name: { type: String, required: true, unique: true },
   type: { type: String, enum: ["unit-based", "room-only"], required: true },
   gender: { type: String, enum: ["Boys", "Girls", "Co-ed"], required: true },
-  location: { type: String },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 })
