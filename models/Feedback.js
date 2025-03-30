@@ -24,6 +24,10 @@ const feedbackSchema = new mongoose.Schema({
     enum: ["Seen", "Pending"],
     default: "Pending",
   },
+  reply: {
+    type: String,
+    default: null,
+  },
   createdAt: {
     type: Date,
     default: Date.now,

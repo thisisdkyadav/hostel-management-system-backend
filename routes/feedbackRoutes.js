@@ -1,12 +1,15 @@
 import express from "express"
-import { createFeedback, getFeedbacks, updateFeedbackStatus } from "../controllers/feedbackController.js"
+import { createFeedback, getFeedbacks, updateFeedbackStatus, replyToFeedback, updateFeedback, deleteFeedback } from "../controllers/feedbackController.js"
 import { authenticate } from "../middlewares/auth.js"
 
 const router = express.Router()
 router.use(authenticate)
 
 router.post("/add", createFeedback)
-router.get("/all/:hostelId", getFeedbacks)
+router.get("/", getFeedbacks)
+router.put("/:feedbackId", updateFeedback)
+router.delete("/:feedbackId", deleteFeedback)
 router.put("/update-status/:feedbackId", updateFeedbackStatus)
+router.post("/reply/:feedbackId", replyToFeedback)
 
 export default router
