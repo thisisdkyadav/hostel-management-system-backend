@@ -79,7 +79,7 @@ export const loginWithGoogle = async (req, res) => {
     if (isMobile) {
       return res.json({ jwt: jwtToken })
     } else {
-      res.cookie("token", token, {
+      res.cookie("token", jwtToken, {
         httpOnly: true,
         secure: !isDevelopmentEnvironment,
         sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
