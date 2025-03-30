@@ -23,12 +23,8 @@ export const addHostel = async (req, res) => {
       type,
     })
 
-   
-
     const savedHostel = await newHostel.save({ session })
     const hostelId = savedHostel._id
-
-    
 
     const createdUnits = {}
     if (type === "unit-based" && Array.isArray(units)) {
@@ -50,8 +46,6 @@ export const addHostel = async (req, res) => {
         createdUnits[unitNumber] = savedUnit._id
       }
     }
-
-    
 
     if (Array.isArray(rooms)) {
       for (const roomData of rooms) {
@@ -189,8 +183,12 @@ export const getHostelList = async (req, res) => {
 }
 
 export const getUnits = async (req, res) => {
+  const user = req.user
   const { hostelId } = req.params
   try {
+    if (user.hostel && user.hostel !== hostelId) {
+      return res.status(403).json({ message: "You do not have permission to access this hostel" })
+    }
     const unitsWithRooms = await Unit.find({ hostelId: hostelId }).populate("hostelId").populate("rooms")
 
     const finalResult = unitsWithRooms.map((unit) => ({
@@ -211,6 +209,7 @@ export const getUnits = async (req, res) => {
 }
 
 export const getRoomsByUnit = async (req, res) => {
+  const user = req.user
   const { unitId } = req.params
   try {
     const roomsWithStudents = await Room.find({ unitId: unitId })
@@ -227,7 +226,9 @@ export const getRoomsByUnit = async (req, res) => {
       .populate("hostelId", "name type")
       .populate("unitId", "unitNumber floor")
 
-    console.log("Rooms with Students Data:", roomsWithStudents[0].allocations)
+    if (roomsWithStudents.length && user.hostel && user.hostel !== roomsWithStudents[0].hostelId._id.toString()) {
+      return res.status(403).json({ message: "You do not have permission to access this unit's rooms" })
+    }
 
     let finalResults = roomsWithStudents.map((room) => ({
       id: room._id,
@@ -263,10 +264,14 @@ export const getRoomsByUnit = async (req, res) => {
 }
 
 export const getRooms = async (req, res) => {
-  console.log("Request Query:", req.query)
+  const user = req.user
 
   const { hostelId } = req.query
   try {
+    if (user.hostel && user.hostel !== hostelId) {
+      return res.status(403).json({ message: "You do not have permission to access this hostel's rooms" })
+    }
+
     const roomsWithStudents = await Room.find({ hostelId: hostelId }).populate({
       path: "allocations",
       populate: {
