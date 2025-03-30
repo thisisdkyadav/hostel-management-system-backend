@@ -555,6 +555,7 @@ export const getStudentDashboard = async (req, res) => {
         degree: studentProfile.degree,
         year: studentProfile.year,
         hostelName: studentProfile.hostel || null,
+        profileImage: studentProfile.profileImage || null,
       },
       roomInfo: null,
       stats: {

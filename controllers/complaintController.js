@@ -133,7 +133,7 @@ export const getAllComplaints = async (req, res) => {
           id: complaint.userId._id,
           email: complaint.userId.email,
           name: complaint.userId.name,
-          image: complaint.userId.profileImage || null,
+          profileImage: complaint.userId.profileImage || null,
           phone: complaint.userId.phone || "N/A",
         },
         assignedTo: complaint.assignedTo
@@ -141,7 +141,7 @@ export const getAllComplaints = async (req, res) => {
               id: complaint.assignedTo._id,
               email: complaint.assignedTo.email,
               name: complaint.assignedTo.name,
-              image: complaint.assignedTo.profileImage || null,
+              profileImage: complaint.assignedTo.profileImage || null,
               phone: complaint.assignedTo.phone || "N/A",
             }
           : null,

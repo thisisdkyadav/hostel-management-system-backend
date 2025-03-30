@@ -218,7 +218,7 @@ export const getRoomsByUnit = async (req, res) => {
           path: "studentProfileId",
           populate: {
             path: "userId",
-            select: "name email",
+            select: "name email profileImage",
           },
         },
       })
@@ -242,6 +242,7 @@ export const getRoomsByUnit = async (req, res) => {
           id: allocation.studentProfileId._id,
           name: allocation.studentProfileId.userId.name,
           email: allocation.studentProfileId.userId.email,
+          profileImage: allocation.studentProfileId.userId.profileImage,
           rollNumber: allocation.studentProfileId.rollNumber,
           department: allocation.studentProfileId.department,
           bedNumber: allocation.bedNumber,
@@ -277,7 +278,7 @@ export const getRooms = async (req, res) => {
         path: "studentProfileId",
         populate: {
           path: "userId",
-          select: "name email",
+          select: "name email profileImage",
         },
       },
     })
@@ -294,6 +295,7 @@ export const getRooms = async (req, res) => {
           id: allocation.studentProfileId._id,
           name: allocation.studentProfileId.userId.name,
           email: allocation.studentProfileId.userId.email,
+          profileImage: allocation.studentProfileId.userId.profileImage,
           rollNumber: allocation.studentProfileId.rollNumber,
           department: allocation.studentProfileId.department,
           bedNumber: allocation.bedNumber,
