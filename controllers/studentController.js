@@ -243,6 +243,7 @@ export const updateRoomAllocations = async (req, res) => {
   const session = await mongoose.startSession()
   session.startTransaction()
   try {
+    const hostelId = req.params.hostelId
     const allocations = Array.isArray(req.body) ? req.body : [req.body]
     const results = []
     const errors = []
@@ -260,7 +261,7 @@ export const updateRoomAllocations = async (req, res) => {
         continue
       }
 
-      const unitDoc = await Unit.findOne({ unitNumber: unit }).session(session)
+      const unitDoc = await Unit.findOne({ unitNumber: unit, hostelId }).session(session)
       if (!unitDoc) {
         errors.push({ rollNumber, message: "Unit not found" })
         continue
