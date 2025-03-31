@@ -23,12 +23,8 @@ export const addHostel = async (req, res) => {
       type,
     })
 
-   
-
     const savedHostel = await newHostel.save({ session })
     const hostelId = savedHostel._id
-
-    
 
     const createdUnits = {}
     if (type === "unit-based" && Array.isArray(units)) {
@@ -50,8 +46,6 @@ export const addHostel = async (req, res) => {
         createdUnits[unitNumber] = savedUnit._id
       }
     }
-
-    
 
     if (Array.isArray(rooms)) {
       for (const roomData of rooms) {
@@ -145,7 +139,6 @@ export const getHostels = async (req, res) => {
         name: hostel.name,
         type: hostel.type,
         gender: hostel.gender,
-        location: hostel.location,
         totalRooms: totalRooms,
         occupiedRooms: occupiedRooms,
         vacantRooms: vacantRooms,
@@ -167,9 +160,9 @@ export const updateHostel = async (req, res) => {
   console.log("Request Body:", req.body)
 
   const { id } = req.params
-  const { name, gender, location } = req.body
+  const { name, gender } = req.body
   try {
-    const updatedHostel = await Hostel.findByIdAndUpdate(id, { name, gender, location }, { new: true })
+    const updatedHostel = await Hostel.findByIdAndUpdate(id, { name, gender }, { new: true })
     if (!updatedHostel) {
       return res.status(404).json({ message: "Hostel not found" })
     }
@@ -189,8 +182,12 @@ export const getHostelList = async (req, res) => {
 }
 
 export const getUnits = async (req, res) => {
+  const user = req.user
   const { hostelId } = req.params
   try {
+    if (user.hostel && user.hostel._id.toString() !== hostelId) {
+      return res.status(403).json({ message: "You do not have permission to access this hostel" })
+    }
     const unitsWithRooms = await Unit.find({ hostelId: hostelId }).populate("hostelId").populate("rooms")
 
     const finalResult = unitsWithRooms.map((unit) => ({
@@ -211,6 +208,7 @@ export const getUnits = async (req, res) => {
 }
 
 export const getRoomsByUnit = async (req, res) => {
+  const user = req.user
   const { unitId } = req.params
   try {
     const roomsWithStudents = await Room.find({ unitId: unitId })
@@ -220,14 +218,16 @@ export const getRoomsByUnit = async (req, res) => {
           path: "studentProfileId",
           populate: {
             path: "userId",
-            select: "name email",
+            select: "name email profileImage",
           },
         },
       })
       .populate("hostelId", "name type")
       .populate("unitId", "unitNumber floor")
 
-    console.log("Rooms with Students Data:", roomsWithStudents[0].allocations)
+    if (roomsWithStudents.length && user.hostel && user.hostel._id.toString() !== roomsWithStudents[0].hostelId._id.toString()) {
+      return res.status(403).json({ message: "You do not have permission to access this unit's rooms" })
+    }
 
     let finalResults = roomsWithStudents.map((room) => ({
       id: room._id,
@@ -242,6 +242,7 @@ export const getRoomsByUnit = async (req, res) => {
           id: allocation.studentProfileId._id,
           name: allocation.studentProfileId.userId.name,
           email: allocation.studentProfileId.userId.email,
+          profileImage: allocation.studentProfileId.userId.profileImage,
           rollNumber: allocation.studentProfileId.rollNumber,
           department: allocation.studentProfileId.department,
           bedNumber: allocation.bedNumber,
@@ -263,17 +264,21 @@ export const getRoomsByUnit = async (req, res) => {
 }
 
 export const getRooms = async (req, res) => {
-  console.log("Request Query:", req.query)
+  const user = req.user
 
   const { hostelId } = req.query
   try {
+    if (user.hostel && user.hostel._id.toString() !== hostelId) {
+      return res.status(403).json({ message: "You do not have permission to access this hostel's rooms" })
+    }
+
     const roomsWithStudents = await Room.find({ hostelId: hostelId }).populate({
       path: "allocations",
       populate: {
         path: "studentProfileId",
         populate: {
           path: "userId",
-          select: "name email",
+          select: "name email profileImage",
         },
       },
     })
@@ -290,6 +295,7 @@ export const getRooms = async (req, res) => {
           id: allocation.studentProfileId._id,
           name: allocation.studentProfileId.userId.name,
           email: allocation.studentProfileId.userId.email,
+          profileImage: allocation.studentProfileId.userId.profileImage,
           rollNumber: allocation.studentProfileId.rollNumber,
           department: allocation.studentProfileId.department,
           bedNumber: allocation.bedNumber,

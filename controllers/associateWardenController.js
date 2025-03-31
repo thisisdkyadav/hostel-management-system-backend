@@ -67,7 +67,7 @@ export const createAssociateWarden = async (req, res) => {
 
 export const getAllAssociateWardens = async (req, res) => {
   try {
-    const associateWardens = await AssociateWarden.find().populate("userId", "name email phone profilePic").exec()
+    const associateWardens = await AssociateWarden.find().populate("userId", "name email phone profileImage").exec()
 
     const formattedAssociateWardens = associateWardens.map((associateWarden) => ({
       id: associateWarden._id,
@@ -76,7 +76,7 @@ export const getAllAssociateWardens = async (req, res) => {
       phone: associateWarden.userId.phone,
       hostelAssigned: associateWarden.hostelId || null,
       joinDate: associateWarden.joinDate.toISOString().split("T")[0],
-      profilePic: associateWarden.userId.profilePic,
+      profileImage: associateWarden.userId.profileImage,
       status: associateWarden.status,
     }))
     res.status(200).json(formattedAssociateWardens)

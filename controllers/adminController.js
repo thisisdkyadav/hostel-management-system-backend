@@ -64,7 +64,7 @@ export const createSecurity = async (req, res) => {
 
 export const getAllSecurities = async (req, res) => {
   try {
-    const securities = await Security.find().populate("userId", "name email phone profilePic").exec()
+    const securities = await Security.find().populate("userId", "name email phone profileImage").exec()
 
     const formattedSecurities = securities.map((security) => ({
       id: security._id,
@@ -193,7 +193,7 @@ export const createMaintenanceStaff = async (req, res) => {
 
 export const getAllMaintenanceStaff = async (req, res) => {
   try {
-    const maintenanceStaff = await MaintenanceStaff.find().populate("userId", "name email phone profilePic").exec()
+    const maintenanceStaff = await MaintenanceStaff.find().populate("userId", "name email phone profileImage").exec()
 
     const formattedMaintenanceStaff = maintenanceStaff.map((staff) => ({
       id: staff._id,
@@ -201,7 +201,7 @@ export const getAllMaintenanceStaff = async (req, res) => {
       email: staff.userId.email,
       phone: staff.userId.phone,
       category: staff.category || null,
-      profilePic: staff.userId.profilePic,
+      profileImage: staff.userId.profileImage,
     }))
     res.status(200).json(formattedMaintenanceStaff)
   } catch (error) {
