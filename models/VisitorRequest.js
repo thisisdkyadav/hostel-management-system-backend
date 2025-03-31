@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 
 const visitorRequestSchema = new mongoose.Schema({
-  student: {
+  userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
     required: true,
@@ -49,7 +49,7 @@ const visitorRequestSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ["pending", "approved", "rejected"],
+    enum: ["Pending", "Approved", "Rejected"],
     default: "pending",
   },
   createdAt: {

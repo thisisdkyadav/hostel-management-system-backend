@@ -12,6 +12,7 @@ import eventRoutes from "./routes/eventRoutes.js"
 import hostelRoutes from "./routes/hostelRoutes.js"
 import statsRoutes from "./routes/statsRoutes.js"
 import feedbackRoutes from "./routes/feedbackRoutes.js"
+import visitorRoutes from "./routes/visitorRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -49,6 +50,7 @@ app.use("/api/event", eventRoutes)
 app.use("/api/hostel", hostelRoutes)
 app.use("/api/stats", statsRoutes)
 app.use("/api/feedback", feedbackRoutes)
+app.use("/api/visitor", visitorRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")

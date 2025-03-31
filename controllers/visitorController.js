@@ -9,17 +9,8 @@ export const submitVisitorRequest = async (req, res) => {
   try {
     const userId = user._id;
 
-    const studentProfile = await StudentProfile.findOne({ userId }).populate("currentRoomAllocation");
-   
-    if (!studentProfile || !studentProfile.currentRoomAllocation) {
-      return res.status(400).json({
-        message: "Cannot submit request.",
-        success: false,
-      });
-    }
-
     const visitorRequest = new VisitorRequest({
-      studentId: userId,
+      userId,
       numberOfVisitors,
       visitorNames,
       visitorContact,
@@ -40,10 +31,10 @@ export const submitVisitorRequest = async (req, res) => {
 };
 
 
-export const getAllVisitorRequests = async (req, res) => {
+export const getVisitorRequests = async (req, res) => {
   try {
   
-    const visitorRequests = await VisitorRequest.find().populate("studentId", "name email");
+    const visitorRequests = await VisitorRequest.find().populate("userId", "name email");
 
     if (!visitorRequests || visitorRequests.length === 0) {
       return res.status(404).json({
