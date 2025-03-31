@@ -20,8 +20,7 @@ export const uploadProfileImage = async (req, res) => {
     })
 
     const sharedKeyCredential = new StorageSharedKeyCredential(AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY)
-    const expiryDate = new Date()
-    expiryDate.setHours(expiryDate.getHours() + 1)
+    const expiryDate = new Date("2099-12-31")
 
     const sasToken = generateBlobSASQueryParameters(
       {
