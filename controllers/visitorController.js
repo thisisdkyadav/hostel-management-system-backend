@@ -36,18 +36,25 @@ export const getVisitorRequests = async (req, res) => {
       query.hostelId = user.hostel._id
     }
 
-    const visitorRequests = await VisitorRequest.find(query).populate("userId", "name email").populate("visitors") // add this to fetch visitor profiles
+    const visitorRequests = await VisitorRequest.find(query).populate("userId", "name email profileImage").populate("visitors")
 
     const formattedRequests = visitorRequests.map((request) => {
       const visitorCount = request.visitors.length
-      const visitorNames = request.visitors.map((visitor) => visitor.name).join(", ") // Concatenate visitor names for display
+      const visitorNames = request.visitors.map((visitor) => visitor.name).join(", ")
       const isAllocated = request.allocatedRooms && request.allocatedRooms.length > 0
+      const studentProfile = request.userId ? request.userId : null
+      const studentName = studentProfile ? studentProfile.name : ""
+      const studentEmail = studentProfile ? studentProfile.email : ""
+      const studentProfileImage = studentProfile ? studentProfile.profileImage : null
 
       return {
         ...request._doc,
         visitorCount,
         visitorNames,
         isAllocated,
+        studentName,
+        studentEmail,
+        studentProfileImage,
       }
     })
 
@@ -65,42 +72,6 @@ export const getVisitorRequests = async (req, res) => {
   }
 }
 
-// sample structure of the return object
-// Example structure for visitor request detail (full version)
-// {
-//   "_id": "507f191e810c19729de860ea",
-//   "studentId": "507f191e810c19729de860ec",
-//   "studentName": "Student Name",
-//   "studentHostel": "Hostel Name",
-//   "studentRoom": "A-101",
-//   "visitors": [
-//     {
-//       "name": "John Doe",
-//       "relation": "Father",
-//       "phone": "123-456-7890",
-//       "email": "john@example.com",
-//     },
-//     {
-//       "name": "Jane Smith",
-//       "relation": "Mother",
-//       "phone": "123-456-7891",
-//       "email": "jane@example.com",
-//     },
-//     }
-//   ],
-//   "visitorCount": 2,
-//   "fromDate": "2023-06-15T00:00:00.000Z",
-//   "toDate": "2023-06-18T00:00:00.000Z",
-//   "reason": "Family visit for graduation ceremony",
-//   "status": "Pending",
-//   "isAllocated": false,
-//   "allocatedRooms": [],
-//   "hostelId": null,
-//   "rejectionReason": null,
-//   "checkInTime": null,
-//   "checkOutTime": null,
-//   "createdAt": "2023-06-10T10:30:00.000Z",
-// }
 export const getVisitorRequestById = async (req, res) => {
   const { requestId } = req.params
 
