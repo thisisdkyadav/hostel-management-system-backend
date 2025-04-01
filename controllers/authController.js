@@ -3,6 +3,7 @@ import axios from "axios"
 import { JWT_SECRET, isDevelopmentEnvironment } from "../config/environment.js"
 import User from "../models/User.js"
 import bcrypt from "bcrypt"
+import { generateKey } from "../utils/qrUtils.js"
 
 export const login = async (req, res) => {
   const { email, password } = req.body
@@ -33,7 +34,11 @@ export const login = async (req, res) => {
       { expiresIn: "7d" }
     )
 
-    const userResponse = user.toObject ? user.toObject() : JSON.parse(JSON.stringify(user))
+    const aesKey = await generateKey(user.email)
+    console.log(aesKey.length, "Key length")
+    console.log("AES Key:", aesKey)
+
+    const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true })
     delete userResponse.password
 
     res.cookie("token", token, {
@@ -44,7 +49,6 @@ export const login = async (req, res) => {
     })
 
     res.json({
-      token,
       user: userResponse,
       message: "Login successful",
     })
@@ -55,7 +59,7 @@ export const login = async (req, res) => {
 }
 
 export const loginWithGoogle = async (req, res) => {
-  const { token, isMobile = false } = req.body
+  const { token } = req.body
   try {
     const googleResponse = await axios.get(`https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${token}`)
 
@@ -76,24 +80,21 @@ export const loginWithGoogle = async (req, res) => {
       { expiresIn: "7d" }
     )
 
-    if (isMobile) {
-      return res.json({ jwt: jwtToken })
-    } else {
-      res.cookie("token", jwtToken, {
-        httpOnly: true,
-        secure: !isDevelopmentEnvironment,
-        sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      })
+    res.cookie("token", jwtToken, {
+      httpOnly: true,
+      secure: !isDevelopmentEnvironment,
+      sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    })
 
-      const userResponse = user.toObject ? user.toObject() : JSON.parse(JSON.stringify(user))
-      delete userResponse.password
+    const aesKey = await generateKey(user.email)
+    const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true })
+    delete userResponse.password
 
-      res.json({
-        user: userResponse,
-        message: "Login successful",
-      })
-    }
+    res.json({
+      user: userResponse,
+      message: "Login successful",
+    })
   } catch (error) {
     res.status(401).json({ message: "Invalid Google Token" })
   }

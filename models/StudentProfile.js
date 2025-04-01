@@ -157,6 +157,63 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
   }
 }
 
+StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
+  try {
+    const isArray = Array.isArray(userId)
+    const userIds = isArray ? userId : [userId]
+
+    const studentProfiles = await this.find({ userId: { $in: userIds } })
+      .populate({
+        path: "userId",
+        select: "name email phone profileImage",
+      })
+      .populate({
+        path: "currentRoomAllocation",
+        populate: [
+          {
+            path: "roomId",
+            select: "roomNumber",
+            populate: {
+              path: "unitId",
+              select: "unitNumber",
+            },
+          },
+          {
+            path: "hostelId",
+            select: "name type",
+          },
+        ],
+      })
+
+    const formattedProfiles = studentProfiles.map((studentProfile) => {
+      const fullData = {
+        userId: studentProfile.userId?._id || "",
+        id: studentProfile._id,
+        name: studentProfile.userId?.name || "",
+        email: studentProfile.userId?.email || "",
+        phone: studentProfile.userId?.phone || "",
+        profileImage: studentProfile.userId?.profileImage || "",
+        rollNumber: studentProfile.rollNumber,
+        gender: studentProfile.gender || "",
+      }
+
+      if (studentProfile.currentRoomAllocation) {
+        fullData.hostel = studentProfile.currentRoomAllocation.hostelId?.name || ""
+        fullData.displayRoom = studentProfile.currentRoomAllocation.roomId?.unitId?.unitNumber
+          ? studentProfile.currentRoomAllocation.roomId?.unitId?.unitNumber + "-" + studentProfile.currentRoomAllocation.roomId?.roomNumber + "-" + studentProfile.currentRoomAllocation.bedNumber
+          : studentProfile.currentRoomAllocation.roomId?.roomNumber + "-" + studentProfile.currentRoomAllocation.bedNumber
+      }
+
+      return fullData
+    })
+
+    return isArray ? formattedProfiles : formattedProfiles[0]
+  } catch (error) {
+    console.error("Error fetching full student data:", error)
+    throw error
+  }
+}
+
 StudentProfileSchema.statics.searchStudents = async function (params) {
   const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc" } = params
 

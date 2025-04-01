@@ -12,6 +12,7 @@ const UserSchema = new mongoose.Schema(
       required: true,
     },
     password: { type: String },
+    aesKey: { type: String },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
   },

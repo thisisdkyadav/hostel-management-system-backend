@@ -6,6 +6,9 @@ import RoomAllocation from "../models/RoomAllocation.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
 import AssociateWarden from "../models/AssociateWarden.js"
+import { decryptData } from "../utils/qrUtils.js"
+import User from "../models/User.js"
+import StudentProfile from "../models/StudentProfile.js"
 
 export const getSecurity = async (req, res) => {
   const user = req.user
@@ -291,6 +294,32 @@ export const deleteVisitor = async (req, res) => {
     res.status(200).json({ message: "Visitor deleted successfully", success: true })
   } catch (error) {
     console.error("Error deleting visitor:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+}
+
+export const verifyQR = async (req, res) => {
+  const { email, encryptedData } = req.body
+  try {
+    if (!email || !encryptedData) return res.status(400).json({ error: "Invalid QR Code" })
+
+    const user = await User.findOne({ email })
+    if (!user) return res.status(400).json({ error: "Invalid QR Code" })
+
+    const expiry = await decryptData(encryptedData, user.aesKey)
+    if (!expiry) return res.status(400).json({ error: "Invalid QR Code" })
+
+    if (Date.now() > expiry) return res.status(400).json({ error: "QR Code Expired" })
+
+    const studentProfile = await StudentProfile.getBasicStudentData(user._id.toString())
+    if (!studentProfile) return res.status(404).json({ error: "Student not found" })
+
+    const lastCheckInOut = await CheckInOut.findOne({ userId: user._id }).sort({ dateAndTime: -1 }).exec()
+    if (!lastCheckInOut) return res.status(404).json({ error: "No check-in/out records found" })
+
+    res.json({ success: true, studentProfile, lastCheckInOut })
+  } catch (error) {
+    console.error("Error verifying QR code:", error)
     res.status(500).json({ message: "Internal server error" })
   }
 }

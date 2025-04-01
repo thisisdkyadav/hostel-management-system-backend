@@ -1,5 +1,5 @@
 import express from "express"
-import { getSecurity, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor } from "../controllers/securityController.js"
+import { getSecurity, verifyQR, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor } from "../controllers/securityController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -19,5 +19,6 @@ router.get("/entries/recent", authorizeRoles(["Admin", "Warden", "Associate Ward
 router.post("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), addStudentEntry)
 router.put("/entries/:entryId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), updateStudentEntry)
 router.delete("/entries/:entryId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), deleteStudentEntry)
+router.post("/verify-qr", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), verifyQR)
 
 export default router
