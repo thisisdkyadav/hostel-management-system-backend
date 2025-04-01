@@ -21,34 +21,36 @@ export const createStudentsProfiles = async (req, res) => {
     await session.withTransaction(async () => {
       const userOps = []
       const profileOps = []
-      studentsData.forEach(async (student) => {
-        const { email, name, rollNumber, password, phone, profileImage, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
+      await Promise.all(
+        studentsData.map(async (student) => {
+          const { email, name, rollNumber, password, phone, profileImage, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
 
-        if (!email || !name || !rollNumber) {
-          errors.push({
-            student: student.rollNumber || student.email,
-            message: "Missing required fields: email, name, rollNumber",
+          if (!email || !name || !rollNumber) {
+            errors.push({
+              student: student.rollNumber || student.email,
+              message: "Missing required fields: email, name, rollNumber",
+            })
+            return
+          }
+
+          const salt = await bcrypt.genSalt(10)
+          const hashedPassword = await bcrypt.hash(password || rollNumber, salt)
+
+          const userData = {
+            email,
+            name,
+            role: "Student",
+            phone: phone || "",
+            profileImage: profileImage || "",
+            password: hashedPassword,
+          }
+
+          userOps.push({
+            insertOne: { document: userData },
+            metadata: { student },
           })
-          return
-        }
-
-        const salt = await bcrypt.genSalt(10)
-        const hashedPassword = await bcrypt.hash(password || rollNumber, salt)
-
-        const userData = {
-          email,
-          name,
-          role: "Student",
-          phone: phone || "",
-          profileImage: profileImage || "",
-          password: hashedPassword,
-        }
-
-        userOps.push({
-          insertOne: { document: userData },
-          metadata: { student },
         })
-      })
+      )
 
       if (userOps.length > 0) {
         const bulkUserOps = userOps.map((op) => op.insertOne.document)
