@@ -315,7 +315,7 @@ export const verifyQR = async (req, res) => {
     if (!studentProfile) return res.status(404).json({ error: "Student not found" })
 
     const lastCheckInOut = await CheckInOut.findOne({ userId: user._id }).sort({ dateAndTime: -1 }).exec()
-    if (!lastCheckInOut) return res.status(404).json({ error: "No check-in/out records found" })
+    // if (!lastCheckInOut) return res.status(404).json({ error: "No check-in/out records found" })
 
     res.json({ success: true, studentProfile, lastCheckInOut })
   } catch (error) {
