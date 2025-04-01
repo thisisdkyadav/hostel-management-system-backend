@@ -58,12 +58,6 @@ export const getAllComplaints = async (req, res) => {
 
     if (["Student"].includes(role)) {
       query.userId = user._id
-    } else if (["Maintenance Staff"].includes(role)) {
-      const staffProfile = await MaintenanceStaff.findOne({ userId: user._id })
-      if (staffProfile && staffProfile.category) {
-        query.category = staffProfile.category
-      }
-      query.$or = [{ assignedTo: user._id }, { assignedTo: { $exists: false } }, { assignedTo: null }]
     }
 
     if (user.hostel) {
