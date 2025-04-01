@@ -1,4 +1,5 @@
-import mongoose from "mongoose";
+import mongoose from "mongoose"
+import VisitorProfile from "./VisitorProfile.js" // added import
 
 const visitorRequestSchema = new mongoose.Schema({
   userId: {
@@ -6,57 +7,76 @@ const visitorRequestSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
-  numberOfVisitors: {
-    type: Number,
-    required: true,
-    min: 1, 
-  },
-  visitorNames: {
-    type: [String],
-    required: true,
-    validate: {
-      validator: function (value) {
-        return value.length === this.numberOfVisitors;
-      },
-      message: "Number of visitor names must match the number of visitors",
+  visitors: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "VisitorProfile",
     },
-  },
-  visitorContact: {
-    type: String,
-    required: true,
-    match: [/^\d{10,15}$/, "Please enter a valid contact number"],
-  },
-  visitorEmail: {
-    type: String,
-    required: true,
-    match: [
-      /^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$/,
-      "Please enter a valid email address",
-    ],
-  },
-  relationWithStudent: {
+  ],
+  reason: {
     type: String,
     required: true,
   },
-  
-  visitReason: {
-    type: String,
-    required: true,
-  },
-  visitDate: {
+  fromDate: {
     type: Date,
     required: true,
+  },
+  toDate: {
+    type: Date,
+    required: true,
+  },
+  hostelId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Hostel",
+  },
+  allocatedRooms: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: "Room",
   },
   status: {
     type: String,
     enum: ["Pending", "Approved", "Rejected"],
-    default: "pending",
+    default: "Pending",
+  },
+  reasonForRejection: {
+    type: String,
+  },
+  checkInTime: {
+    type: Date,
+  },
+  checkOutTime: {
+    type: Date,
+  },
+  securityNotes: {
+    type: String,
   },
   createdAt: {
     type: Date,
     default: Date.now,
   },
-});
+})
 
-const VisitorRequest = mongoose.model("VisitorRequest", visitorRequestSchema);
-export default VisitorRequest;
+visitorRequestSchema.pre("findOneAndDelete", async function (next) {
+  const doc = await this.model.findOne(this.getFilter())
+  if (doc && doc.status !== "Pending") {
+    return next(new Error("Cannot delete a request that is not pending"))
+  }
+  next()
+})
+
+visitorRequestSchema.post("save", async function (doc, next) {
+  if (doc.visitors && doc.visitors.length) {
+    await VisitorProfile.updateMany({ _id: { $in: doc.visitors } }, { $addToSet: { requests: doc._id } })
+  }
+  next()
+})
+
+visitorRequestSchema.post("findOneAndDelete", async function (doc, next) {
+  if (doc && doc.visitors && doc.visitors.length) {
+    await VisitorProfile.updateMany({ _id: { $in: doc.visitors } }, { $pull: { requests: doc._id } })
+  }
+  next()
+})
+
+const VisitorRequest = mongoose.model("VisitorRequest", visitorRequestSchema)
+export default VisitorRequest
