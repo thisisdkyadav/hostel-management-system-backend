@@ -131,7 +131,6 @@ export const getHostels = async (req, res) => {
       const maintenanceIssues = await Complaint.countDocuments({
         hostelId: hostel._id,
         status: { $in: ["Pending", "In Progress"] },
-        complaintType: { $in: ["Electricity", "Water", "Civil", "Other"] },
       })
 
       hostels.push({

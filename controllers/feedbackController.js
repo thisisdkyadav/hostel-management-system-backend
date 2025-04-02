@@ -50,7 +50,7 @@ export const getFeedbacks = async (req, res) => {
       query.userId = user._id
     }
 
-    const feedbacks = await Feedback.find(query).populate("userId", "name email")
+    const feedbacks = await Feedback.find(query).populate("userId", "name email profileImage").populate("hostelId", "name")
     res.status(200).json({ feedbacks, success: true })
   } catch (error) {
     console.error("Error fetching feedback:", error)
