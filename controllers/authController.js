@@ -34,10 +34,7 @@ export const login = async (req, res) => {
       { expiresIn: "7d" }
     )
 
-    const aesKey = await generateKey(user.email)
-    console.log(aesKey.length, "Key length")
-    console.log("AES Key:", aesKey)
-
+    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email)
     const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true })
     delete userResponse.password
 
@@ -87,7 +84,7 @@ export const loginWithGoogle = async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     })
 
-    const aesKey = await generateKey(user.email)
+    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email)
     const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true })
     delete userResponse.password
 
