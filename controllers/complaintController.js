@@ -5,21 +5,15 @@ import Room from "../models/Room.js"
 import MaintenanceStaff from "../models/MaintenanceStaff.js"
 import Warden from "../models/Warden.js"
 import AssociateWarden from "../models/AssociateWarden.js"
+import RoomAllocation from "../models/RoomAllocation.js"
 
 export const createComplaint = async (req, res) => {
-  const { userId, title, description, category, priority, hostelId, unit, room, attachments } = req.body
+  const { userId, title, description, category, priority, attachments } = req.body
   try {
-    console.log("Creating complaint with data:", req.body)
+    const studentAllocation = await RoomAllocation.findOne({ userId })
 
-    const studentUnit = await Unit.findOne({ unitNumber: unit, hostelId })
-
-    if (!studentUnit) {
-      return res.status(404).json({ message: "Unit not found" })
-    }
-
-    const studentRoom = await Room.findOne({ unitId: studentUnit._id, hostelId, roomNumber: room })
-    if (!studentRoom) {
-      return res.status(404).json({ message: "Room not found" })
+    if (!studentAllocation) {
+      return res.status(404).json({ message: "Room allocation not found" })
     }
 
     const newComplaint = new Complaint({
@@ -28,9 +22,9 @@ export const createComplaint = async (req, res) => {
       description,
       category,
       priority,
-      hostelId,
-      unitId: studentUnit._id,
-      roomId: studentRoom._id,
+      hostelId: studentAllocation.hostelId,
+      unitId: studentAllocation.unitId,
+      roomId: studentAllocation.roomId,
       attachments,
     })
 
