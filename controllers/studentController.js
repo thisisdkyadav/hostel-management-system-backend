@@ -684,11 +684,10 @@ export const getStudentDashboard = async (req, res) => {
 
     const now = new Date()
 
-    console.log(studentProfile.hostelId, "studentProfile.hostel")
-
-    const events = await Events.find({ hostelId: studentProfile.hostelId })
-
-    console.log(events, "events")
+    const eventsQuery = {
+      $or: [{ hostelId: studentProfile.hostelId.toString() }, { hostelId: null }],
+    }
+    const events = await Events.find(eventsQuery)
 
     if (events.length > 0) {
       const upcomingEvents = events.filter((e) => new Date(e.dateAndTime) > now)
