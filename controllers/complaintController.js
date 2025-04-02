@@ -44,13 +44,8 @@ export const createComplaint = async (req, res) => {
 }
 
 export const getAllComplaints = async (req, res) => {
-  console.log("Fetching all complaints with query:", req.query)
-
   try {
     const user = req.user
-
-    console.log("Fetching complaints for user:", user)
-
     const { role } = user
     const { page = 1, limit = 10, category, status, priority, hostelId, startDate, endDate } = req.query
 
@@ -228,5 +223,56 @@ export const getStats = async (req, res) => {
   } catch (error) {
     console.error(error)
     res.status(500).json({ message: "Error fetching stats", error: error.message })
+  }
+}
+
+export const getStudentComplaints = async (req, res) => {
+  const { userId } = req.params
+  const { page = 1, limit = 10 } = req.query
+  try {
+    const skip = (parseInt(page) - 1) * parseInt(limit)
+    const limitNum = parseInt(limit)
+
+    const totalCount = await Complaint.countDocuments({ userId })
+
+    const complaints = await Complaint.find({ userId }).populate("hostelId", "name").populate("unitId", "unitNumber").populate("roomId", "roomNumber").sort({ createdAt: -1 }).skip(skip).limit(limitNum)
+
+    const formattedComplaints = complaints.map((complaint) => {
+      let roomNumber = ""
+      if (complaint.unitId && complaint.roomId) {
+        roomNumber = `${complaint.unitId.unitNumber}-${complaint.roomId.roomNumber}`
+      } else if (complaint.roomId) {
+        roomNumber = complaint.roomId.roomNumber
+      } else {
+        roomNumber = "N/A"
+      }
+
+      return {
+        id: complaint._id,
+        title: complaint.title,
+        description: complaint.description,
+        status: complaint.status,
+        category: complaint.category,
+        priority: complaint.priority,
+        hostel: complaint.hostelId ? complaint.hostelId.name : "N/A",
+        roomNumber: roomNumber,
+        createdAt: complaint.createdAt.toISOString(),
+        updatedAt: complaint.updatedAt.toISOString(),
+        images: complaint.attachments || [],
+      }
+    })
+
+    res.status(200).json({
+      data: formattedComplaints || [],
+      meta: {
+        total: totalCount,
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalCount / limitNum),
+      },
+      message: "Student complaints fetched successfully",
+    })
+  } catch (error) {
+    console.error("Error fetching student complaints:", error)
+    res.status(500).json({ message: "Error fetching student complaints", error: error.message })
   }
 }

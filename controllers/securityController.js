@@ -136,13 +136,19 @@ export const getRecentEntries = async (req, res) => {
 }
 
 export const getStudentEntries = async (req, res) => {
-  const { status, date, search, page = 1, limit = 10 } = req.query
+  const { userId, status, date, search, page = 1, limit = 10 } = req.query
   const user = req.user
   try {
     const query = {}
 
     if (user.role === "Student") {
       query.userId = user._id
+    }
+
+    if (["Admin", "Warden", "Associate Warden"].includes(user.role)) {
+      if (userId) {
+        query.userId = userId
+      }
     }
 
     if (user.hostel) {
@@ -159,8 +165,6 @@ export const getStudentEntries = async (req, res) => {
     const totalEntries = await CheckInOut.countDocuments(query).exec()
 
     const studentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).skip(skip).limit(limit).populate("userId", "name email phone").exec()
-
-    console.log("Student Entries:", studentEntries)
 
     res.status(200).json({
       studentEntries,

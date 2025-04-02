@@ -410,3 +410,36 @@ export const updateCheckTime = async (req, res) => {
     })
   }
 }
+
+export const getStudentVisitorRequests = async (req, res) => {
+  const { userId } = req.params
+
+  try {
+    const visitorRequests = await VisitorRequest.find({ userId }).populate("userId", "name email profileImage").populate("visitors")
+
+    const formattedRequests = visitorRequests.map((request) => {
+      const visitorCount = request.visitors.length
+      const visitorNames = request.visitors.map((visitor) => visitor.name).join(", ")
+      const isAllocated = request.allocatedRooms && request.allocatedRooms.length > 0
+
+      return {
+        ...request._doc,
+        visitorCount,
+        visitorNames,
+        isAllocated,
+      }
+    })
+
+    res.status(200).json({
+      message: "Visitor requests fetched successfully",
+      success: true,
+      data: formattedRequests || [],
+    })
+  } catch (error) {
+    console.error("Error fetching student visitor requests:", error)
+    res.status(500).json({
+      message: "Error fetching student visitor requests",
+      error: error.message,
+    })
+  }
+}

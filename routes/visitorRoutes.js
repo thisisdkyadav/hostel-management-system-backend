@@ -1,5 +1,5 @@
 import express from "express"
-import { createVisitorRequest, deleteVisitorRequest, getVisitorRequests, updateVisitorRequest, updateVisitorRequestStatus, allocateRoomsToVisitorRequest, getVisitorRequestById, checkInVisitor, checkOutVisitor, updateCheckTime } from "../controllers/visitorController.js"
+import { createVisitorRequest, deleteVisitorRequest, getVisitorRequests, updateVisitorRequest, updateVisitorRequestStatus, allocateRoomsToVisitorRequest, getVisitorRequestById, checkInVisitor, checkOutVisitor, updateCheckTime, getStudentVisitorRequests } from "../controllers/visitorController.js"
 import { getVisitorProfiles, createVisitorProfile, deleteVisitorProfile, updateVisitorProfile } from "../controllers/visitorProfileController.js"
 import { authenticate } from "../middlewares/auth.js"
 
@@ -7,6 +7,7 @@ const router = express.Router()
 router.use(authenticate)
 
 router.get("/requests/summary", getVisitorRequests)
+router.get("/requests/student/:userId", getStudentVisitorRequests)
 router.get("/requests/:requestId", getVisitorRequestById)
 router.post("/requests", createVisitorRequest)
 router.put("/requests/:requestId", updateVisitorRequest)

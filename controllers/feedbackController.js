@@ -124,3 +124,14 @@ export const deleteFeedback = async (req, res) => {
     res.status(500).json({ message: "Error deleting feedback", error: error.message })
   }
 }
+
+export const getStudentFeedbacks = async (req, res) => {
+  const { userId } = req.params
+  try {
+    const feedbacks = await Feedback.find({ userId }).populate("userId", "name email profileImage").populate("hostelId", "name")
+    res.status(200).json({ feedbacks, success: true })
+  } catch (error) {
+    console.error("Error fetching student feedback:", error)
+    res.status(500).json({ message: "Error fetching student feedback", error: error.message })
+  }
+}
