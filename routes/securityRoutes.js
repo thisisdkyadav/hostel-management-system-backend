@@ -1,5 +1,5 @@
 import express from "express"
-import { getSecurity, verifyQR, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor } from "../controllers/securityController.js"
+import { getSecurity, verifyQR, addStudentEntryWithEmail, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor } from "../controllers/securityController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -17,6 +17,8 @@ router.delete("/visitors/:visitorId", authorizeRoles(["Admin", "Warden", "Associ
 router.get("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), getStudentEntries)
 router.get("/entries/recent", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), getRecentEntries)
 router.post("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), addStudentEntry)
+router.post("/entries/email", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), addStudentEntryWithEmail)
+
 router.put("/entries/:entryId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), updateStudentEntry)
 router.delete("/entries/:entryId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), deleteStudentEntry)
 router.post("/verify-qr", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), verifyQR)

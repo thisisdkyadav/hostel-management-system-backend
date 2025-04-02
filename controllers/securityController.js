@@ -89,6 +89,33 @@ export const addStudentEntry = async (req, res) => {
   }
 }
 
+export const addStudentEntryWithEmail = async (req, res) => {
+  const { email, status } = req.body
+  try {
+    const user = await User.findOne({ email })
+    if (!user) {
+      return res.status(404).json({ message: "User not found" })
+    }
+
+    const roomAllocation = await RoomAllocation.findOne({ userId: user._id }).populate("roomId").populate("unitId")
+
+    const studentEntry = new CheckInOut({
+      userId: user._id,
+      status: "Checked In",
+      hostelId: roomAllocation.hostelId,
+      unit: roomAllocation.unitId.unitNumber,
+      room: roomAllocation.roomId.roomNumber,
+      bed: roomAllocation.bedNumber,
+      status,
+    })
+    await studentEntry.save()
+    res.status(201).json({ message: "Student entry added successfully", success: true, studentEntry })
+  } catch (error) {
+    console.error("Error adding student entry:", error)
+    res.status(500).json({ message: "Internal server error", error: error.message })
+  }
+}
+
 export const getRecentEntries = async (req, res) => {
   const user = req.user
 
@@ -126,26 +153,12 @@ export const getStudentEntries = async (req, res) => {
   const { status, date, search } = req.query
   const user = req.user
   try {
-    const userRole = user.role
-    let hostelId
-    if (userRole === "Security") {
-      const security = await Security.findOne({ userId: user._id })
-      hostelId = security.hostelId
-    } else if (userRole === "Warden") {
-      const warden = await Warden.findOne({ userId: user._id })
-      hostelId = warden.hostelId
-    } else if (userRole === "Associate Warden") {
-      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
-      hostelId = associateWarden.hostelId
-    } else {
-      return res.status(403).json({ message: "Access denied" })
+    const query = {}
+
+    if (user.hostel) {
+      query.hostelId = user.hostel._id
     }
 
-    if (!hostelId) {
-      return res.status(404).json({ message: "Hostel not found" })
-    }
-
-    const query = { hostelId }
     if (status) query.status = status
     if (date) query.dateAndTime = { $gte: new Date(date) }
     if (search) {
