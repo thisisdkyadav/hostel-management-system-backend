@@ -120,27 +120,13 @@ export const getRecentEntries = async (req, res) => {
   const user = req.user
 
   try {
-    const userRole = user.role
+    const query = {}
 
-    let hostelId
-    if (userRole === "Security") {
-      const security = await Security.findOne({ userId: user._id })
-      hostelId = security.hostelId
-    } else if (userRole === "Warden") {
-      const warden = await Warden.findOne({ userId: user._id })
-      hostelId = warden.hostelId
-    } else if (userRole === "Associate Warden") {
-      const associateWarden = await AssociateWarden.findOne({ userId: user._id })
-      hostelId = associateWarden.hostelId
-    } else {
-      return res.status(403).json({ message: "Access denied" })
+    if (user.hostel) {
+      query.hostelId = user.hostel._id
     }
 
-    if (!hostelId) {
-      return res.status(404).json({ message: "Hostel not found" })
-    }
-
-    const recentEntries = await CheckInOut.find({ hostelId }).sort({ dateAndTime: -1 }).limit(10).populate("userId", "name email phone").exec()
+    const recentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).limit(10).populate("userId", "name email phone").exec()
 
     res.status(200).json(recentEntries)
   } catch (error) {
@@ -165,7 +151,7 @@ export const getStudentEntries = async (req, res) => {
       query.$or = [{ "userId.name": { $regex: search, $options: "i" } }, { "userId.email": { $regex: search, $options: "i" } }, { room: { $regex: search, $options: "i" } }, { unit: { $regex: search, $options: "i" } }, { bed: { $regex: search, $options: "i" } }]
     }
 
-    const studentEntries = await CheckInOut.find(query).populate("userId", "name email phone").exec()
+    const studentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).populate("userId", "name email phone").exec()
     res.status(200).json(studentEntries)
   } catch (error) {
     console.error("Error fetching student entries:", error)
