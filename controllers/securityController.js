@@ -136,10 +136,14 @@ export const getRecentEntries = async (req, res) => {
 }
 
 export const getStudentEntries = async (req, res) => {
-  const { status, date, search } = req.query
+  const { status, date, search, page = 1, limit = 10 } = req.query
   const user = req.user
   try {
     const query = {}
+
+    if (user.role === "Student") {
+      query.userId = user._id
+    }
 
     if (user.hostel) {
       query.hostelId = user.hostel._id
@@ -151,8 +155,18 @@ export const getStudentEntries = async (req, res) => {
       query.$or = [{ "userId.name": { $regex: search, $options: "i" } }, { "userId.email": { $regex: search, $options: "i" } }, { room: { $regex: search, $options: "i" } }, { unit: { $regex: search, $options: "i" } }, { bed: { $regex: search, $options: "i" } }]
     }
 
-    const studentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).populate("userId", "name email phone").exec()
-    res.status(200).json(studentEntries)
+    const skip = (page - 1) * limit
+    const totalEntries = await CheckInOut.countDocuments(query).exec()
+
+    const studentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).skip(skip).limit(limit).populate("userId", "name email phone").exec()
+
+    res.status(200).json({
+      studentEntries,
+      meta: {
+        total: totalEntries,
+        totalPages: Math.ceil(totalEntries / limit),
+      },
+    })
   } catch (error) {
     console.error("Error fetching student entries:", error)
     res.status(500).json({ message: "Internal server error" })
