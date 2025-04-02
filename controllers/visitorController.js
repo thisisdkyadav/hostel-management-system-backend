@@ -77,7 +77,7 @@ export const getVisitorRequestById = async (req, res) => {
 
   try {
     const visitorRequest = await VisitorRequest.findById(requestId)
-      .populate("userId", "name email")
+      .populate("userId", "name email profileImage")
       .populate("visitors")
       .populate({
         path: "allocatedRooms",
