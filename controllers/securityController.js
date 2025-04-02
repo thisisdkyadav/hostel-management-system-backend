@@ -160,6 +160,8 @@ export const getStudentEntries = async (req, res) => {
 
     const studentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).skip(skip).limit(limit).populate("userId", "name email phone").exec()
 
+    console.log("Student Entries:", studentEntries)
+
     res.status(200).json({
       studentEntries,
       meta: {

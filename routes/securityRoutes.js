@@ -14,7 +14,7 @@ router.post("/visitors", authorizeRoles(["Admin", "Warden", "Associate Warden", 
 router.put("/visitors/:visitorId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), updateVisitor)
 router.delete("/visitors/:visitorId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), deleteVisitor)
 
-router.get("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), getStudentEntries)
+router.get("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security", "Student"]), getStudentEntries)
 router.get("/entries/recent", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), getRecentEntries)
 router.post("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), addStudentEntry)
 router.post("/entries/email", authorizeRoles(["Admin", "Warden", "Associate Warden", "Security"]), addStudentEntryWithEmail)
