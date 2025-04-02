@@ -195,19 +195,9 @@ export const updateComplaintStatus = async (req, res) => {
 export const getStats = async (req, res) => {
   try {
     const user = req.user
-
-    console.log("Fetching stats for user:", user._id)
-
     const { role } = user
 
     const query = {}
-
-    if (role === "Maintenance Staff") {
-      const staffProfile = await MaintenanceStaff.findOne({ userId: user._id })
-      if (staffProfile && staffProfile.category) {
-        query.category = staffProfile.category
-      }
-    }
 
     const total = await Complaint.countDocuments(query)
     const pending = await Complaint.countDocuments({ ...query, status: "Pending" })
