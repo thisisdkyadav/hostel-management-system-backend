@@ -55,13 +55,12 @@ export const createStudentsProfiles = async (req, res) => {
       if (userOps.length > 0) {
         const bulkUserOps = userOps.map((op) => op.insertOne.document)
         const userInsertResult = await User.collection.insertMany(bulkUserOps, { session })
-        const insertedUserIds = userInsertResult.insertedIds
+        const insertedUserIds = Object.values(userInsertResult.insertedIds)
 
-        let index = 0
-        studentsData.forEach((student) => {
+        userOps.forEach((op, index) => {
+          const student = op.metadata.student
           const { email, rollNumber, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone, guardianEmail } = student
-          if (!email || !rollNumber) return
-          const userId = insertedUserIds[index++]
+          const userId = insertedUserIds[index]
           const profileData = {
             userId,
             rollNumber,
