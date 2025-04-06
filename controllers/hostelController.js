@@ -6,6 +6,54 @@ import RoomAllocation from "../models/RoomAllocation.js"
 import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import mongoose from "mongoose"
 
+async function createUnits(hostelId, units, session) {
+  const createdUnits = {}
+  if (Array.isArray(units)) {
+    const unitsToInsert = units
+      .filter((unitData) => unitData.unitNumber)
+      .map((unitData) => {
+        const { unitNumber, floor, commonAreaDetails } = unitData
+        return {
+          hostelId,
+          unitNumber,
+          floor: floor || parseInt(unitNumber.charAt(0)) - 1 || 0,
+          commonAreaDetails: commonAreaDetails || "",
+        }
+      })
+
+    if (unitsToInsert.length > 0) {
+      const savedUnits = await Unit.insertMany(unitsToInsert, { session })
+      savedUnits.forEach((unit) => {
+        createdUnits[unit.unitNumber] = unit._id
+      })
+    }
+  }
+  return createdUnits
+}
+
+async function createRooms(hostelId, rooms, createdUnits, type, session) {
+  if (Array.isArray(rooms)) {
+    for (const roomData of rooms) {
+      const { unitNumber, roomNumber, capacity, status } = roomData
+      if (!roomNumber || !capacity) {
+        continue
+      }
+      const roomFields = {
+        hostelId,
+        roomNumber,
+        capacity,
+        status: status || "Active",
+        occupancy: 0,
+      }
+      if (type === "unit-based" && unitNumber && createdUnits[unitNumber]) {
+        roomFields.unitId = createdUnits[unitNumber]
+      }
+      const room = new Room(roomFields)
+      await room.save({ session })
+    }
+  }
+}
+
 export const addHostel = async (req, res) => {
   const session = await mongoose.startSession()
   session.startTransaction()
@@ -49,7 +97,7 @@ export const addHostel = async (req, res) => {
 
     if (Array.isArray(rooms)) {
       for (const roomData of rooms) {
-        const { unitNumber, roomNumber, capacity, status } = roomData
+        const { unitNumber, roomNumber, capacity } = roomData
 
         if (!roomNumber || !capacity) {
           continue
@@ -59,7 +107,7 @@ export const addHostel = async (req, res) => {
           hostelId,
           roomNumber,
           capacity,
-          status: status || "Active",
+          status: "Active",
           occupancy: 0,
         }
 
@@ -146,9 +194,6 @@ export const getHostels = async (req, res) => {
         occupancyRate: occupancyRate,
       })
     }
-
-    console.log("Formatted Hostels Data:", hostels)
-
     res.status(200).json(hostels)
   } catch (error) {
     res.status(500).json({ message: "Error fetching hostels", error: error.message })
@@ -156,8 +201,6 @@ export const getHostels = async (req, res) => {
 }
 
 export const updateHostel = async (req, res) => {
-  console.log("Request Body:", req.body)
-
   const { id } = req.params
   const { name, gender } = req.body
   try {
@@ -316,8 +359,6 @@ export const getRooms = async (req, res) => {
 }
 
 export const updateRoomStatus = async (req, res) => {
-  console.log("Request Body:", req.body)
-
   const { roomId } = req.params
   const { status } = req.body
   try {
@@ -334,7 +375,6 @@ export const updateRoomStatus = async (req, res) => {
     if (!updatedRoom) {
       return res.status(404).json({ message: "Room not found" })
     }
-    console.log("Updated Room:", updatedRoom)
 
     if (status === "Inactive") {
       await RoomAllocation.deleteMany({ roomId })
@@ -348,8 +388,6 @@ export const updateRoomStatus = async (req, res) => {
 export const allocateRoom = async (req, res) => {
   const { roomId, hostelId, unitId, studentId, bedNumber, userId } = req.body
   try {
-    // console.log("Room allocation request:", req.body)
-
     if (!roomId || !hostelId || !studentId || !bedNumber || !userId) {
       return res.status(400).json({ message: "Missing required fields" })
     }
@@ -443,8 +481,6 @@ export const deleteAllocation = async (req, res) => {
 export const getRoomChangeRequests = async (req, res) => {
   const { hostelId } = req.params
   const { page = 1, limit = 10, status = "Pending" } = req.query
-
-  console.log("Query Parameters:", req.query)
 
   try {
     const result = await RoomChangeRequest.findRequestsWithFilters(hostelId, {
@@ -686,5 +722,158 @@ export const rejectRoomChangeRequest = async (req, res) => {
       message: "Error rejecting room change request",
       error: error.message,
     })
+  }
+}
+
+export const getRoomsForEdit = async (req, res) => {
+  const { hostelId } = req.params
+  try {
+    const rooms = await Room.find({ hostelId: hostelId }).populate("unitId")
+
+    const finalResult = rooms.map((room) => ({
+      id: room._id,
+      unitNumber: room.unitId ? room.unitId.unitNumber : null,
+      roomNumber: room.roomNumber,
+      capacity: room.capacity,
+      status: room.status,
+    }))
+    res.status(200).json({
+      message: "Rooms fetched successfully",
+      success: true,
+      meta: {
+        total: rooms.length,
+      },
+      data: finalResult,
+    })
+  } catch (error) {
+    console.error("Error fetching room details:", error)
+    res.status(500).json({ message: "Error fetching room details", error: error.message })
+  }
+}
+
+export const updateRoom = async (req, res) => {
+  const { roomId } = req.params
+  const { capacity, status } = req.body
+
+  try {
+    const updatedRoom = await Room.findByIdAndUpdate(
+      roomId,
+      {
+        capacity,
+        status,
+      },
+      { new: true }
+    )
+
+    if (!updatedRoom) {
+      return res.status(404).json({ message: "Room not found" })
+    }
+
+    res.status(200).json({
+      message: "Room updated successfully",
+      success: true,
+      data: updatedRoom,
+    })
+  } catch (error) {
+    console.error("Error updating room:", error)
+    res.status(500).json({ message: "Error updating room", error: error.message })
+  }
+}
+
+export const addRooms = async (req, res) => {
+  const { hostelId } = req.params
+  const { rooms, units } = req.body
+
+  try {
+    const hostel = await Hostel.findById(hostelId)
+    if (!hostel) {
+      return res.status(404).json({ message: "Hostel not found" })
+    }
+
+    const uniqueUnits = [...new Set(units)]
+    const createdUnits = await createUnits(hostelId, uniqueUnits)
+
+    console.log("Created Units:", createdUnits)
+
+    await createRooms(hostelId, rooms, createdUnits, hostel.type)
+
+    console.log("Rooms added successfully for hostel:", hostelId)
+
+    res.status(200).json({ message: "Rooms added successfully", success: true })
+  } catch (error) {
+    console.error("Error adding room:", error)
+    res.status(500).json({ message: "Error adding room", error: error.message })
+  }
+}
+
+export const bulkUpdateRooms = async (req, res) => {
+  const { hostelId } = req.params
+  const { rooms } = req.body
+
+  try {
+    const hostel = await Hostel.findById(hostelId)
+    if (!hostel) {
+      return res.status(404).json({ message: "Hostel not found" })
+    }
+
+    const uniqueUnits = [...new Set(rooms.map((room) => room.unitNumber))]
+    console.log("Unique Units:", uniqueUnits)
+    const units = await Unit.find({ hostelId, unitNumber: { $in: uniqueUnits } })
+    if (!units) {
+      return res.status(404).json({ message: "Units not found" })
+    }
+
+    const unitMap = {}
+    units.forEach((unit) => {
+      unitMap[unit.unitNumber] = unit._id
+    })
+
+    const roomsToUpdate = rooms.map((room) => room.roomNumber)
+    const existingRooms = await Room.find({ hostelId, roomNumber: { $in: roomsToUpdate }, unitId: { $in: Object.values(unitMap) } }).populate("unitId", "unitNumber")
+
+    const roomUpdates = []
+    uniqueUnits.forEach((unitNumber) => {
+      const roomsInUnit = existingRooms.filter((room) => room.unitId.unitNumber === unitNumber)
+      roomsInUnit.forEach((room) => {
+        const roomData = rooms.find((r) => r.roomNumber === room.roomNumber)
+        if (roomData) {
+          const dataToUpdate = {}
+          if (roomData.status && room.status !== roomData.status) {
+            dataToUpdate.status = roomData.status
+          } else if (room.status === "Active" && roomData.capacity && room.capacity !== roomData.capacity) {
+            dataToUpdate.capacity = roomData.capacity
+          }
+          if (Object.keys(dataToUpdate).length === 0) {
+            return
+          }
+          roomUpdates.push({
+            roomId: room._id,
+            ...dataToUpdate,
+          })
+        }
+      })
+    })
+
+    const bulkOps = roomUpdates.map((room) => ({
+      updateOne: {
+        filter: { _id: room.roomId },
+        update: { capacity: room.capacity, status: room.status },
+      },
+    }))
+    if (bulkOps.length === 0) {
+      return res.status(200).json({
+        message: "No rooms to update",
+        success: true,
+      })
+    }
+
+    await Room.bulkWrite(bulkOps)
+    const updatedRoomIds = roomUpdates.map((room) => room.roomId)
+    await RoomAllocation.deleteMany({ roomId: { $in: updatedRoomIds } })
+
+    res.status(200).json({ message: "Rooms updated successfully", success: true, updatedRoomIds })
+  } catch (error) {
+    console.error("Error updating rooms:", error)
+    res.status(500).json({ message: "Error updating rooms", error: error.message })
   }
 }
