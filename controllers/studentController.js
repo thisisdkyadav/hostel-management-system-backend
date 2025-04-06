@@ -10,6 +10,7 @@ import mongoose from "mongoose"
 import { isDevelopmentEnvironment } from "../config/environment.js"
 import User from "../models/User.js"
 import bcrypt from "bcrypt"
+import { formatDate } from "../utils/utils.js"
 
 export const createStudentsProfiles = async (req, res) => {
   const session = await mongoose.startSession()
@@ -67,9 +68,9 @@ export const createStudentsProfiles = async (req, res) => {
             department: department || "",
             degree: degree || "",
             gender: gender || "",
-            dateOfBirth: dateOfBirth || null,
+            dateOfBirth: formatDate(dateOfBirth) || null,
             address: address || "",
-            admissionDate: admissionDate || null,
+            admissionDate: formatDate(admissionDate) || null,
             guardian: guardian || "",
             guardianPhone: guardianPhone || "",
             guardianEmail: guardianEmail || "",
@@ -188,13 +189,14 @@ export const updateStudentsProfiles = async (req, res) => {
           },
         })
       }
+
       const profileUpdate = {}
       if (student.gender) profileUpdate.gender = student.gender
-      if (student.dateOfBirth) profileUpdate.dateOfBirth = student.dateOfBirth
+      if (student.dateOfBirth) profileUpdate.dateOfBirth = formatDate(student.dateOfBirth)
       if (student.department) profileUpdate.department = student.department
       if (student.degree) profileUpdate.degree = student.degree
       if (student.address) profileUpdate.address = student.address
-      if (student.admissionDate) profileUpdate.admissionDate = student.admissionDate
+      if (student.admissionDate) profileUpdate.admissionDate = formatDate(student.admissionDate)
       if (student.guardian) profileUpdate.guardian = student.guardian
       if (student.guardianPhone) profileUpdate.guardianPhone = student.guardianPhone
       if (student.guardianEmail) profileUpdate.guardianEmail = student.guardianEmail
@@ -585,11 +587,11 @@ export const updateStudentProfile = async (req, res) => {
     const updateData = {
       rollNumber,
       gender,
-      dateOfBirth,
+      dateOfBirth: formatDate(dateOfBirth),
       address,
       department,
       degree,
-      admissionDate,
+      admissionDate: formatDate(admissionDate),
       guardian,
       guardianPhone,
       guardianEmail,

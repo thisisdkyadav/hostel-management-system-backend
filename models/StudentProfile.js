@@ -89,27 +89,13 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
     }
 
     const formattedProfiles = studentProfiles.map((studentProfile) => {
-      let year = ""
+      let year
       if (studentProfile.admissionDate) {
         const currentDate = new Date()
         const admissionYear = studentProfile.admissionDate.getFullYear()
         const currentYear = currentDate.getFullYear()
-        const monthDiff = (currentDate.getMonth() - studentProfile.admissionDate.getMonth()) / 12
-        const yearDiff = currentYear - admissionYear + (monthDiff > 0 ? 0 : -1) + 1
-
-        switch (yearDiff) {
-          case 0:
-            year = "1st Year"
-            break
-          case 1:
-            year = "2nd Year"
-            break
-          case 2:
-            year = "3rd Year"
-            break
-          default:
-            year = `${yearDiff + 1}th Year`
-        }
+        const isNext = currentDate.getMonth() > 5 ? 1 : 0
+        year = currentYear - admissionYear + isNext || ""
       }
 
       const formattedDOB = studentProfile.dateOfBirth ? studentProfile.dateOfBirth.toISOString().split("T")[0] : ""
