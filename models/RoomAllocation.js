@@ -47,6 +47,42 @@ RoomAllocationSchema.post("save", async function () {
   }
 })
 
+RoomAllocationSchema.post("insertMany", async function (docs) {
+  try {
+    if (!docs || docs.length === 0) return
+
+    const StudentProfile = mongoose.model("StudentProfile")
+    const Room = mongoose.model("Room")
+
+    const studentProfileUpdates = docs.map((doc) => ({
+      updateOne: {
+        filter: { _id: doc.studentProfileId },
+        update: { $set: { currentRoomAllocation: doc._id } },
+      },
+    }))
+    await StudentProfile.bulkWrite(studentProfileUpdates)
+
+    const roomUpdates = {}
+    docs.forEach((doc) => {
+      const roomId = doc.roomId.toString()
+      roomUpdates[roomId] = (roomUpdates[roomId] || 0) + 1
+    })
+
+    const roomBulkOps = Object.entries(roomUpdates).map(([roomId, count]) => ({
+      updateOne: {
+        filter: { _id: roomId },
+        update: { $inc: { occupancy: count } },
+      },
+    }))
+
+    if (roomBulkOps.length > 0) {
+      await Room.bulkWrite(roomBulkOps)
+    }
+  } catch (error) {
+    console.error("Error in post-insertMany hook:", error)
+  }
+})
+
 RoomAllocationSchema.pre("findOneAndUpdate", async function () {
   try {
     const update = this.getUpdate()
@@ -69,7 +105,6 @@ RoomAllocationSchema.post("findOneAndUpdate", async function (result) {
       const Room = mongoose.model("Room")
 
       await Room.findByIdAndUpdate(this._oldRoomId, { $inc: { occupancy: -1 } })
-
       await Room.findByIdAndUpdate(this._newRoomId, { $inc: { occupancy: 1 } })
     }
   } catch (error) {
@@ -117,10 +152,27 @@ RoomAllocationSchema.pre("deleteMany", async function () {
 
     if (allocations && allocations.length > 0) {
       const StudentProfile = mongoose.model("StudentProfile")
+      const Room = mongoose.model("Room")
 
       const studentProfileIds = allocations.map((a) => a.studentProfileId)
-
       await StudentProfile.updateMany({ _id: { $in: studentProfileIds } }, { $unset: { currentRoomAllocation: "" } })
+
+      const roomUpdates = {}
+      allocations.forEach((allocation) => {
+        const roomId = allocation.roomId.toString()
+        roomUpdates[roomId] = (roomUpdates[roomId] || 0) + 1
+      })
+
+      const roomBulkOps = Object.entries(roomUpdates).map(([roomId, count]) => ({
+        updateOne: {
+          filter: { _id: roomId },
+          update: { $inc: { occupancy: -count } },
+        },
+      }))
+
+      if (roomBulkOps.length > 0) {
+        await Room.bulkWrite(roomBulkOps)
+      }
     }
   } catch (error) {
     console.error("Error in pre-deleteMany hook:", error)

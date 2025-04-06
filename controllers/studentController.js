@@ -55,13 +55,12 @@ export const createStudentsProfiles = async (req, res) => {
       if (userOps.length > 0) {
         const bulkUserOps = userOps.map((op) => op.insertOne.document)
         const userInsertResult = await User.collection.insertMany(bulkUserOps, { session })
-        const insertedUserIds = userInsertResult.insertedIds
+        const insertedUserIds = Object.values(userInsertResult.insertedIds)
 
-        let index = 0
-        studentsData.forEach((student) => {
+        userOps.forEach((op, index) => {
+          const student = op.metadata.student
           const { email, rollNumber, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone, guardianEmail } = student
-          if (!email || !rollNumber) return
-          const userId = insertedUserIds[index++]
+          const userId = insertedUserIds[index]
           const profileData = {
             userId,
             rollNumber,
@@ -250,25 +249,106 @@ export const updateRoomAllocations = async (req, res) => {
     const results = []
     const errors = []
 
+    const validAllocations = []
     for (const alloc of allocations) {
       const { unit, room, bedNumber, rollNumber } = alloc
       if (!unit || !room || bedNumber === undefined || !rollNumber) {
         errors.push({ rollNumber, message: "Missing required fields" })
-        continue
+      } else {
+        validAllocations.push({
+          ...alloc,
+          rollNumber: rollNumber.toUpperCase(),
+        })
       }
+    }
 
-      const studentProfile = await StudentProfile.findOne({ rollNumber: rollNumber.toUpperCase() }).session(session)
+    if (validAllocations.length === 0) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(400).json({
+        success: false,
+        errors,
+        message: "No valid allocation data provided",
+      })
+    }
+
+    const rollNumbers = validAllocations.map((a) => a.rollNumber)
+    const studentProfiles = await StudentProfile.find({
+      rollNumber: { $in: rollNumbers },
+    }).session(session)
+
+    const profileMap = {}
+    studentProfiles.forEach((profile) => {
+      profileMap[profile.rollNumber] = profile
+    })
+
+    const unitNumbers = [...new Set(validAllocations.map((a) => a.unit))]
+    const units = await Unit.find({
+      unitNumber: { $in: unitNumbers },
+      hostelId,
+    }).session(session)
+
+    const unitMap = {}
+    units.forEach((unit) => {
+      unitMap[unit.unitNumber] = unit
+    })
+
+    const unitIds = units.map((unit) => unit._id)
+    const roomNumbers = [...new Set(validAllocations.map((a) => a.room))]
+    const rooms = await Room.find({
+      unitId: { $in: unitIds },
+      roomNumber: { $in: roomNumbers },
+    }).session(session)
+
+    const roomMap = {}
+    rooms.forEach((room) => {
+      const unitNumber = units.find((u) => u._id.equals(room.unitId))?.unitNumber
+      if (unitNumber) {
+        roomMap[`${unitNumber}:${room.roomNumber}`] = room
+      }
+    })
+
+    const roomIds = rooms.map((room) => room._id)
+    const bedNumbers = validAllocations.map((a) => a.bedNumber)
+    const existingAllocations = await RoomAllocation.find({
+      roomId: { $in: roomIds },
+      bedNumber: { $in: bedNumbers },
+    }).session(session)
+
+    const existingAllocMap = {}
+    existingAllocations.forEach((alloc) => {
+      existingAllocMap[`${alloc.roomId}:${alloc.bedNumber}`] = alloc
+    })
+
+    const studentIds = studentProfiles.map((profile) => profile._id)
+    const currentAllocations = await RoomAllocation.find({
+      studentProfileId: { $in: studentIds },
+    }).session(session)
+
+    const currentAllocMap = {}
+    currentAllocations.forEach((alloc) => {
+      currentAllocMap[alloc.studentProfileId.toString()] = alloc
+    })
+
+    const allocationsToDelete = []
+    const allocationsToCreate = []
+
+    for (const alloc of validAllocations) {
+      const { unit, room, bedNumber, rollNumber } = alloc
+
+      const studentProfile = profileMap[rollNumber]
       if (!studentProfile) {
         errors.push({ rollNumber, message: "Student profile not found" })
         continue
       }
 
-      const unitDoc = await Unit.findOne({ unitNumber: unit, hostelId }).session(session)
+      const unitDoc = unitMap[unit]
       if (!unitDoc) {
         errors.push({ rollNumber, message: "Unit not found" })
         continue
       }
-      const roomDoc = await Room.findOne({ unitId: unitDoc._id, roomNumber: room }).session(session)
+
+      const roomDoc = roomMap[`${unit}:${room}`]
       if (!roomDoc) {
         errors.push({ rollNumber, message: "Room not found in specified unit" })
         continue
@@ -279,17 +359,15 @@ export const updateRoomAllocations = async (req, res) => {
         continue
       }
 
-      const existingAllocation = await RoomAllocation.findOne({ roomId: roomDoc._id, bedNumber }).session(session)
-      if (existingAllocation) {
-        await RoomAllocation.deleteOne({ _id: existingAllocation._id }).session(session)
+      const existingAlloc = existingAllocMap[`${roomDoc._id}:${bedNumber}`]
+      if (existingAlloc) {
+        allocationsToDelete.push(existingAlloc._id)
       }
 
-      if (studentProfile.currentRoomAllocation) {
-        const currentAlloc = await RoomAllocation.findById(studentProfile.currentRoomAllocation).session(session)
-        if (currentAlloc) {
-          if (String(currentAlloc.roomId) !== String(roomDoc._id) || currentAlloc.bedNumber !== bedNumber) {
-            await RoomAllocation.deleteOne({ _id: currentAlloc._id }).session(session)
-          }
+      const currentAlloc = currentAllocMap[studentProfile._id.toString()]
+      if (currentAlloc) {
+        if (!currentAlloc.roomId.equals(roomDoc._id) || currentAlloc.bedNumber !== bedNumber) {
+          allocationsToDelete.push(currentAlloc._id)
         }
       }
 
@@ -301,17 +379,31 @@ export const updateRoomAllocations = async (req, res) => {
         unitId: roomDoc.unitId,
         bedNumber,
       })
-      await newAllocation.save({ session })
 
+      allocationsToCreate.push(newAllocation)
       results.push({
-        rollNumber: studentProfile.rollNumber,
+        rollNumber,
         allocation: newAllocation,
       })
     }
 
+    if (allocationsToDelete.length > 0) {
+      await RoomAllocation.deleteMany({
+        _id: { $in: allocationsToDelete },
+      }).session(session)
+    }
+
+    if (allocationsToCreate.length > 0) {
+      await RoomAllocation.insertMany(allocationsToCreate, { session })
+    }
+
+    await session.commitTransaction()
+    session.endSession()
+
+    console.log("Results:", results)
+    console.log("Errors:", errors)
+
     if (errors.length > 0) {
-      await session.commitTransaction()
-      session.endSession()
       return res.status(207).json({
         success: true,
         data: results,
@@ -319,8 +411,6 @@ export const updateRoomAllocations = async (req, res) => {
         message: "Room allocations updated with some errors. Please review the errors for details.",
       })
     } else {
-      await session.commitTransaction()
-      session.endSession()
       return res.status(200).json({
         success: true,
         data: results,
