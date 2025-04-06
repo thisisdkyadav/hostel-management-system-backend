@@ -348,7 +348,7 @@ export const updateRoomStatus = async (req, res) => {
 export const allocateRoom = async (req, res) => {
   const { roomId, hostelId, unitId, studentId, bedNumber, userId } = req.body
   try {
-    console.log("Room allocation request:", req.body)
+    // console.log("Room allocation request:", req.body)
 
     if (!roomId || !hostelId || !studentId || !bedNumber || !userId) {
       return res.status(400).json({ message: "Missing required fields" })
