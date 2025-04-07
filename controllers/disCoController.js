@@ -57,9 +57,25 @@ export const getDisCoActionsByStudent = async (req, res) => {
   }
 };
 
-// export const updateDisCoActions = ()=>{
-//   const {disCoId, reason, actionTaken, date, remarks} = req.body
-//   try{
-//     const newDisCo = DisCoAction.findByIdAndUpdate(disCoId,{reason, actionTaken, date, remarks})
-//   } 
-// }
+export const updateDisCoAction = async (req, res) => {
+  const { disCoId } = req.params;
+  const {  reason, actionTaken, date, remarks } = req.body;
+
+  try {
+    const updated = await DisCoAction.findByIdAndUpdate(
+      disCoId,
+      { reason, actionTaken, date, remarks },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: "DisCo action not found" });
+    }
+
+    res.status(200).json({ message: "DisCo action updated successfully", action: updated });
+  } catch (error) {
+    console.error("Error updating DisCo action:", error);
+    res.status(500).json({ message: "Error updating DisCo action", error: error.message });
+  }
+};
+
