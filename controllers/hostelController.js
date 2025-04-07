@@ -817,7 +817,6 @@ export const bulkUpdateRooms = async (req, res) => {
     }
 
     const uniqueUnits = [...new Set(rooms.map((room) => room.unitNumber))]
-    console.log("Unique Units:", uniqueUnits)
     const units = await Unit.find({ hostelId, unitNumber: { $in: uniqueUnits } })
     if (!units) {
       return res.status(404).json({ message: "Units not found" })
@@ -831,11 +830,13 @@ export const bulkUpdateRooms = async (req, res) => {
     const roomsToUpdate = rooms.map((room) => room.roomNumber)
     const existingRooms = await Room.find({ hostelId, roomNumber: { $in: roomsToUpdate }, unitId: { $in: Object.values(unitMap) } }).populate("unitId", "unitNumber")
 
+    const filteredExistingRooms = existingRooms.filter((room) => rooms.some((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber))
+
     const roomUpdates = []
     uniqueUnits.forEach((unitNumber) => {
-      const roomsInUnit = existingRooms.filter((room) => room.unitId.unitNumber === unitNumber)
+      const roomsInUnit = filteredExistingRooms.filter((room) => room.unitId.unitNumber === unitNumber)
       roomsInUnit.forEach((room) => {
-        const roomData = rooms.find((r) => r.roomNumber === room.roomNumber)
+        const roomData = rooms.find((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber)
         if (roomData) {
           const dataToUpdate = {}
           if (roomData.status && room.status !== roomData.status) {

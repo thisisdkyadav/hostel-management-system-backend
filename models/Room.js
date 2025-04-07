@@ -65,5 +65,60 @@ RoomSchema.statics.activateRoom = async function (roomId) {
   return await room.save()
 }
 
+RoomSchema.statics.deactivateRooms = async function (roomIds) {
+  // First, get all rooms to preserve originalCapacity values
+  const rooms = await this.find({ _id: { $in: roomIds } })
+
+  // Prepare bulk update operations
+  const bulkOps = rooms.map((room) => ({
+    updateOne: {
+      filter: { _id: room._id },
+      update: {
+        $set: {
+          originalCapacity: room.capacity,
+          capacity: 0,
+          occupancy: 0,
+          status: "Inactive",
+        },
+      },
+    },
+  }))
+
+  // Execute bulk operation
+  if (bulkOps.length > 0) {
+    await this.bulkWrite(bulkOps)
+  }
+
+  // Return updated rooms
+  return await this.find({ _id: { $in: roomIds } })
+}
+
+RoomSchema.statics.activateRooms = async function (roomIds) {
+  // First, get all rooms to access their originalCapacity values
+  const rooms = await this.find({ _id: { $in: roomIds } })
+
+  // Prepare bulk update operations
+  const bulkOps = rooms.map((room) => ({
+    updateOne: {
+      filter: { _id: room._id },
+      update: {
+        $set: {
+          capacity: room.originalCapacity || room.capacity,
+          status: "Active",
+        },
+        $unset: { originalCapacity: "" },
+      },
+    },
+  }))
+
+  // Execute bulk operation
+  if (bulkOps.length > 0) {
+    await this.bulkWrite(bulkOps)
+  }
+
+  // Return updated rooms
+  return await this.find({ _id: { $in: roomIds } })
+}
+
 const Room = mongoose.model("Room", RoomSchema)
 export default Room
