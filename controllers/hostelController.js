@@ -159,42 +159,69 @@ export const addHostel = async (req, res) => {
 
 export const getHostels = async (req, res) => {
   try {
-    const hostelsData = await Hostel.find()
+    const hostels = await Hostel.find({}, { _id: 1, name: 1, type: 1, gender: 1 })
 
-    console.log("Hostels Data:", hostelsData)
+    const hostelDataPromises = hostels.map(async (hostel) => {
+      const [roomStats, maintenanceIssues] = await Promise.all([
+        Room.aggregate([
+          { $match: { hostelId: hostel._id } },
+          {
+            $group: {
+              _id: null,
+              totalRooms: { $sum: 1 },
+              occupiedRoomsCount: {
+                $sum: { $cond: [{ $gt: ["$occupancy", 0] }, 1, 0] },
+              },
+              vacantRoomsCount: {
+                $sum: { $cond: [{ $eq: ["$occupancy", 0] }, 1, 0] },
+              },
+              totalCapacity: { $sum: "$capacity" },
+              totalOccupancy: { $sum: "$occupancy" },
+            },
+          },
+        ]),
+        Complaint.countDocuments({
+          hostelId: hostel._id,
+          status: { $in: ["Pending", "In Progress"] },
+        }),
+      ])
 
-    const hostels = []
+      let stats = {
+        totalRooms: 0,
+        occupiedRooms: 0,
+        vacantRooms: 0,
+        capacity: 0,
+        occupancyRate: 0,
+      }
 
-    for (const hostel of hostelsData) {
-      const rooms = await Room.find({ hostelId: hostel._id })
+      if (roomStats.length > 0) {
+        const { totalRooms, occupiedRoomsCount, vacantRoomsCount, totalCapacity, totalOccupancy } = roomStats[0]
+        stats = {
+          totalRooms,
+          occupiedRooms: occupiedRoomsCount,
+          vacantRooms: vacantRoomsCount,
+          capacity: totalCapacity,
+          occupancyRate: totalCapacity > 0 ? Math.round((totalOccupancy / totalCapacity) * 100) : 0,
+        }
+      }
 
-      const totalRooms = rooms.length
-      const occupiedRooms = rooms.filter((room) => room.occupancy > 0).length
-      const vacantRooms = rooms.filter((room) => room.occupancy === 0).length
-
-      const capacity = rooms.reduce((sum, room) => sum + room.capacity, 0)
-      const currentOccupancy = rooms.reduce((sum, room) => sum + room.occupancy, 0)
-      const occupancyRate = totalRooms > 0 ? Math.round((currentOccupancy / capacity) * 100) : 0
-
-      const maintenanceIssues = await Complaint.countDocuments({
-        hostelId: hostel._id,
-        status: { $in: ["Pending", "In Progress"] },
-      })
-
-      hostels.push({
+      return {
         id: hostel._id,
         name: hostel.name,
         type: hostel.type,
         gender: hostel.gender,
-        totalRooms: totalRooms,
-        occupiedRooms: occupiedRooms,
-        vacantRooms: vacantRooms,
-        maintenanceIssues: maintenanceIssues,
-        capacity: capacity,
-        occupancyRate: occupancyRate,
-      })
-    }
-    res.status(200).json(hostels)
+        totalRooms: stats.totalRooms,
+        occupiedRooms: stats.occupiedRooms,
+        vacantRooms: stats.vacantRooms,
+        maintenanceIssues,
+        capacity: stats.capacity,
+        occupancyRate: stats.occupancyRate,
+      }
+    })
+
+    const result = await Promise.all(hostelDataPromises)
+
+    res.status(200).json(result)
   } catch (error) {
     res.status(500).json({ message: "Error fetching hostels", error: error.message })
   }
@@ -817,6 +844,7 @@ export const bulkUpdateRooms = async (req, res) => {
     }
 
     const uniqueUnits = [...new Set(rooms.map((room) => room.unitNumber))]
+    console.log("Unique Units:", uniqueUnits)
     const units = await Unit.find({ hostelId, unitNumber: { $in: uniqueUnits } })
     if (!units) {
       return res.status(404).json({ message: "Units not found" })
@@ -828,51 +856,87 @@ export const bulkUpdateRooms = async (req, res) => {
     })
 
     const roomsToUpdate = rooms.map((room) => room.roomNumber)
-    const existingRooms = await Room.find({ hostelId, roomNumber: { $in: roomsToUpdate }, unitId: { $in: Object.values(unitMap) } }).populate("unitId", "unitNumber")
+    const existingRooms = await Room.find({
+      hostelId,
+      roomNumber: { $in: roomsToUpdate },
+      unitId: { $in: Object.values(unitMap) },
+    }).populate("unitId", "unitNumber")
 
     const filteredExistingRooms = existingRooms.filter((room) => rooms.some((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber))
 
-    const roomUpdates = []
+    // Group rooms into categories
+    const roomsToActivate = []
+    const roomsToDeactivate = []
+    const roomsToUpdateCapacity = []
+
     uniqueUnits.forEach((unitNumber) => {
       const roomsInUnit = filteredExistingRooms.filter((room) => room.unitId.unitNumber === unitNumber)
       roomsInUnit.forEach((room) => {
         const roomData = rooms.find((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber)
         if (roomData) {
-          const dataToUpdate = {}
+          // Status change
           if (roomData.status && room.status !== roomData.status) {
-            dataToUpdate.status = roomData.status
-          } else if (room.status === "Active" && roomData.capacity && room.capacity !== roomData.capacity) {
-            dataToUpdate.capacity = roomData.capacity
+            if (roomData.status === "Active") {
+              roomsToActivate.push(room._id)
+            } else if (roomData.status === "Inactive") {
+              roomsToDeactivate.push(room._id)
+            }
           }
-          if (Object.keys(dataToUpdate).length === 0) {
-            return
+          // Capacity change (only for active rooms)
+          else if (room.status === "Active" && roomData.capacity && room.capacity !== roomData.capacity) {
+            roomsToUpdateCapacity.push({
+              roomId: room._id,
+              capacity: roomData.capacity,
+            })
           }
-          roomUpdates.push({
-            roomId: room._id,
-            ...dataToUpdate,
-          })
         }
       })
     })
 
-    const bulkOps = roomUpdates.map((room) => ({
-      updateOne: {
-        filter: { _id: room.roomId },
-        update: { capacity: room.capacity, status: room.status },
-      },
-    }))
-    if (bulkOps.length === 0) {
+    // No rooms to update
+    if (roomsToActivate.length === 0 && roomsToDeactivate.length === 0 && roomsToUpdateCapacity.length === 0) {
       return res.status(200).json({
         message: "No rooms to update",
         success: true,
       })
     }
 
-    await Room.bulkWrite(bulkOps)
-    const updatedRoomIds = roomUpdates.map((room) => room.roomId)
-    await RoomAllocation.deleteMany({ roomId: { $in: updatedRoomIds } })
+    const updatedRoomIds = []
 
-    res.status(200).json({ message: "Rooms updated successfully", success: true, updatedRoomIds })
+    // Process activations
+    if (roomsToActivate.length > 0) {
+      const activatedRooms = await Room.activateRooms(roomsToActivate)
+      updatedRoomIds.push(...activatedRooms.map((room) => room._id))
+    }
+
+    // Process deactivations
+    if (roomsToDeactivate.length > 0) {
+      const deactivatedRooms = await Room.deactivateRooms(roomsToDeactivate)
+      updatedRoomIds.push(...deactivatedRooms.map((room) => room._id))
+    }
+
+    // Process capacity updates for rooms that don't change status
+    if (roomsToUpdateCapacity.length > 0) {
+      const bulkOps = roomsToUpdateCapacity.map((room) => ({
+        updateOne: {
+          filter: { _id: room.roomId },
+          update: { capacity: room.capacity },
+        },
+      }))
+      await Room.bulkWrite(bulkOps)
+      updatedRoomIds.push(...roomsToUpdateCapacity.map((room) => room.roomId))
+    }
+
+    // Clean up allocations for deactivated rooms
+    if (roomsToDeactivate.length > 0) {
+      await RoomAllocation.deleteMany({ roomId: { $in: roomsToDeactivate } })
+    }
+
+    res.status(200).json({
+      message: "Rooms updated successfully",
+      success: true,
+      updatedRoomIds,
+    })
   } catch (error) {
     console.error("Error updating rooms:", error)
     res.status(500).json({ message: "Error updating rooms", error: error.message })
