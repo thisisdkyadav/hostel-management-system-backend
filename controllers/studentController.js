@@ -780,7 +780,7 @@ export const getStudentDashboard = async (req, res) => {
     const now = new Date()
 
     const eventsQuery = {
-      $or: [{ hostelId: studentProfile.hostelId.toString() }, { hostelId: null }],
+      $or: [{ hostelId: studentProfile.hostelId.toString() }, { hostelId: null }, { gender: studentProfile.gender }, { gender: null }],
     }
     const events = await Events.find(eventsQuery)
 

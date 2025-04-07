@@ -4,7 +4,7 @@ import Warden from "../models/Warden.js"
 import AssociateWarden from "../models/AssociateWarden.js"
 
 export const createEvent = async (req, res) => {
-  const { eventName, description, dateAndTime, hostelId } = req.body
+  const { eventName, description, dateAndTime, hostelId, gender } = req.body
 
   try {
     const event = new Event({
@@ -12,6 +12,7 @@ export const createEvent = async (req, res) => {
       description,
       dateAndTime,
       hostelId,
+      gender,
     })
 
     await event.save()
@@ -33,6 +34,7 @@ export const getEvents = async (req, res) => {
       const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation")
       const hostelId = studentProfile.currentRoomAllocation.hostelId
       query.hostelId = { $in: [hostelId, null] }
+      query.gender = studentProfile.gender
     } else if (hostel) {
       query.hostelId = { $in: [hostel._id, null] }
     }
@@ -65,7 +67,7 @@ export const getEvents = async (req, res) => {
 
 export const updateEvent = async (req, res) => {
   const { id } = req.params
-  const { eventName, description, dateAndTime, hostelId } = req.body
+  const { eventName, description, dateAndTime, hostelId, gender } = req.body
 
   try {
     const updates = {
@@ -73,6 +75,7 @@ export const updateEvent = async (req, res) => {
       description,
       dateAndTime,
       hostelId: hostelId ? hostelId : null,
+      gender,
     }
     const event = await Event.findByIdAndUpdate(id, updates, { new: true })
 

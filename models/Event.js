@@ -24,6 +24,10 @@ const eventSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Hostel",
     },
+    gender: {
+      type: String,
+      enum: ["Male", "Female", "Other"],
+    },
   },
   {
     toJSON: { virtuals: true },
