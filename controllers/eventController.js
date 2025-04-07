@@ -34,7 +34,7 @@ export const getEvents = async (req, res) => {
       const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation")
       const hostelId = studentProfile.currentRoomAllocation.hostelId
       query.hostelId = { $in: [hostelId, null] }
-      query.gender = studentProfile.gender
+      query.gender = { $in: [studentProfile.gender, null] }
     } else if (hostel) {
       query.hostelId = { $in: [hostel._id, null] }
     }
