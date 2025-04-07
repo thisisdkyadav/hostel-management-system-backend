@@ -179,6 +179,9 @@ export const updateStudentsProfiles = async (req, res) => {
       const userUpdate = {}
       if (student.name) userUpdate.name = student.name
       if (student.email) userUpdate.email = student.email
+      if (student.password) {
+        userUpdate.password = await bcrypt.hash(student.password, 10)
+      }
       if (student.phone !== undefined) userUpdate.phone = student.phone || ""
       if (student.profileImage) userUpdate.profileImage = student.profileImage || ""
       if (Object.keys(userUpdate).length > 0) {
