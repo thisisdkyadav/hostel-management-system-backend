@@ -356,6 +356,8 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   return this.aggregate(pipeline)
 }
 
+StudentProfileSchema.index({ userId: 1, rollNumber: 1 })
+
 const StudentProfile = mongoose.model("StudentProfile", StudentProfileSchema)
 
 export default StudentProfile
