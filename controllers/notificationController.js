@@ -1,7 +1,8 @@
 import Notification from "../models/Notification.js"
+import StudentProfile from "../models/StudentProfile.js"
 
 export const createNotification = async (req, res) => {
-  const { title, message, type, targetType, status, expiryDate } = req.body
+  const { title, message, type, hostelId, degree, department, gender, expiryDate } = req.body
   const sender = req.user._id
 
   try {
@@ -10,8 +11,10 @@ export const createNotification = async (req, res) => {
       message,
       type,
       sender,
-      targetType,
-      status,
+      hostelId,
+      degree,
+      department,
+      gender,
       expiryDate,
     })
 
@@ -25,13 +28,23 @@ export const createNotification = async (req, res) => {
 }
 
 export const getNotifications = async (req, res) => {
-  const { page, limit, status, type, targetType, search, expiryStatus } = req.query
+  const { page, limit, type, hostelId, degree, department, gender, search, expiryStatus } = req.query
+  const user = req.user
 
   try {
     const query = {}
-    if (status) query.status = status
     if (type) query.type = type
-    if (targetType) query.targetType = targetType
+    if (user.role === "Student") {
+      const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
+      const hostelId = studentProfile.currentRoomAllocation?.hostelId
+      const { gender, degree, department } = studentProfile
+      query.$and = [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: null }, { hostelId: hostelId }] }, { $or: [{ degree: null }, { degree: degree }] }, { $or: [{ department: null }, { department: department }] }]
+    } else {
+      if (hostelId) query.hostelId = hostelId
+      if (degree) query.degree = degree
+      if (department) query.department = department
+      if (gender) query.gender = gender
+    }
     if (expiryStatus) {
       const now = new Date()
       if (expiryStatus === "active") {
@@ -42,14 +55,14 @@ export const getNotifications = async (req, res) => {
     }
     if (search) {
       const regex = new RegExp(search, "i")
-      query.$or = [{ title: regex }, { message: regex }, { type: regex }, { targetType: regex }, { status: regex }]
+      query.$or = [{ title: regex }, { message: regex }, { sender: regex }, { hostelId: regex }, { degree: regex }, { department: regex }]
     }
 
     const pageInt = parseInt(page) || 1
     const limitInt = parseInt(limit) || 10
     const skip = (pageInt - 1) * limitInt
 
-    const notifications = await Notification.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitInt).populate("sender", "name email")
+    const notifications = await Notification.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitInt).populate("sender", "name email").populate("hostelId", "name")
 
     const totalNotifications = await Notification.countDocuments(query)
     const totalPages = Math.ceil(totalNotifications / limitInt)
@@ -65,16 +78,49 @@ export const getNotifications = async (req, res) => {
 }
 
 export const getNotificationStats = async (req, res) => {
+  const user = req.user
   try {
-    const now = new Date()
+    let query = {}
+    if (user.role === "Student") {
+      const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
+      const hostelId = studentProfile.currentRoomAllocation?.hostelId
+      const { gender, degree, department } = studentProfile
+      query = {
+        $and: [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: null }, { hostelId: hostelId }] }, { $or: [{ degree: null }, { degree: degree }] }, { $or: [{ department: null }, { department: department }] }],
+      }
+    }
 
-    const total = await Notification.countDocuments()
-    const active = await Notification.countDocuments({ expiryDate: { $gte: now } })
-    const expired = await Notification.countDocuments({ expiryDate: { $lt: now } })
+    const now = new Date()
+    const total = await Notification.countDocuments(query)
+    const active = await Notification.countDocuments({ ...query, expiryDate: { $gte: now } })
+    const expired = await Notification.countDocuments({ ...query, expiryDate: { $lt: now } })
 
     res.status(200).json({ data: { total, active, expired } })
   } catch (error) {
     console.error("Error fetching notification stats:", error)
+    res.status(500).json({ error: "Internal server error" })
+  }
+}
+
+export const getActiveNotificationsCount = async (req, res) => {
+  const user = req.user
+  try {
+    const now = new Date()
+    let query = {}
+    if (user.role === "Student") {
+      const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
+      const hostelId = studentProfile.currentRoomAllocation?.hostelId
+      const { gender, degree, department } = studentProfile
+      query = {
+        $and: [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: null }, { hostelId: hostelId }] }, { $or: [{ degree: null }, { degree: degree }] }, { $or: [{ department: null }, { department: department }] }],
+      }
+    }
+
+    const activeCount = await Notification.countDocuments({ ...query, expiryDate: { $gte: now } })
+
+    res.status(200).json({ activeCount })
+  } catch (error) {
+    console.error("Error fetching active notifications count:", error)
     res.status(500).json({ error: "Internal server error" })
   }
 }

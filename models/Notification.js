@@ -20,23 +20,19 @@ const NotificationSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
-  //   targets: {
-  //     hostelIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Hostel" }],
-  //     departments: [{ type: String }],
-  //     degrees: [{ type: String }],
-  //     admissionYearStart: { type: Number },
-  //     admissionYearEnd: { type: Number },
-  //     specific: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
-  //   },
-  targetType: {
-    type: String,
-    enum: ["all", "hostel", "department", "degree", "admission_year", "specific"],
-    default: "all",
+  hostelId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Hostel",
   },
-  status: {
+  degree: {
     type: String,
-    enum: ["draft", "sent", "cancelled"],
-    default: "draft",
+  },
+  department: {
+    type: String,
+  },
+  gender: {
+    type: String,
+    enum: ["Male", "Female", "Other"],
   },
   createdAt: {
     type: Date,
