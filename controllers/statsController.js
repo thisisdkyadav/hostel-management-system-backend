@@ -11,21 +11,49 @@ import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import Visitors from "../models/Visitors.js"
 import Unit from "../models/Unit.js"
 
-// required stats totalHostels, totalRooms, occupancyRate, AvailableRooms
 export const getHostelStats = async (req, res) => {
   try {
-    const totalHostels = await Hostel.countDocuments()
-    const rooms = await Room.find()
-    const totalRooms = rooms.length
-    const occupiedRooms = rooms.filter((room) => room.occupancy > 0).length
-    const availableRooms = totalRooms - occupiedRooms
-    const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0
+    const [totalHostels, roomStats] = await Promise.all([
+      Hostel.countDocuments(),
+      Room.aggregate([
+        { $match: { status: "Active" } },
+        {
+          $group: {
+            _id: null,
+            totalRooms: { $sum: 1 },
+            occupiedRooms: {
+              $sum: { $cond: [{ $gt: ["$occupancy", 0] }, 1, 0] },
+            },
+            availableRooms: {
+              $sum: { $cond: [{ $eq: ["$occupancy", 0] }, 1, 0] },
+            },
+          },
+        },
+      ]),
+    ])
+
+    let stats = {
+      totalRooms: 0,
+      occupiedRooms: 0,
+      availableRooms: 0,
+      occupancyRate: 0,
+    }
+
+    if (roomStats.length > 0) {
+      const { totalRooms, occupiedRooms, availableRooms } = roomStats[0]
+      stats = {
+        totalRooms,
+        occupiedRooms,
+        availableRooms,
+        occupancyRate: totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0,
+      }
+    }
 
     res.status(200).json({
       totalHostels,
-      totalRooms,
-      occupancyRate,
-      availableRooms,
+      totalRooms: stats.totalRooms,
+      occupancyRate: stats.occupancyRate,
+      availableRooms: stats.availableRooms,
     })
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message })
