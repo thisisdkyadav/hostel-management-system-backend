@@ -26,19 +26,26 @@ app.use(express.urlencoded({ limit: "1mb", extended: true }))
 app.use(cookieParser())
 app.set("trust proxy", 1)
 
+// app.use(
+//   cors({
+//     origin: [
+//       "https://hostel-management-system.web.app",
+//       "https://flask-vercel-ashen.vercel.app",
+//       "http://localhost",
+//       "http://localhost:5173",
+//       "http://localhost:4173",
+//       "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net",
+//       "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
+//       "https://hms.andiindia.in",
+//     ],
+//     credentials: true, // Allow cookies for web
+//   })
+// )
+
 app.use(
   cors({
-    origin: [
-      "https://hostel-management-system.web.app",
-      "https://flask-vercel-ashen.vercel.app",
-      "http://localhost",
-      "http://localhost:5173",
-      "http://localhost:4173",
-      "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net",
-      "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
-      "https://hms.andiindia.in",
-    ],
-    credentials: true, // Allow cookies for web
+    origin: "*",
+    credentials: true,
   })
 )
 
