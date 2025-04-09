@@ -59,14 +59,14 @@ app.use("/api/feedback", feedbackRoutes)
 app.use("/api/visitor", visitorRoutes)
 app.use("/api/notification", notificationRoutes)
 app.use("/api/disCo", disCoRoutes)
-app.use("/api/payment", paymentRoutes);
+app.use("/api/payment", paymentRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")
 })
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`)
   // Connect to MongoDB
   console.log("Connecting to MongoDB...")
