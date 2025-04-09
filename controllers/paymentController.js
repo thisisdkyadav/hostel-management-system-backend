@@ -32,7 +32,7 @@ export const createPaymentLink = async (req, res) => {
         email: true,
       },
       reminder_enable: true,
-      callback_url: "http://localhost:5173/payment-success",
+      callback_url: "http://localhost:5000/payment-success",
       callback_method: "get",
     });
 
