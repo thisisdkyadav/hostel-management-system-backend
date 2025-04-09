@@ -16,6 +16,7 @@ import uploadRoutes from "./routes/uploadRoutes.js"
 import visitorRoutes from "./routes/visitorRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
 import disCoRoutes from "./routes/disCoRoutes.js"
+import paymentRoutes from "./routes/paymentRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -58,6 +59,7 @@ app.use("/api/feedback", feedbackRoutes)
 app.use("/api/visitor", visitorRoutes)
 app.use("/api/notification", notificationRoutes)
 app.use("/api/disCo", disCoRoutes)
+app.use("/api/payment", paymentRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")

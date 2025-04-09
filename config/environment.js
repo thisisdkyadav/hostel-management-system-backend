@@ -11,3 +11,5 @@ export const isDevelopmentEnvironment = process.env.NODE_ENV === "development",
   AZURE_STORAGE_ACCOUNT_NAME = process.env.AZURE_STORAGE_ACCOUNT_NAME,
   AZURE_STORAGE_ACCOUNT_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY,
   QR_PRIVATE_KEY = process.env.QR_PRIVATE_KEY
+  RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID,
+  RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET
