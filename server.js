@@ -17,6 +17,8 @@ import visitorRoutes from "./routes/visitorRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
 import disCoRoutes from "./routes/disCoRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
+import externalApiRoutes from "./externalApi/index.js"
+import superAdminRoutes from "./routes/superAdminRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -67,6 +69,8 @@ app.use("/api/visitor", visitorRoutes)
 app.use("/api/notification", notificationRoutes)
 app.use("/api/disCo", disCoRoutes)
 app.use("/api/payment", paymentRoutes)
+app.use("/api/super-admin", superAdminRoutes)
+app.use("/external-api", externalApiRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")
