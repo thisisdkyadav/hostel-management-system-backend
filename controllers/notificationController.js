@@ -38,13 +38,35 @@ export const getNotifications = async (req, res) => {
       const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
       const hostelId = studentProfile.currentRoomAllocation?.hostelId
       const { gender, degree, department } = studentProfile
-      query.$and = [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: null }, { hostelId: hostelId }] }, { $or: [{ degree: null }, { degree: degree }] }, { $or: [{ department: null }, { department: department }] }]
+      query.$and = [
+        { $or: [{ gender: null }, { gender: gender }] },
+        { $or: [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: hostelId }] },
+        { $or: [{ degree: { $size: 0 } }, { degree: null }, { degree: degree }] },
+        { $or: [{ department: { $size: 0 } }, { department: null }, { department: department }] },
+      ]
     } else {
-      if (hostelId) query.hostelId = hostelId
-      if (degree) query.degree = degree
-      if (department) query.department = department
+      // For non-student users
+      if (hostelId) {
+        const hostelIds = Array.isArray(hostelId) ? hostelId : [hostelId]
+        query.$or = [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: { $in: hostelIds } }]
+      }
+      if (degree) {
+        const degrees = Array.isArray(degree) ? degree : [degree]
+        query.$and = query.$and || []
+        query.$and.push({
+          $or: [{ degree: { $size: 0 } }, { degree: null }, { degree: { $in: degrees } }],
+        })
+      }
+      if (department) {
+        const departments = Array.isArray(department) ? department : [department]
+        query.$and = query.$and || []
+        query.$and.push({
+          $or: [{ department: { $size: 0 } }, { department: null }, { department: { $in: departments } }],
+        })
+      }
       if (gender) query.gender = gender
     }
+
     if (expiryStatus) {
       const now = new Date()
       if (expiryStatus === "active") {
@@ -55,7 +77,7 @@ export const getNotifications = async (req, res) => {
     }
     if (search) {
       const regex = new RegExp(search, "i")
-      query.$or = [{ title: regex }, { message: regex }, { sender: regex }, { hostelId: regex }, { degree: regex }, { department: regex }]
+      query.$or = [{ title: regex }, { message: regex }, { sender: regex }, { hostelId: { $in: [regex] } }, { degree: { $in: [regex] } }, { department: { $in: [regex] } }]
     }
 
     const pageInt = parseInt(page) || 1
@@ -86,7 +108,12 @@ export const getNotificationStats = async (req, res) => {
       const hostelId = studentProfile.currentRoomAllocation?.hostelId
       const { gender, degree, department } = studentProfile
       query = {
-        $and: [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: null }, { hostelId: hostelId }] }, { $or: [{ degree: null }, { degree: degree }] }, { $or: [{ department: null }, { department: department }] }],
+        $and: [
+          { $or: [{ gender: null }, { gender: gender }] },
+          { $or: [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: hostelId }] },
+          { $or: [{ degree: { $size: 0 } }, { degree: null }, { degree: degree }] },
+          { $or: [{ department: { $size: 0 } }, { department: null }, { department: department }] },
+        ],
       }
     }
 
@@ -112,7 +139,7 @@ export const getActiveNotificationsCount = async (req, res) => {
       const hostelId = studentProfile.currentRoomAllocation?.hostelId
       const { gender, degree, department } = studentProfile
       query = {
-        $and: [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: null }, { hostelId: hostelId }] }, { $or: [{ degree: null }, { degree: degree }] }, { $or: [{ department: null }, { department: department }] }],
+        $and: [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: { $size: 0 } }, { hostelId: hostelId }] }, { $or: [{ degree: { $size: 0 } }, { degree: degree }] }, { $or: [{ department: { $size: 0 } }, { department: department }] }],
       }
     }
 

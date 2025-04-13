@@ -20,16 +20,22 @@ const NotificationSchema = new mongoose.Schema({
     ref: "User",
     required: true,
   },
-  hostelId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Hostel",
-  },
-  degree: {
-    type: String,
-  },
-  department: {
-    type: String,
-  },
+  hostelId: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Hostel",
+    },
+  ],
+  degree: [
+    {
+      type: String,
+    },
+  ],
+  department: [
+    {
+      type: String,
+    },
+  ],
   gender: {
     type: String,
     enum: ["Male", "Female", "Other"],

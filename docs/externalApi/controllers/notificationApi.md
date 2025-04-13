@@ -23,25 +23,27 @@ Provides an external API endpoint for searching notification records based on va
   - `type` (String, optional): Filter by notification type.
   - `senderName` (String, optional): Filter by sender's user name (case-insensitive regex).
   - `senderEmail` (String, optional): Filter by sender's user email (case-insensitive regex).
-  - `hostelName` (String, optional): Filter by target hostel name (case-insensitive regex).
-  - `degree` (String, optional): Filter by target degree (case-insensitive regex).
-  - `department` (String, optional): Filter by target department (case-insensitive regex).
+  - `hostelName` (String or [String], optional): Filter by target hostel name(s) (case-insensitive regex). Use multiple parameters for OR (e.g., `?hostelName=Block A&hostelName=Block B`).
+  - `degree` (String or [String], optional): Filter by target degree(s) (case-insensitive regex). Use multiple parameters for OR (e.g., `?degree=BSc&degree=MSc`).
+  - `department` (String or [String], optional): Filter by target department(s) (case-insensitive regex). Use multiple parameters for OR (e.g., `?department=CS&department=IT`).
   - `gender` (String, optional): Filter by target gender.
   - `startDate` (String, optional): Filter notifications created on or after this date (ISO date string, e.g., YYYY-MM-DD).
-  - `endDate` (String, optional): Filter notifications created on or before this date (ISO date string, e.g., YYYY-MM-DD).
+  - `endDate` (String, optional): Filter notifications created on or before this date (ISO date string, e.g., YYYY-MM-DD). Includes the entire end day.
   - `page` (Number, optional): Page number (default: 1).
   - `limit` (Number, optional): Results per page (default: 10).
 - **Process:**
-  1.  Builds the main query object based on direct notification fields (`keyword`, `type`, `degree`, `department`, `gender`, date range).
-  2.  If `senderName` or `senderEmail` is provided, queries the [`User`](../../models/User.md) collection for matching IDs and adds `sender: { $in: [...] }` to the main query. Returns empty if no matching senders.
-  3.  If `hostelName` is provided, queries the [`Hostel`](../../models/Hostel.md) collection for matching IDs and adds `hostelId: { $in: [...] }` to the main query. Returns empty if no matching hostels.
-  4.  Executes `countDocuments` with the final query for pagination.
-  5.  Executes `find` with the final query, applying population for `sender` ([`User`](../../models/User.md) - name, email) and `hostelId` ([`Hostel`](../../models/Hostel.md) - name).
-  6.  Applies sorting (newest first), skip, and limit.
+  1.  Builds the main query object based on direct notification fields (`keyword`, `type`, `gender`, date range).
+  2.  If `degree` is provided (single or array), adds `degree: { $in: [/degree1/i, /degree2/i, ...] }` to the query.
+  3.  If `department` is provided (single or array), adds `department: { $in: [/dept1/i, /dept2/i, ...] }` to the query.
+  4.  If `senderName` or `senderEmail` is provided, queries the [`User`](../../models/User.md) collection for matching IDs and adds `sender: { $in: [...] }` to the main query. Returns empty if no matching senders.
+  5.  If `hostelName` is provided (single or array), queries the [`Hostel`](../../models/Hostel.md) collection for matching IDs based on name regex and adds `hostelId: { $in: [...] }` to the main query. Returns empty if no matching hostels.
+  6.  Executes `countDocuments` with the final query for pagination.
+  7.  Executes `find` with the final query, populating `sender` and `hostelId` details.
+  8.  Applies sorting (newest first), skip, and limit.
 - **Returns:**
   - `200 OK`: Returns a JSON object containing:
-    - `notifications`: An array of populated notification objects.
+    - `notifications`: Array of populated [`Notification`](../../models/Notification.md) objects.
     - `page`: Current page number.
     - `pages`: Total number of pages.
-    - `total`: Total number of matching notification records.
+    - `total`: Total number of matching notifications.
   - `500 Internal Server Error`: If any database query fails during the process (handled by `express-async-handler`).

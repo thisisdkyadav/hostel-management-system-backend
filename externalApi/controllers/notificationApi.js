@@ -32,11 +32,19 @@ const searchNotifications = asyncHandler(async (req, res) => {
   }
 
   if (degree) {
-    query.degree = { $regex: degree, $options: "i" }
+    // Handle array of degrees
+    const degrees = Array.isArray(degree) ? degree : [degree]
+    query.degree = {
+      $in: degrees.map((d) => new RegExp(d, "i")),
+    }
   }
 
   if (department) {
-    query.department = { $regex: department, $options: "i" }
+    // Handle array of departments
+    const departments = Array.isArray(department) ? department : [department]
+    query.department = {
+      $in: departments.map((d) => new RegExp(d, "i")),
+    }
   }
 
   if (gender) {
@@ -89,13 +97,17 @@ const searchNotifications = asyncHandler(async (req, res) => {
 
   // Hostel Search
   if (hostelName) {
-    hostelQuery.name = { $regex: hostelName, $options: "i" }
+    const hostelNames = Array.isArray(hostelName) ? hostelName : [hostelName]
+    hostelQuery.$or = hostelNames.map((name) => ({
+      name: { $regex: name, $options: "i" },
+    }))
   }
 
   if (Object.keys(hostelQuery).length > 0) {
     try {
       const hostels = await Hostel.find(hostelQuery).select("_id").lean()
       if (hostels.length > 0) {
+        // Match any of the found hostel IDs
         query.hostelId = { $in: hostels.map((h) => h._id) }
       } else {
         // If no matching hostels found, no notifications will match
