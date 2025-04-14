@@ -421,10 +421,9 @@ erDiagram
 
     SECURITY ||--|{ VISITOR_LOG : logs
 
-    DISCO_MEMBER ||--|| USER : is
     DISCO_MEMBER ||--o{ DISCIPLINARY_RECORD : records
 
-    COMPLAINT ||--o{ USER : assigned_to (optional)
+    COMPLAINT ||--o{ USER : assigned_to
     EVENT ||--o{ USER : created_by
 
     %% Simplified relationships - details like mandatory/optional (|, o) and cardinality ({, o) are indicative.
