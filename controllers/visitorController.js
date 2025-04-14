@@ -3,6 +3,7 @@ import VisitorRequest from "../models/VisitorRequest.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
 import StudentProfile from "../models/StudentProfile.js"
+import { createPaymentLink, checkPaymentStatus } from "../utils/utils.js"
 
 export const createVisitorRequest = async (req, res) => {
   const { visitors, reason, fromDate, toDate } = req.body
@@ -118,6 +119,8 @@ export const getVisitorRequestById = async (req, res) => {
     const visitorNames = visitorRequest.visitors.map((visitor) => visitor.name).join(", ")
     const isAllocated = visitorRequest.allocatedRooms && visitorRequest.allocatedRooms.length > 0
 
+    const paymentStatus = (await checkPaymentStatus(visitorRequest.paymentId)) || null
+
     // Construct the formatted response
     const formattedRequest = {
       _id: visitorRequest._id,
@@ -144,6 +147,9 @@ export const getVisitorRequestById = async (req, res) => {
       checkOutTime: visitorRequest.checkOutTime || null,
       securityNotes: visitorRequest.securityNotes || null,
       createdAt: visitorRequest.createdAt,
+      paymentLink: visitorRequest.paymentLink || null,
+      paymentId: visitorRequest.paymentId || null,
+      paymentStatus,
     }
 
     res.status(200).json({
@@ -224,7 +230,9 @@ export const deleteVisitorRequest = async (req, res) => {
 
 export const updateVisitorRequestStatus = async (req, res) => {
   const { requestId, action } = req.params
-  const { reason, hostelId: assignedHostelId } = req.body
+  const { reason, hostelId: assignedHostelId, amount } = req.body
+  console.log(req.body)
+
   try {
     if (action !== "approve" && action !== "reject") {
       return res.status(400).json({
@@ -235,8 +243,16 @@ export const updateVisitorRequestStatus = async (req, res) => {
     const status = action === "approve" ? "Approved" : "Rejected"
     const reasonForRejection = action === "reject" ? reason : undefined
     const hostelId = action === "approve" ? assignedHostelId : undefined
+    let paymentLink = null
+    let paymentId = null
+    if (action === "approve") {
+      const paymentData = await createPaymentLink(amount)
+      paymentLink = paymentData.paymentLink
+      paymentId = paymentData.paymentId
+      console.log(paymentLink, paymentId)
+    }
 
-    const updatedRequest = await VisitorRequest.findByIdAndUpdate(requestId, { status, reasonForRejection, hostelId }, { new: true })
+    const updatedRequest = await VisitorRequest.findByIdAndUpdate(requestId, { status, reasonForRejection, hostelId, paymentLink, paymentId }, { new: true })
 
     if (!updatedRequest) {
       return res.status(404).json({

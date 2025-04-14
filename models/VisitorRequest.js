@@ -33,6 +33,12 @@ const visitorRequestSchema = new mongoose.Schema({
     type: [mongoose.Schema.Types.ObjectId],
     ref: "Room",
   },
+  paymentLink: {
+    type: String,
+  },
+  paymentId: {
+    type: String,
+  },
   status: {
     type: String,
     enum: ["Pending", "Approved", "Rejected"],
