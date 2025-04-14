@@ -2,7 +2,8 @@ import mongoose from "mongoose"
 
 const associateWardenSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true },
-  hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel" },
+  hostelIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Hostel" }],
+  activeHostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", default: null },
   status: {
     type: String,
     enum: ["assigned", "unassigned"],

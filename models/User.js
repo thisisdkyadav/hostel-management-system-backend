@@ -43,30 +43,58 @@ UserSchema.virtual("hostel", {
 UserSchema.pre(/^find/, function (next) {
   this.populate({
     path: "hostel",
-    select: "hostelId",
-    populate: {
-      path: "hostelId",
-      select: "name",
-      model: "Hostel",
-    },
+    populate: [
+      {
+        path: "activeHostelId",
+        select: "name type",
+        model: "Hostel",
+        options: { strictPopulate: false },
+      },
+      {
+        path: "hostelId",
+        select: "name type",
+        model: "Hostel",
+        options: { strictPopulate: false },
+      },
+    ],
+    options: { strictPopulate: false },
   })
   next()
 })
 
 UserSchema.post(/^find/, function (docs, next) {
-  if (!Array.isArray(docs)) {
+  if (docs && !Array.isArray(docs)) {
     docs = [docs]
   }
 
-  docs.forEach((doc) => {
-    if (doc && doc.hostel && doc.hostel.hostelId) {
-      const simplifiedHostel = {
-        _id: doc.hostel.hostelId._id,
-        name: doc.hostel.hostelId.name,
-      }
+  if (!docs) {
+    return next()
+  }
 
-      doc.hostel = simplifiedHostel
-    } else if (doc) {
+  docs.forEach((doc) => {
+    if (!doc || !doc.hostel) {
+      if (doc) doc.hostel = null
+      return
+    }
+
+    let populatedHostel = null
+
+    if (doc.role === "Warden" || doc.role === "Associate Warden") {
+      if (doc.hostel.activeHostelId && doc.hostel.activeHostelId._id) {
+        populatedHostel = doc.hostel.activeHostelId
+      }
+    } else if (doc.role === "Security") {
+      if (doc.hostel.hostelId && doc.hostel.hostelId._id) {
+        populatedHostel = doc.hostel.hostelId
+      }
+    }
+
+    if (populatedHostel) {
+      doc.hostel = {
+        _id: populatedHostel._id,
+        name: populatedHostel.name,
+      }
+    } else {
       doc.hostel = null
     }
   })

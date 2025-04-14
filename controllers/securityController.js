@@ -245,10 +245,10 @@ export const getVisitors = async (req, res) => {
       hostelId = security.hostelId
     } else if (userRole === "Warden") {
       const warden = await Warden.findOne({ userId: user._id })
-      hostelId = warden.hostelId
+      hostelId = warden ? warden.activeHostelId : null
     } else if (userRole === "Associate Warden") {
       const associateWarden = await AssociateWarden.findOne({ userId: user._id })
-      hostelId = associateWarden.hostelId
+      hostelId = associateWarden ? associateWarden.hostelId : null
     } else {
       return res.status(403).json({ message: "Access denied" })
     }

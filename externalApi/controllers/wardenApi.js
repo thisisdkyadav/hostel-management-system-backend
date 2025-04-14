@@ -4,11 +4,12 @@ import Hostel from "../../models/Hostel.js"
 import asyncHandler from "express-async-handler"
 
 const searchWardens = asyncHandler(async (req, res) => {
-  const { userName, userEmail, hostelName, status, joinStartDate, joinEndDate, page = 1, limit = 10 } = req.query
+  const { userName, userEmail, hostelName, activeHostelName, status, joinStartDate, joinEndDate, page = 1, limit = 10 } = req.query
 
   const query = {}
   const userQuery = {}
   let hostelId = null
+  let activeHostelId = null
 
   if (hostelName) {
     try {
@@ -16,15 +17,31 @@ const searchWardens = asyncHandler(async (req, res) => {
         .select("_id")
         .lean()
       if (hostel) {
-        hostelId = hostel._id
-        query.hostelId = hostelId
+        query.hostelIds = { $in: [hostel._id] }
       } else {
         return res.json({ wardens: [], page: 1, pages: 0, total: 0 })
       }
     } catch (error) {
-      console.error("Error finding hostel:", error)
+      console.error("Error finding hostel by name:", error)
       res.status(500)
-      throw new Error("Error searching for hostel")
+      throw new Error("Error searching for hostel by name")
+    }
+  }
+
+  if (activeHostelName) {
+    try {
+      const activeHostel = await Hostel.findOne({ name: { $regex: `^${activeHostelName}$`, $options: "i" } })
+        .select("_id")
+        .lean()
+      if (activeHostel) {
+        query.activeHostelId = activeHostel._id
+      } else {
+        return res.json({ wardens: [], page: 1, pages: 0, total: 0 })
+      }
+    } catch (error) {
+      console.error("Error finding active hostel by name:", error)
+      res.status(500)
+      throw new Error("Error searching for active hostel by name")
     }
   }
 
@@ -84,7 +101,8 @@ const searchWardens = asyncHandler(async (req, res) => {
     const count = await Warden.countDocuments(query)
     const wardens = await Warden.find(query)
       .populate("userId", "name email phone")
-      .populate("hostelId", "name")
+      .populate("hostelIds", "name")
+      .populate("activeHostelId", "name")
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ "userId.name": 1 })
