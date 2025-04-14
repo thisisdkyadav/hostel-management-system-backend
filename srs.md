@@ -383,4 +383,54 @@ The major functions provided by the HMS include:
 - **DBR4:** Indexing: Create indexes on frequently queried fields (e.g., user emails, student IDs, complaint status) for performance.
 - **DBR5:** Integrity: Maintain data integrity (e.g., ensure student belongs to a valid room).
 
+```mermaid
+erDiagram
+    USER ||--o{ ROLE : has
+    USER ||--o{ NOTIFICATION : receives
+    STUDENT ||--|| USER : is
+    WARDEN ||--|| USER : is
+    ADMIN ||--|| USER : is
+    SECURITY ||--|| USER : is
+    SUPER_ADMIN ||--|| USER : is
+
+    HOSTEL ||--|{ ROOM : contains
+    ROOM ||--o{ STUDENT : allocates
+
+    STUDENT ||--|{ COMPLAINT : submits
+    STUDENT ||--|{ LOST_FOUND_ITEM : reports
+    STUDENT ||--|{ PAYMENT : makes
+    STUDENT ||--|{ FEEDBACK : gives
+    STUDENT ||--o{ VISITOR_LOG : is_visited_by
+    STUDENT ||--|{ DISCIPLINARY_RECORD : involved_in
+
+    WARDEN ||--o{ COMPLAINT : manages
+    WARDEN ||--o{ LOST_FOUND_ITEM : manages
+    WARDEN ||--o{ EVENT : creates
+
+    ADMIN ||--o{ USER : manages_users
+    ADMIN ||--o{ HOSTEL : manages
+    ADMIN ||--o{ ROOM : manages
+    ADMIN ||--o{ COMPLAINT : oversees
+    ADMIN ||--o{ LOST_FOUND_ITEM : oversees
+    ADMIN ||--o{ EVENT : manages
+    ADMIN ||--o{ PAYMENT : tracks
+    ADMIN ||--o{ FEEDBACK : views
+    ADMIN ||--o{ VISITOR_LOG : views
+    ADMIN ||--o{ NOTIFICATION : manages
+    ADMIN ||--o{ DISCIPLINARY_RECORD : manages
+
+    SECURITY ||--|{ VISITOR_LOG : logs
+
+    DISCO_MEMBER ||--|| USER : is
+    DISCO_MEMBER ||--o{ DISCIPLINARY_RECORD : records
+
+    COMPLAINT ||--o{ USER : assigned_to (optional)
+    EVENT ||--o{ USER : created_by
+
+    %% Simplified relationships - details like mandatory/optional (|, o) and cardinality ({, o) are indicative.
+    %% This is a high-level overview for the SRS.
+```
+
+_Diagram: High-Level Database Entity Relationships_
+
 ---
