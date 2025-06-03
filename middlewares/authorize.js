@@ -28,7 +28,7 @@ export const isStudentManager = async (req, res, next) => {
       return res.status(401).json({ success: false, message: "Authentication required" })
     }
 
-    const authorizedRoles = ["Warden", "Admin", "Super Admin", "Associate Warden"]
+    const authorizedRoles = ["Warden", "Admin", "Super Admin", "Associate Warden", "Hostel Supervisor"]
 
     if (!authorizedRoles.includes(req.user.role)) {
       return res.status(403).json({

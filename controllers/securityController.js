@@ -6,6 +6,7 @@ import RoomAllocation from "../models/RoomAllocation.js"
 import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
 import AssociateWarden from "../models/AssociateWarden.js"
+import HostelSupervisor from "../models/HostelSupervisor.js"
 import { decryptData } from "../utils/qrUtils.js"
 import User from "../models/User.js"
 import StudentProfile from "../models/StudentProfile.js"
@@ -145,7 +146,7 @@ export const getStudentEntries = async (req, res) => {
       query.userId = user._id
     }
 
-    if (["Admin", "Warden", "Associate Warden"].includes(user.role)) {
+    if (["Admin", "Warden", "Associate Warden", "Hostel Supervisor"].includes(user.role)) {
       if (userId) {
         query.userId = userId
       }
@@ -248,7 +249,10 @@ export const getVisitors = async (req, res) => {
       hostelId = warden ? warden.activeHostelId : null
     } else if (userRole === "Associate Warden") {
       const associateWarden = await AssociateWarden.findOne({ userId: user._id })
-      hostelId = associateWarden ? associateWarden.hostelId : null
+      hostelId = associateWarden ? associateWarden.activeHostelId : null
+    } else if (userRole === "Hostel Supervisor") {
+      const hostelSupervisor = await HostelSupervisor.findOne({ userId: user._id })
+      hostelId = hostelSupervisor ? hostelSupervisor.activeHostelId : null
     } else {
       return res.status(403).json({ message: "Access denied" })
     }

@@ -3,6 +3,7 @@ import { addHostel, getHostels, getHostelList, updateHostel } from "../controlle
 import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff } from "../controllers/adminController.js"
 import { createWarden, getAllWardens, updateWarden, deleteWarden } from "../controllers/wardenController.js"
 import { createAssociateWarden, getAllAssociateWardens, updateAssociateWarden, deleteAssociateWarden } from "../controllers/associateWardenController.js"
+import { createHostelSupervisor, getAllHostelSupervisors, updateHostelSupervisor, deleteHostelSupervisor } from "../controllers/hostelSupervisorController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 
@@ -25,6 +26,11 @@ router.get("/associate-wardens", getAllAssociateWardens)
 router.post("/associate-warden", createAssociateWarden)
 router.put("/associate-warden/:id", updateAssociateWarden)
 router.delete("/associate-warden/:id", deleteAssociateWarden)
+
+router.get("/hostel-supervisors", getAllHostelSupervisors)
+router.post("/hostel-supervisor", createHostelSupervisor)
+router.put("/hostel-supervisor/:id", updateHostelSupervisor)
+router.delete("/hostel-supervisor/:id", deleteHostelSupervisor)
 
 router.get("/security", getAllSecurities)
 router.post("/security", createSecurity)

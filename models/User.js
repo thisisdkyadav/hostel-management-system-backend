@@ -8,7 +8,7 @@ const UserSchema = new mongoose.Schema(
     profileImage: { type: String },
     role: {
       type: String,
-      enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin"],
+      enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor"],
       required: true,
     },
     password: { type: String },
@@ -31,6 +31,8 @@ UserSchema.virtual("hostel", {
         return "AssociateWarden"
       case "Security":
         return "Security"
+      case "Hostel Supervisor":
+        return "HostelSupervisor"
       default:
         return null
     }
@@ -79,7 +81,7 @@ UserSchema.post(/^find/, function (docs, next) {
 
     let populatedHostel = null
 
-    if (doc.role === "Warden" || doc.role === "Associate Warden") {
+    if (doc.role === "Warden" || doc.role === "Associate Warden" || doc.role === "Hostel Supervisor") {
       if (doc.hostel.activeHostelId && doc.hostel.activeHostelId._id) {
         populatedHostel = doc.hostel.activeHostelId
       }
