@@ -104,7 +104,7 @@ export const getAllWardens = async (req, res) => {
 export const updateWarden = async (req, res) => {
   try {
     const { id } = req.params
-    const { phone, joinDate, hostelIds } = req.body
+    const { phone, profileImage, joinDate, hostelIds } = req.body
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return res.status(400).json({ message: "hostelIds must be an array" })
@@ -140,12 +140,19 @@ export const updateWarden = async (req, res) => {
       updateData.joinDate = joinDate
     }
 
+    if (profileImage !== undefined) {
+      userUpdateData.profileImage = profileImage
+    }
+
     if (phone !== undefined) {
+      userUpdateData.phone = phone
+    }
+
+    if (Object.keys(userUpdateData).length > 0) {
       const warden = await Warden.findById(id).select("userId")
       if (!warden) {
         return res.status(404).json({ message: "Warden not found" })
       }
-      userUpdateData.phone = phone
       await User.findByIdAndUpdate(warden.userId, userUpdateData)
     }
 

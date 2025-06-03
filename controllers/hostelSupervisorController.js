@@ -105,7 +105,7 @@ export const getAllHostelSupervisors = async (req, res) => {
 export const updateHostelSupervisor = async (req, res) => {
   try {
     const { id } = req.params
-    const { phone, joinDate, hostelIds } = req.body
+    const { phone, profileImage, joinDate, hostelIds } = req.body
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return res.status(400).json({ message: "hostelIds must be an array" })
@@ -140,12 +140,19 @@ export const updateHostelSupervisor = async (req, res) => {
       updateData.joinDate = joinDate
     }
 
+    if (profileImage !== undefined) {
+      userUpdateData.profileImage = profileImage
+    }
+
     if (phone !== undefined) {
+      userUpdateData.phone = phone
+    }
+
+    if (Object.keys(userUpdateData).length > 0) {
       const hostelSupervisor = await HostelSupervisor.findById(id).select("userId")
       if (!hostelSupervisor) {
         return res.status(404).json({ message: "Hostel Supervisor not found" })
       }
-      userUpdateData.phone = phone
       await User.findByIdAndUpdate(hostelSupervisor.userId, userUpdateData)
     }
 

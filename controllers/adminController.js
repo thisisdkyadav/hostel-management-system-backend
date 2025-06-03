@@ -215,7 +215,7 @@ export const updateMaintenanceStaff = async (req, res) => {
 
   try {
     const { id } = req.params
-    const { name, phone, category } = req.body
+    const { name, phone, profileImage, category } = req.body
 
     const updateData = {}
 
@@ -237,6 +237,10 @@ export const updateMaintenanceStaff = async (req, res) => {
 
     if (phone !== undefined) {
       updateUserData.phone = phone
+    }
+
+    if (profileImage !== undefined) {
+      updateUserData.profileImage = profileImage
     }
 
     if (Object.keys(updateUserData).length > 0) {

@@ -105,7 +105,7 @@ export const getAllAssociateWardens = async (req, res) => {
 export const updateAssociateWarden = async (req, res) => {
   try {
     const { id } = req.params
-    const { phone, joinDate, hostelIds } = req.body
+    const { phone, profileImage, joinDate, hostelIds } = req.body
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return res.status(400).json({ message: "hostelIds must be an array" })
@@ -141,11 +141,18 @@ export const updateAssociateWarden = async (req, res) => {
     }
 
     if (phone !== undefined) {
+      userUpdateData.phone = phone
+    }
+
+    if (profileImage !== undefined) {
+      userUpdateData.profileImage = profileImage
+    }
+
+    if (Object.keys(userUpdateData).length > 0) {
       const associateWarden = await AssociateWarden.findById(id).select("userId")
       if (!associateWarden) {
         return res.status(404).json({ message: "Associate Warden not found" })
       }
-      userUpdateData.phone = phone
       await User.findByIdAndUpdate(associateWarden.userId, userUpdateData)
     }
 
