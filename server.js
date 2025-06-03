@@ -35,6 +35,8 @@ app.use(
       "https://flask-vercel-ashen.vercel.app",
       "http://localhost",
       "http://localhost:5173",
+      "http://localhost:5174",
+      "http://localhost:51839",
       "http://localhost:4173",
       "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net",
       "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",

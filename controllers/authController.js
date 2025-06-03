@@ -43,6 +43,7 @@ export const login = async (req, res) => {
       secure: !isDevelopmentEnvironment,
       sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/", // Add explicit path
     })
 
     res.json({
