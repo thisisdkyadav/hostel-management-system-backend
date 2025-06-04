@@ -8,23 +8,31 @@ import AssociateWarden from "../models/AssociateWarden.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 
 export const createComplaint = async (req, res) => {
-  const { userId, title, description, category, priority, attachments } = req.body
+  const user = req.user
+  const { role } = user
+  const { userId, title, description, location, category, priority, attachments } = req.body
   try {
-    const studentAllocation = await RoomAllocation.findOne({ userId })
+    let allocationDetails = null
+    if (["Student"].includes(role)) {
+      allocationDetails = await RoomAllocation.findOne({ userId })
 
-    if (!studentAllocation) {
-      return res.status(404).json({ message: "Room allocation not found" })
+      if (!allocationDetails) {
+        return res.status(404).json({ message: "Room allocation not found" })
+      }
+    } else if (user.hostel) {
+      allocationDetails = { hostelId: user.hostel._id }
     }
 
     const newComplaint = new Complaint({
       userId,
       title,
       description,
+      location,
       category,
       priority,
-      hostelId: studentAllocation.hostelId,
-      unitId: studentAllocation.unitId,
-      roomId: studentAllocation.roomId,
+      hostelId: allocationDetails?.hostelId,
+      unitId: allocationDetails?.unitId,
+      roomId: allocationDetails?.roomId,
       attachments,
     })
 
@@ -110,14 +118,15 @@ export const getAllComplaints = async (req, res) => {
         status: complaint.status,
         category: complaint.category,
         priority: complaint.priority,
-        hostel: complaint.hostelId ? complaint.hostelId.name : "N/A",
+        hostel: complaint.hostelId ? complaint.hostelId.name : null,
         roomNumber: roomNumber,
+        location: complaint.location,
         reportedBy: {
           id: complaint.userId._id,
           email: complaint.userId.email,
           name: complaint.userId.name,
           profileImage: complaint.userId.profileImage || null,
-          phone: complaint.userId.phone || "N/A",
+          phone: complaint.userId.phone || null,
         },
         assignedTo: complaint.assignedTo
           ? {
@@ -125,7 +134,7 @@ export const getAllComplaints = async (req, res) => {
               email: complaint.assignedTo.email,
               name: complaint.assignedTo.name,
               profileImage: complaint.assignedTo.profileImage || null,
-              phone: complaint.assignedTo.phone || "N/A",
+              phone: complaint.assignedTo.phone || null,
             }
           : null,
         resolutionNotes: complaint.resolutionNotes || "",

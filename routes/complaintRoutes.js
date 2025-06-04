@@ -5,6 +5,8 @@ import { authenticate } from "../middlewares/auth.js"
 const router = express.Router()
 router.use(authenticate)
 
+router.post("/", createComplaint)
+
 router.get("/student/complaints/:userId", getStudentComplaints)
 router.post("/student/complaints", createComplaint)
 // router.get("/:id", getComplaintById)
