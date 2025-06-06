@@ -54,6 +54,10 @@ const StudentProfileSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "RoomAllocation",
   },
+  familyMembers: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: "FamilyMember",
+  },
 })
 
 StudentProfileSchema.statics.getFullStudentData = async function (userId) {
