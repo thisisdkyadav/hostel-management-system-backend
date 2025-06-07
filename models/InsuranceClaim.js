@@ -17,3 +17,5 @@ InsuranceClaimSchema.virtual("id").get(function () {
 InsuranceClaimSchema.set("toJSON", { virtuals: true })
 
 const InsuranceClaim = mongoose.model("InsuranceClaim", InsuranceClaimSchema)
+
+export default InsuranceClaim
