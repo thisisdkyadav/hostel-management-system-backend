@@ -8,7 +8,7 @@ import { getInsuranceProviders, createInsuranceProvider, updateInsuranceProvider
 import { getHealth, updateHealth, createInsuranceClaim, getInsuranceClaims, updateInsuranceClaim, deleteInsuranceClaim } from "../controllers/healthController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
-
+import { createHostelGate, getAllHostelGates, updateHostelGate, deleteHostelGate } from "../controllers/hostelGateController.js"
 const router = express.Router()
 router.use(authenticate)
 // router.use(authorizeRoles(["admin"]))
@@ -56,6 +56,11 @@ router.post("/insurance-claims", createInsuranceClaim)
 router.get("/insurance-claims/:userId", getInsuranceClaims)
 router.put("/insurance-claims/:id", updateInsuranceClaim)
 router.delete("/insurance-claims/:id", deleteInsuranceClaim)
+
+router.post("/hostel-gate", createHostelGate)
+router.get("/hostel-gate/all", getAllHostelGates)
+router.put("/hostel-gate/:hostelId", updateHostelGate)
+router.delete("/hostel-gate/:hostelId", deleteHostelGate)
 
 router.post("/user/update-password", updateUserPassword)
 
