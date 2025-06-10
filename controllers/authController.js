@@ -153,3 +153,59 @@ export const updatePassword = async (req, res) => {
     res.status(500).json({ message: "Server error" })
   }
 }
+
+export const verifySSOToken = async (req, res) => {
+  const { token } = req.body
+
+  if (!token) {
+    return res.status(400).json({ message: "Token is required" })
+  }
+
+  try {
+    // Verify token with SSO server
+    const response = await axios.post(process.env.SSO_SERVER_URL + "/api/auth/verify-sso-token", { token })
+
+    if (!response.data.success) {
+      return res.status(401).json({ message: "Invalid or expired SSO token" })
+    }
+
+    // Find user by email from SSO response
+    const email = response.data.user.email
+    const user = await User.findOne({ email }).exec()
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found in system" })
+    }
+
+    // Create JWT token for our system
+    const jwtToken = jwt.sign(
+      {
+        id: user._id,
+        role: user.role,
+        email: user.email,
+      },
+      JWT_SECRET,
+      { expiresIn: "7d" }
+    )
+
+    // Set cookie
+    res.cookie("token", jwtToken, {
+      httpOnly: true,
+      secure: !isDevelopmentEnvironment,
+      sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
+    })
+
+    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email)
+    const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true }).select("-password").exec()
+
+    res.json({
+      user: userResponse,
+      message: "SSO authentication successful",
+    })
+  } catch (error) {
+    console.error("SSO verification error:", error.message)
+    res.status(500).json({ message: "Failed to verify SSO token" })
+  }
+}
