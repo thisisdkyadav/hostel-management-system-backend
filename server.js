@@ -20,6 +20,7 @@ import paymentRoutes from "./routes/paymentRoutes.js"
 import externalApiRoutes from "./externalApi/index.js"
 import superAdminRoutes from "./routes/superAdminRoutes.js"
 import familyMemberRoutes from "./routes/familyMemberRoutes.js"
+import staffAttendanceRoutes from "./routes/staffAttendanceRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
 
@@ -75,6 +76,7 @@ app.use("/api/payment", paymentRoutes)
 app.use("/api/super-admin", superAdminRoutes)
 app.use("/external-api", externalApiRoutes)
 app.use("/api/family", familyMemberRoutes)
+app.use("/api/staff", staffAttendanceRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")
