@@ -33,6 +33,8 @@ UserSchema.virtual("hostel", {
         return "Security"
       case "Hostel Supervisor":
         return "HostelSupervisor"
+      case "Hostel Gate":
+        return "HostelGate"
       default:
         return null
     }
@@ -85,7 +87,7 @@ UserSchema.post(/^find/, function (docs, next) {
       if (doc.hostel.activeHostelId && doc.hostel.activeHostelId._id) {
         populatedHostel = doc.hostel.activeHostelId
       }
-    } else if (doc.role === "Security") {
+    } else if (doc.role === "Security" || doc.role === "Hostel Gate") {
       if (doc.hostel.hostelId && doc.hostel.hostelId._id) {
         populatedHostel = doc.hostel.hostelId
       }
@@ -95,6 +97,7 @@ UserSchema.post(/^find/, function (docs, next) {
       doc.hostel = {
         _id: populatedHostel._id,
         name: populatedHostel.name,
+        type: populatedHostel.type,
       }
     } else {
       doc.hostel = null

@@ -241,7 +241,7 @@ export const getVisitors = async (req, res) => {
     const userRole = user.role
 
     let hostelId
-    if (userRole === "Security") {
+    if (userRole === "Security" || userRole === "Hostel Gate") {
       const security = await Security.findOne({ userId: user._id })
       hostelId = security.hostelId
     } else if (userRole === "Warden") {

@@ -6,9 +6,9 @@ import { authorizeRoles } from "../middlewares/authorize.js"
 const router = express.Router()
 router.use(authenticate)
 
-router.get("/", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Student"]), getLostAndFound)
-router.post("/", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security"]), createLostAndFound)
-router.put("/:id", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security"]), updateLostAndFound)
-router.delete("/:id", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security"]), deleteLostAndFound)
+router.get("/", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate", "Student"]), getLostAndFound)
+router.post("/", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), createLostAndFound)
+router.put("/:id", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), updateLostAndFound)
+router.delete("/:id", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), deleteLostAndFound)
 
 export default router
