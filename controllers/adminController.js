@@ -68,6 +68,7 @@ export const getAllSecurities = async (req, res) => {
 
     const formattedSecurities = securities.map((security) => ({
       id: security._id,
+      userId: security.userId._id,
       name: security.userId.name,
       email: security.userId.email,
       phone: security.userId.phone,
@@ -197,6 +198,7 @@ export const getAllMaintenanceStaff = async (req, res) => {
 
     const formattedMaintenanceStaff = maintenanceStaff.map((staff) => ({
       id: staff._id,
+      userId: staff.userId._id,
       name: staff.userId.name,
       email: staff.userId.email,
       phone: staff.userId.phone,

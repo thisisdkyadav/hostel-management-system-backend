@@ -136,7 +136,9 @@ export const recordAttendance = async (req, res) => {
  * @param {Object} res - Response object
  */
 export const getAttendanceRecords = async (req, res) => {
-  const { staffType, userId, startDate, endDate, page = 1, limit = 10 } = req.query
+  const { staffType, userId, hostelId, startDate, endDate, page = 1, limit = 10 } = req.query
+  console.log(userId)
+
   const user = req.user
 
   try {
@@ -147,7 +149,11 @@ export const getAttendanceRecords = async (req, res) => {
       query.userId = userId
     }
 
-    if (staffType) {
+    if (hostelId) {
+      query.hostelId = hostelId
+    }
+
+    if (staffType && !userId) {
       // We need to join with User model to filter by role
       const users = await User.find({ role: staffType === "security" ? "Security" : "Maintenance Staff" }).select("_id")
       query.userId = { $in: users.map((u) => u._id) }
@@ -172,6 +178,8 @@ export const getAttendanceRecords = async (req, res) => {
     // Pagination
     const skip = (page - 1) * limit
     const total = await StaffAttendance.countDocuments(query)
+
+    console.log(query)
 
     // Get records with pagination
     const records = await StaffAttendance.find(query).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)).populate("userId", "name email role").populate("hostelId", "name type").exec()
