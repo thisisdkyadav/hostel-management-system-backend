@@ -2,24 +2,25 @@ import express from "express"
 import { createVisitorRequest, deleteVisitorRequest, getVisitorRequests, updateVisitorRequest, updateVisitorRequestStatus, allocateRoomsToVisitorRequest, getVisitorRequestById, checkInVisitor, checkOutVisitor, updateCheckTime, getStudentVisitorRequests } from "../controllers/visitorController.js"
 import { getVisitorProfiles, createVisitorProfile, deleteVisitorProfile, updateVisitorProfile } from "../controllers/visitorProfileController.js"
 import { authenticate } from "../middlewares/auth.js"
+import { authorizeRoles } from "../middlewares/authorize.js"
 
 const router = express.Router()
 router.use(authenticate)
 
-router.get("/requests/summary", getVisitorRequests)
-router.get("/requests/student/:userId", getStudentVisitorRequests)
-router.get("/requests/:requestId", getVisitorRequestById)
-router.post("/requests", createVisitorRequest)
-router.put("/requests/:requestId", updateVisitorRequest)
-router.delete("/requests/:requestId", deleteVisitorRequest)
-router.get("/profiles", getVisitorProfiles)
-router.post("/profiles", createVisitorProfile)
-router.put("/profiles/:visitorId", updateVisitorProfile)
-router.delete("/profiles/:visitorId", deleteVisitorProfile)
-router.post("/requests/:requestId/allocate", allocateRoomsToVisitorRequest)
-router.post("/requests/:requestId/checkin", checkInVisitor)
-router.post("/requests/:requestId/checkout", checkOutVisitor)
-router.put("/requests/:requestId/update-check-times", updateCheckTime)
-router.post("/requests/:requestId/:action", updateVisitorRequestStatus)
+router.get("/requests/summary", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate", "Student"]), getVisitorRequests)
+router.get("/requests/student/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getStudentVisitorRequests)
+router.get("/requests/:requestId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate", "Student"]), getVisitorRequestById)
+router.post("/requests", authorizeRoles(["Student"]), createVisitorRequest)
+router.put("/requests/:requestId", authorizeRoles(["Student"]), updateVisitorRequest)
+router.delete("/requests/:requestId", authorizeRoles(["Student"]), deleteVisitorRequest)
+router.get("/profiles", authorizeRoles(["Student"]), getVisitorProfiles)
+router.post("/profiles", authorizeRoles(["Student"]), createVisitorProfile)
+router.put("/profiles/:visitorId", authorizeRoles(["Student"]), updateVisitorProfile)
+router.delete("/profiles/:visitorId", authorizeRoles(["Student"]), deleteVisitorProfile)
+router.post("/requests/:requestId/allocate", authorizeRoles(["Warden", "Associate Warden", "Hostel Supervisor"]), allocateRoomsToVisitorRequest)
+router.post("/requests/:requestId/checkin", authorizeRoles(["Hostel Gate"]), checkInVisitor)
+router.post("/requests/:requestId/checkout", authorizeRoles(["Hostel Gate"]), checkOutVisitor)
+router.put("/requests/:requestId/update-check-times", authorizeRoles(["Hostel Gate"]), updateCheckTime)
+router.post("/requests/:requestId/:action", authorizeRoles(["Admin"]), updateVisitorRequestStatus)
 
 export default router

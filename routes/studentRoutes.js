@@ -1,25 +1,8 @@
 import express from "express"
-import {
-  createStudentsProfiles,
-  getStudents,
-  getStudentDetails,
-  getStudentProfile,
-  updateStudentProfile,
-  // createRoomChangeRequest,
-  // getRoomChangeRequestStatus,
-  // updateRoomChangeRequest,
-  // deleteRoomChangeRequest,
-  fileComplaint,
-  getAllComplaints,
-  updateComplaint,
-  deleteComplaint,
-  updateStudentsProfiles,
-  getMultipleStudentDetails,
-  getStudentDashboard,
-} from "../controllers/studentController.js"
+import { createStudentsProfiles, getStudents, getStudentDetails, getStudentProfile, updateStudentProfile, fileComplaint, getAllComplaints, updateComplaint, deleteComplaint, updateStudentsProfiles, getMultipleStudentDetails, getStudentDashboard } from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
-
+import { requirePermission } from "../utils/permissions.js"
 const router = express.Router()
 
 router.use(authenticate)
@@ -28,23 +11,17 @@ router.get("/dashboard", authorizeRoles(["Student"]), getStudentDashboard)
 
 router.get("/profile", authorizeRoles(["Student"]), getStudentProfile)
 
-router.get("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getStudents)
-router.post("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), createStudentsProfiles)
-router.put("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), updateStudentsProfiles)
-router.post("/profiles/ids", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getMultipleStudentDetails)
-router.get("/profile/details/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getStudentDetails)
-router.put("/profile/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), updateStudentProfile)
-
-// Room change request routes
-// router.post("/room-change", createRoomChangeRequest)
-// router.get("/room-change", getRoomChangeRequestStatus)
-// router.put("/room-change", updateRoomChangeRequest)
-// router.delete("/room-change", deleteRoomChangeRequest)
+router.get("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getStudents)
+router.post("/profiles", authorizeRoles(["Admin"]), createStudentsProfiles)
+router.put("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "edit"), updateStudentsProfiles)
+router.post("/profiles/ids", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getMultipleStudentDetails)
+router.get("/profile/details/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getStudentDetails)
+router.put("/profile/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "edit"), updateStudentProfile)
 
 // Complaint routes
-router.post("/:userId/complaints", fileComplaint)
-router.get("/:userId/complaints", getAllComplaints)
-router.put("/complaints/:complaintId", updateComplaint)
-router.delete("/complaints/:complaintId", deleteComplaint)
+router.post("/:userId/complaints", authorizeRoles(["Student"]), requirePermission("complaints", "create"), fileComplaint)
+router.get("/:userId/complaints", authorizeRoles(["Student"]), requirePermission("complaints", "view"), getAllComplaints)
+router.put("/complaints/:complaintId", authorizeRoles(["Student"]), requirePermission("complaints", "edit"), updateComplaint)
+router.delete("/complaints/:complaintId", authorizeRoles(["Student"]), requirePermission("complaints", "delete"), deleteComplaint)
 
 export default router

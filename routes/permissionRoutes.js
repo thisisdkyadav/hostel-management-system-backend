@@ -1,5 +1,5 @@
 import express from "express"
-import { getUserPermissions, updateUserPermissions, resetUserPermissions, getUsersByRole } from "../controllers/permissionController.js"
+import { getUserPermissions, updateUserPermissions, resetUserPermissions, getUsersByRole, resetRolePermissions, setRolePermissions } from "../controllers/permissionController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -21,5 +21,11 @@ router.put("/user/:userId", updateUserPermissions)
 
 // Reset permissions for a specific user to role defaults
 router.post("/user/:userId/reset", resetUserPermissions)
+
+// Reset permissions for all users with a specific role
+router.post("/role/:role/reset", resetRolePermissions)
+
+// Set custom permissions for all users with a specific role
+router.put("/role/:role", setRolePermissions)
 
 export default router

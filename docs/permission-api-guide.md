@@ -149,6 +149,84 @@ All endpoints require authentication and Admin role access.
 }
 ```
 
+### 5. Reset Role Permissions
+
+**Endpoint:** `POST /role/:role/reset`
+
+**Description:** Resets permissions for all users with a specific role to the default permissions for that role. This is useful for batch updates when permission policies change.
+
+**Parameters:**
+
+- `role`: The role to reset permissions for (e.g., "Warden", "Student", "Hostel Supervisor")
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Successfully reset permissions for 15 users with role Warden",
+  "data": {
+    "role": "Warden",
+    "usersUpdated": 15,
+    "totalUsers": 15,
+    "defaultPermissions": {
+      "students_info": { "view": true, "edit": false, "create": false, "delete": false, "react": true },
+      "student_inventory": { "view": true, "edit": false, "create": false, "delete": false, "react": true },
+      "lost_and_found": { "view": true, "edit": true, "create": true, "delete": false, "react": true },
+      "events": { "view": true, "edit": true, "create": true, "delete": false, "react": true },
+      "visitors": { "view": true, "edit": true, "create": true, "delete": false, "react": true },
+      "complaints": { "view": true, "edit": true, "create": false, "delete": false, "react": true },
+      "feedback": { "view": true, "edit": true, "create": false, "delete": false, "react": true },
+      "rooms": { "view": true, "edit": false, "create": false, "delete": false, "react": true },
+      "hostels": { "view": true, "edit": false, "create": false, "delete": false, "react": true }
+    }
+  }
+}
+```
+
+### 6. Set Custom Role Permissions
+
+**Endpoint:** `PUT /role/:role`
+
+**Description:** Sets custom permissions for all users with a specific role, overwriting any individual customizations. Use this to define new permission sets for entire roles at once.
+
+**Parameters:**
+
+- `role`: The role to set permissions for (e.g., "Warden", "Student", "Hostel Supervisor")
+
+**Request Body:**
+
+```json
+{
+  "permissions": {
+    "students_info": { "view": true, "edit": true, "create": false, "delete": false, "react": true },
+    "events": { "view": true, "edit": true, "create": true, "delete": false, "react": true },
+    "complaints": { "view": true, "edit": true, "create": false, "delete": false, "react": true },
+    "feedback": { "view": true, "edit": true, "create": true, "delete": false, "react": true }
+  }
+}
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Successfully updated permissions for 15 users with role Warden",
+  "data": {
+    "role": "Warden",
+    "usersUpdated": 15,
+    "totalUsers": 15,
+    "customPermissions": {
+      "students_info": { "view": true, "edit": true, "create": false, "delete": false, "react": true },
+      "events": { "view": true, "edit": true, "create": true, "delete": false, "react": true },
+      "complaints": { "view": true, "edit": true, "create": false, "delete": false, "react": true },
+      "feedback": { "view": true, "edit": true, "create": true, "delete": false, "react": true }
+    }
+  }
+}
+```
+
 ## Available Permission Resources
 
 The system now supports the following resources:
@@ -310,6 +388,184 @@ function UserPermissions({ userId }) {
         <button onClick={savePermissions}>Save Changes</button>
         <button onClick={resetPermissions}>Reset to Default</button>
       </div>
+    </div>
+  )
+}
+```
+
+### Role-Based Permission Management Example
+
+```jsx
+// Example of a role permissions management component
+import { useState, useEffect } from "react"
+import axios from "axios"
+
+function RolePermissionsManager() {
+  const [selectedRole, setSelectedRole] = useState("")
+  const [permissions, setPermissions] = useState({})
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const roles = ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Hostel Supervisor", "Hostel Gate"]
+
+  // Available resources
+  const resources = ["students_info", "student_inventory", "lost_and_found", "events", "visitors", "complaints", "feedback", "rooms", "hostels", "users"]
+
+  // Available actions
+  const actions = ["view", "edit", "create", "delete", "react"]
+
+  // Fetch default permissions for selected role
+  useEffect(() => {
+    if (!selectedRole) {
+      setPermissions({})
+      return
+    }
+
+    const fetchDefaultPermissions = async () => {
+      try {
+        // This assumes you have an endpoint to get default permissions for a role
+        // Alternative approach: use a predefined set of permissions from a constant
+        const response = await axios.get(`/api/permissions/defaults/${selectedRole}`)
+        setPermissions(response.data.permissions)
+      } catch (error) {
+        console.error("Error fetching default permissions:", error)
+        // Initialize with empty permissions
+        const initialPermissions = {}
+        resources.forEach((resource) => {
+          initialPermissions[resource] = {
+            view: false,
+            edit: false,
+            create: false,
+            delete: false,
+            react: false,
+          }
+        })
+        setPermissions(initialPermissions)
+      }
+    }
+
+    fetchDefaultPermissions()
+  }, [selectedRole])
+
+  const handlePermissionChange = (resource, action, value) => {
+    setPermissions((prev) => ({
+      ...prev,
+      [resource]: {
+        ...(prev[resource] || {}),
+        [action]: value,
+      },
+    }))
+  }
+
+  const applyToRole = async () => {
+    if (!selectedRole) {
+      alert("Please select a role")
+      return
+    }
+
+    if (!confirm(`This will override custom permissions for ALL users with role "${selectedRole}". Continue?`)) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await axios.put(`/api/permissions/role/${selectedRole}`, {
+        permissions,
+      })
+      setResult(response.data)
+      alert(`Successfully updated permissions for ${response.data.data.usersUpdated} users with role ${selectedRole}`)
+    } catch (error) {
+      console.error("Error setting role permissions:", error)
+      setResult({ error: error.response?.data || error.message })
+      alert(`Failed to update permissions: ${error.response?.data?.message || error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const resetRole = async () => {
+    if (!selectedRole) {
+      alert("Please select a role")
+      return
+    }
+
+    if (!confirm(`This will reset permissions for ALL users with role "${selectedRole}" to system defaults. Continue?`)) {
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await axios.post(`/api/permissions/role/${selectedRole}/reset`)
+      setResult(response.data)
+      alert(`Successfully reset permissions for ${response.data.data.usersUpdated} users with role ${selectedRole}`)
+
+      // Update the displayed permissions
+      setPermissions(response.data.data.defaultPermissions)
+    } catch (error) {
+      console.error("Error resetting role permissions:", error)
+      setResult({ error: error.response?.data || error.message })
+      alert(`Failed to reset permissions: ${error.response?.data?.message || error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="role-permissions-manager">
+      <h2>Manage Role Permissions</h2>
+      <p>Set permissions for all users with a specific role. This will override any individual customizations.</p>
+
+      <div className="form-group">
+        <label htmlFor="role-select">Select Role:</label>
+        <select id="role-select" value={selectedRole} onChange={(e) => setSelectedRole(e.target.value)} disabled={loading}>
+          <option value="">-- Select a role --</option>
+          {roles.map((role) => (
+            <option key={role} value={role}>
+              {role}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedRole && (
+        <div className="permissions-grid">
+          <div className="header">
+            <div>Resource</div>
+            {actions.map((action) => (
+              <div key={action}>{action.charAt(0).toUpperCase() + action.slice(1)}</div>
+            ))}
+          </div>
+
+          {resources.map((resource) => (
+            <div key={resource} className="resource-row">
+              <div className="resource-name">{resource.replace(/_/g, " ")}</div>
+
+              {actions.map((action) => (
+                <div key={action} className="permission-cell">
+                  <input type="checkbox" checked={permissions[resource]?.[action] || false} onChange={(e) => handlePermissionChange(resource, action, e.target.checked)} disabled={loading} />
+                </div>
+              ))}
+            </div>
+          ))}
+
+          <div className="action-buttons">
+            <button onClick={applyToRole} disabled={!selectedRole || loading} className="apply-button">
+              {loading ? "Processing..." : "Apply to All Users with this Role"}
+            </button>
+
+            <button onClick={resetRole} disabled={!selectedRole || loading} className="reset-button">
+              Reset to System Defaults
+            </button>
+          </div>
+        </div>
+      )}
+
+      {result && (
+        <div className="result-panel">
+          <h3>Result:</h3>
+          <pre>{JSON.stringify(result, null, 2)}</pre>
+        </div>
+      )}
     </div>
   )
 }

@@ -10,6 +10,8 @@ uploadRouter.use(authenticate)
 const storage = multer.memoryStorage()
 const upload = multer({ storage: storage })
 
+uploadRouter.use(authorizeRoles(["Admin"]))
+
 uploadRouter.post("/profile/:userId", authorizeRoles(["Admin", "Warden"]), upload.single("image"), uploadProfileImage)
 
 export default uploadRouter

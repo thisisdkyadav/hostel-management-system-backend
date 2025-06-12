@@ -9,10 +9,10 @@ const router = express.Router()
 router.use(authenticate)
 
 // Route to verify QR code for staff attendance
-router.post("/verify-qr", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), verifyQR)
+router.post("/verify-qr", authorizeRoles(["Hostel Gate"]), verifyQR)
 
 // Route to record staff attendance (check-in or check-out)
-router.post("/attendance/record", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), recordAttendance)
+router.post("/attendance/record", authorizeRoles(["Hostel Gate"]), recordAttendance)
 
 // Route to get staff attendance records
 router.get("/attendance/records", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), getAttendanceRecords)

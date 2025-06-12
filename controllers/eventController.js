@@ -5,13 +5,20 @@ import AssociateWarden from "../models/AssociateWarden.js"
 
 export const createEvent = async (req, res) => {
   const { eventName, description, dateAndTime, hostelId, gender } = req.body
+  const user = req.user
 
   try {
+    let StaffHostelId = null
+
+    if (user.hostel) {
+      StaffHostelId = user.hostel._id
+    }
+
     const event = new Event({
       eventName,
       description,
       dateAndTime,
-      hostelId,
+      hostelId: StaffHostelId ? StaffHostelId : hostelId,
       gender,
     })
 

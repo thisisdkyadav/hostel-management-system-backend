@@ -278,3 +278,170 @@ export const initializeUserPermissions = async (userId) => {
     return false
   }
 }
+
+/**
+ * Reset permissions for all users with a specific role
+ */
+export const resetRolePermissions = async (req, res) => {
+  try {
+    const { role } = req.params
+
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: "Role parameter is required",
+      })
+    }
+
+    // Validate that the role exists in the system
+    const validRoles = ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate"]
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role specified",
+      })
+    }
+
+    // Get default permissions for the role
+    const defaultPermissions = getDefaultPermissions(role)
+
+    // Find all users with the specified role
+    const users = await User.find({ role })
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `No users found with role: ${role}`,
+      })
+    }
+
+    // Count of successfully updated users
+    let successCount = 0
+
+    // Update each user's permissions
+    for (const user of users) {
+      // Create a new Map for permissions
+      const permissionsMap = new Map()
+
+      // Process each resource permission
+      for (const [resource, actions] of Object.entries(defaultPermissions)) {
+        permissionsMap.set(resource, {
+          view: Boolean(actions.view),
+          edit: Boolean(actions.edit),
+          create: Boolean(actions.create),
+          delete: Boolean(actions.delete),
+          react: Boolean(actions.react),
+        })
+      }
+
+      // Update user with default permissions
+      user.permissions = permissionsMap
+      await user.save()
+      successCount++
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully reset permissions for ${successCount} users with role ${role}`,
+      data: {
+        role,
+        usersUpdated: successCount,
+        totalUsers: users.length,
+        defaultPermissions,
+      },
+    })
+  } catch (error) {
+    console.error("Reset role permissions error:", error)
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reset role permissions",
+      error: isDevelopmentEnvironment ? error.message : undefined,
+    })
+  }
+}
+
+/**
+ * Set custom permissions for all users with a specific role
+ */
+export const setRolePermissions = async (req, res) => {
+  try {
+    const { role } = req.params
+    const { permissions } = req.body
+
+    if (!role) {
+      return res.status(400).json({
+        success: false,
+        message: "Role parameter is required",
+      })
+    }
+
+    if (!permissions || typeof permissions !== "object") {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid permissions format",
+      })
+    }
+
+    // Validate that the role exists in the system
+    const validRoles = ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate"]
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid role specified",
+      })
+    }
+
+    // Find all users with the specified role
+    const users = await User.find({ role })
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: `No users found with role: ${role}`,
+      })
+    }
+
+    // Count of successfully updated users
+    let successCount = 0
+
+    // Update each user's permissions
+    for (const user of users) {
+      // Create a new Map for permissions
+      const permissionsMap = new Map()
+
+      // Process each resource permission
+      for (const [resource, actions] of Object.entries(permissions)) {
+        permissionsMap.set(resource, {
+          view: Boolean(actions.view),
+          edit: Boolean(actions.edit),
+          create: Boolean(actions.create),
+          delete: Boolean(actions.delete),
+          react: Boolean(actions.react),
+        })
+      }
+
+      // Update user with custom permissions
+      user.permissions = permissionsMap
+      await user.save()
+      successCount++
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Successfully updated permissions for ${successCount} users with role ${role}`,
+      data: {
+        role,
+        usersUpdated: successCount,
+        totalUsers: users.length,
+        customPermissions: permissions,
+      },
+    })
+  } catch (error) {
+    console.error("Set role permissions error:", error)
+    return res.status(500).json({
+      success: false,
+      message: "Failed to set role permissions",
+      error: isDevelopmentEnvironment ? error.message : undefined,
+    })
+  }
+}

@@ -31,14 +31,10 @@ export const getVisitorRequests = async (req, res) => {
   try {
     const query = {}
 
-    if (user.role === "student") {
+    if (user.role === "Student") {
       query.userId = user._id
     } else if (user.hostel) {
       query.hostelId = user.hostel._id
-    }
-
-    if (user.role === "Student") {
-      query.userId = user._id
     }
 
     const visitorRequests = await VisitorRequest.find(query).populate("userId", "name email profileImage").populate("visitors")

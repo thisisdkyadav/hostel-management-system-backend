@@ -4,6 +4,8 @@ import { assignInventoryToHostel, getHostelInventory, getAllHostelInventory, upd
 import { assignInventoryToStudent, getStudentInventory, getAllStudentInventory, returnStudentInventory, updateInventoryStatus, getInventorySummaryByStudent, getInventorySummaryByItemType } from "../controllers/studentInventoryController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
+import { requirePermission } from "../utils/permissions.js"
+
 const router = express.Router()
 
 router.use(authenticate)
@@ -26,7 +28,7 @@ router.route("/types/:id/count").patch(authorizeRoles(["Admin", "Super Admin"]),
 router
   .route("/hostel")
   .post(authorizeRoles(["Admin", "Super Admin"]), assignInventoryToHostel)
-  .get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getAllHostelInventory)
+  .get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "view"), getAllHostelInventory)
 
 router.route("/hostel/summary").get(authorizeRoles(["Admin", "Super Admin"]), getInventorySummaryByHostel)
 
@@ -40,17 +42,17 @@ router
 // Student Inventory Routes
 router
   .route("/student")
-  .post(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), assignInventoryToStudent)
-  .get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getAllStudentInventory)
+  .post(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "create"), assignInventoryToStudent)
+  .get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "view"), getAllStudentInventory)
 
-router.route("/student/summary/student").get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getInventorySummaryByStudent)
+router.route("/student/summary/student").get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "view"), getInventorySummaryByStudent)
 
-router.route("/student/summary/item").get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getInventorySummaryByItemType)
+router.route("/student/summary/item").get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "view"), getInventorySummaryByItemType)
 
-router.route("/student/:studentProfileId").get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getStudentInventory)
+router.route("/student/:studentProfileId").get(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "view"), getStudentInventory)
 
-router.route("/student/:id/return").put(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), returnStudentInventory)
+router.route("/student/:id/return").put(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "edit"), returnStudentInventory)
 
-router.route("/student/:id/status").put(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), updateInventoryStatus)
+router.route("/student/:id/status").put(authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("student_inventory", "edit"), updateInventoryStatus)
 
 export default router
