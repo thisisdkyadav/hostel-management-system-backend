@@ -1,4 +1,5 @@
 import mongoose from "mongoose"
+import { getDefaultPermissions } from "../utils/permissions.js"
 
 const UserSchema = new mongoose.Schema(
   {
@@ -10,6 +11,17 @@ const UserSchema = new mongoose.Schema(
       type: String,
       enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate"],
       required: true,
+    },
+    permissions: {
+      type: Map,
+      of: {
+        view: { type: Boolean, default: false },
+        edit: { type: Boolean, default: false },
+        create: { type: Boolean, default: false },
+        delete: { type: Boolean, default: false },
+        react: { type: Boolean, default: false },
+      },
+      default: {},
     },
     password: { type: String },
     aesKey: { type: String },
@@ -108,6 +120,20 @@ UserSchema.post(/^find/, function (docs, next) {
 })
 
 UserSchema.pre("save", function (next) {
+  if (this.isNew) {
+    const defaultPermissions = getDefaultPermissions(this.role)
+
+    for (const [resource, actions] of Object.entries(defaultPermissions)) {
+      this.permissions.set(resource, {
+        view: Boolean(actions.view),
+        edit: Boolean(actions.edit),
+        create: Boolean(actions.create),
+        delete: Boolean(actions.delete),
+        react: Boolean(actions.react),
+      })
+    }
+  }
+
   this.updatedAt = Date.now()
   next()
 })
