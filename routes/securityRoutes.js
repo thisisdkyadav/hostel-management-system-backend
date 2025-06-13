@@ -9,7 +9,7 @@ router.use(authenticate)
 
 router.get("/", getSecurity)
 
-router.get("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), requirePermission("students_info", "view"), getStudentEntries)
+router.get("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate", "Student"]), requirePermission("students_info", "view"), getStudentEntries)
 router.get("/entries/recent", authorizeRoles(["Hostel Gate"]), getRecentEntries)
 router.post("/entries", authorizeRoles(["Hostel Gate"]), addStudentEntry)
 router.post("/entries/email", authorizeRoles(["Hostel Gate"]), addStudentEntryWithEmail)

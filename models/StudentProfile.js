@@ -39,6 +39,14 @@ const StudentProfileSchema = new mongoose.Schema({
     enum: ["Male", "Female", "Other"],
     trim: true,
   },
+  idCard: {
+    // { front, back }
+    type: Object,
+    default: {
+      front: "",
+      back: "",
+    },
+  },
   guardian: {
     type: String,
     trim: true,

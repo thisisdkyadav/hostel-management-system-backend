@@ -76,11 +76,12 @@ app.use("/api/notification", notificationRoutes)
 app.use("/api/disCo", disCoRoutes)
 app.use("/api/payment", paymentRoutes)
 app.use("/api/super-admin", superAdminRoutes)
-app.use("/external-api", externalApiRoutes)
 app.use("/api/family", familyMemberRoutes)
 app.use("/api/staff", staffAttendanceRoutes)
 app.use("/api/inventory", inventoryRoutes)
 app.use("/api/permissions", permissionRoutes)
+
+app.use("/external-api", externalApiRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")

@@ -1,5 +1,20 @@
 import express from "express"
-import { createStudentsProfiles, getStudents, getStudentDetails, getStudentProfile, updateStudentProfile, fileComplaint, getAllComplaints, updateComplaint, deleteComplaint, updateStudentsProfiles, getMultipleStudentDetails, getStudentDashboard } from "../controllers/studentController.js"
+import {
+  createStudentsProfiles,
+  getStudents,
+  getStudentDetails,
+  getStudentProfile,
+  updateStudentProfile,
+  fileComplaint,
+  getAllComplaints,
+  updateComplaint,
+  deleteComplaint,
+  updateStudentsProfiles,
+  getMultipleStudentDetails,
+  getStudentDashboard,
+  getStudentIdCard,
+  uploadStudentIdCard,
+} from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -23,5 +38,9 @@ router.post("/:userId/complaints", authorizeRoles(["Student"]), requirePermissio
 router.get("/:userId/complaints", authorizeRoles(["Student"]), requirePermission("complaints", "view"), getAllComplaints)
 router.put("/complaints/:complaintId", authorizeRoles(["Student"]), requirePermission("complaints", "edit"), updateComplaint)
 router.delete("/complaints/:complaintId", authorizeRoles(["Student"]), requirePermission("complaints", "delete"), deleteComplaint)
+
+// Student ID routes
+router.get("/:userId/id-card", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), requirePermission("students_info", "view"), getStudentIdCard)
+router.post("/:userId/id-card", authorizeRoles(["Student"]), uploadStudentIdCard)
 
 export default router
