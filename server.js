@@ -25,6 +25,7 @@ import inventoryRoutes from "./routes/inventoryRoutes.js"
 import permissionRoutes from "./routes/permissionRoutes.js"
 import { PORT } from "./config/environment.js"
 import connectDB from "./config/db.js"
+import dashboardRoutes from "./routes/dashboardRoutes.js"
 
 const app = express()
 // app.use(express.json())
@@ -80,6 +81,7 @@ app.use("/api/family", familyMemberRoutes)
 app.use("/api/staff", staffAttendanceRoutes)
 app.use("/api/inventory", inventoryRoutes)
 app.use("/api/permissions", permissionRoutes)
+app.use("/api/dashboard", dashboardRoutes)
 
 app.use("/external-api", externalApiRoutes)
 
