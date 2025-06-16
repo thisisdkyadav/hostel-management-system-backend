@@ -14,4 +14,5 @@ export const isDevelopmentEnvironment = process.env.NODE_ENV === "development",
   RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID,
   RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET,
   AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID = process.env.AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID,
-  ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
+  ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS,
+  USE_LOCAL_STORAGE = process.env.USE_LOCAL_STORAGE === "true"

@@ -23,9 +23,14 @@ import familyMemberRoutes from "./routes/familyMemberRoutes.js"
 import staffAttendanceRoutes from "./routes/staffAttendanceRoutes.js"
 import inventoryRoutes from "./routes/inventoryRoutes.js"
 import permissionRoutes from "./routes/permissionRoutes.js"
-import { PORT, ALLOWED_ORIGINS } from "./config/environment.js"
+import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
+import path from "path"
+import { fileURLToPath } from "url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const app = express()
 // app.use(express.json())
@@ -59,6 +64,11 @@ app.use(
 //     credentials: true,
 //   })
 // )
+
+// Serve static files from the uploads directory when using local storage
+if (USE_LOCAL_STORAGE) {
+  app.use("/uploads", express.static(path.join(__dirname, "uploads")))
+}
 
 app.use("/api/upload", uploadRoutes)
 
