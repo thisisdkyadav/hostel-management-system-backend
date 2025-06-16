@@ -23,7 +23,7 @@ import familyMemberRoutes from "./routes/familyMemberRoutes.js"
 import staffAttendanceRoutes from "./routes/staffAttendanceRoutes.js"
 import inventoryRoutes from "./routes/inventoryRoutes.js"
 import permissionRoutes from "./routes/permissionRoutes.js"
-import { PORT } from "./config/environment.js"
+import { PORT, ALLOWED_ORIGINS } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
 
@@ -35,18 +35,20 @@ app.set("trust proxy", 1)
 
 app.use(
   cors({
-    origin: [
-      "https://hostel-management-system.web.app",
-      "https://flask-vercel-ashen.vercel.app",
-      "http://localhost",
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:51839",
-      "http://localhost:4173",
-      "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net",
-      "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
-      "https://hms.andiindia.in",
-    ],
+    origin: ALLOWED_ORIGINS
+      ? ALLOWED_ORIGINS.split(",")
+      : [
+          "https://hostel-management-system.web.app",
+          "https://flask-vercel-ashen.vercel.app",
+          "http://localhost",
+          "http://localhost:5173",
+          "http://localhost:5174",
+          "http://localhost:51839",
+          "http://localhost:4173",
+          "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net",
+          "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
+          "https://hms.andiindia.in",
+        ],
     credentials: true, // Allow cookies for web
   })
 )
