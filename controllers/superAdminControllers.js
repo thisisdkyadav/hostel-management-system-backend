@@ -1,6 +1,7 @@
 import ApiClient from "../models/ApiClient.js"
 import User from "../models/User.js"
 import crypto from "crypto"
+import bcrypt from "bcrypt"
 
 export const createApiClient = async (req, res) => {
   const { name, expiresAt } = req.body
@@ -64,12 +65,14 @@ export const createAdmin = async (req, res) => {
     return res.status(400).json({ message: "Name and email are required" })
   }
 
+  const hashedPassword = await bcrypt.hash(password, 10)
+
   try {
     const newAdmin = new User({
       name,
       email,
       role: "Admin",
-      password,
+      password: hashedPassword,
       phone,
     })
     await newAdmin.save()
