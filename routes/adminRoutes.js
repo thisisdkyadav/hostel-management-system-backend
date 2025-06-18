@@ -4,7 +4,7 @@ import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, d
 import { createWarden, getAllWardens, updateWarden, deleteWarden } from "../controllers/wardenController.js"
 import { createAssociateWarden, getAllAssociateWardens, updateAssociateWarden, deleteAssociateWarden } from "../controllers/associateWardenController.js"
 import { createHostelSupervisor, getAllHostelSupervisors, updateHostelSupervisor, deleteHostelSupervisor } from "../controllers/hostelSupervisorController.js"
-import { getInsuranceProviders, createInsuranceProvider, updateInsuranceProvider, deleteInsuranceProvider } from "../controllers/insuranceProviderController.js"
+import { getInsuranceProviders, createInsuranceProvider, updateInsuranceProvider, deleteInsuranceProvider, updateBulkStudentInsurance } from "../controllers/insuranceProviderController.js"
 import { getHealth, updateHealth, createInsuranceClaim, getInsuranceClaims, updateInsuranceClaim, deleteInsuranceClaim } from "../controllers/healthController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -48,6 +48,7 @@ router.get("/insurance-providers", getInsuranceProviders)
 router.post("/insurance-providers", createInsuranceProvider)
 router.put("/insurance-providers/:id", updateInsuranceProvider)
 router.delete("/insurance-providers/:id", deleteInsuranceProvider)
+router.post("/insurance-providers/bulk-student-update", updateBulkStudentInsurance)
 
 router.get("/student/health/:userId", getHealth)
 router.put("/student/health/:userId", updateHealth)
