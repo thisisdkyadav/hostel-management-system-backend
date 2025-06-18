@@ -19,6 +19,11 @@ export const login = async (req, res) => {
       return res.status(401).json({ message: "Invalid email or password" })
     }
 
+    // Check if user has a password set
+    if (!user.password) {
+      return res.status(401).json({ message: "Password not set for this account" })
+    }
+
     const isMatch = await bcrypt.compare(password, user.password)
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid email or password" })
@@ -186,6 +191,11 @@ export const updatePassword = async (req, res) => {
     const user = await User.findById(userId).select("+password").exec()
     if (!user) {
       return res.status(404).json({ message: "User not found" })
+    }
+
+    // Check if user has a password set
+    if (!user.password) {
+      return res.status(401).json({ message: "No password is currently set for this account" })
     }
 
     const isMatch = await bcrypt.compare(oldPassword, user.password)

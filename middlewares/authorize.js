@@ -11,6 +11,8 @@ export const authorizeRoles = (roles = []) => {
         return next()
       }
 
+      console.log(req.user)
+
       return res.status(403).json({
         success: false,
         message: `Access denied. Required role: ${roles.join(" or ")}`,
