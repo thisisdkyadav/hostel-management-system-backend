@@ -23,6 +23,8 @@ import familyMemberRoutes from "./routes/familyMemberRoutes.js"
 import staffAttendanceRoutes from "./routes/staffAttendanceRoutes.js"
 import inventoryRoutes from "./routes/inventoryRoutes.js"
 import permissionRoutes from "./routes/permissionRoutes.js"
+import taskRoutes from "./routes/taskRoutes.js"
+import userRoutes from "./routes/userRoutes.js"
 import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
@@ -94,6 +96,8 @@ app.use("/api/staff", staffAttendanceRoutes)
 app.use("/api/inventory", inventoryRoutes)
 app.use("/api/permissions", permissionRoutes)
 app.use("/api/dashboard", dashboardRoutes)
+app.use("/api/tasks", taskRoutes)
+app.use("/api/users", userRoutes)
 
 app.use("/external-api", externalApiRoutes)
 

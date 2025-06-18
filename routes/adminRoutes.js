@@ -1,6 +1,6 @@
 import express from "express"
 import { addHostel, getHostels, getHostelList, updateHostel } from "../controllers/hostelController.js"
-import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff } from "../controllers/adminController.js"
+import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff, getTaskStats } from "../controllers/adminController.js"
 import { createWarden, getAllWardens, updateWarden, deleteWarden } from "../controllers/wardenController.js"
 import { createAssociateWarden, getAllAssociateWardens, updateAssociateWarden, deleteAssociateWarden } from "../controllers/associateWardenController.js"
 import { createHostelSupervisor, getAllHostelSupervisors, updateHostelSupervisor, deleteHostelSupervisor } from "../controllers/hostelSupervisorController.js"
@@ -64,5 +64,7 @@ router.put("/hostel-gate/:hostelId", updateHostelGate)
 router.delete("/hostel-gate/:hostelId", deleteHostelGate)
 
 router.post("/user/update-password", updateUserPassword)
+
+router.get("/task-stats", authorizeRoles(["Admin", "Super Admin"]), getTaskStats)
 
 export default router

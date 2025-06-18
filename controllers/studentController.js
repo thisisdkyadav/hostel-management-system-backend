@@ -24,7 +24,7 @@ export const createStudentsProfiles = async (req, res) => {
       const profileOps = []
       await Promise.all(
         studentsData.map(async (student) => {
-          const { email, name, rollNumber, password, phone, profileImage, department, degree, gender, dateOfBirth, address, admissionDate, guardian, guardianPhone } = student
+          const { email, name, rollNumber, password, phone, profileImage } = student
 
           if (!email || !name || !rollNumber) {
             errors.push({

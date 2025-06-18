@@ -3,6 +3,7 @@ import User from "../models/User.js"
 import bcrypt from "bcrypt"
 import Security from "../models/Security.js"
 import MaintenanceStaff from "../models/MaintenanceStaff.js"
+import Task from "../models/Task.js"
 
 export const createSecurity = async (req, res) => {
   try {
@@ -272,6 +273,72 @@ export const deleteMaintenanceStaff = async (req, res) => {
     res.status(200).json({ message: "Maintenance staff deleted successfully" })
   } catch (error) {
     console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const getTaskStats = async (req, res) => {
+  try {
+    // Get counts of tasks by status
+    const taskStats = await Task.aggregate([
+      {
+        $group: {
+          _id: "$status",
+          count: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Get counts of tasks by category
+    const categoryStats = await Task.aggregate([
+      {
+        $group: {
+          _id: "$category",
+          count: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Get counts of tasks by priority
+    const priorityStats = await Task.aggregate([
+      {
+        $group: {
+          _id: "$priority",
+          count: { $sum: 1 },
+        },
+      },
+    ])
+
+    // Get overdue tasks count (due date < now and status not Completed)
+    const overdueTasks = await Task.countDocuments({
+      dueDate: { $lt: new Date() },
+      status: { $ne: "Completed" },
+    })
+
+    // Format the response
+    const formattedTaskStats = taskStats.reduce((acc, curr) => {
+      acc[curr._id] = curr.count
+      return acc
+    }, {})
+
+    const formattedCategoryStats = categoryStats.reduce((acc, curr) => {
+      acc[curr._id] = curr.count
+      return acc
+    }, {})
+
+    const formattedPriorityStats = priorityStats.reduce((acc, curr) => {
+      acc[curr._id] = curr.count
+      return acc
+    }, {})
+
+    res.status(200).json({
+      statusCounts: formattedTaskStats,
+      categoryCounts: formattedCategoryStats,
+      priorityCounts: formattedPriorityStats,
+      overdueTasks,
+    })
+  } catch (error) {
+    console.error("Error fetching task stats:", error)
     res.status(500).json({ message: "Server error", error: error.message })
   }
 }
