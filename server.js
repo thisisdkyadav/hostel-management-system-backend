@@ -1,6 +1,8 @@
 import express from "express"
 import cors from "cors"
 import cookieParser from "cookie-parser"
+import session from "express-session"
+import MongoStore from "connect-mongo"
 import authRoutes from "./routes/authRoutes.js"
 import wardenRoutes from "./routes/wardenRoute.js"
 import studentRoutes from "./routes/studentRoutes.js"
@@ -25,11 +27,12 @@ import inventoryRoutes from "./routes/inventoryRoutes.js"
 import permissionRoutes from "./routes/permissionRoutes.js"
 import taskRoutes from "./routes/taskRoutes.js"
 import userRoutes from "./routes/userRoutes.js"
-import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE } from "./config/environment.js"
+import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE, SESSION_SECRET, MONGO_URI } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
 import path from "path"
 import { fileURLToPath } from "url"
+import { ensureSession } from "./middlewares/auth.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -60,12 +63,30 @@ app.use(
   })
 )
 
-// app.use(
-//   cors({
-//     origin: "*",
-//     credentials: true,
-//   })
-// )
+// Setup session middleware
+const isDevelopmentEnvironment = process.env.NODE_ENV === "development"
+app.use(
+  session({
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: MongoStore.create({
+      mongoUrl: MONGO_URI,
+      ttl: 7 * 24 * 60 * 60, // 7 days in seconds
+      autoRemove: "native", // Use MongoDB's TTL indexes
+      touchAfter: 24 * 3600, // Refresh the session only once per 24 hours
+      crypto: {
+        secret: SESSION_SECRET,
+      },
+    }),
+    cookie: {
+      httpOnly: true,
+      secure: !isDevelopmentEnvironment,
+      sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+    },
+  })
+)
 
 // Serve static files from the uploads directory when using local storage
 if (USE_LOCAL_STORAGE) {

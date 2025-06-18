@@ -87,7 +87,7 @@ export const getDefaultPermissions = (role) => {
 
 /**
  * Check if a user has permission for a specific action
- * @param {Object} user - User document
+ * @param {Object} user - User document (or session user data)
  * @param {String} resource - Resource name (e.g., 'students_info')
  * @param {String} action - Action type (view, edit, create, delete, react)
  * @returns {Boolean} - Whether user has permission
@@ -102,9 +102,21 @@ export const hasPermission = (user, resource, action) => {
   // if user have any other role, they will have all permissions
   if (user.role !== "Warden" && user.role !== "Associate Warden" && user.role !== "Hostel Supervisor") return true
 
+  // Handle case where there are no permissions
   if (!user.permissions) return false
 
-  const resourcePermissions = user.permissions.get(resource)
+  // Handle permissions, whether it's a Map or plain object from session
+  let resourcePermissions = null
+
+  // Case 1: If permissions is a Map (from Mongoose model)
+  if (user.permissions instanceof Map) {
+    resourcePermissions = user.permissions.get(resource)
+  }
+  // Case 2: If permissions is an object (from session)
+  else if (typeof user.permissions === "object") {
+    resourcePermissions = user.permissions[resource]
+  }
+
   if (!resourcePermissions) return false
 
   return resourcePermissions[action] === true

@@ -219,6 +219,20 @@ export const setActiveHostelAW = async (req, res) => {
 
     await associateWarden.populate("activeHostelId", "name type")
 
+    // Refresh user data in session after changing active hostel
+    const user = await User.findById(userId)
+    if (user) {
+      // Update the session with fresh essential user data
+      req.session.userData = {
+        _id: user._id,
+        email: user.email,
+        role: user.role,
+        permissions: Object.fromEntries(user.permissions || new Map()),
+        hostel: user.hostel, // This will have updated hostel info after the populate middleware runs
+      }
+      await req.session.save()
+    }
+
     res.status(200).json({
       message: "Active hostel updated successfully for Associate Warden",
       activeHostel: associateWarden.activeHostelId,
