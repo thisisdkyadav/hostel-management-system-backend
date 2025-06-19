@@ -5,6 +5,7 @@ import Unit from "../models/Unit.js"
 import Event from "../models/Event.js"
 import Complaint from "../models/Complaint.js"
 import { isDevelopmentEnvironment } from "../config/environment.js"
+import mongoose from "mongoose"
 
 /**
  * Get dashboard data for admin
@@ -36,6 +37,7 @@ export const getDashboardData = async (req, res) => {
  * Get student statistics by branch, degree, and gender
  */
 const getStudentStats = async (hostelId = null) => {
+  console.log("hostelId", hostelId)
   // Comment out branch-wise student distribution
   /*
   const branchWiseData = await StudentProfile.aggregate([
@@ -91,6 +93,9 @@ const getStudentStats = async (hostelId = null) => {
 
   // If hostelId is provided, filter students by that hostel
   if (hostelId) {
+    // Convert hostelId to ObjectId if it's a string
+    const hostelObjectId = typeof hostelId === "string" ? new mongoose.Types.ObjectId(hostelId) : hostelId
+
     pipeline.push(
       // First lookup to get the current room allocation
       {
@@ -104,7 +109,7 @@ const getStudentStats = async (hostelId = null) => {
       // Unwind the allocation array
       { $unwind: { path: "$allocation", preserveNullAndEmptyArrays: false } },
       // Filter by hostelId
-      { $match: { "allocation.hostelId": hostelId } }
+      { $match: { "allocation.hostelId": hostelObjectId } }
     )
   }
 
@@ -164,6 +169,9 @@ const getStudentStats = async (hostelId = null) => {
 
   // If hostelId is provided, filter students by that hostel
   if (hostelId) {
+    // Convert hostelId to ObjectId if it's a string
+    const hostelObjectId = typeof hostelId === "string" ? new mongoose.Types.ObjectId(hostelId) : hostelId
+
     genderPipeline.push(
       // First lookup to get the current room allocation
       {
@@ -177,7 +185,7 @@ const getStudentStats = async (hostelId = null) => {
       // Unwind the allocation array
       { $unwind: { path: "$allocation", preserveNullAndEmptyArrays: false } },
       // Filter by hostelId
-      { $match: { "allocation.hostelId": hostelId } }
+      { $match: { "allocation.hostelId": hostelObjectId } }
     )
   }
 
@@ -191,7 +199,7 @@ const getStudentStats = async (hostelId = null) => {
 
   // Get total gender counts
   const genderTotals = await StudentProfile.aggregate(genderPipeline)
-
+  console.log("genderTotals", genderTotals)
   const totalBoys = genderTotals.find((g) => g._id === "Male")?.count || 0
   const totalGirls = genderTotals.find((g) => g._id === "Female")?.count || 0
   const grandTotal = totalBoys + totalGirls
@@ -348,6 +356,7 @@ export const getStudentStatistics = async (req, res) => {
   const user = req.user
   try {
     let hostelId = null
+    // console.log("user", user)
     if (user.hostel) {
       hostelId = user.hostel._id
     }
