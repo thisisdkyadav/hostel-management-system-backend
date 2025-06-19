@@ -65,9 +65,14 @@ export const login = async (req, res) => {
       lastActive: new Date(),
     })
 
-    // Remove sensitive data
+    // Remove sensitive data and convert permissions Map to object for frontend
     const userResponseObj = userResponse.toObject()
     delete userResponseObj.password
+
+    // Convert permissions Map to a plain object for frontend
+    if (userResponseObj.permissions instanceof Map) {
+      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions)
+    }
 
     res.json({
       user: userResponseObj,
@@ -127,9 +132,14 @@ export const loginWithGoogle = async (req, res) => {
       lastActive: new Date(),
     })
 
-    // Remove sensitive data
+    // Remove sensitive data and convert permissions Map to object for frontend
     const userResponseObj = userResponse.toObject()
     delete userResponseObj.password
+
+    // Convert permissions Map to a plain object for frontend
+    if (userResponseObj.permissions instanceof Map) {
+      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions)
+    }
 
     res.json({
       user: userResponseObj,
@@ -315,7 +325,7 @@ export const verifySSOToken = async (req, res) => {
 
   try {
     // Verify token with SSO server
-    const response = await axios.post(process.env.SSO_SERVER_URL + "/api/auth/verify-sso-token", { token })
+    const response = await axios.post("https://hms-sso.andiindia.in/api/auth/verify-sso-token", { token })
 
     if (!response.data.success) {
       return res.status(401).json({ message: "Invalid or expired SSO token" })
@@ -365,8 +375,16 @@ export const verifySSOToken = async (req, res) => {
       lastActive: new Date(),
     })
 
+    // Convert userResponse to object and ensure permissions is a plain object
+    const userResponseObj = userResponse.toObject ? userResponse.toObject() : userResponse
+
+    // Convert permissions Map to a plain object for frontend
+    if (userResponseObj.permissions instanceof Map) {
+      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions)
+    }
+
     res.json({
-      user: userResponse,
+      user: userResponseObj,
       message: "SSO authentication successful",
     })
   } catch (error) {
