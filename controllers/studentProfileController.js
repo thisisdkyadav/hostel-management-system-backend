@@ -1,5 +1,6 @@
 import StudentProfile from "../models/StudentProfile.js"
 import User from "../models/User.js"
+import FamilyMember from "../models/FamilyMember.js"
 import { getConfigWithDefault } from "../utils/configDefaults.js"
 
 // Get only editable profile fields
@@ -42,6 +43,9 @@ export const getEditableProfile = async (req, res) => {
           break
         case "address":
           editableProfile.address = studentProfile.address || ""
+          break
+        case "familyMembers":
+          editableProfile.familyMembers = true
           break
       }
     })
@@ -187,5 +191,61 @@ export const getStudentProfile = async (req, res) => {
   } catch (error) {
     console.error("Error fetching student profile:", error)
     res.status(500).json({ success: false, message: "Failed to fetch profile", error: error.message })
+  }
+}
+
+export const getFamilyMembers = async (req, res) => {
+  const userId = req.user._id
+  try {
+    const familyMembers = await FamilyMember.find({ userId })
+    res.status(200).json({ message: "Family members fetched successfully", data: familyMembers })
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error", error: error.message })
+  }
+}
+
+export const addFamilyMember = async (req, res) => {
+  const userId = req.user._id
+  const { name, relationship, phone, email, address } = req.body
+  try {
+    const familyMember = await FamilyMember.create({ userId, name, relationship, phone, email, address })
+    res.status(201).json({ message: "Family member added successfully", data: familyMember })
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error", error: error.message })
+  }
+}
+
+export const updateFamilyMember = async (req, res) => {
+  const userId = req.user._id
+  const { name, relationship, phone, email, address } = req.body
+  try {
+    const familyMember = await FamilyMember.findById(req.params.id)
+    if (!familyMember) {
+      return res.status(404).json({ message: "Family member not found" })
+    }
+    if (familyMember.userId.toString() !== userId) {
+      return res.status(403).json({ message: "You don't have permission to update this family member" })
+    }
+    const updatedFamilyMember = await FamilyMember.findByIdAndUpdate(req.params.id, { name, relationship, phone, email, address }, { new: true })
+    res.status(200).json({ message: "Family member updated successfully", data: updatedFamilyMember })
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error", error: error.message })
+  }
+}
+
+export const deleteFamilyMember = async (req, res) => {
+  const userId = req.user._id
+  try {
+    const familyMember = await FamilyMember.findById(req.params.id)
+    if (!familyMember) {
+      return res.status(404).json({ message: "Family member not found" })
+    }
+    if (familyMember.userId.toString() !== userId) {
+      return res.status(403).json({ message: "You don't have permission to delete this family member" })
+    }
+    await FamilyMember.findByIdAndDelete(req.params.id)
+    res.status(200).json({ message: "Family member deleted successfully" })
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error", error: error.message })
   }
 }
