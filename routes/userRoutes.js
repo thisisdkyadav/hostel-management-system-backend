@@ -9,10 +9,10 @@ const router = express.Router()
 router.use(authenticate)
 
 // Search users by name or email
-router.get("/search", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden"]), searchUsers)
+router.get("/search", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), searchUsers)
 
 // Get users by role
-router.get("/by-role", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden"]), getUsersByRole)
+router.get("/by-role", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getUsersByRole)
 
 // Bulk update user passwords
 router.post("/bulk-password-update", authorizeRoles(["Super Admin", "Admin"]), bulkPasswordUpdate)
@@ -26,6 +26,6 @@ router.post("/remove-passwords-by-role", authorizeRoles(["Super Admin", "Admin"]
 router.post("/:id/remove-password", authorizeRoles(["Super Admin", "Admin"]), removeUserPassword)
 
 // Get user by ID
-router.get("/:id", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden"]), getUserById)
+router.get("/:id", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getUserById)
 
 export default router
