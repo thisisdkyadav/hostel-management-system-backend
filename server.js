@@ -35,6 +35,8 @@ import { fileURLToPath } from "url"
 import { ensureSession } from "./middlewares/auth.js"
 import configRoutes from "./routes/configRoutes.js"
 import studentProfileRoutes from "./routes/studentProfileRoutes.js"
+import ssoRoutes from "./routes/ssoRoutes.js"
+import { verifySSOToken } from "./controllers/ssoController.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -45,6 +47,16 @@ app.use(express.urlencoded({ limit: "1mb", extended: true }))
 app.use(cookieParser())
 app.set("trust proxy", 1)
 
+// Define SSO-specific CORS settings without credentials
+const ssoCorsOptions = {
+  origin: "*", // Allow any origin for SSO routes
+  credentials: false, // No credentials needed
+}
+
+// Apply special CORS for SSO routes only
+app.use("/api/sso/verify", cors(ssoCorsOptions), verifySSOToken)
+
+// Regular CORS with credentials for all other routes
 app.use(
   cors({
     origin: ALLOWED_ORIGINS
@@ -61,7 +73,7 @@ app.use(
           "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
           "https://hms.andiindia.in",
         ],
-    credentials: true, // Allow cookies for web
+    credentials: true, // Keep credentials for other routes
   })
 )
 
@@ -123,6 +135,7 @@ app.use("/api/tasks", taskRoutes)
 app.use("/api/users", userRoutes)
 app.use("/api/config", configRoutes)
 app.use("/api/student-profile", studentProfileRoutes)
+app.use("/api/sso", ssoRoutes)
 
 app.use("/external-api", externalApiRoutes)
 
