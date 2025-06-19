@@ -438,3 +438,70 @@ export const getComplaintsStatistics = async (req, res) => {
     })
   }
 }
+
+export const getStudentCount = async (req, res) => {
+  const user = req.user
+  try {
+    let hostelId = null
+    if (user.hostel) {
+      hostelId = user.hostel._id
+    }
+
+    // Create pipeline for gender counts
+    const genderPipeline = []
+
+    // If hostelId is provided, filter students by that hostel
+    if (hostelId) {
+      // Convert hostelId to ObjectId if it's a string
+      const hostelObjectId = typeof hostelId === "string" ? new mongoose.Types.ObjectId(hostelId) : hostelId
+
+      genderPipeline.push(
+        // First lookup to get the current room allocation
+        {
+          $lookup: {
+            from: "roomallocations",
+            localField: "currentRoomAllocation",
+            foreignField: "_id",
+            as: "allocation",
+          },
+        },
+        // Unwind the allocation array
+        { $unwind: { path: "$allocation", preserveNullAndEmptyArrays: false } },
+        // Filter by hostelId
+        { $match: { "allocation.hostelId": hostelObjectId } }
+      )
+    }
+
+    // Add the group stage for gender totals
+    genderPipeline.push({
+      $group: {
+        _id: "$gender",
+        count: { $sum: 1 },
+      },
+    })
+
+    // Get total gender counts
+    const genderTotals = await StudentProfile.aggregate(genderPipeline)
+    const totalBoys = genderTotals.find((g) => g._id === "Male")?.count || 0
+    const totalGirls = genderTotals.find((g) => g._id === "Female")?.count || 0
+    const grandTotal = totalBoys + totalGirls
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        count: {
+          total: grandTotal,
+          boys: totalBoys,
+          girls: totalGirls,
+        },
+      },
+    })
+  } catch (error) {
+    console.error("Student count error:", error)
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve student count",
+      error: isDevelopmentEnvironment ? error.message : undefined,
+    })
+  }
+}

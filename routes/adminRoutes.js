@@ -11,13 +11,13 @@ import { authorizeRoles } from "../middlewares/authorize.js"
 import { createHostelGate, getAllHostelGates, updateHostelGate, deleteHostelGate } from "../controllers/hostelGateController.js"
 const router = express.Router()
 router.use(authenticate)
-// router.use(authorizeRoles(["admin"]))
+router.get("/hostel/list", getHostelList)
+router.use(authorizeRoles(["Admin"]))
 
 router.get("/hostels", getHostels)
 
 router.post("/hostel", addHostel)
 router.put("/hostel/:id", updateHostel)
-router.get("/hostel/list", getHostelList)
 
 router.get("/wardens", getAllWardens)
 router.post("/warden", createWarden)
@@ -66,6 +66,6 @@ router.delete("/hostel-gate/:hostelId", deleteHostelGate)
 
 router.post("/user/update-password", updateUserPassword)
 
-router.get("/task-stats", authorizeRoles(["Admin", "Super Admin"]), getTaskStats)
+router.get("/task-stats", getTaskStats)
 
 export default router

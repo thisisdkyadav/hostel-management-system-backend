@@ -1,5 +1,5 @@
 import express from "express"
-import { getDashboardData, getStudentStatistics, getHostelStatistics, getEventsData, getComplaintsStatistics } from "../controllers/dashboardController.js"
+import { getDashboardData, getStudentStatistics, getHostelStatistics, getEventsData, getComplaintsStatistics, getStudentCount } from "../controllers/dashboardController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -14,6 +14,7 @@ router.get("/", authorizeRoles(["Admin", "Super Admin"]), getDashboardData)
 
 // Individual dashboard components
 // Student statistics
+router.get("/student-count", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getStudentCount)
 router.get("/student-statistics", authorizeRoles(["Admin", "Super Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getStudentStatistics)
 
 // // Hostel statistics
