@@ -33,6 +33,8 @@ import dashboardRoutes from "./routes/dashboardRoutes.js"
 import path from "path"
 import { fileURLToPath } from "url"
 import { ensureSession } from "./middlewares/auth.js"
+import configRoutes from "./routes/configRoutes.js"
+import studentProfileRoutes from "./routes/studentProfileRoutes.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -119,6 +121,8 @@ app.use("/api/permissions", permissionRoutes)
 app.use("/api/dashboard", dashboardRoutes)
 app.use("/api/tasks", taskRoutes)
 app.use("/api/users", userRoutes)
+app.use("/api/config", configRoutes)
+app.use("/api/student-profile", studentProfileRoutes)
 
 app.use("/external-api", externalApiRoutes)
 

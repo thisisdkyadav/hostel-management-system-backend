@@ -28,9 +28,15 @@ if (USE_LOCAL_STORAGE) {
 
 export const uploadProfileImage = async (req, res) => {
   const { userId } = req.params
+  const user = req.user
+  const userRole = user.role
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" })
+    }
+
+    if (userRole === "Student" && userId !== user._id) {
+      return res.status(403).json({ error: "You don't have permission to upload profile image for this user" })
     }
 
     const { originalname, buffer, mimetype } = req.file
