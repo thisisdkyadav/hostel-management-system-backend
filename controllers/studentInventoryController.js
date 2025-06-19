@@ -113,6 +113,7 @@ export const getStudentInventory = async (req, res) => {
 // @route   GET /api/inventory/student
 // @access  Private/Admin/Warden
 export const getAllStudentInventory = async (req, res) => {
+  const user = req.user
   try {
     const { page = 1, limit = 10, studentProfileId, itemTypeId, hostelId, status = "All", rollNumber, sortBy = "issueDate", sortOrder = "desc" } = req.query
 
@@ -141,9 +142,11 @@ export const getAllStudentInventory = async (req, res) => {
       }
     }
 
+    const hostel_id = user.hostel ? user.hostel._id : hostelId
+
     // If hostel ID is provided, we need to find related hostel inventory records
-    if (hostelId) {
-      const hostelInventories = await HostelInventory.find({ hostelId })
+    if (hostel_id) {
+      const hostelInventories = await HostelInventory.find({ hostelId: hostel_id })
       if (hostelInventories && hostelInventories.length > 0) {
         query.hostelInventoryId = { $in: hostelInventories.map((hi) => hi._id) }
       } else {
