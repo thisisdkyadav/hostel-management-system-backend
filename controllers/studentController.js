@@ -136,7 +136,7 @@ export const updateStudentsProfiles = async (req, res) => {
     for (const student of studentsData) {
       if (!student.rollNumber) {
         errors.push({
-          student: student.email || student.rollNumber,
+          student: student.email || student.rollNumber || "Unknown",
           message: "Missing required field: rollNumber",
         })
       } else {
@@ -177,6 +177,8 @@ export const updateStudentsProfiles = async (req, res) => {
         })
         continue
       }
+
+      // Handle user updates
       const userUpdate = {}
       if (student.name) userUpdate.name = student.name
       if (student.email) userUpdate.email = student.email
@@ -184,7 +186,8 @@ export const updateStudentsProfiles = async (req, res) => {
         userUpdate.password = await bcrypt.hash(student.password, 10)
       }
       if (student.phone !== undefined) userUpdate.phone = student.phone || ""
-      if (student.profileImage) userUpdate.profileImage = student.profileImage || ""
+      if (student.profileImage !== undefined) userUpdate.profileImage = student.profileImage || ""
+
       if (Object.keys(userUpdate).length > 0) {
         userBulkOps.push({
           updateOne: {
@@ -194,19 +197,22 @@ export const updateStudentsProfiles = async (req, res) => {
         })
       }
 
+      // Handle profile updates
       const profileUpdate = {}
-      if (student.gender) profileUpdate.gender = student.gender
-      if (student.dateOfBirth) profileUpdate.dateOfBirth = formatDate(student.dateOfBirth)
-      if (student.department) profileUpdate.department = student.department
-      if (student.degree) profileUpdate.degree = student.degree
-      if (student.address) profileUpdate.address = student.address
-      if (student.admissionDate) profileUpdate.admissionDate = formatDate(student.admissionDate)
-      if (student.guardian) profileUpdate.guardian = student.guardian
-      if (student.guardianPhone) profileUpdate.guardianPhone = student.guardianPhone
-      if (student.guardianEmail) profileUpdate.guardianEmail = student.guardianEmail
+      if (student.gender !== undefined) profileUpdate.gender = student.gender
+      if (student.dateOfBirth !== undefined) profileUpdate.dateOfBirth = formatDate(student.dateOfBirth)
+      if (student.department !== undefined) profileUpdate.department = student.department
+      if (student.degree !== undefined) profileUpdate.degree = student.degree
+      if (student.address !== undefined) profileUpdate.address = student.address
+      if (student.admissionDate !== undefined) profileUpdate.admissionDate = formatDate(student.admissionDate)
+      if (student.guardian !== undefined) profileUpdate.guardian = student.guardian
+      if (student.guardianPhone !== undefined) profileUpdate.guardianPhone = student.guardianPhone
+      if (student.guardianEmail !== undefined) profileUpdate.guardianEmail = student.guardianEmail
 
-      profileUpdate.lastUpdatedBy = req.user?._id
-      if (Object.keys(profileUpdate).length > 0) {
+      // Only add lastUpdatedBy if there are other profile fields to update
+      if (Object.keys(profileUpdate).length > 0 && req.user?._id) {
+        profileUpdate.lastUpdatedBy = req.user._id
+
         profileBulkOps.push({
           updateOne: {
             filter: { _id: existingProfile._id },
@@ -214,14 +220,35 @@ export const updateStudentsProfiles = async (req, res) => {
           },
         })
       }
-      results.push({ rollNumber: roll, userId: existingProfile.userId._id })
+
+      results.push({
+        rollNumber: roll,
+        userId: existingProfile.userId._id,
+        updated: {
+          user: Object.keys(userUpdate).length > 0,
+          profile: Object.keys(profileUpdate).length > 0,
+        },
+      })
     }
 
+    // Only perform bulk operations if there are operations to perform
     if (userBulkOps.length > 0) {
       await User.bulkWrite(userBulkOps, { session })
     }
+
     if (profileBulkOps.length > 0) {
       await StudentProfile.bulkWrite(profileBulkOps, { session })
+    }
+
+    // If no updates were made to either users or profiles, return a message
+    if (userBulkOps.length === 0 && profileBulkOps.length === 0) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(200).json({
+        success: true,
+        message: "No updates were needed for the provided data",
+        data: results,
+      })
     }
 
     await session.commitTransaction()
