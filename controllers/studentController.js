@@ -25,7 +25,10 @@ export const createStudentsProfiles = async (req, res) => {
       const profileOps = []
       await Promise.all(
         studentsData.map(async (student) => {
-          const { email, name, rollNumber, password, phone, profileImage } = student
+          let { email, name, rollNumber, password, phone, profileImage } = student
+
+          // Trim whitespace from email
+          if (email) email = email.trim()
 
           if (!email || !name || !rollNumber) {
             errors.push({
@@ -181,7 +184,7 @@ export const updateStudentsProfiles = async (req, res) => {
       // Handle user updates
       const userUpdate = {}
       if (student.name) userUpdate.name = student.name
-      if (student.email) userUpdate.email = student.email
+      if (student.email) userUpdate.email = student.email ? student.email.trim() : student.email
       if (student.password) {
         userUpdate.password = await bcrypt.hash(student.password, 10)
       }
@@ -662,7 +665,10 @@ export const updateStudentProfile = async (req, res) => {
   const { name, email, rollNumber, phone, gender, dateOfBirth, address, department, degree, admissionDate, guardian, guardianPhone, guardianEmail, profileImage } = req.body
 
   try {
-    const updatedUser = await User.findByIdAndUpdate(userId, { name, email, phone, profileImage }, { new: true })
+    // Trim whitespace from email if it exists
+    const trimmedEmail = email ? email.trim() : email
+
+    const updatedUser = await User.findByIdAndUpdate(userId, { name, email: trimmedEmail, phone, profileImage }, { new: true })
 
     if (!updatedUser) {
       return res.status(404).json({
