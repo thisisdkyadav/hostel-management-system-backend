@@ -11,6 +11,7 @@ import { isDevelopmentEnvironment } from "../config/environment.js"
 import User from "../models/User.js"
 import bcrypt from "bcrypt"
 import { formatDate } from "../utils/utils.js"
+import Hostel from "../models/Hostel.js"
 
 export const createStudentsProfiles = async (req, res) => {
   const session = await mongoose.startSession()
@@ -254,11 +255,41 @@ export const updateRoomAllocations = async (req, res) => {
     const results = []
     const errors = []
 
+    const hostelData = await Hostel.findById(hostelId)
+    if (!hostelData) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(404).json({
+        success: false,
+        message: "Hostel not found",
+      })
+    }
+
+    const selectedHostelType = hostelData.type
+    const requiredFields = selectedHostelType === "unit-based" ? ["unit", "room", "bedNumber", "rollNumber"] : ["room", "bedNumber", "rollNumber"]
+
     const validAllocations = []
     for (const alloc of allocations) {
       const { unit, room, bedNumber, rollNumber } = alloc
-      if (!unit || !room || bedNumber === undefined || !rollNumber) {
-        errors.push({ rollNumber, message: "Missing required fields" })
+
+      // Check required fields based on hostel type
+      let missingFields = false
+      if (selectedHostelType === "unit-based") {
+        if (!unit || !room || bedNumber === undefined || !rollNumber) {
+          missingFields = true
+        }
+      } else {
+        // room-only
+        if (!room || bedNumber === undefined || !rollNumber) {
+          missingFields = true
+        }
+      }
+
+      if (missingFields) {
+        errors.push({
+          rollNumber: rollNumber || "Unknown",
+          message: `Missing required fields: ${requiredFields.join(", ")}`,
+        })
       } else {
         validAllocations.push({
           ...alloc,
@@ -287,31 +318,49 @@ export const updateRoomAllocations = async (req, res) => {
       profileMap[profile.rollNumber] = profile
     })
 
-    const unitNumbers = [...new Set(validAllocations.map((a) => a.unit))]
-    const units = await Unit.find({
-      unitNumber: { $in: unitNumbers },
-      hostelId,
-    }).session(session)
+    let unitMap = {}
+    let roomMap = {}
+    let rooms = []
 
-    const unitMap = {}
-    units.forEach((unit) => {
-      unitMap[unit.unitNumber] = unit
-    })
+    // Handle unit-based hostels
+    if (selectedHostelType === "unit-based") {
+      const unitNumbers = [...new Set(validAllocations.map((a) => a.unit))]
+      const units = await Unit.find({
+        unitNumber: { $in: unitNumbers },
+        hostelId,
+      }).session(session)
 
-    const unitIds = units.map((unit) => unit._id)
-    const roomNumbers = [...new Set(validAllocations.map((a) => a.room))]
-    const rooms = await Room.find({
-      unitId: { $in: unitIds },
-      roomNumber: { $in: roomNumbers },
-    }).session(session)
+      units.forEach((unit) => {
+        unitMap[unit.unitNumber] = unit
+      })
 
-    const roomMap = {}
-    rooms.forEach((room) => {
-      const unitNumber = units.find((u) => u._id.equals(room.unitId))?.unitNumber
-      if (unitNumber) {
-        roomMap[`${unitNumber}:${room.roomNumber}`] = room
-      }
-    })
+      const unitIds = units.map((unit) => unit._id)
+      const roomNumbers = [...new Set(validAllocations.map((a) => a.room))]
+      rooms = await Room.find({
+        unitId: { $in: unitIds },
+        roomNumber: { $in: roomNumbers },
+      }).session(session)
+
+      rooms.forEach((room) => {
+        const unitNumber = units.find((u) => u._id.equals(room.unitId))?.unitNumber
+        if (unitNumber) {
+          roomMap[`${unitNumber}:${room.roomNumber}`] = room
+        }
+      })
+    }
+    // Handle room-only hostels
+    else {
+      const roomNumbers = [...new Set(validAllocations.map((a) => a.room))]
+      rooms = await Room.find({
+        hostelId,
+        roomNumber: { $in: roomNumbers },
+        unitId: { $exists: false },
+      }).session(session)
+
+      rooms.forEach((room) => {
+        roomMap[room.roomNumber] = room
+      })
+    }
 
     const roomIds = rooms.map((room) => room._id)
     const bedNumbers = validAllocations.map((a) => a.bedNumber)
@@ -347,16 +396,27 @@ export const updateRoomAllocations = async (req, res) => {
         continue
       }
 
-      const unitDoc = unitMap[unit]
-      if (!unitDoc) {
-        errors.push({ rollNumber, message: "Unit not found" })
-        continue
-      }
+      let roomDoc = null
 
-      const roomDoc = roomMap[`${unit}:${room}`]
-      if (!roomDoc) {
-        errors.push({ rollNumber, message: "Room not found in specified unit" })
-        continue
+      // Find the room based on hostel type
+      if (selectedHostelType === "unit-based") {
+        const unitDoc = unitMap[unit]
+        if (!unitDoc) {
+          errors.push({ rollNumber, message: "Unit not found" })
+          continue
+        }
+
+        roomDoc = roomMap[`${unit}:${room}`]
+        if (!roomDoc) {
+          errors.push({ rollNumber, message: "Room not found in specified unit" })
+          continue
+        }
+      } else {
+        roomDoc = roomMap[room]
+        if (!roomDoc) {
+          errors.push({ rollNumber, message: "Room not found" })
+          continue
+        }
       }
 
       if (roomDoc.status !== "Active") {
@@ -381,7 +441,7 @@ export const updateRoomAllocations = async (req, res) => {
         studentProfileId: studentProfile._id,
         hostelId: roomDoc.hostelId,
         roomId: roomDoc._id,
-        unitId: roomDoc.unitId,
+        unitId: roomDoc.unitId, // This will be undefined for room-only hostels
         bedNumber,
       })
 
@@ -404,9 +464,6 @@ export const updateRoomAllocations = async (req, res) => {
 
     await session.commitTransaction()
     session.endSession()
-
-    console.log("Results:", results)
-    console.log("Errors:", errors)
 
     if (errors.length > 0) {
       return res.status(207).json({
