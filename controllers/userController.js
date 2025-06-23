@@ -95,7 +95,11 @@ export const bulkPasswordUpdate = async (req, res) => {
     const emails = passwordUpdates.map((update) => update.email)
 
     // Get all users that need to be updated in a single query
-    const users = await User.find({ email: { $in: emails } }).select("+password")
+    const users = await User.find({
+      email: {
+        $in: emails.map((email) => new RegExp(`^${email}$`, "i")),
+      },
+    }).select("+password")
 
     // Create a map of email to user for quick lookup
     const userMap = new Map()
@@ -193,7 +197,11 @@ export const bulkRemovePasswords = async (req, res) => {
     }
 
     // Get all users that need to be updated in a single query
-    const users = await User.find({ email: { $in: emails } })
+    const users = await User.find({
+      email: {
+        $in: emails.map((email) => new RegExp(`^${email}$`, "i")),
+      },
+    })
 
     // Create a map of email to user for tracking
     const userMap = new Map()

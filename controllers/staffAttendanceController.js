@@ -17,7 +17,7 @@ export const verifyQR = async (req, res) => {
     }
 
     // Find the user by email
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (!user) {
       return res.status(400).json({ success: false, message: "Staff not found" })
     }
@@ -94,7 +94,7 @@ export const recordAttendance = async (req, res) => {
     }
 
     // Find the user by email
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (!user) {
       return res.status(400).json({ success: false, message: "Staff not found" })
     }

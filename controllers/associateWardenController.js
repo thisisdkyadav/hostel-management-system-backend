@@ -37,7 +37,7 @@ export const createAssociateWarden = async (req, res) => {
       return res.status(400).json({ message: "hostelIds must be an array" })
     }
 
-    const existingUser = await User.findOne({ email })
+    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (existingUser) {
       return res.status(400).json({ message: "User with this email already exists" })
     }

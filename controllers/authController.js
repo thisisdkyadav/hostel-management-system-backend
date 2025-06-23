@@ -13,7 +13,9 @@ export const login = async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ email }).select("+password").exec()
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
+      .select("+password")
+      .exec()
 
     if (!user) {
       return res.status(401).json({ message: "Invalid email or password" })
@@ -91,7 +93,8 @@ export const loginWithGoogle = async (req, res) => {
 
     const { email } = googleResponse.data
 
-    let user = await User.findOne({ email })
+    // Use regex for case-insensitive email search
+    let user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (!user) {
       return res.status(401).json({ message: "User not found" })
     }
@@ -333,7 +336,8 @@ export const verifySSOToken = async (req, res) => {
 
     // Find user by email from SSO response
     const email = response.data.user.email
-    const user = await User.findOne({ email }).exec()
+    // Use regex for case-insensitive email search
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } }).exec()
 
     if (!user) {
       return res.status(404).json({ message: "User not found in system" })

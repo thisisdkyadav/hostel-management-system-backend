@@ -93,7 +93,7 @@ export const addStudentEntry = async (req, res) => {
 export const addStudentEntryWithEmail = async (req, res) => {
   const { email, status } = req.body
   try {
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (!user) {
       return res.status(404).json({ message: "User not found" })
     }
@@ -326,7 +326,7 @@ export const verifyQR = async (req, res) => {
   try {
     if (!email || !encryptedData) return res.status(400).json({ error: "Invalid QR Code" })
 
-    const user = await User.findOne({ email })
+    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (!user) return res.status(400).json({ error: "Invalid QR Code" })
 
     const expiry = await decryptData(encryptedData, user.aesKey)

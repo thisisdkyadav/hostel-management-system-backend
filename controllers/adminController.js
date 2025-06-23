@@ -15,7 +15,7 @@ export const createSecurity = async (req, res) => {
       return res.status(400).json({ message: "Email, password, name, and hostelId are required" })
     }
 
-    const existingUser = await User.findOne({ email })
+    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (existingUser) {
       return res.status(400).json({ message: "User with this email already exists" })
     }
@@ -135,7 +135,7 @@ export const updateUserPassword = async (req, res) => {
     const salt = await bcrypt.genSalt(10)
     const hashedPassword = await bcrypt.hash(newPassword, salt)
 
-    const updatedUser = await User.findOneAndUpdate({ email }, { password: hashedPassword }, { new: true })
+    const updatedUser = await User.findOneAndUpdate({ email: { $regex: new RegExp(`^${email}$`, "i") } }, { password: hashedPassword }, { new: true })
 
     console.log("Updated User:", updatedUser)
 
@@ -158,7 +158,7 @@ export const createMaintenanceStaff = async (req, res) => {
       return res.status(400).json({ message: "Email, password, name, and category are required" })
     }
 
-    const existingUser = await User.findOne({ email })
+    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (existingUser) {
       return res.status(400).json({ message: "User with this email already exists" })
     }
