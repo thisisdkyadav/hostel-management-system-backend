@@ -28,9 +28,7 @@ export const redirect = async (req, res) => {
 }
 
 export const verifySSOToken = async (req, res) => {
-  // const { token } = req.body
-  // get token from url
-  const token = req.query.token
+  const { token } = req.body
 
   if (!token) {
     return res.status(400).json({
