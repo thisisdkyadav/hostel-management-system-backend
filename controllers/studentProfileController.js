@@ -2,6 +2,7 @@ import StudentProfile from "../models/StudentProfile.js"
 import User from "../models/User.js"
 import FamilyMember from "../models/FamilyMember.js"
 import { getConfigWithDefault } from "../utils/configDefaults.js"
+import Health from "../models/Health.js"
 
 // Get only editable profile fields
 export const getEditableProfile = async (req, res) => {
@@ -14,7 +15,7 @@ export const getEditableProfile = async (req, res) => {
     const editableFields = config?.value || ["profileImage", "dateOfBirth"]
 
     // Find the student profile
-    const studentProfile = await StudentProfile.findOne({ userId }).populate("userId", "name email profileImage")
+    const studentProfile = await StudentProfile.findOne({ userId }).populate("userId", "name email profileImage phone")
 
     if (!studentProfile) {
       return res.status(404).json({ success: false, message: "Student profile not found" })
@@ -22,6 +23,8 @@ export const getEditableProfile = async (req, res) => {
 
     // Create a response with only the editable fields
     const editableProfile = {}
+
+    const health = await Health.findOne({ userId })
 
     // Extract fields based on configuration
     editableFields.forEach((field) => {
@@ -47,8 +50,20 @@ export const getEditableProfile = async (req, res) => {
         case "familyMembers":
           editableProfile.familyMembers = true
           break
+        case "phone":
+          editableProfile.phone = studentProfile.userId.phone || ""
+          break
+        case "emergencyContact":
+          editableProfile.guardian = studentProfile.guardian || ""
+          editableProfile.guardianPhone = studentProfile.guardianPhone || ""
+          editableProfile.guardianEmail = studentProfile.guardianEmail || ""
+          break
+        case "bloodGroup":
+          editableProfile.bloodGroup = health?.bloodGroup || ""
+          break
       }
     })
+    console.log("editableProfile", editableProfile)
 
     res.status(200).json({
       success: true,
@@ -89,8 +104,11 @@ export const updateStudentProfile = async (req, res) => {
 
     // Process each field in the request
     Object.keys(req.body).forEach((field) => {
+      console.log("field", field)
+
       // Skip null or undefined values
       if (req.body[field] === null || req.body[field] === undefined) return
+      console.log("req.body[field]", req.body[field])
 
       switch (field) {
         // User model fields
@@ -102,6 +120,11 @@ export const updateStudentProfile = async (req, res) => {
         case "profileImage":
           if (editableFields.includes("profileImage")) {
             userUpdates.profileImage = req.body.profileImage
+          }
+          break
+        case "phone":
+          if (editableFields.includes("phone")) {
+            userUpdates.phone = req.body.phone
           }
           break
 
@@ -129,8 +152,26 @@ export const updateStudentProfile = async (req, res) => {
             updates.address = req.body.address
           }
           break
+        case "emergencyContact":
+          if (editableFields.includes("emergencyContact")) {
+            console.log("req.body.emergencyContact", req.body.emergencyContact)
+            updates.guardian = req.body.emergencyContact.guardian
+            updates.guardianPhone = req.body.emergencyContact.guardianPhone
+            updates.guardianEmail = req.body.emergencyContact.guardianEmail
+          }
+          break
+        case "bloodGroup":
+          if (editableFields.includes("bloodGroup")) {
+            updates.bloodGroup = req.body.bloodGroup
+          }
+          break
       }
     })
+
+    // Update health if bloodGroup is provided
+    if (updates.bloodGroup) {
+      await Health.updateOne({ userId }, { $set: { bloodGroup: updates.bloodGroup } })
+    }
 
     // Update student profile if there are changes
     if (Object.keys(updates).length > 0) {
@@ -245,6 +286,20 @@ export const deleteFamilyMember = async (req, res) => {
     }
     await FamilyMember.findByIdAndDelete(req.params.id)
     res.status(200).json({ message: "Family member deleted successfully" })
+  } catch (error) {
+    res.status(500).json({ message: "Internal server error", error: error.message })
+  }
+}
+
+export const getHealth = async (req, res) => {
+  const userId = req.user._id
+  try {
+    // get health with insurance details
+    const health = await Health.findOne({ userId }).populate("insurance.insuranceProvider")
+    if (!health) {
+      return res.status(404).json({ message: "Health data not found" })
+    }
+    res.status(200).json({ message: "Health data fetched successfully", data: health })
   } catch (error) {
     res.status(500).json({ message: "Internal server error", error: error.message })
   }
