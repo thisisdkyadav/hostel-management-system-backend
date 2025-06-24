@@ -680,11 +680,11 @@ export const updateStudentProfile = async (req, res) => {
     const updateData = {
       rollNumber,
       gender,
-      dateOfBirth: formatDate(dateOfBirth),
+      dateOfBirth,
       address,
       department,
       degree,
-      admissionDate: formatDate(admissionDate),
+      admissionDate,
       guardian,
       guardianPhone,
       guardianEmail,
@@ -791,14 +791,15 @@ export const getStudentDashboard = async (req, res) => {
           },
         })
 
+        const roomCapacity = roomAllocation.roomId.capacity || 0
+
         let displayRoom
         if (studentProfile.hostelType === "unit-based" && studentProfile.unit) {
-          displayRoom = `${studentProfile.unit}${studentProfile.room}(${studentProfile.bedNumber})`
+          displayRoom = roomCapacity > 1 ? `${studentProfile.unit}${studentProfile.room}(${studentProfile.bedNumber})` : `${studentProfile.unit}${studentProfile.room}`
         } else {
-          displayRoom = `${studentProfile.room}(${studentProfile.bedNumber})`
+          displayRoom = roomCapacity > 1 ? `${studentProfile.room}(${studentProfile.bedNumber})` : `${studentProfile.room}`
         }
 
-        const roomCapacity = roomAllocation.roomId.capacity || 0
         const beds = []
         for (let i = 1; i <= roomCapacity; i++) {
           const allocation = [roomAllocation, ...allRoomAllocations].find((a) => a.bedNumber === i)
