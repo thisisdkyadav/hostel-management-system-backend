@@ -54,25 +54,12 @@ const ssoCorsOptions = {
 }
 
 // Apply special CORS for SSO routes only
-app.use("/api/sso/verify", cors(ssoCorsOptions), verifySSOToken)
+app.use("/api/sso/verify", cors(ssoCorsOptions), express.json(), verifySSOToken)
 
 // Regular CORS with credentials for all other routes
 app.use(
   cors({
-    origin: ALLOWED_ORIGINS
-      ? ALLOWED_ORIGINS.split(",")
-      : [
-          "https://hostel-management-system.web.app",
-          "https://flask-vercel-ashen.vercel.app",
-          "http://localhost",
-          "http://localhost:5173",
-          "http://localhost:5174",
-          "http://localhost:51839",
-          "http://localhost:4173",
-          "https://hostel-management-system-backend-and4hrevaag3f5gs.centralindia-01.azurewebsites.net",
-          "https://flask-vercel-ny5uvtgck-deveshyadav076.vercel.app",
-          "https://hms.andiindia.in",
-        ],
+    origin: ALLOWED_ORIGINS.split(","),
     credentials: true, // Keep credentials for other routes
   })
 )

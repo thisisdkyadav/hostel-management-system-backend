@@ -7,7 +7,19 @@ export const redirect = async (req, res) => {
   if (!redirectTo) {
     return res.status(400).json({ error: "Missing redirect_to parameter" })
   }
-  const token = jwt.sign(req.session.user, JWT_SECRET)
+
+  // Fix: Use the proper session data structure
+  const userData = req.session.userData || {
+    email: req.session.email,
+    role: req.session.role,
+  }
+
+  // Only attempt to sign if we have user data
+  if (!userData || !Object.keys(userData).length) {
+    return res.status(401).json({ error: "No user data in session" })
+  }
+
+  const token = jwt.sign(userData, JWT_SECRET)
 
   const redirectUrl = new URL(redirectTo)
   redirectUrl.searchParams.append("token", token)
@@ -16,7 +28,9 @@ export const redirect = async (req, res) => {
 }
 
 export const verifySSOToken = async (req, res) => {
-  const { token } = req.body
+  // const { token } = req.body
+  // get token from url
+  const token = req.query.token
 
   if (!token) {
     return res.status(400).json({
@@ -25,17 +39,25 @@ export const verifySSOToken = async (req, res) => {
     })
   }
 
-  const decoded = jwt.verify(token, JWT_SECRET)
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET)
 
-  if (!decoded) {
+    if (!decoded) {
+      return res.status(401).json({
+        success: false,
+        error: "Invalid or expired token",
+      })
+    }
+
+    return res.json({
+      success: true,
+      user: { email: decoded.email },
+    })
+  } catch (error) {
+    console.error("Token verification error:", error.message)
     return res.status(401).json({
       success: false,
-      error: "Invalid or expired token",
+      error: "Invalid or expired token: " + error.message,
     })
   }
-
-  return res.json({
-    success: true,
-    user: { email: decoded.email },
-  })
 }
