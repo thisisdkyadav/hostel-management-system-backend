@@ -1,10 +1,4 @@
-import mongoose from "mongoose"
 import Complaint from "../models/Complaint.js"
-import Unit from "../models/Unit.js"
-import Room from "../models/Room.js"
-import MaintenanceStaff from "../models/MaintenanceStaff.js"
-import Warden from "../models/Warden.js"
-import AssociateWarden from "../models/AssociateWarden.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 
 export const createComplaint = async (req, res) => {
@@ -267,5 +261,43 @@ export const getStudentComplaints = async (req, res) => {
   } catch (error) {
     console.error("Error fetching student complaints:", error)
     res.status(500).json({ message: "Error fetching student complaints", error: error.message })
+  }
+}
+
+export const complaintStatusUpdate = async (req, res) => {
+  const { complaintId } = req.params
+  const { status } = req.body
+  const user = req.user
+  try {
+    let complaint
+    if (status === "Resolved") {
+      const date = new Date()
+      complaint = await Complaint.findByIdAndUpdate(complaintId, { status, resolvedBy: user._id, resolutionDate: date }, { new: true })
+    } else {
+      complaint = await Complaint.findByIdAndUpdate(complaintId, { status }, { new: true })
+    }
+
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" })
+    }
+    res.status(200).json({ message: "Complaint status updated successfully", data: complaint })
+  } catch (error) {
+    console.error("Error updating complaint status:", error)
+    res.status(500).json({ message: "Error updating complaint status", error: error.message })
+  }
+}
+
+export const updateComplaintResolutionNotes = async (req, res) => {
+  const { complaintId } = req.params
+  const { resolutionNotes } = req.body
+  try {
+    const complaint = await Complaint.findByIdAndUpdate(complaintId, { resolutionNotes }, { new: true })
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" })
+    }
+    res.status(200).json({ message: "Complaint resolution notes updated successfully", data: complaint })
+  } catch (error) {
+    console.error("Error updating complaint resolution notes:", error)
+    res.status(500).json({ message: "Error updating complaint resolution notes", error: error.message })
   }
 }

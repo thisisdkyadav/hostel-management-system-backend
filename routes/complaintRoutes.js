@@ -1,5 +1,5 @@
 import express from "express"
-import { createComplaint, getAllComplaints, updateComplaintStatus, getStats, getStudentComplaints } from "../controllers/complaintController.js"
+import { createComplaint, getAllComplaints, updateComplaintStatus, getStats, getStudentComplaints, complaintStatusUpdate, updateComplaintResolutionNotes } from "../controllers/complaintController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -13,5 +13,8 @@ router.get("/student/complaints/:userId", authorizeRoles(["Admin", "Warden", "As
 
 router.put("/update-status/:id", authorizeRoles(["Maintenance Staff"]), updateComplaintStatus)
 router.get("/stats", authorizeRoles(["Maintenance Staff"]), getStats)
+
+router.put("/:complaintId/status", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Maintenance Staff"]), complaintStatusUpdate)
+router.put("/:complaintId/resolution-notes", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Maintenance Staff"]), updateComplaintResolutionNotes)
 
 export default router
