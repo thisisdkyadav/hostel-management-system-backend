@@ -1016,3 +1016,34 @@ export const uploadStudentIdCard = async (req, res) => {
     res.status(500).json({ message: "Server error" })
   }
 }
+
+export const bulkUpdateStudentsStatus = async (req, res) => {
+  const { status, rollNumbers } = req.body
+  try {
+    // Find existing students with the provided roll numbers
+    const existingStudents = await StudentProfile.find({ rollNumber: { $in: rollNumbers } })
+    const existingRollNumbers = existingStudents.map((student) => student.rollNumber)
+
+    // Find roll numbers that don't exist
+    const unsuccessfulRollNumbers = rollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber))
+
+    // Update only existing students
+    const students = await StudentProfile.updateMany({ rollNumber: { $in: existingRollNumbers } }, { status })
+
+    if (students.modifiedCount === 0) {
+      return res.status(404).json({
+        message: "No students found to update",
+        unsuccessfulRollNumbers: rollNumbers,
+      })
+    }
+
+    res.status(200).json({
+      message: "Students status updated successfully",
+      updatedCount: students.modifiedCount,
+      unsuccessfulRollNumbers: unsuccessfulRollNumbers,
+    })
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}

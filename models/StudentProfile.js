@@ -66,6 +66,11 @@ const StudentProfileSchema = new mongoose.Schema({
     type: [mongoose.Schema.Types.ObjectId],
     ref: "FamilyMember",
   },
+  status: {
+    type: String,
+    enum: ["Active", "Graduated", "Dropped", "Inactive"],
+    default: "Active",
+  },
 })
 
 StudentProfileSchema.statics.getFullStudentData = async function (userId) {
@@ -130,6 +135,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         guardianEmail: studentProfile.guardianEmail || "",
         guardianPhone: studentProfile.guardianPhone || "",
         admissionDate: studentProfile.admissionDate,
+        status: studentProfile.status || "",
       }
 
       if (studentProfile.currentRoomAllocation) {
@@ -193,6 +199,7 @@ StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
         profileImage: studentProfile.userId?.profileImage || "",
         rollNumber: studentProfile.rollNumber,
         gender: studentProfile.gender || "",
+        status: studentProfile.status || "",
       }
 
       if (studentProfile.currentRoomAllocation) {
@@ -213,7 +220,10 @@ StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
 }
 
 StudentProfileSchema.statics.searchStudents = async function (params) {
-  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc" } = params
+  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status } = params
+
+  console.log(status)
+  console.log(params)
 
   const pipeline = []
 
@@ -227,6 +237,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
     if (admissionDateFrom) matchProfile.admissionDate.$gte = new Date(admissionDateFrom)
     if (admissionDateTo) matchProfile.admissionDate.$lte = new Date(admissionDateTo)
   }
+  if (status) matchProfile.status = status
   pipeline.push({ $match: matchProfile })
 
   pipeline.push({

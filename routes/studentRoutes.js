@@ -14,6 +14,7 @@ import {
   getStudentDashboard,
   getStudentIdCard,
   uploadStudentIdCard,
+  bulkUpdateStudentsStatus,
 } from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -32,6 +33,7 @@ router.put("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "
 router.post("/profiles/ids", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getMultipleStudentDetails)
 router.get("/profile/details/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getStudentDetails)
 router.put("/profile/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "edit"), updateStudentProfile)
+router.post("/profiles/status", authorizeRoles(["Admin"]), bulkUpdateStudentsStatus)
 
 // Complaint routes
 router.post("/:userId/complaints", authorizeRoles(["Student"]), requirePermission("complaints", "create"), fileComplaint)
