@@ -30,7 +30,7 @@ export const createTask = async (req, res) => {
       dueDate,
       category: category || "Other",
       assignedUsers: assignedUsers || [],
-      createdBy: req.user.id, // Assuming req.user contains logged in user details
+      createdBy: req.user._id, // Assuming req.user contains logged in user details
     })
 
     const savedTask = await newTask.save()
@@ -97,7 +97,7 @@ export const getAllTasks = async (req, res) => {
 // Get tasks assigned to the logged-in user with pagination
 export const getUserTasks = async (req, res) => {
   try {
-    const userId = req.user.id
+    const userId = req.user._id
     const { status, category, priority, page = 1, limit = 12 } = req.query
 
     // Convert string params to numbers
@@ -155,7 +155,7 @@ export const updateTaskStatus = async (req, res) => {
   try {
     const { id } = req.params
     const { status } = req.body
-    const userId = req.user.id
+    const userId = req.user._id
 
     // Validate status value
     const validStatuses = ["Created", "Assigned", "In Progress", "Completed"]

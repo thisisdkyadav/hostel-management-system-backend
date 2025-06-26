@@ -61,6 +61,9 @@ export const getEditableProfile = async (req, res) => {
         case "bloodGroup":
           editableProfile.bloodGroup = health?.bloodGroup || ""
           break
+        case "admissionDate":
+          editableProfile.admissionDate = studentProfile.admissionDate ? studentProfile.admissionDate.toISOString().split("T")[0] : ""
+          break
       }
     })
     console.log("editableProfile", editableProfile)
@@ -163,6 +166,11 @@ export const updateStudentProfile = async (req, res) => {
         case "bloodGroup":
           if (editableFields.includes("bloodGroup")) {
             updates.bloodGroup = req.body.bloodGroup
+          }
+          break
+        case "admissionDate":
+          if (editableFields.includes("admissionDate")) {
+            updates.admissionDate = req.body.admissionDate
           }
           break
       }
