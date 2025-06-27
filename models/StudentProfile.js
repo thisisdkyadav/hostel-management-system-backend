@@ -71,6 +71,18 @@ const StudentProfileSchema = new mongoose.Schema({
     enum: ["Active", "Graduated", "Dropped", "Inactive"],
     default: "Active",
   },
+  isDayScholar: {
+    type: Boolean,
+    default: false,
+  },
+  dayScholarDetails: {
+    type: {
+      address: String,
+      ownerName: String,
+      ownerPhone: String,
+      ownerEmail: String,
+    },
+  },
 })
 
 StudentProfileSchema.statics.getFullStudentData = async function (userId) {
@@ -136,6 +148,8 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         guardianPhone: studentProfile.guardianPhone || "",
         admissionDate: studentProfile.admissionDate,
         status: studentProfile.status || "",
+        isDayScholar: studentProfile.isDayScholar || false,
+        dayScholarDetails: studentProfile.dayScholarDetails || null,
       }
 
       if (studentProfile.currentRoomAllocation) {

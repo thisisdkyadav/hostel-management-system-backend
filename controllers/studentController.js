@@ -1047,3 +1047,112 @@ export const bulkUpdateStudentsStatus = async (req, res) => {
     res.status(500).json({ message: "Server error" })
   }
 }
+
+/**
+ *
+ * data = {
+ *    rollNumber: {
+ *      isDayScholar: boolean,
+ *      dayScholarDetails: {
+ *        address: string,
+ *        ownerName: string,
+ *        ownerPhone: string,
+ *        ownerEmail: string,
+ *      }
+ *    }
+ *  }
+ */
+export const bulkUpdateDayScholarDetails = async (req, res) => {
+  const { data } = req.body
+  try {
+    const results = []
+    const errors = []
+    const session = await mongoose.startSession()
+    session.startTransaction()
+
+    // Get all roll numbers from the data
+    const rollNumbers = Object.keys(data)
+
+    // Fetch all students at once
+    const students = await StudentProfile.find({
+      rollNumber: { $in: rollNumbers },
+    }).session(session)
+
+    // Create a map for quick lookup
+    const studentMap = new Map()
+    students.forEach((student) => {
+      studentMap.set(student.rollNumber, student)
+    })
+
+    // Prepare bulk operations
+    const bulkOperations = []
+
+    // Process each student's data
+    for (const [rollNumber, studentData] of Object.entries(data)) {
+      const student = studentMap.get(rollNumber)
+
+      if (!student) {
+        errors.push({
+          rollNumber,
+          error: "Student not found",
+        })
+        continue
+      }
+
+      const { isDayScholar, dayScholarDetails } = studentData
+
+      if (isDayScholar) {
+        if (!dayScholarDetails || !dayScholarDetails.address || !dayScholarDetails.ownerName || !dayScholarDetails.ownerPhone || !dayScholarDetails.ownerEmail) {
+          errors.push({
+            rollNumber,
+            error: "Incomplete day scholar details",
+          })
+          continue
+        }
+
+        student.isDayScholar = true
+        student.dayScholarDetails = dayScholarDetails
+      } else {
+        student.isDayScholar = false
+        student.dayScholarDetails = null
+      }
+
+      bulkOperations.push(student)
+      results.push({
+        rollNumber,
+        success: true,
+        isDayScholar: student.isDayScholar,
+      })
+    }
+
+    // Save all changes at once
+    if (bulkOperations.length > 0) {
+      await Promise.all(bulkOperations.map((student) => student.save({ session })))
+    }
+
+    await session.commitTransaction()
+    session.endSession()
+
+    if (errors.length > 0) {
+      return res.status(207).json({
+        success: true,
+        data: results,
+        errors,
+        message: "Day scholar details updated with some errors. Please review the errors for details.",
+      })
+    } else {
+      return res.status(200).json({
+        success: true,
+        data: results,
+        message: "Day scholar details updated successfully",
+      })
+    }
+  } catch (error) {
+    if (session) {
+      await session.abortTransaction()
+      session.endSession()
+    }
+    console.error(error)
+    res.status(500).json({ message: "Server error" })
+  }
+}
