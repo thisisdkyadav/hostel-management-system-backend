@@ -234,7 +234,7 @@ StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
 }
 
 StudentProfileSchema.statics.searchStudents = async function (params) {
-  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status } = params
+  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status, isDayScholar = "all" } = params
 
   console.log(status)
   console.log(params)
@@ -252,6 +252,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
     if (admissionDateTo) matchProfile.admissionDate.$lte = new Date(admissionDateTo)
   }
   if (status) matchProfile.status = status
+  if (isDayScholar !== "all") matchProfile.isDayScholar = isDayScholar === "true" ? true : false
   pipeline.push({ $match: matchProfile })
 
   pipeline.push({
