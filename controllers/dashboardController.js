@@ -12,7 +12,7 @@ import mongoose from "mongoose"
  */
 export const getDashboardData = async (req, res) => {
   try {
-    const [studentData, hostelData, eventsData, complaintsData] = await Promise.all([getStudentStats(), getHostelStats(), getEvents(), getComplaintStats()])
+    const [studentData, hostelData, eventsData, complaintsData, hostlerAndDayScholarCounts] = await Promise.all([getStudentStats(), getHostelStats(), getEvents(), getComplaintStats(), getHostlerAndDayScholarCounts()])
 
     return res.status(200).json({
       success: true,
@@ -21,6 +21,7 @@ export const getDashboardData = async (req, res) => {
         hostels: hostelData,
         events: eventsData,
         complaints: complaintsData,
+        hostlerAndDayScholarCounts,
       },
     })
   } catch (error) {
@@ -33,6 +34,43 @@ export const getDashboardData = async (req, res) => {
   }
 }
 
+/**
+ * get Hostler and Day Scholar Counts - total , boys and girls in each hostler and day scholar
+ * return data in the following format
+ * {
+ * hostler: {
+ *  total: number,
+ *  boys: number,
+ *  girls: number,
+ * },
+ * dayScholar: {
+ *  total: number,
+ *  boys: number,
+ *  girls: number,
+ * }
+ * }
+ */
+const getHostlerAndDayScholarCounts = async () => {
+  // hostler count = total students - day scholar count
+  const totalBoys = await StudentProfile.countDocuments({ gender: "Male" })
+  const totalGirls = await StudentProfile.countDocuments({ gender: "Female" })
+  const dayScholarBoys = await StudentProfile.countDocuments({ isDayScholar: true, gender: "Male" })
+  const dayScholarGirls = await StudentProfile.countDocuments({ isDayScholar: true, gender: "Female" })
+  const hostlerBoys = totalBoys - dayScholarBoys
+  const hostlerGirls = totalGirls - dayScholarGirls
+  return {
+    hostler: {
+      total: hostlerBoys + hostlerGirls,
+      boys: hostlerBoys,
+      girls: hostlerGirls,
+    },
+    dayScholar: {
+      total: dayScholarBoys + dayScholarGirls,
+      boys: dayScholarBoys,
+      girls: dayScholarGirls,
+    },
+  }
+}
 /**
  * Get student statistics by branch, degree, and gender
  */
