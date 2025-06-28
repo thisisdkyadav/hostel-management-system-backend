@@ -92,7 +92,7 @@ export const getAllComplaints = async (req, res) => {
       .populate("unitId", "unitNumber")
       .populate("roomId", "roomNumber")
       .populate("assignedTo", "name email phone profileImage")
-      .populate("resolvedBy", "name")
+      .populate("resolvedBy", "name email phone profileImage")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
@@ -162,6 +162,35 @@ export const getAllComplaints = async (req, res) => {
   }
 }
 
+export const getComplaintById = async (req, res) => {
+  const { id } = req.params
+  const user = req.user
+  try {
+    const complaint = await Complaint.findById(id)
+      .populate("userId", "name email phone profileImage role")
+      .populate("hostelId", "name")
+      .populate("unitId", "unitNumber")
+      .populate("roomId", "roomNumber")
+      .populate("assignedTo", "name email phone profileImage")
+      .populate("resolvedBy", "name email phone profileImage")
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" })
+    }
+
+    if (user.hostel && !["Admin", "Maintenance Staff"].includes(user.role) && complaint.hostelId.toString() !== user.hostel._id.toString()) {
+      return res.status(403).json({ message: "You are not authorized to access this complaint" })
+    }
+
+    if (["Student"].includes(user.role) && complaint.userId.toString() !== user._id.toString()) {
+      return res.status(403).json({ message: "You are not authorized to access this complaint" })
+    }
+
+    res.status(200).json({ message: "Complaint fetched successfully", data: complaint })
+  } catch (error) {
+    console.error("Error fetching complaint:", error)
+  }
+}
+
 export const updateComplaintStatus = async (req, res) => {
   const { id } = req.params
   const { status, assignedTo, resolutionNotes, feedback, feedbackRating } = req.body
@@ -223,8 +252,16 @@ export const getStudentComplaints = async (req, res) => {
 
     const totalCount = await Complaint.countDocuments({ userId })
 
-    const complaints = await Complaint.find({ userId }).populate("hostelId", "name").populate("unitId", "unitNumber").populate("roomId", "roomNumber").sort({ createdAt: -1 }).skip(skip).limit(limitNum)
-
+    const complaints = await Complaint.find({ userId })
+      .populate("userId", "name email phone profileImage role")
+      .populate("hostelId", "name")
+      .populate("unitId", "unitNumber")
+      .populate("roomId", "roomNumber")
+      .populate("assignedTo", "name email phone profileImage")
+      .populate("resolvedBy", "name email phone profileImage")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
     const formattedComplaints = complaints.map((complaint) => {
       let roomNumber = ""
       if (complaint.unitId && complaint.roomId) {
@@ -244,9 +281,39 @@ export const getStudentComplaints = async (req, res) => {
         priority: complaint.priority,
         hostel: complaint.hostelId ? complaint.hostelId.name : "N/A",
         roomNumber: roomNumber,
-        createdAt: complaint.createdAt.toISOString(),
-        updatedAt: complaint.updatedAt.toISOString(),
+        location: complaint.location,
+        reportedBy: {
+          id: complaint.userId._id,
+          email: complaint.userId.email,
+          name: complaint.userId.name,
+          profileImage: complaint.userId.profileImage || null,
+          phone: complaint.userId.phone || null,
+        },
+        assignedTo: complaint.assignedTo
+          ? {
+              id: complaint.assignedTo._id,
+              email: complaint.assignedTo.email,
+              name: complaint.assignedTo.name,
+              profileImage: complaint.assignedTo.profileImage || null,
+              phone: complaint.assignedTo.phone || null,
+            }
+          : null,
+        resolvedBy: complaint.resolvedBy
+          ? {
+              id: complaint.resolvedBy._id,
+              email: complaint.resolvedBy.email,
+              name: complaint.resolvedBy.name,
+              profileImage: complaint.resolvedBy.profileImage || null,
+              phone: complaint.resolvedBy.phone || null,
+            }
+          : null,
+        resolutionNotes: complaint.resolutionNotes || "",
         images: complaint.attachments || [],
+        createdDate: complaint.createdAt.toISOString(),
+        lastUpdated: complaint.updatedAt.toISOString(),
+        feedback: complaint.feedback || "",
+        feedbackRating: complaint.feedbackRating || null,
+        resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null,
       }
     })
 
