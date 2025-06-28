@@ -16,6 +16,7 @@ import {
   uploadStudentIdCard,
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
+  getStudentId,
 } from "../controllers/studentController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -27,6 +28,7 @@ router.use(authenticate)
 router.get("/dashboard", authorizeRoles(["Student"]), getStudentDashboard)
 
 router.get("/profile", authorizeRoles(["Student"]), getStudentProfile)
+router.get("/id/:userId", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), getStudentId)
 
 router.get("/profiles", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor"]), requirePermission("students_info", "view"), getStudents)
 router.post("/profiles", authorizeRoles(["Admin"]), createStudentsProfiles)

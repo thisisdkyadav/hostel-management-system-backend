@@ -129,6 +129,7 @@ export const getAllComplaints = async (req, res) => {
               name: complaint.assignedTo.name,
               profileImage: complaint.assignedTo.profileImage || null,
               phone: complaint.assignedTo.phone || null,
+              role: complaint.assignedTo.role,
             }
           : null,
         resolutionNotes: complaint.resolutionNotes || "",
