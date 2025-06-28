@@ -158,8 +158,9 @@ export const addHostel = async (req, res) => {
 }
 
 export const getHostels = async (req, res) => {
+  const { archive } = req.query
   try {
-    const hostels = await Hostel.find({}, { _id: 1, name: 1, type: 1, gender: 1 })
+    const hostels = await Hostel.find({ isArchived: archive === "true" ? true : false }, { _id: 1, name: 1, type: 1, gender: 1, isArchived: 1 })
 
     const hostelDataPromises = hostels.map(async (hostel) => {
       const [roomStats, maintenanceIssues] = await Promise.all([
@@ -216,6 +217,7 @@ export const getHostels = async (req, res) => {
         maintenanceIssues,
         capacity: stats.capacity,
         occupancyRate: stats.occupancyRate,
+        isArchived: hostel.isArchived,
       }
     })
 
@@ -242,8 +244,9 @@ export const updateHostel = async (req, res) => {
 }
 
 export const getHostelList = async (req, res) => {
+  const { archive = "false" } = req.query
   try {
-    const hostels = await Hostel.find({}, { _id: 1, name: 1, type: 1 })
+    const hostels = await Hostel.find({ isArchived: archive === "true" ? true : false }, { _id: 1, name: 1, type: 1 })
     res.status(200).json(hostels)
   } catch (error) {
     res.status(500).json({ message: "Error fetching hostels", error: error.message })
@@ -505,253 +508,6 @@ export const deleteAllocation = async (req, res) => {
   }
 }
 
-export const getRoomChangeRequests = async (req, res) => {
-  const { hostelId } = req.params
-  const { page = 1, limit = 10, status = "Pending" } = req.query
-
-  try {
-    const result = await RoomChangeRequest.findRequestsWithFilters(hostelId, {
-      page,
-      limit,
-      status,
-    })
-
-    res.status(200).json({
-      data: result.data,
-      meta: result.meta,
-      message: "Room change requests fetched successfully",
-      status: "success",
-    })
-  } catch (error) {
-    console.error("Error fetching room change requests:", error)
-    res.status(500).json({ message: "Error fetching room change requests", error: error.message })
-  }
-}
-
-export const getRoomChangeRequestById = async (req, res) => {
-  const { requestId } = req.params
-  try {
-    const roomChangeRequest = await RoomChangeRequest.findById(requestId)
-      .populate("userId", "name email")
-      .populate("studentProfileId", "rollNumber department")
-      .populate({
-        path: "currentAllocationId",
-        populate: {
-          path: "room",
-          populate: { path: "unitId" },
-        },
-      })
-      .populate("requestedRoomId")
-      .populate("requestedUnitId")
-
-    const requestedRoom = await Room.findById(roomChangeRequest.requestedRoomId._id).populate({
-      path: "allocations",
-      populate: {
-        path: "studentProfileId",
-        populate: {
-          path: "userId",
-          select: "name email",
-        },
-      },
-    })
-
-    if (!roomChangeRequest) {
-      return res.status(404).json({ message: "Room change request not found" })
-    }
-
-    const finalResult = {
-      id: roomChangeRequest._id,
-      student: {
-        name: roomChangeRequest.userId.name,
-        email: roomChangeRequest.userId.email,
-        rollNumber: roomChangeRequest.studentProfileId.rollNumber,
-      },
-      currentAllocationId: roomChangeRequest.currentAllocationId,
-      currentRoom: {
-        roomNumber: roomChangeRequest.currentAllocationId && roomChangeRequest.currentAllocationId.room ? roomChangeRequest.currentAllocationId.room.roomNumber : null,
-        unitNumber: roomChangeRequest.currentAllocationId && roomChangeRequest.currentAllocationId.room ? roomChangeRequest.currentAllocationId.room.unitId.unitNumber : null,
-      },
-      requestedRoom: {
-        roomId: roomChangeRequest.requestedRoomId ? roomChangeRequest.requestedRoomId.roomNumber : null,
-        roomNumber: roomChangeRequest.requestedRoomId ? roomChangeRequest.requestedRoomId.roomNumber : null,
-        unitId: roomChangeRequest.requestedUnitId ? roomChangeRequest.requestedUnitId.unitNumber : null,
-        unitNumber: roomChangeRequest.requestedUnitId ? roomChangeRequest.requestedUnitId.unitNumber : null,
-        capacity: roomChangeRequest.requestedRoomId ? roomChangeRequest.requestedRoomId.capacity : null,
-        occupancy: roomChangeRequest.requestedRoomId ? roomChangeRequest.requestedRoomId.occupancy : null,
-        students:
-          requestedRoom.allocations.map((allocation) => ({
-            id: allocation.studentProfileId._id,
-            name: allocation.studentProfileId.userId.name,
-            email: allocation.studentProfileId.userId.email,
-            rollNumber: allocation.studentProfileId.rollNumber,
-            department: allocation.studentProfileId.department,
-            bedNumber: allocation.bedNumber,
-            allocationId: allocation._id,
-          })) || [],
-      },
-      reason: roomChangeRequest.reason,
-      status: roomChangeRequest.status,
-      createdAt: roomChangeRequest.createdAt,
-      rejectionReason: roomChangeRequest.rejectionReason,
-    }
-
-    res.status(200).json(finalResult)
-  } catch (error) {
-    console.error("Error fetching room change request:", error)
-    res.status(500).json({ message: "Error fetching room change request", error: error.message })
-  }
-}
-
-export const approveRoomChangeRequest = async (req, res) => {
-  const { requestId } = req.params
-  const { bedNumber } = req.body
-
-  const session = await mongoose.startSession()
-  session.startTransaction()
-
-  try {
-    const request = await RoomChangeRequest.findById(requestId).populate("currentAllocationId").session(session)
-
-    if (!request) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(404).json({ message: "Room change request not found", success: false })
-    }
-
-    if (request.status !== "Pending") {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(400).json({
-        message: "This request has already been processed",
-        success: false,
-        status: request.status,
-      })
-    }
-
-    const requestedRoom = await Room.findById(request.requestedRoomId).session(session)
-
-    if (!requestedRoom) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(404).json({ message: "Requested room not found", success: false })
-    }
-
-    if (requestedRoom.occupancy >= requestedRoom.capacity) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(400).json({ message: "Requested room is at full capacity", success: false })
-    }
-
-    if (!bedNumber) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(400).json({ message: "Bed number is required", success: false })
-    }
-
-    const existingBedAllocation = await RoomAllocation.findOne({
-      roomId: request.requestedRoomId,
-      bedNumber: bedNumber,
-    }).session(session)
-
-    if (existingBedAllocation) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(400).json({ message: "The requested bed is already occupied", success: false })
-    }
-
-    const updatedAllocation = await RoomAllocation.findByIdAndUpdate(
-      request.currentAllocationId._id,
-      {
-        roomId: request.requestedRoomId,
-        bedNumber: bedNumber,
-      },
-      { new: true, session }
-    )
-
-    if (!updatedAllocation) {
-      await session.abortTransaction()
-      session.endSession()
-      return res.status(500).json({ message: "Failed to update room allocation", success: false })
-    }
-
-    request.status = "Approved"
-    request.newAllocationId = updatedAllocation._id
-    await request.save({ session })
-
-    await session.commitTransaction()
-    session.endSession()
-
-    res.status(200).json({
-      message: "Room change request approved successfully",
-      success: true,
-      data: {
-        requestId: request._id,
-        student: request.studentProfileId,
-        newRoom: {
-          roomId: requestedRoom._id,
-          roomNumber: requestedRoom.roomNumber,
-          bedNumber: bedNumber,
-        },
-        status: "Approved",
-      },
-    })
-  } catch (error) {
-    // Rollback in case of error
-    await session.abortTransaction()
-    session.endSession()
-
-    console.error("Error approving room change request:", error)
-    res.status(500).json({
-      message: "Error approving room change request",
-      success: false,
-      error: error.message,
-    })
-  }
-}
-
-export const rejectRoomChangeRequest = async (req, res) => {
-  const { requestId } = req.params
-  const { reason } = req.body
-
-  try {
-    const request = await RoomChangeRequest.findById(requestId)
-
-    if (!request) {
-      return res.status(404).json({ message: "Room change request not found", success: false })
-    }
-
-    if (request.status !== "Pending") {
-      return res.status(400).json({
-        message: "This request has already been processed",
-        success: false,
-        status: request.status,
-      })
-    }
-
-    request.status = "Rejected"
-    request.rejectionReason = reason
-
-    await request.save()
-
-    res.status(200).json({
-      message: "Room change request rejected successfully",
-      success: true,
-      data: {
-        requestId: request._id,
-        student: request.studentProfileId,
-        status: "Rejected",
-        rejectionReason: reason,
-      },
-    })
-  } catch (error) {
-    console.error("Error rejecting room change request:", error)
-    res.status(500).json({
-      message: "Error rejecting room change request",
-      error: error.message,
-    })
-  }
-}
-
 export const getRoomsForEdit = async (req, res) => {
   const { hostelId } = req.params
   try {
@@ -940,5 +696,25 @@ export const bulkUpdateRooms = async (req, res) => {
   } catch (error) {
     console.error("Error updating rooms:", error)
     res.status(500).json({ message: "Error updating rooms", error: error.message })
+  }
+}
+
+export const changeArchiveStatus = async (req, res) => {
+  try {
+    const { hostelId } = req.params
+    const { status } = req.body
+
+    const hostel = await Hostel.findById(hostelId)
+    if (!hostel) {
+      return res.status(404).json({ message: "Hostel not found" })
+    }
+
+    hostel.isArchived = status
+    await hostel.save()
+
+    res.status(200).json({ message: "Hostel archive status updated successfully", success: true })
+  } catch (error) {
+    console.error("Error updating hostel archive status:", error)
+    res.status(500).json({ message: "Error updating hostel archive status", error: error.message })
   }
 }

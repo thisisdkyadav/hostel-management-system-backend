@@ -7,6 +7,7 @@ const HostelSchema = new mongoose.Schema(
     gender: { type: String, enum: ["Boys", "Girls", "Co-ed"], required: true },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
+    isArchived: { type: Boolean, default: false },
   },
   {
     toJSON: { virtuals: true },

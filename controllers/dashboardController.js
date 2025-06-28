@@ -255,7 +255,7 @@ const getStudentStats = async (hostelId = null) => {
  * Get hostel statistics including room and occupancy details
  */
 const getHostelStats = async () => {
-  const hostels = await Hostel.find()
+  const hostels = await Hostel.find({ isArchived: false })
 
   const hostelStatsPromises = hostels.map(async (hostel) => {
     // Get rooms for this hostel
