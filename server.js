@@ -27,6 +27,7 @@ import inventoryRoutes from "./routes/inventoryRoutes.js"
 import permissionRoutes from "./routes/permissionRoutes.js"
 import taskRoutes from "./routes/taskRoutes.js"
 import userRoutes from "./routes/userRoutes.js"
+import undertakingRoutes from "./routes/undertakingRoutes.js"
 import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE, SESSION_SECRET, MONGO_URI } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
@@ -123,6 +124,7 @@ app.use("/api/users", userRoutes)
 app.use("/api/config", configRoutes)
 app.use("/api/student-profile", studentProfileRoutes)
 app.use("/api/sso", ssoRoutes)
+app.use("/api/undertaking", undertakingRoutes)
 
 app.use("/external-api", externalApiRoutes)
 

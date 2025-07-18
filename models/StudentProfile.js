@@ -83,6 +83,22 @@ const StudentProfileSchema = new mongoose.Schema({
       ownerEmail: String,
     },
   },
+  undertakings: [
+    {
+      undertakingId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Undertaking",
+      },
+      status: {
+        type: String,
+        enum: ["pending", "accepted", "rejected"],
+        default: "pending",
+      },
+      acceptedAt: {
+        type: Date,
+      },
+    },
+  ],
 })
 
 StudentProfileSchema.statics.getFullStudentData = async function (userId) {
