@@ -12,6 +12,7 @@ import {
   getUndertakingDetails,
   acceptUndertaking,
   getStudentAcceptedUndertakings,
+  getStudentPendingUndertakingsCount,
 } from "../controllers/undertakingController.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { authenticate } from "../middlewares/auth.js"
@@ -35,5 +36,6 @@ router.get("/student/undertakings/pending", authorizeRoles(["Student"]), getStud
 router.get("/student/undertakings/accepted", authorizeRoles(["Student"]), getStudentAcceptedUndertakings)
 router.get("/student/undertakings/:undertakingId", authorizeRoles(["Student"]), getUndertakingDetails)
 router.post("/student/undertakings/:undertakingId/accept", authorizeRoles(["Student"]), acceptUndertaking)
+router.get("/student/undertakings/pending/count", authorizeRoles(["Student"]), getStudentPendingUndertakingsCount)
 
 export default router

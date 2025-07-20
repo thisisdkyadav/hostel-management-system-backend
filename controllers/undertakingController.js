@@ -460,3 +460,25 @@ export const getStudentAcceptedUndertakings = async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 }
+
+export const getStudentPendingUndertakingsCount = async (req, res) => {
+  const userId = req.user._id
+
+  try {
+    const studentProfile = await StudentProfile.findOne({ userId })
+
+    if (!studentProfile) {
+      return res.status(404).json({ message: "Student profile not found" })
+    }
+
+    const count = await UndertakingAssignment.countDocuments({
+      studentId: studentProfile._id,
+      status: { $in: ["not_viewed", "pending"] },
+    })
+
+    res.status(200).json({ count })
+  } catch (error) {
+    console.error("Error fetching student pending undertakings count:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+}
