@@ -7,14 +7,12 @@ const undertakingSchema = new mongoose.Schema(
       required: true,
       trim: true,
       minlength: 1,
-      maxlength: 100,
     },
     description: {
       type: String,
       required: true,
       trim: true,
       minlength: 1,
-      maxlength: 500,
     },
     content: {
       type: String,
