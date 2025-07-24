@@ -129,6 +129,9 @@ const getStudentStats = async (hostelId = null) => {
   // Create pipeline for student aggregation
   const pipeline = []
 
+  // Filter only active students
+  pipeline.push({ $match: { status: "Active" } })
+
   // If hostelId is provided, filter students by that hostel
   if (hostelId) {
     // Convert hostelId to ObjectId if it's a string
@@ -204,6 +207,9 @@ const getStudentStats = async (hostelId = null) => {
 
   // Create pipeline for gender totals
   const genderPipeline = []
+
+  // Filter only active students
+  genderPipeline.push({ $match: { status: "Active" } })
 
   // If hostelId is provided, filter students by that hostel
   if (hostelId) {
