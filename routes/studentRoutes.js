@@ -50,7 +50,7 @@ router.delete("/complaints/:complaintId", authorizeRoles(["Student"]), requirePe
 router.get("/:userId/id-card", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), requirePermission("students_info", "view"), getStudentIdCard)
 router.post("/:userId/id-card", authorizeRoles(["Student"]), uploadStudentIdCard)
 
-router.get("/departments/list", authorizeRoles(["Admin"]), getDepartmentsList)
-router.get("/degrees/list", authorizeRoles(["Admin"]), getDegreesList)
+router.get("/departments/list", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), getDepartmentsList)
+router.get("/degrees/list", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), getDegreesList)
 
 export default router
