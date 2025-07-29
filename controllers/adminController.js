@@ -4,6 +4,7 @@ import bcrypt from "bcrypt"
 import Security from "../models/Security.js"
 import MaintenanceStaff from "../models/MaintenanceStaff.js"
 import Task from "../models/Task.js"
+import StudentProfile from "../models/StudentProfile.js"
 
 export const createSecurity = async (req, res) => {
   try {
@@ -339,6 +340,26 @@ export const getTaskStats = async (req, res) => {
     })
   } catch (error) {
     console.error("Error fetching task stats:", error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const getDepartmentsList = async (req, res) => {
+  try {
+    const departments = await StudentProfile.distinct("department")
+    res.status(200).json(departments)
+  } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const getDegreesList = async (req, res) => {
+  try {
+    const degrees = await StudentProfile.distinct("degree")
+    res.status(200).json(degrees)
+  } catch (error) {
+    console.error(error)
     res.status(500).json({ message: "Server error", error: error.message })
   }
 }

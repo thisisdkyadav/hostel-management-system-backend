@@ -18,6 +18,7 @@ import {
   bulkUpdateDayScholarDetails,
   getStudentId,
 } from "../controllers/studentController.js"
+import { getDepartmentsList, getDegreesList } from "../controllers/adminController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -48,5 +49,8 @@ router.delete("/complaints/:complaintId", authorizeRoles(["Student"]), requirePe
 // Student ID routes
 router.get("/:userId/id-card", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), requirePermission("students_info", "view"), getStudentIdCard)
 router.post("/:userId/id-card", authorizeRoles(["Student"]), uploadStudentIdCard)
+
+router.get("/departments/list", authorizeRoles(["Admin"]), getDepartmentsList)
+router.get("/degrees/list", authorizeRoles(["Admin"]), getDegreesList)
 
 export default router
