@@ -539,23 +539,22 @@ export const updateRoom = async (req, res) => {
   const { capacity, status } = req.body
 
   try {
-    const updatedRoom = await Room.findByIdAndUpdate(
-      roomId,
-      {
-        capacity,
-        status,
-      },
-      { new: true }
-    )
+    if (status === "Inactive") {
+      await Room.deactivateRoom(roomId)
+    } else if (status === "Active") {
+      await Room.activateRoom(roomId)
+      await Room.findByIdAndUpdate(roomId, { capacity }, { new: true })
+    } else {
+      return res.status(400).json({ message: "Invalid status value" })
+    }
 
-    if (!updatedRoom) {
-      return res.status(404).json({ message: "Room not found" })
+    if (status === "Inactive") {
+      await RoomAllocation.deleteMany({ roomId })
     }
 
     res.status(200).json({
       message: "Room updated successfully",
       success: true,
-      data: updatedRoom,
     })
   } catch (error) {
     console.error("Error updating room:", error)

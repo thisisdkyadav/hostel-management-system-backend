@@ -47,7 +47,6 @@ RoomSchema.statics.deactivateRoom = async function (roomId) {
   if (!room) return null
 
   room.originalCapacity = room.capacity
-  room.occupancy = 0
   room.capacity = 0
   room.status = "Inactive"
   return await room.save()
