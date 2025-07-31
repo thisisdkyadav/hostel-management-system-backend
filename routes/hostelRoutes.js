@@ -1,5 +1,5 @@
 import express from "express"
-import { getRooms, getRoomsForEdit, bulkUpdateRooms, addRooms, updateRoom, getUnits, getRoomsByUnit, allocateRoom, updateRoomStatus, deleteAllocation, changeArchiveStatus } from "../controllers/hostelController.js"
+import { getRooms, getRoomsForEdit, bulkUpdateRooms, addRooms, updateRoom, getUnits, getRoomsByUnit, allocateRoom, updateRoomStatus, deleteAllocation, changeArchiveStatus, deleteAllAllocations } from "../controllers/hostelController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 import { updateRoomAllocations } from "../controllers/studentController.js"
@@ -22,5 +22,6 @@ router.delete("/deallocate/:allocationId", deleteAllocation)
 router.put("/archive/:hostelId", changeArchiveStatus)
 
 router.put("/update-allocations/:hostelId", updateRoomAllocations)
+router.delete("/delete-all-allocations/:hostelId", deleteAllAllocations)
 
 export default router

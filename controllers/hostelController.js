@@ -3,8 +3,8 @@ import Room from "../models/Room.js"
 import Unit from "../models/Unit.js"
 import Complaint from "../models/Complaint.js"
 import RoomAllocation from "../models/RoomAllocation.js"
-import RoomChangeRequest from "../models/RoomChangeRequest.js"
 import mongoose from "mongoose"
+import StudentProfile from "../models/StudentProfile.js"
 
 async function createUnits(hostelId, units, session) {
   const createdUnits = {}
@@ -715,5 +715,37 @@ export const changeArchiveStatus = async (req, res) => {
   } catch (error) {
     console.error("Error updating hostel archive status:", error)
     res.status(500).json({ message: "Error updating hostel archive status", error: error.message })
+  }
+}
+
+export const deleteAllAllocations = async (req, res) => {
+  const { hostelId } = req.params
+  try {
+    /**
+     * 1. start a transaction
+     * 2. find all allocations of the hostel
+     * 3. remove all allocations form student profile
+     * 4. delete all allocations
+     * 5. get all rooms occupancy to 0
+     * 6. commit the transaction
+     * 7. return the result
+     */
+    const session = await mongoose.startSession()
+    session.startTransaction()
+    try {
+      const allocations = await RoomAllocation.find({ hostelId }).session(session)
+      await StudentProfile.updateMany({ currentRoomAllocation: { $in: allocations.map((a) => a._id) } }, { $unset: { currentRoomAllocation: undefined } })
+      await RoomAllocation.deleteMany({ hostelId }).session(session)
+      await Room.updateMany({ hostelId }, { occupancy: 0 })
+      await session.commitTransaction()
+    } catch (error) {
+      await session.abortTransaction()
+      throw error
+    } finally {
+      session.endSession()
+    }
+    res.status(200).json({ message: "All allocations deleted" })
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message })
   }
 }
