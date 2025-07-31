@@ -52,10 +52,10 @@ export const getDashboardData = async (req, res) => {
  */
 const getHostlerAndDayScholarCounts = async () => {
   // hostler count = total students - day scholar count
-  const totalBoys = await StudentProfile.countDocuments({ gender: "Male" })
-  const totalGirls = await StudentProfile.countDocuments({ gender: "Female" })
-  const dayScholarBoys = await StudentProfile.countDocuments({ isDayScholar: true, gender: "Male" })
-  const dayScholarGirls = await StudentProfile.countDocuments({ isDayScholar: true, gender: "Female" })
+  const totalBoys = await StudentProfile.countDocuments({ gender: "Male", status: "Active" })
+  const totalGirls = await StudentProfile.countDocuments({ gender: "Female", status: "Active" })
+  const dayScholarBoys = await StudentProfile.countDocuments({ isDayScholar: true, gender: "Male", status: "Active" })
+  const dayScholarGirls = await StudentProfile.countDocuments({ isDayScholar: true, gender: "Female", status: "Active" })
   const hostlerBoys = totalBoys - dayScholarBoys
   const hostlerGirls = totalGirls - dayScholarGirls
   return {
