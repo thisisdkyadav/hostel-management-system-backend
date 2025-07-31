@@ -21,22 +21,72 @@ export const createStudentsProfiles = async (req, res) => {
 
   try {
     await session.withTransaction(async () => {
+      // First, check for required fields and collect those errors
+      const validStudents = []
+      for (const student of studentsData) {
+        let { email, name, rollNumber, password, phone, profileImage } = student
+
+        // Trim whitespace from email
+        if (email) email = email.trim()
+
+        if (!email || !name || !rollNumber) {
+          errors.push({
+            student: student.rollNumber || student.email,
+            message: "Missing required fields: email, name, rollNumber",
+          })
+          continue
+        }
+
+        // Add the student to valid students for further processing
+        validStudents.push({
+          ...student,
+          email,
+        })
+      }
+
+      if (validStudents.length === 0) {
+        return
+      }
+
+      // Check for existing emails and rollNumbers
+      const emails = validStudents.map((student) => student.email)
+      const rollNumbers = validStudents.map((student) => student.rollNumber)
+
+      const existingUsers = await User.find({ email: { $in: emails } })
+      const existingProfiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } })
+
+      const existingEmails = new Set(existingUsers.map((user) => user.email))
+      const existingRollNumbers = new Set(existingProfiles.map((profile) => profile.rollNumber))
+
+      // Filter out students with duplicate emails or rollNumbers
+      const uniqueStudents = []
+      for (const student of validStudents) {
+        if (existingEmails.has(student.email)) {
+          errors.push({
+            student: student.rollNumber || student.email,
+            message: `Email ${student.email} already exists`,
+          })
+          continue
+        }
+
+        if (existingRollNumbers.has(student.rollNumber)) {
+          errors.push({
+            student: student.rollNumber || student.email,
+            message: `Roll number ${student.rollNumber} already exists`,
+          })
+          continue
+        }
+
+        uniqueStudents.push(student)
+      }
+
       const userOps = []
       const profileOps = []
+
+      // Process unique students
       await Promise.all(
-        studentsData.map(async (student) => {
+        uniqueStudents.map(async (student) => {
           let { email, name, rollNumber, password, phone, profileImage } = student
-
-          // Trim whitespace from email
-          if (email) email = email.trim()
-
-          if (!email || !name || !rollNumber) {
-            errors.push({
-              student: student.rollNumber || student.email,
-              message: "Missing required fields: email, name, rollNumber",
-            })
-            return
-          }
 
           const salt = await bcrypt.genSalt(10)
           const hashedPassword = await bcrypt.hash(password || rollNumber, salt)
@@ -94,7 +144,7 @@ export const createStudentsProfiles = async (req, res) => {
               user: { _id: id },
               profile: {
                 _id: profileInsertResult.insertedIds[idx],
-                rollNumber: studentsData[idx].rollNumber,
+                rollNumber: uniqueStudents[idx].rollNumber,
               },
             })
           })
