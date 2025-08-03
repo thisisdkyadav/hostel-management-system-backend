@@ -5,6 +5,7 @@ import Security from "../models/Security.js"
 import MaintenanceStaff from "../models/MaintenanceStaff.js"
 import Task from "../models/Task.js"
 import StudentProfile from "../models/StudentProfile.js"
+import Configuration from "../models/configuration.js"
 
 export const createSecurity = async (req, res) => {
   try {
@@ -354,11 +355,65 @@ export const getDepartmentsList = async (req, res) => {
   }
 }
 
+export const renameDepartment = async (req, res) => {
+  const session = await StudentProfile.startSession()
+  session.startTransaction()
+  try {
+    const { oldName, newName } = req.body
+
+    await StudentProfile.updateMany({ department: oldName }, { $set: { department: newName } }, { session })
+    const departments = await Configuration.findOne({ key: "departments" }).session(session)
+    if (!departments) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(404).json({ message: "Departments configuration not found" })
+    }
+    departments.value = departments.value.map((department) => (department === oldName ? newName : department))
+    await departments.save({ session })
+
+    await session.commitTransaction()
+    session.endSession()
+    res.status(200).json({ message: "Department renamed successfully" })
+  } catch (error) {
+    await session.abortTransaction()
+    session.endSession()
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
 export const getDegreesList = async (req, res) => {
   try {
     const degrees = await StudentProfile.distinct("degree")
     res.status(200).json(degrees)
   } catch (error) {
+    console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+export const renameDegree = async (req, res) => {
+  const session = await StudentProfile.startSession()
+  session.startTransaction()
+  try {
+    const { oldName, newName } = req.body
+
+    await StudentProfile.updateMany({ degree: oldName }, { $set: { degree: newName } }, { session })
+    const degrees = await Configuration.findOne({ key: "degrees" }).session(session)
+    if (!degrees) {
+      await session.abortTransaction()
+      session.endSession()
+      return res.status(404).json({ message: "Degrees configuration not found" })
+    }
+    degrees.value = degrees.value.map((degree) => (degree === oldName ? newName : degree))
+    await degrees.save({ session })
+
+    await session.commitTransaction()
+    session.endSession()
+    res.status(200).json({ message: "Degree renamed successfully" })
+  } catch (error) {
+    await session.abortTransaction()
+    session.endSession()
     console.error(error)
     res.status(500).json({ message: "Server error", error: error.message })
   }

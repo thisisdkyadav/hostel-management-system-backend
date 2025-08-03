@@ -18,7 +18,7 @@ import {
   bulkUpdateDayScholarDetails,
   getStudentId,
 } from "../controllers/studentController.js"
-import { getDepartmentsList, getDegreesList } from "../controllers/adminController.js"
+import { getDepartmentsList, getDegreesList, renameDepartment, renameDegree } from "../controllers/adminController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -51,6 +51,8 @@ router.get("/:userId/id-card", authorizeRoles(["Admin", "Warden", "Associate War
 router.post("/:userId/id-card", authorizeRoles(["Student"]), uploadStudentIdCard)
 
 router.get("/departments/list", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), getDepartmentsList)
+router.put("/departments/rename", authorizeRoles(["Admin"]), renameDepartment)
 router.get("/degrees/list", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), getDegreesList)
+router.put("/degrees/rename", authorizeRoles(["Admin"]), renameDegree)
 
 export default router
