@@ -2,14 +2,14 @@ import Configuration from "../models/configuration.js"
 
 // Default configuration values
 export const defaultConfigs = {
-  //   degrees: {
-  //     value: ["Bachelor of Technology", "Master of Technology", "Bachelor of Science", "Master of Science", "PhD"],
-  //     description: "List of available degree programs",
-  //   },
-  //   departments: {
-  //     value: ["Computer Science", "Electrical Engineering", "Mechanical Engineering", "Civil Engineering", "Chemical Engineering", "Physics", "Mathematics"],
-  //     description: "List of departments in the institution",
-  //   },
+  degrees: {
+    value: ["BTech"],
+    description: "List of available degree programs",
+  },
+  departments: {
+    value: ["Computer Science", "Electrical Engineering", "Mechanical Engineering", "Civil Engineering", "Chemical Engineering"],
+    description: "List of departments in the institution",
+  },
   studentEditableFields: {
     value: ["profileImage", "dateOfBirth"],
     description: "Fields that students are allowed to edit in their profile",
