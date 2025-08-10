@@ -1,435 +1,596 @@
-# Software Requirements Specification (SRS)
+## Software Requirements Specification (SRS)
 
-# Hostel Management System (HMS)
+### Hostel Management System (HMS) – Backend API
 
-**Version:** 1.0
-**Date:** 2024-08-02
+Version: 2.0  
+Date: 2025-08-10
+
+### Revision History
+
+- 1.0 (2024-08-02): Initial SRS
+- 2.0 (2025-08-10): Fully revised to match implemented backend: session-based auth, RBAC/permissions, Azure uploads, Razorpay payments, external API, deployment and detailed diagrams
 
 ## Table of Contents
 
-1.  **[Introduction](#introduction)**
-    1.1 [Purpose](#purpose)
-    1.2 [Scope](#scope)
-    1.3 [Definitions, Acronyms, and Abbreviations](#definitions-acronyms-and-abbreviations)
-    1.4 [References](#references)
-    1.5 [Overview](#overview)
-2.  **[Overall Description](#overall-description)**
-    2.1 [Product Perspective](#product-perspective)
-    2.2 [Product Functions](#product-functions)
-    2.3 [User Characteristics](#user-characteristics)
-    2.4 [Constraints](#constraints)
-    2.5 [Assumptions and Dependencies](#assumptions-and-dependencies)
-3.  **[Specific Requirements](#specific-requirements)**
-    3.1 [Functional Requirements](#functional-requirements)
-    3.1.1 [Authentication and Authorization (`/api/auth`)](#311-authentication-and-authorization-apiauth)
-    3.1.2 [Student Module (`/api/student`)](#312-student-module-apistudent)
-    3.1.3 [Warden Module (`/api/warden`)](#313-warden-module-apiwarden)
-    3.1.4 [Admin Module (`/api/admin`)](#314-admin-module-apiadmin)
-    3.1.5 [Security Module (`/api/security`)](#315-security-module-apisecurity)
-    3.1.6 [Super Admin Module (`/api/super-admin`)](#316-super-admin-module-apisuper-admin)
-    3.1.7 [Complaint Management (`/api/complaint`)](#317-complaint-management-apicomplaint)
-    3.1.8 [Lost and Found Management (`/api/lost-and-found`)](#318-lost-and-found-management-apilost-and-found)
-    3.1.9 [Event Management (`/api/event`)](#319-event-management-apievent)
-    3.1.10 [Hostel Management (`/api/hostel`)](#3110-hostel-management-apihostel)
-    3.1.11 [Statistics and Reporting (`/api/stats`)](#3111-statistics-and-reporting-apistats)
-    3.1.12 [Feedback Management (`/api/feedback`)](#3112-feedback-management-apifeedback)
-    3.1.13 [File Upload Management (`/api/upload`)](#3113-file-upload-management-apiupload)
-    3.1.14 [Visitor Management (`/api/visitor`)](#3114-visitor-management-apivisitor)
-    3.1.15 [Notification Management (`/api/notification`)](#3115-notification-management-apinotificatio)
-    3.1.16 [Disciplinary Committee (DisCo) Management (`/api/disCo`)](#3116-disciplinary-committee-disco-management-apidisco)
-    3.1.17 [Payment Management (`/api/payment`)](#3117-payment-management-apipayment)
-    3.1.18 [External API Integrations (`/external-api`)](#3118-external-api-integrations-external-api)
-    3.2 [Non-Functional Requirements](#non-functional-requirements)
-    3.2.1 [Performance](#321-performance)
-    3.2.2 [Security](#322-security)
-    3.2.3 [Usability](#323-usability)
-    3.2.4 [Reliability](#324-reliability)
-    3.2.5 [Maintainability](#325-maintainability)
-    3.3 [Interface Requirements](#interface-requirements)
-    3.3.1 [User Interfaces](#331-user-interfaces)
-    3.3.2 [Software Interfaces](#332-software-interfaces)
-    3.3.3 [Hardware Interfaces](#333-hardware-interfaces)
-    3.3.4 [Communication Interfaces](#334-communication-interfaces)
-    3.4 [Database Requirements](#database-requirements)
+1. Introduction
+   - 1.1 Purpose
+   - 1.2 Scope
+   - 1.3 Definitions, Acronyms, Abbreviations
+   - 1.4 References
+   - 1.5 Overview
+2. Overall Description
+   - 2.1 Product Perspective
+   - 2.2 Architectural Overview (with diagrams)
+   - 2.3 Product Functions
+   - 2.4 User Characteristics
+   - 2.5 Constraints
+   - 2.6 Assumptions and Dependencies
+3. Detailed Architecture
+   - 3.1 Runtime and Deployment Architecture
+   - 3.2 Request Lifecycle and Middleware Order
+   - 3.3 Authentication and Session Management
+   - 3.4 Authorization and RBAC Permissions Model
+   - 3.5 File Uploads and Storage (Azure/local)
+   - 3.6 Payments (Razorpay)
+   - 3.7 External API Gateway
+   - 3.8 Configuration Management
+   - 3.9 Logging and Error Handling
+   - 3.10 Security Posture
+4. Functional Requirements
+   - 4.1 Auth & Session
+   - 4.2 Core Modules (Student, Warden, Admin, Security, Super Admin)
+   - 4.3 Supporting Modules (Complaints, Lost & Found, Events, Visitors, Feedback, Notifications, Stats, Inventory, Tasks, Undertakings, Staff Attendance, Family Members, Dashboard, Config)
+   - 4.4 Payments
+   - 4.5 Uploads
+   - 4.6 External API
+5. Non-Functional Requirements
+6. Interface Requirements
+   - 6.1 Software Interfaces
+   - 6.2 Communication Interfaces
+7. Data Model & Database Requirements
+   - 7.1 Data Entities Overview
+   - 7.2 Key Schemas
+   - 7.3 Indexing & Integrity
+   - 7.4 ER Diagram
+8. API Surface Overview
+   - 8.1 Route Namespaces
+   - 8.2 High-Level Route Map (diagram)
+9. Appendices
 
 ---
 
-## 1. Introduction <a name="introduction"></a>
+## 1. Introduction
 
-### 1.1 Purpose <a name="purpose"></a>
+### 1.1 Purpose
 
-This document defines the Software Requirements Specification (SRS) for the Hostel Management System (HMS). The purpose of the HMS is to provide a centralized, web-based platform to manage various hostel operations efficiently, catering to the needs of students, wardens, administrative staff, security personnel, and super administrators.
+This SRS defines the backend API for the Hostel Management System (HMS). It captures implemented behavior and design so engineering, QA, security, and stakeholders share a single, accurate reference.
 
-### 1.2 Scope <a name="scope"></a>
+### 1.2 Scope
 
-The HMS will manage:
+Backend API built with Node.js and Express, using MongoDB via Mongoose. It supports:
 
-- User authentication and role-based access.
-- Student information and activities (profile, complaints, fees, events).
-- Warden responsibilities (student management, complaint handling, approvals).
-- Administrative tasks (hostel setup, user management, fee configuration, reporting).
-- Security operations (visitor logging).
-- Super administrative oversight and configuration.
-- Core hostel functions like complaint lodging, lost and found reporting, event scheduling, fee payments, visitor tracking, and notifications.
-- Integration with external services for payments (Razorpay) and file storage (Azure Blob Storage).
+- Authentication (email/password, Google, SSO) and server-side sessions
+- Role-based access and fine-grained permissions
+- Student, Warden, Admin, Security, Super Admin modules
+- Complaints, Lost & Found, Events, Visitors, Feedback, Notifications, Stats
+- Hostel/Rooms, Inventory, Tasks, Undertakings, Staff attendance, Family members
+- File uploads to Azure Blob Storage or local filesystem
+- Razorpay payment link creation and status checks
+- External API namespace for integrations
 
-### 1.3 Definitions, Acronyms, and Abbreviations <a name="definitions-acronyms-and-abbreviations"></a>
+### 1.3 Definitions, Acronyms, Abbreviations
 
-| Term/Acronym    | Definition                                                               |
-| :-------------- | :----------------------------------------------------------------------- |
-| **HMS**         | Hostel Management System                                                 |
-| **SRS**         | Software Requirements Specification                                      |
-| **Admin**       | Administrative staff managing hostel operations.                         |
-| **Warden**      | Staff responsible for specific hostel blocks/floors and student welfare. |
-| **Student**     | Resident of the hostel.                                                  |
-| **Security**    | Personnel responsible for hostel security and visitor management.        |
-| **Super Admin** | Top-level administrator with full system control.                        |
-| **DisCo**       | Disciplinary Committee.                                                  |
-| **JWT**         | JSON Web Token                                                           |
-| **API**         | Application Programming Interface                                        |
-| **UI**          | User Interface                                                           |
-| **CRUD**        | Create, Read, Update, Delete                                             |
-| **RBAC**        | Role-Based Access Control                                                |
-| **ODM**         | Object Data Modeling                                                     |
-| **GFM**         | GitHub Flavored Markdown                                                 |
+- HMS: Hostel Management System
+- RBAC: Role-Based Access Control
+- SSO: Single Sign-On
+- CORS: Cross-Origin Resource Sharing
+- TTL: Time To Live (expiry)
+- SAS: Shared Access Signature (Azure Blob Storage)
 
-### 1.4 References <a name="references"></a>
+### 1.4 References
 
-- Project Codebase (including `server.js`, `package.json`, route files)
-- Node.js, Express.js, MongoDB, Mongoose documentation
-- Razorpay API Documentation
-- Azure Blob Storage Documentation
+- Codebase: `server.js`, `routes/*`, `controllers/*`, `models/*`, `middlewares/*`, `externalApi/*`
+- Express, Mongoose, connect-mongo, express-session
+- Razorpay Node SDK
+- Azure Storage Blob SDK
 
-### 1.5 Overview <a name="overview"></a>
+### 1.5 Overview
 
-This SRS document is organized into three main sections: Introduction, Overall Description, and Specific Requirements. Section 1 provides the purpose, scope, and context. Section 2 gives a high-level overview of the product, its functions, users, and constraints. Section 3 details the specific functional, non-functional, interface, and database requirements.
+The document explains architecture and behavior first, then enumerates requirements, interfaces, and data models with diagrams.
 
 ---
 
-## 2. Overall Description <a name="overall-description"></a>
+## 2. Overall Description
 
-### 2.1 Product Perspective <a name="product-perspective"></a>
+### 2.1 Product Perspective
 
-The HMS is a self-contained, web-based application intended to replace or augment manual hostel management processes. It interfaces with external systems for payment processing (Razorpay) and cloud file storage (Azure Blob Storage). It operates using a standard client-server architecture with a web frontend interacting with a Node.js/Express.js backend API connected to a MongoDB database.
+The API is the central service in a client–server architecture. A separate frontend consumes REST endpoints over HTTPS. Data persists in MongoDB; sessions are stored in MongoDB via `connect-mongo`. Files are stored in Azure Blob Storage or local disk (configurable). Payments integrate with Razorpay.
 
 ```mermaid
 graph LR
-    subgraph HMS System
-        UI(Web Frontend) --> API(Node.js/Express API);
-        API --> DB[(MongoDB)];
-    end
+  subgraph Client
+    FE["Web Frontend"]
+  end
 
-    subgraph External Services
-        API --> Payment(Razorpay);
-        API --> Storage(Azure Blob Storage);
-    end
+  subgraph Backend
+    EX["Express App<br/>Routes + Controllers"]
+    MS[(MongoDB)]
+    SS["Session Store (MongoDB)"]
+  end
 
-    style UI fill:#f9f,stroke:#333,stroke-width:2px;
-    style API fill:#ccf,stroke:#333,stroke-width:2px;
-    style DB fill:#ff9,stroke:#333,stroke-width:2px;
-    style Payment fill:#9cf,stroke:#333,stroke-width:2px;
-    style Storage fill:#9cf,stroke:#333,stroke-width:2px;
+  subgraph External Services
+    ABL["Azure Blob Storage"]
+    RZP[Razorpay]
+    SSO["SSO Provider"]
+  end
+
+  FE <--> |HTTPS + Cookies| EX
+  EX <--> |Mongoose| MS
+  EX <--> |connect-mongo| SS
+  EX --> |SDK| ABL
+  EX --> |SDK| RZP
+  FE --> |Token POST| SSO
+  EX --> |/api/sso/verify| SSO
 ```
 
-_Diagram: High-Level System Architecture_
+### 2.2 Architectural Overview (with diagrams)
 
-### 2.2 Product Functions <a name="product-functions"></a>
+#### Deployment View
 
-The major functions provided by the HMS include:
+```mermaid
+graph TD
+  LB["Reverse Proxy / Load Balancer"]
+  APP["Node.js Process (Express)"]
+  DB[("MongoDB Cluster")]
+  STG["Azure Blob Storage"]
+  RZP[Razorpay]
 
-- Secure user login and registration.
-- Role-based dashboards and functionalities.
-- Student profile management.
-- Hostel and room information management.
-- Online complaint registration and tracking.
-- Lost and found item reporting and management.
-- Event creation and notification.
-- Online fee payment processing and history tracking.
-- Visitor entry/exit logging.
-- Feedback submission and viewing.
-- System statistics and report generation.
-- Notification delivery to users.
-- Management of disciplinary actions.
-- File uploads for various purposes (profiles, attachments).
+  LB --> APP
+  APP --> DB
+  APP --> STG
+  APP --> RZP
+```
 
-### 2.3 User Characteristics <a name="user-characteristics"></a>
+#### Request Lifecycle & Middleware Order
 
-| User Role                     | Description                                                                                  | Technical Proficiency     |
-| :---------------------------- | :------------------------------------------------------------------------------------------- | :------------------------ |
-| **Students**                  | Residents needing access to personal info, hostel services, and communication channels.      | Basic Web Browsing Skills |
-| **Wardens**                   | Staff managing students, addressing issues, and communicating notices within assigned areas. | Basic Web Browsing Skills |
-| **Admin Staff**               | Users overseeing hostel operations, user management, finances, and system configuration.     | Basic Web Browsing Skills |
-| **Security**                  | Personnel managing access control and logging visitor information.                           | Basic Web Browsing Skills |
-| **Super Admin**               | Technical/high-level administrators for system-wide configuration, roles, multi-hostel mgmt. | Intermediate Web Skills   |
-| **(Potential) DisCo Members** | Users needing access to view and record disciplinary cases.                                  | Basic Web Browsing Skills |
+As implemented in `server.js`:
 
-### 2.4 Constraints <a name="constraints"></a>
+1. express.urlencoded → cookieParser → SSO-only CORS+verify handler → CORS with credentials → express-session (connect-mongo) → static `/uploads` (if local) → mount `/api/upload` → express.json → mount remaining routes
 
-- **Runtime Environment:** Must support Node.js.
-- **Connectivity:** Stable internet connection required for users and server.
-- **Database:** MongoDB is the primary database.
-- **File Storage:** Azure Blob Storage is required.
-- **Payment Gateway:** Razorpay account is necessary.
-- **Backend Framework:** Built using Express.js.
-- **Authentication:** Relies on JWT.
-- **Password Security:** Passwords hashed using bcrypt.
+```mermaid
+sequenceDiagram
+  autonumber
+  actor FE as Frontend
+  participant EX as Express
+  participant SES as SessionStore
 
-### 2.5 Assumptions and Dependencies <a name="assumptions-and-dependencies"></a>
+  FE->>EX: HTTP Request
+  EX->>EX: urlencoded parser
+  EX->>EX: cookieParser
+  EX->>EX: SSO-only CORS+JSON (for /api/sso/verify)
+  EX->>EX: CORS (ALLOWED_ORIGINS, credentials)
+  EX->>SES: Load/Save Session (connect-mongo)
+  EX->>EX: Serve /uploads (if local)
+  EX->>EX: Mount /api/upload (before json)
+  EX->>EX: json parser
+  EX->>EX: Route handlers
+  EX-->>FE: Response
+```
 
-- Users possess valid credentials for access.
-- Underlying infrastructure (server, database, network) is reliable.
-- External services (Razorpay, Azure) are available and functional.
-- A frontend application consuming the API exists or will be developed separately.
-- User-provided data is accurate to a reasonable extent.
+### 2.3 Product Functions
+
+- Server-side session login (email/password, Google, SSO)
+- RBAC by role plus permission map
+- CRUD around students, rooms, hostels, visitors, lost & found, complaints, events, notifications, feedback, stats
+- File upload for profile images and student ID cards
+- Razorpay payment link creation and status fetch
+- External API namespace for integrations
+
+### 2.4 User Characteristics
+
+- Students: Basic web skills
+- Wardens/Admin/Security: Basic web skills
+- Super Admin: Intermediate (system configuration)
+
+### 2.5 Constraints
+
+- Node.js runtime, Express framework
+- MongoDB database
+- Session cookies with secure attributes in production
+- Azure Blob Storage if not using local storage
+- Razorpay account/keys for payments
+
+### 2.6 Assumptions and Dependencies
+
+- Valid user accounts exist (provisioned via Admin flows)
+- External services (Azure, Razorpay, SSO provider) are reachable
+- Frontend is hosted with allowed origins configured
 
 ---
 
-## 3. Specific Requirements <a name="specific-requirements"></a>
+## 3. Detailed Architecture
 
-### 3.1 Functional Requirements <a name="functional-requirements"></a>
+### 3.1 Runtime and Deployment Architecture
 
-#### 3.1.1 Authentication and Authorization (`/api/auth`) <a name="311-authentication-and-authorization-apiauth"></a>
+- Single Express application (`server.js`) mounting routers under `/api/*` and `/external-api`
+- Session management using `express-session` with `connect-mongo` store
+- Sessions TTL: 7 days; cookies `httpOnly`, `secure` in non-dev, `sameSite` None in non-dev
+- Special SSO verification path `/api/sso/verify` uses open-origin CORS and no credentials
 
-- **FR1.1.1:** System shall allow new users (students, others based on workflow) to register.
-- **FR1.1.2:** Registered users shall log in using credentials (e.g., email/username, password).
-- **FR1.1.3:** System shall implement password hashing (bcrypt) for secure storage.
-- **FR1.1.4:** System shall use JSON Web Tokens (JWT) for session management and API authentication.
-- **FR1.1.5:** System shall implement role-based access control (RBAC) restricting access based on roles (Student, Warden, Admin, Security, Super Admin).
-- **FR1.1.6:** System should provide a password recovery/reset mechanism.
-- **FR1.1.7:** Users shall be able to log out.
+### 3.2 Request Lifecycle and Middleware Order
 
-#### 3.1.2 Student Module (`/api/student`) <a name="312-student-module-apistudent"></a>
+See sequence above. The upload routes are mounted before `express.json()` to support multipart handling via `multer` memory storage.
 
-- **FR1.2.1:** Students can view/update their profile.
-- **FR1.2.2:** Students can view allocated hostel/room details.
-- **FR1.2.3:** Students can submit complaints (See [3.1.7 Complaint Management](#317-complaint-management-apicomplaint)).
-- **FR1.2.4:** Students can report lost/found items (See [3.1.8 Lost and Found Management](#318-lost-and-found-management-apilost-and-found)).
-- **FR1.2.5:** Students can view upcoming events (See [3.1.9 Event Management](#319-event-management-apievent)).
-- **FR1.2.6:** Students can view fee dues/payment history (See [3.1.17 Payment Management](#3117-payment-management-apipayment)).
-- **FR1.2.7:** Students can submit feedback (See [3.1.12 Feedback Management](#3112-feedback-management-apifeedback)).
-- **FR1.2.8:** Students can view relevant notifications (See [3.1.15 Notification Management](#3115-notification-management-apinotificatio)).
+### 3.3 Authentication and Session Management
 
-#### 3.1.3 Warden Module (`/api/warden`) <a name="313-warden-module-apiwarden"></a>
+- Email/password login: `POST /api/auth/login`
+- Google login: `POST /api/auth/google` (verifies id_token with Google)
+- SSO verification: `POST /api/auth/verify-sso-token` and `POST /api/sso/verify`
+- Current user: `GET /api/auth/user` (requires session)
+- Logout: `GET /api/auth/logout` (destroys session and clears cookie)
+- Refresh user data: `GET /api/auth/refresh`
+- Device sessions listing and remote logout: `GET /api/auth/user/devices`, `POST /api/auth/user/devices/logout/:sessionId`
 
-- **FR1.3.1:** Wardens can view details of supervised students.
-- **FR1.3.2:** Wardens can manage/view room allocations in their jurisdiction.
-- **FR1.3.3:** Wardens can view/manage assigned complaints (See [3.1.7 Complaint Management](#317-complaint-management-apicomplaint)).
-- **FR1.3.4:** Wardens can manage lost/found items in their area (See [3.1.8 Lost and Found Management](#318-lost-and-found-management-apilost-and-found)).
-- **FR1.3.5:** Wardens can post notices/announcements for their students.
-- **FR1.3.6:** Wardens can view student feedback.
-- **FR1.3.7:** Wardens receive relevant notifications (See [3.1.15 Notification Management](#3115-notification-management-apinotificatio)).
+Session details:
 
-#### 3.1.4 Admin Module (`/api/admin`) <a name="314-admin-module-apiadmin"></a>
+- On successful login/SSO/Google: `req.session.userId`, `role`, `email`, and an `userData` cache with `_id, email, role, permissions (object), hostel`
+- A `Session` collection tracks device sessions (`userId`, `sessionId`, user agent, ip, device name, login/lastActive`)
 
-- **FR1.4.1:** Admins perform CRUD on user accounts (Students, Wardens, Security).
-- **FR1.4.2:** Admins manage user roles and permissions.
-- **FR1.4.3:** Admins manage hostel structure (blocks, rooms) (See [3.1.10 Hostel Management](#3110-hostel-management-apihostel)).
-- **FR1.4.4:** Admins manage room allocations.
-- **FR1.4.5:** Admins oversee complaint management (See [3.1.7 Complaint Management](#317-complaint-management-apicomplaint)).
-- **FR1.4.6:** Admins oversee lost and found system (See [3.1.8 Lost and Found Management](#318-lost-and-found-management-apilost-and-found)).
-- **FR1.4.7:** Admins manage system-wide events/announcements (See [3.1.9 Event Management](#319-event-management-apievent)).
-- **FR1.4.8:** Admins manage fee structures/monitor payments (See [3.1.17 Payment Management](#3117-payment-management-apipayment)).
-- **FR1.4.9:** Admins view statistics/generate reports (See [3.1.11 Statistics and Reporting](#3111-statistics-and-reporting-apistats)).
-- **FR1.4.10:** Admins manage feedback responses (See [3.1.12 Feedback Management](#3112-feedback-management-apifeedback)).
-- **FR1.4.11:** Admins manage system notifications (See [3.1.15 Notification Management](#3115-notification-management-apinotificatio)).
-- **FR1.4.12:** Admins oversee disciplinary actions (See [3.1.16 Disciplinary Committee Management](#3116-disciplinary-committee-disco-management-apidisco)).
+```mermaid
+sequenceDiagram
+  autonumber
+  actor FE as Frontend
+  participant EX as Express
+  participant DB as MongoDB
+  participant SS as SessionStore
 
-#### 3.1.5 Security Module (`/api/security`) <a name="315-security-module-apisecurity"></a>
+  FE->>EX: POST /api/auth/login (email, password)
+  EX->>DB: Find user by email
+  DB-->>EX: User (+password)
+  EX->>EX: bcrypt.compare
+  EX->>DB: Update aesKey
+  EX->>SS: Create session (userId, role, userData)
+  EX->>DB: Create Session record
+  EX-->>FE: 200 OK
+  Note over EX,FE: Set-Cookie connect.sid + response body (user)
 
-- **FR1.5.1:** Security personnel log visitor entries/exits (See [3.1.14 Visitor Management](#3114-visitor-management-apivisitor)).
-- **FR1.5.2:** Security personnel view recent visitor activity log.
-- **FR1.5.3:** (Optional) Security might manage student check-in/check-out logs.
+  FE->>EX: GET /api/auth/user
+  EX->>SS: Load session
+  EX-->>FE: 200 user
+```
 
-#### 3.1.6 Super Admin Module (`/api/super-admin`) <a name="316-super-admin-module-apisuper-admin"></a>
+### 3.4 Authorization and RBAC Permissions Model
 
-- **FR1.6.1:** Super Admins have all Admin privileges.
-- **FR1.6.2:** Super Admins manage Admin accounts.
-- **FR1.6.3:** Super Admins manage system-level configurations (e.g., integration keys, core settings).
-- **FR1.6.4:** Super Admins may have oversight across multiple hostel instances.
+- Roles: `Student`, `Maintenance Staff`, `Warden`, `Associate Warden`, `Admin`, `Security`, `Super Admin`, `Hostel Supervisor`, `Hostel Gate`
+- Role checks via `authorizeRoles([...])`
+- Fine-grained permissions via a Map on `User.permissions`, with resources like `students_info`, `lost_and_found`, `events`, `visitors`, `complaints`, `feedback`, `rooms`, `hostels`, `users`, etc., each with actions `view|edit|create|delete|react`
+- Middleware `requirePermission(resource, action)` uses `hasPermission` to allow/deny
 
-#### 3.1.7 Complaint Management (`/api/complaint`) <a name="317-complaint-management-apicomplaint"></a>
+```mermaid
+flowchart LR
+  A([Request]) --> B{Authenticated?}
+  B -- No --> X[[401 Unauthorized]]
+  B -- Yes --> C{Role Allowed?}
+  C -- No --> Y[[403 Forbidden]]
+  C -- Yes --> D{Permission Check?}
+  D -- Not required --> Z[[Proceed]]
+  D -- Required --> E{hasPermission}
+  E -- True --> Z[[Proceed]]
+  E -- False --> Y[[403 Forbidden]]
+```
 
-- **FR1.7.1:** Students submit complaints (category, description, optional attachment via [3.1.13 File Upload](#3113-file-upload-management-apiupload)).
-- **FR1.7.2:** Users view complaints based on role/permissions.
-- **FR1.7.3:** System tracks complaint status (e.g., Submitted, In Progress, Resolved, Rejected).
-- **FR1.7.4:** Admins/Wardens update status and add comments/resolution notes.
-- **FR1.7.5:** System may automatically assign complaints to relevant Wardens.
+### 3.5 File Uploads and Storage (Azure/local)
 
-#### 3.1.8 Lost and Found Management (`/api/lost-and-found`) <a name="318-lost-and-found-management-apilost-and-found"></a>
+- Endpoints (authenticated):
+  - `POST /api/upload/profile/:userId` (roles: Admin, Warden, Associate Warden, Hostel Supervisor, Student)
+  - `POST /api/upload/student-id/:side` (role: Student)
+- `multer` in-memory, then either:
+  - Local disk at `uploads/` (when `USE_LOCAL_STORAGE=true`) and served from `/uploads`
+  - Azure Blob Storage: uploaded via SDK and returns a long-lived read SAS URL (read-only)
 
-- **FR1.8.1:** Users report lost items (description, location).
-- **FR1.8.2:** Users report found items (description, location, optional image via [3.1.13 File Upload](#3113-file-upload-management-apiupload)).
-- **FR1.8.3:** Wardens/Admins manage found item inventory.
-- **FR1.8.4:** System provides search/browse for lost/found items.
-- **FR1.8.5:** Wardens/Admins mark items as claimed/returned.
+```mermaid
+sequenceDiagram
+  participant FE as Frontend
+  participant EX as Express
+  participant A as Azure Blob
+  participant FS as Local FS
 
-#### 3.1.9 Event Management (`/api/event`) <a name="319-event-management-apievent"></a>
+  FE->>EX: POST /api/upload/profile/:userId (multipart/form-data)
+  EX->>EX: authorizeRoles + authenticate
+  alt USE_LOCAL_STORAGE
+    EX->>FS: write buffer to /uploads/profile-images
+    EX-->>FE: 200 {url:"/uploads/profile-images/..."}
+  else Azure
+    EX->>A: uploadData(buffer)
+    EX->>A: generate SAS (r, long expiry)
+    EX-->>FE: 200 {url: sasUrl}
+  end
+```
 
-- **FR1.9.1:** Admins/Wardens create events (name, date, time, location, description).
-- **FR1.9.2:** Students view upcoming/past events.
-- **FR1.9.3:** (Optional) System may allow event registration.
+### 3.6 Payments (Razorpay)
 
-#### 3.1.10 Hostel Management (`/api/hostel`) <a name="3110-hostel-management-apihostel"></a>
+- `POST /api/payment/create-link` (Admin) creates a payment link for an amount (INR); returns `short_url` and `id`
+- `GET /api/payment/status/:paymentLinkId` (authorized roles + `requirePermission('visitors','view')`) fetches payment link status
 
-- **FR1.10.1:** Admins define hostel blocks/buildings.
-- **FR1.10.2:** Admins define rooms within blocks (number, capacity, type).
-- **FR1.10.3:** Admins/Wardens manage room allocation to students.
-- **FR1.10.4:** System maintains room occupancy status.
+```mermaid
+sequenceDiagram
+  participant FE as Admin FE
+  participant EX as Express
+  participant RZ as Razorpay
 
-#### 3.1.11 Statistics and Reporting (`/api/stats`) <a name="3111-statistics-and-reporting-apistats"></a>
+  FE->>EX: POST /api/payment/create-link {amount}
+  EX->>RZ: paymentLink.create(amount*100, INR)
+  RZ-->>EX: {short_url, id}
+  EX-->>FE: 200 {paymentLink, id}
 
-- **FR1.11.1:** Admins/Super Admins view dashboard statistics (e.g., occupancy, complaints, fees).
-- **FR1.11.2:** System generates reports (e.g., student lists, defaulters, complaint summaries).
+  FE->>EX: GET /api/payment/status/:id
+  EX->>RZ: paymentLink.fetch(id)
+  RZ-->>EX: {status}
+  EX-->>FE: 200 {status}
+```
 
-#### 3.1.12 Feedback Management (`/api/feedback`) <a name="3112-feedback-management-apifeedback"></a>
+### 3.7 External API Gateway
 
-- **FR1.12.1:** Students submit feedback on services/facilities.
-- **FR1.12.2:** Admins/Wardens view submitted feedback.
-- **FR1.12.3:** (Optional) Admins categorize/respond to feedback.
+- Mounted under `/external-api`
+- Provides integration endpoints mirroring core domain (associate warden, complaints, events, etc.)
+- Separate `externalApi/middleware/apiAuth.js` may enforce API client auth (see codebase for details)
 
-#### 3.1.13 File Upload Management (`/api/upload`) <a name="3113-file-upload-management-apiupload"></a>
+### 3.8 Configuration Management
 
-- **FR1.13.1:** System allows relevant file uploads (profile pics, attachments, item images).
-- **FR1.13.2:** Files stored securely using Azure Blob Storage (See [3.3.2 Software Interfaces](#332-software-interfaces)).
-- **FR1.13.3:** System handles file size limits and allowed types.
+- Configs stored in `models/configuration.js` with controller/utilities (`utils/configDefaults.js`) that auto-create defaults:
+  - `degrees`, `departments`, `studentEditableFields`
+- Utility `initializeDefaultConfigs()` ensures defaults are present
 
-#### 3.1.14 Visitor Management (`/api/visitor`) <a name="3114-visitor-management-apivisitor"></a>
+### 3.9 Logging and Error Handling
 
-- **FR1.14.1:** Security records visitor details (name, contact, purpose, student visited, time in).
-- **FR1.14.2:** Security records visitor checkout time.
-- **FR1.14.3:** Admins/Security view visitor logs.
+- Console logging for startup, DB connections, and errors in controllers
+- Errors returned as JSON with appropriate HTTP status codes
 
-#### 3.1.15 Notification Management (`/api/notification`) <a name="3115-notification-management-apinotificatio"></a>
+### 3.10 Security Posture
 
-- **FR1.15.1:** System generates notifications for events (new complaint, status update, event, fee reminder).
-- **FR1.15.2:** Users view notifications within the application.
-- **FR1.15.3:** Notifications targeted based on user role/context.
+- HTTPS recommended for all environments
+- CORS: general routes use `ALLOWED_ORIGINS` with `credentials: true`; SSO verify route uses `origin: '*'` and `credentials: false`
+- Sessions: `httpOnly`, `secure` in production, `sameSite: 'None'` in production; TTL 7 days; store crypto with `SESSION_SECRET`
+- Passwords hashed via `bcrypt` with salt
+- Sensitive configuration via environment variables
 
-#### 3.1.16 Disciplinary Committee (DisCo) Management (`/api/disCo`) <a name="3116-disciplinary-committee-disco-management-apidisco"></a>
+---
 
-- **FR1.16.1:** Authorized users (Admin/DisCo) record student disciplinary incidents.
-- **FR1.16.2:** Authorized users view student disciplinary history.
-- **FR1.16.3:** System securely stores disciplinary records.
+## 4. Functional Requirements
 
-#### 3.1.17 Payment Management (`/api/payment`) <a name="3117-payment-management-apipayment"></a>
+### 4.1 Auth & Session
 
-- **FR1.17.1:** System displays fee structures/dues to students.
-- **FR1.17.2:** System integrates with Razorpay for online payments (See [3.3.2 Software Interfaces](#332-software-interfaces)).
-- **FR1.17.3:** System securely handles payment transactions/confirmations.
-- **FR1.17.4:** Students view payment history.
-- **FR1.17.5:** Admins track payment status/manage fee records.
+- FR-A1: Users can log in via email/password
+- FR-A2: Users can log in via Google ID token
+- FR-A3: Users can verify SSO token from SSO provider
+- FR-A4: Successful auth initializes a server-side session and sets secure cookie
+- FR-A5: Authenticated users can fetch their profile (`/api/auth/user`) and refresh server-cached userData
+- FR-A6: Users can update their password (when a password exists)
+- FR-A7: Users can view and revoke device sessions
+- FR-A8: Users can log out, destroying their session and clearing the cookie
 
-#### 3.1.18 External API Integrations (`/external-api`) <a name="3118-external-api-integrations-external-api"></a>
+### 4.2 Core Modules
 
-- **FR1.18.1:** System provides/consumes external APIs as needed (e.g., integration with a central student information system). _[Requires further definition]_
+Namespaces mounted under `/api/*` include (non-exhaustive): `auth`, `warden`, `student`, `admin`, `complaint`, `security`, `lost-and-found`, `event`, `hostel`, `stats`, `feedback`, `visitor`, `notification`, `disCo`, `payment`, `super-admin`, `family`, `staff`, `inventory`, `permissions`, `dashboard`, `tasks`, `users`, `config`, `student-profile`, `sso`, `undertaking`
 
-### 3.2 Non-Functional Requirements <a name="non-functional-requirements"></a>
+Each module provides CRUD and actions consistent with the domain. Access is enforced via `authenticate`, `authorizeRoles`, and selectively `requirePermission`.
 
-| Category            | Requirement ID | Description                                                                                       |
-| :------------------ | :------------- | :------------------------------------------------------------------------------------------------ |
-| **Performance**     | NFR1.1         | Common read API responses within 2s under normal load.                                            |
-|                     | NFR1.2         | User login within 3s.                                                                             |
-|                     | NFR1.3         | Support [Specify Number, e.g., 100] concurrent users without significant performance degradation. |
-| **Security**        | NFR2.1         | All client-server communication via HTTPS.                                                        |
-|                     | NFR2.2         | Passwords securely hashed (bcrypt).                                                               |
-|                     | NFR2.3         | JWTs for session management/API auth (secure handling, appropriate expiry).                       |
-|                     | NFR2.4         | Strict RBAC enforced for all API endpoints.                                                       |
-|                     | NFR2.5         | Input validation against injection attacks (NoSQL Injection, XSS).                                |
-|                     | NFR2.6         | Dependencies kept up-to-date.                                                                     |
-|                     | NFR2.7         | Sensitive config (API keys, DB creds) stored securely (e.g., `.env`), not in version control.     |
-|                     | NFR2.8         | File uploads scanned for malware (if possible), restricted by type/size.                          |
-| **Usability**       | NFR3.1         | (Separate) UI should be intuitive and easy to navigate for all roles.                             |
-|                     | NFR3.2         | Consistent terminology and layout in UI.                                                          |
-|                     | NFR3.3         | Clear and informative error messages.                                                             |
-| **Reliability**     | NFR4.1         | Aim for high availability (e.g., 99.5% uptime).                                                   |
-|                     | NFR4.2         | Regular database backups implemented.                                                             |
-|                     | NFR4.3         | Proper backend error handling and logging.                                                        |
-| **Maintainability** | NFR5.1         | Code follows consistent standards, well-documented where necessary.                               |
-|                     | NFR5.2         | Modular structure (routes, controllers, models) maintained.                                       |
+### 4.3 Supporting Modules
 
-### 3.3 Interface Requirements <a name="interface-requirements"></a>
+- Complaints: submission, assignment, status workflow
+- Lost & Found: lost/found item lifecycle
+- Events: create, list
+- Visitors: log entry/exit
+- Feedback: submit, view
+- Notifications: create, list (role-targeted)
+- Stats: dashboard aggregates
+- Inventory & Student Inventory: track hostel and student items
+- Tasks, Undertakings, Staff Attendance, Family members, Dashboard, Config management
 
-#### 3.3.1 User Interfaces <a name="331-user-interfaces"></a>
+### 4.4 Payments
 
-- Primary interface: Web-based graphical user interface (GUI) (developed separately).
-- Responsiveness: UI functions on common browsers (Chrome, Firefox, Safari, Edge) and screen sizes (desktop, tablet, mobile).
+- FR-P1: Admin can generate payment link via Razorpay
+- FR-P2: System can fetch payment link status
 
-#### 3.3.2 Software Interfaces <a name="332-software-interfaces"></a>
+### 4.5 Uploads
 
-| Interface Type       | System/Technology                            | Purpose                        | Reference                                                                        |
-| :------------------- | :------------------------------------------- | :----------------------------- | :------------------------------------------------------------------------------- |
-| **Database**         | MongoDB                                      | Primary data storage           | [3.4 Database Requirements](#database-requirements)                              |
-| **ODM**              | Mongoose                                     | Data modeling & interaction    | [3.4 Database Requirements](#database-requirements)                              |
-| **Payment Gateway**  | Razorpay API                                 | Process online payments        | [3.1.17 Payment Management](#3117-payment-management-apipayment)                 |
-| **File Storage**     | Azure Blob Storage API                       | Store uploaded files           | [3.1.13 File Upload](#3113-file-upload-management-apiupload)                     |
-| **Operating System** | Node.js compatible (Linux, Win Server, etc.) | Host backend application       | [2.4 Constraints](#constraints)                                                  |
-| **External APIs**    | TBD                                          | Integration with other systems | [3.1.18 External API Integrations](#3118-external-api-integrations-external-api) |
+- FR-U1: Authenticated users can upload profile images (role-restricted)
+- FR-U2: Students can upload front/back of student ID cards
+- FR-U3: System returns accessible URL (local or Azure SAS)
 
-#### 3.3.3 Hardware Interfaces <a name="333-hardware-interfaces"></a>
+### 4.6 External API
 
-- None defined beyond standard web server and client hardware.
+- FR-E1: Provide integration endpoints under `/external-api`
+- FR-E2: Enforce API-level authorization for clients (per `apiAuth` middleware)
 
-#### 3.3.4 Communication Interfaces <a name="334-communication-interfaces"></a>
+---
 
-- **Protocol:** HTTPS for client-server communication.
-- **API Style:** RESTful principles using JSON.
-- **Cross-Origin:** CORS configured for specific frontend origins.
+## 5. Non-Functional Requirements
 
-### 3.4 Database Requirements <a name="database-requirements"></a>
+- Performance: typical GET APIs under 2s; login under 3s under normal load
+- Availability: recommended 99.5%+ with proper infra
+- Security: HTTPS-only, secure cookies, salted password hashes, CORS restrictions, principle of least privilege
+- Reliability: database connection retries; session TTL cleanup via MongoDB TTL indexes
+- Maintainability: modular routes/controllers/models; documentation in `/docs`
 
-- **DBR1:** DBMS: MongoDB.
-- **DBR2:** ODM: Mongoose for data modeling/interaction.
-- **DBR3:** Schema: Must support storing data for users (roles), hostels, rooms, students, complaints, lost/found, events, payments, visitors, notifications, feedback, disciplinary actions, configurations.
-- **DBR4:** Indexing: Create indexes on frequently queried fields (e.g., user emails, student IDs, complaint status) for performance.
-- **DBR5:** Integrity: Maintain data integrity (e.g., ensure student belongs to a valid room).
+---
+
+## 6. Interface Requirements
+
+### 6.1 Software Interfaces (Environment Variables)
+
+From `config/environment.js`:
+
+- `NODE_ENV`, `PORT`
+- `JWT_SECRET` (used by SSO token verification helper)
+- `SESSION_SECRET`
+- `MONGO_URI`
+- `AZURE_STORAGE_CONNECTION_STRING`
+- `AZURE_STORAGE_CONTAINER_NAME`
+- `AZURE_STORAGE_ACCOUNT_NAME`
+- `AZURE_STORAGE_ACCOUNT_KEY`
+- `AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID`
+- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`
+- `ALLOWED_ORIGINS` (comma-separated)
+- `USE_LOCAL_STORAGE` ("true" to enable local file storage)
+
+### 6.2 Communication Interfaces
+
+- REST over HTTPS; JSON request/response bodies (multipart for uploads)
+- CORS: configured per `server.js` (SSO verify route is open-origin without credentials)
+
+---
+
+## 7. Data Model & Database Requirements
+
+### 7.1 Data Entities Overview
+
+Implemented models include (selection): `User`, `StudentProfile`, `Warden`, `AssociateWarden`, `Security`, `HostelSupervisor`, `HostelGate`, `Hostel`, `Unit`, `Room`, `RoomAllocation`, `RoomChangeRequest`, `Complaint`, `DisCoAction`, `LostAndFound`, `Event`, `Notification`, `VisitorProfile`, `VisitorRequest`, `Visitors`, `CheckInOut`, `MaintenanceStaff`, `HostelInventory`, `InventoryItemType`, `StudentInventory`, `Task`, `Undertaking`, `UndertakingAssignment`, `Health`, `InsuranceProvider`, `InsuranceClaim`, `ApiClient`, `Poll`, `Session`, `FamilyMember`, `configuration`
+
+### 7.2 Key Schemas
+
+- `User`:
+  - `name`, `email` (unique), `phone`, `profileImage`
+  - `role` (enum listed in 3.4)
+  - `permissions` Map: resource → {view, edit, create, delete, react}
+  - `password` (nullable), `aesKey`
+  - Virtual `hostel` references role-specific host document by `userId`
+
+### 7.3 Indexing & Integrity
+
+- Create indexes for frequent lookups (e.g., `User.email`, complaint status)
+- Maintain referential integrity for role-linked hostels and allocations
+
+### 7.4 ER Diagram (High-Level)
 
 ```mermaid
 erDiagram
-    USER ||--o{ ROLE : has
-    USER ||--o{ NOTIFICATION : receives
-    STUDENT ||--|| USER : is
-    WARDEN ||--|| USER : is
-    ADMIN ||--|| USER : is
-    SECURITY ||--|| USER : is
-    SUPER_ADMIN ||--|| USER : is
+  USER {
+    string id
+    string name
+    string email
+    string role
+  }
 
-    HOSTEL ||--|{ ROOM : contains
-    ROOM ||--o{ STUDENT : allocates
+  HOSTEL ||--|{ UNIT : contains
+  UNIT ||--|{ ROOM : contains
+  ROOM ||--o{ ROOM_ALLOCATION : has
 
-    STUDENT ||--|{ COMPLAINT : submits
-    STUDENT ||--|{ LOST_FOUND_ITEM : reports
-    STUDENT ||--|{ PAYMENT : makes
-    STUDENT ||--|{ FEEDBACK : gives
-    STUDENT ||--o{ VISITOR_LOG : is_visited_by
-    STUDENT ||--|{ DISCIPLINARY_RECORD : involved_in
+  USER ||--o{ STUDENT_PROFILE : is
+  USER ||--o{ WARDEN : is
+  USER ||--o{ ASSOCIATE_WARDEN : is
+  USER ||--o{ SECURITY : is
+  USER ||--o{ HOSTEL_SUPERVISOR : is
+  USER ||--o{ HOSTEL_GATE : is
 
-    WARDEN ||--o{ COMPLAINT : manages
-    WARDEN ||--o{ LOST_FOUND_ITEM : manages
-    WARDEN ||--o{ EVENT : creates
+  STUDENT_PROFILE ||--o{ COMPLAINT : submits
+  STUDENT_PROFILE ||--o{ LOST_AND_FOUND : reports
+  STUDENT_PROFILE ||--o{ VISITOR_REQUEST : invites
+  STUDENT_PROFILE ||--o{ VISITOR_LOG : visited_by
 
-    ADMIN ||--o{ USER : manages_users
-    ADMIN ||--o{ HOSTEL : manages
-    ADMIN ||--o{ ROOM : manages
-    ADMIN ||--o{ COMPLAINT : oversees
-    ADMIN ||--o{ LOST_FOUND_ITEM : oversees
-    ADMIN ||--o{ EVENT : manages
-    ADMIN ||--o{ PAYMENT : tracks
-    ADMIN ||--o{ FEEDBACK : views
-    ADMIN ||--o{ VISITOR_LOG : views
-    ADMIN ||--o{ NOTIFICATION : manages
-    ADMIN ||--o{ DISCIPLINARY_RECORD : manages
-
-    SECURITY ||--|{ VISITOR_LOG : logs
-
-    DISCO_MEMBER ||--o{ DISCIPLINARY_RECORD : records
-
-    COMPLAINT ||--o{ USER : assigned_to
-    EVENT ||--o{ USER : created_by
-
-    %% Simplified relationships - details like mandatory/optional (|, o) and cardinality ({, o) are indicative.
-    %% This is a high-level overview for the SRS.
+  WARDEN ||--o{ COMPLAINT : manages
+  EVENT ||--o{ USER : created_by
+  NOTIFICATION ||--o{ USER : targets
+  SESSION ||--|| USER : for
 ```
 
-_Diagram: High-Level Database Entity Relationships_
+---
+
+## 8. API Surface Overview
+
+### 8.1 Route Namespaces (mounted in `server.js`)
+
+- `/api/auth`
+- `/api/warden`
+- `/api/student`
+- `/api/admin`
+- `/api/complaint`
+- `/api/security`
+- `/api/lost-and-found`
+- `/api/event`
+- `/api/hostel`
+- `/api/stats`
+- `/api/feedback`
+- `/api/visitor`
+- `/api/notification`
+- `/api/disCo`
+- `/api/payment`
+- `/api/super-admin`
+- `/api/family`
+- `/api/staff`
+- `/api/inventory`
+- `/api/permissions`
+- `/api/dashboard`
+- `/api/tasks`
+- `/api/users`
+- `/api/config`
+- `/api/student-profile`
+- `/api/sso`
+- `/api/undertaking`
+- `/api/upload` (mounted before json)
+- `/external-api`
+
+### 8.2 High-Level Route Map
+
+```mermaid
+graph TD
+  A[/server.js/] -->|mount| AU[/api/auth/]
+  A --> WA[/api/warden/]
+  A --> ST[/api/student/]
+  A --> AD[/api/admin/]
+  A --> CP[/api/complaint/]
+  A --> SC[/api/security/]
+  A --> LF[/api/lost-and-found/]
+  A --> EV[/api/event/]
+  A --> HO[/api/hostel/]
+  A --> STS[/api/stats/]
+  A --> FB[/api/feedback/]
+  A --> VI[/api/visitor/]
+  A --> NO[/api/notification/]
+  A --> DC[/api/disCo/]
+  A --> PM[/api/payment/]
+  A --> SA[/api/super-admin/]
+  A --> FM[/api/family/]
+  A --> SF[/api/staff/]
+  A --> IN[/api/inventory/]
+  A --> PRM[/api/permissions/]
+  A --> DB[/api/dashboard/]
+  A --> TK[/api/tasks/]
+  A --> USR[/api/users/]
+  A --> CFG[/api/config/]
+  A --> SP[/api/student-profile/]
+  A --> SSO[/api/sso/]
+  A --> UND[/api/undertaking/]
+  A --> UP[/api/upload/]
+  A --> EXT[/external-api/]
+```
 
 ---
+
+## 9. Appendices
+
+### 9.1 Security Checklist
+
+- Enforce HTTPS end-to-end
+- Set `ALLOWED_ORIGINS` precisely; avoid `*` except for the dedicated SSO verify route
+- Keep `SESSION_SECRET` long and random; rotate if leaked
+- Ensure `secure` cookies in production; `sameSite: 'None'`
+- Validate and sanitize inputs for all endpoints
+- Store credentials and keys only in environment variables and secret stores
+
+### 9.2 Operations Notes
+
+- Session store uses MongoDB with TTL; monitor collection size and TTL indexes
+- Azure Blob containers must exist and be configured; SAS expiry is set far in the future for read-only links
+- Razorpay API keys must be scoped and rotated per org policy
+
+### 9.3 Future Enhancements
+
+- Add rate limiting (per-IP and per-user)
+- Centralized structured logging and correlation IDs
+- Webhooks for payment confirmations
+- Background jobs for notifications and cleanup
+
+---
+
+This SRS reflects the current backend implementation and is intended to evolve alongside the codebase.
