@@ -8,7 +8,7 @@ Date: 2025-08-10
 ### Revision History
 
 - 1.0 (2024-08-02): Initial SRS
-- 2.0 (2025-08-10): Fully revised to match implemented backend: session-based auth, RBAC/permissions, Azure uploads, Razorpay payments, external API, deployment and detailed diagrams
+- 2.0 (2025-08-10): Fully revised to match implemented backend: session-based auth, RBAC/permissions, Razorpay payments, external API, deployment and detailed diagrams
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ Date: 2025-08-10
    - 3.2 Request Lifecycle and Middleware Order
    - 3.3 Authentication and Session Management
    - 3.4 Authorization and RBAC Permissions Model
-   - 3.5 File Uploads and Storage (Azure/local)
+   - 3.5 File Uploads and Storage (Local)
    - 3.6 Payments (Razorpay)
    - 3.7 External API Gateway
    - 3.8 Configuration Management
@@ -69,12 +69,12 @@ This SRS defines the backend API for the Hostel Management System (HMS). It capt
 
 Backend API built with Node.js and Express, using MongoDB via Mongoose. It supports:
 
-- Authentication (email/password, Google, SSO) and server-side sessions
+- Authentication (email/password, Google) and server-side sessions
 - Role-based access and fine-grained permissions
 - Student, Warden, Admin, Security, Super Admin modules
 - Complaints, Lost & Found, Events, Visitors, Feedback, Notifications, Stats
 - Hostel/Rooms, Inventory, Tasks, Undertakings, Staff attendance, Family members
-- File uploads to Azure Blob Storage or local filesystem
+- File uploads to local filesystem
 - Razorpay payment link creation and status checks
 - External API namespace for integrations
 
@@ -82,17 +82,14 @@ Backend API built with Node.js and Express, using MongoDB via Mongoose. It suppo
 
 - HMS: Hostel Management System
 - RBAC: Role-Based Access Control
-- SSO: Single Sign-On
 - CORS: Cross-Origin Resource Sharing
 - TTL: Time To Live (expiry)
-- SAS: Shared Access Signature (Azure Blob Storage)
 
 ### 1.4 References
 
 - Codebase: `server.js`, `routes/*`, `controllers/*`, `models/*`, `middlewares/*`, `externalApi/*`
 - Express, Mongoose, connect-mongo, express-session
 - Razorpay Node SDK
-- Azure Storage Blob SDK
 
 ### 1.5 Overview
 
@@ -104,7 +101,7 @@ The document explains architecture and behavior first, then enumerates requireme
 
 ### 2.1 Product Perspective
 
-The API is the central service in a client–server architecture. A separate frontend consumes REST endpoints over HTTPS. Data persists in MongoDB; sessions are stored in MongoDB via `connect-mongo`. Files are stored in Azure Blob Storage or local disk (configurable). Payments integrate with Razorpay.
+The API is the central service in a client–server architecture. A separate frontend consumes REST endpoints over HTTPS. Data persists in MongoDB; sessions are stored in MongoDB via `connect-mongo`. Files are stored on local disk (configurable). Payments integrate with Razorpay.
 
 ```mermaid
 graph LR
@@ -116,21 +113,17 @@ graph LR
     EX["Express App<br/>Routes + Controllers"]
     MS[(MongoDB)]
     SS["Session Store (MongoDB)"]
-  end
+    end
 
   subgraph External Services
-    ABL["Azure Blob Storage"]
     RZP[Razorpay]
-    SSO["SSO Provider"]
   end
 
   FE <--> |HTTPS + Cookies| EX
   EX <--> |Mongoose| MS
   EX <--> |connect-mongo| SS
-  EX --> |SDK| ABL
   EX --> |SDK| RZP
-  FE --> |Token POST| SSO
-  EX --> |/api/sso/verify| SSO
+  %% SSO and Azure storage integrations removed
 ```
 
 ### 2.2 Architectural Overview (with diagrams)
@@ -142,12 +135,10 @@ graph TD
   LB["Reverse Proxy / Load Balancer"]
   APP["Node.js Process (Express)"]
   DB[("MongoDB Cluster")]
-  STG["Azure Blob Storage"]
   RZP[Razorpay]
 
   LB --> APP
   APP --> DB
-  APP --> STG
   APP --> RZP
 ```
 
@@ -155,7 +146,7 @@ graph TD
 
 As implemented in `server.js`:
 
-1. express.urlencoded → cookieParser → SSO-only CORS+verify handler → CORS with credentials → express-session (connect-mongo) → static `/uploads` (if local) → mount `/api/upload` → express.json → mount remaining routes
+1. express.urlencoded → cookieParser → CORS with credentials → express-session (connect-mongo) → static `/uploads` (if local) → mount `/api/upload` → express.json → mount remaining routes
 
 ```mermaid
 sequenceDiagram
@@ -167,7 +158,7 @@ sequenceDiagram
   FE->>EX: HTTP Request
   EX->>EX: urlencoded parser
   EX->>EX: cookieParser
-  EX->>EX: SSO-only CORS+JSON (for /api/sso/verify)
+  %% SSO handler removed
   EX->>EX: CORS (ALLOWED_ORIGINS, credentials)
   EX->>SES: Load/Save Session (connect-mongo)
   EX->>EX: Serve /uploads (if local)
@@ -179,7 +170,7 @@ sequenceDiagram
 
 ### 2.3 Product Functions
 
-- Server-side session login (email/password, Google, SSO)
+- Server-side session login (email/password, Google)
 - RBAC by role plus permission map
 - CRUD around students, rooms, hostels, visitors, lost & found, complaints, events, notifications, feedback, stats
 - File upload for profile images and student ID cards
@@ -197,13 +188,13 @@ sequenceDiagram
 - Node.js runtime, Express framework
 - MongoDB database
 - Session cookies with secure attributes in production
-- Azure Blob Storage if not using local storage
+
 - Razorpay account/keys for payments
 
 ### 2.6 Assumptions and Dependencies
 
 - Valid user accounts exist (provisioned via Admin flows)
-- External services (Azure, Razorpay, SSO provider) are reachable
+- External services (Razorpay) are reachable
 - Frontend is hosted with allowed origins configured
 
 ---
@@ -215,7 +206,6 @@ sequenceDiagram
 - Single Express application (`server.js`) mounting routers under `/api/*` and `/external-api`
 - Session management using `express-session` with `connect-mongo` store
 - Sessions TTL: 7 days; cookies `httpOnly`, `secure` in non-dev, `sameSite` None in non-dev
-- Special SSO verification path `/api/sso/verify` uses open-origin CORS and no credentials
 
 ### 3.2 Request Lifecycle and Middleware Order
 
@@ -225,7 +215,7 @@ See sequence above. The upload routes are mounted before `express.json()` to sup
 
 - Email/password login: `POST /api/auth/login`
 - Google login: `POST /api/auth/google` (verifies id_token with Google)
-- SSO verification: `POST /api/auth/verify-sso-token` and `POST /api/sso/verify`
+
 - Current user: `GET /api/auth/user` (requires session)
 - Logout: `GET /api/auth/logout` (destroys session and clears cookie)
 - Refresh user data: `GET /api/auth/refresh`
@@ -233,7 +223,7 @@ See sequence above. The upload routes are mounted before `express.json()` to sup
 
 Session details:
 
-- On successful login/SSO/Google: `req.session.userId`, `role`, `email`, and an `userData` cache with `_id, email, role, permissions (object), hostel`
+- On successful login/Google: `req.session.userId`, `role`, `email`, and an `userData` cache with `_id, email, role, permissions (object), hostel`
 - A `Session` collection tracks device sessions (`userId`, `sessionId`, user agent, ip, device name, login/lastActive`)
 
 ```mermaid
@@ -466,20 +456,20 @@ graph LR
   MSF --> CMP["Complaints: update-status, stats, updates"]
 ```
 
-### 3.5 File Uploads and Storage (Azure/local)
+### 3.5 File Uploads and Storage (Local)
 
 - Endpoints (authenticated):
   - `POST /api/upload/profile/:userId` (roles: Admin, Warden, Associate Warden, Hostel Supervisor, Student)
   - `POST /api/upload/student-id/:side` (role: Student)
 - `multer` in-memory, then either:
   - Local disk at `uploads/` (when `USE_LOCAL_STORAGE=true`) and served from `/uploads`
-  - Azure Blob Storage: uploaded via SDK and returns a long-lived read SAS URL (read-only)
+  - Local storage is served from `/uploads`
 
 ```mermaid
 sequenceDiagram
   participant FE as Frontend
   participant EX as Express
-  participant A as Azure Blob
+  %% Azure Blob removed
   participant FS as Local FS
 
   FE->>EX: POST /api/upload/profile/:userId (multipart/form-data)
@@ -487,10 +477,8 @@ sequenceDiagram
   alt USE_LOCAL_STORAGE
     EX->>FS: write buffer to /uploads/profile-images
     EX-->>FE: 200 {url:"/uploads/profile-images/..."}
-  else Azure
-    EX->>A: uploadData(buffer)
-    EX->>A: generate SAS (r, long expiry)
-    EX-->>FE: 200 {url: sasUrl}
+  else
+    EX-->>FE: 501 {error: "Not implemented"}
   end
 ```
 
@@ -536,7 +524,7 @@ sequenceDiagram
 ### 3.10 Security Posture
 
 - HTTPS recommended for all environments
-- CORS: general routes use `ALLOWED_ORIGINS` with `credentials: true`; SSO verify route uses `origin: '*'` and `credentials: false`
+- CORS: general routes use `ALLOWED_ORIGINS` with `credentials: true`
 - Sessions: `httpOnly`, `secure` in production, `sameSite: 'None'` in production; TTL 7 days; store crypto with `SESSION_SECRET`
 - Passwords hashed via `bcrypt` with salt
 - Sensitive configuration via environment variables
@@ -549,7 +537,7 @@ sequenceDiagram
 
 - FR-A1: Users can log in via email/password
 - FR-A2: Users can log in via Google ID token
-- FR-A3: Users can verify SSO token from SSO provider
+
 - FR-A4: Successful auth initializes a server-side session and sets secure cookie
 - FR-A5: Authenticated users can fetch their profile (`/api/auth/user`) and refresh server-cached userData
 - FR-A6: Users can update their password (when a password exists)
@@ -583,7 +571,7 @@ Each module provides CRUD and actions consistent with the domain. Access is enfo
 
 - FR-U1: Authenticated users can upload profile images (role-restricted)
 - FR-U2: Students can upload front/back of student ID cards
-- FR-U3: System returns accessible URL (local or Azure SAS)
+- FR-U3: System returns accessible URL from local storage
 
 ### 4.6 External API
 
@@ -609,7 +597,7 @@ Each module provides CRUD and actions consistent with the domain. Access is enfo
 From `config/environment.js`:
 
 - `NODE_ENV`, `PORT`
-- `JWT_SECRET` (used by SSO token verification helper)
+
 - `SESSION_SECRET`
 - `MONGO_URI`
 - `AZURE_STORAGE_CONNECTION_STRING`
@@ -624,7 +612,7 @@ From `config/environment.js`:
 ### 6.2 Communication Interfaces
 
 - REST over HTTPS; JSON request/response bodies (multipart for uploads)
-- CORS: configured per `server.js` (SSO verify route is open-origin without credentials)
+- CORS: configured per `server.js`
 
 ---
 
@@ -789,7 +777,7 @@ erDiagram
   STUDENT_PROFILE ||--o{ VISITOR_REQUEST : invites
   STUDENT_PROFILE ||--o{ VISITOR_LOG : visited_by
 
-  WARDEN ||--o{ COMPLAINT : manages
+    WARDEN ||--o{ COMPLAINT : manages
   EVENT ||--o{ USER : created_by
   NOTIFICATION ||--o{ USER : targets
   SESSION ||--|| USER : for
@@ -860,7 +848,7 @@ graph TD
   A --> USR[/api/users/]
   A --> CFG[/api/config/]
   A --> SP[/api/student-profile/]
-  A --> SSO[/api/sso/]
+  %% SSO routes removed from view
   A --> UND[/api/undertaking/]
   A --> UP[/api/upload/]
   A --> EXT[/external-api/]
@@ -873,7 +861,7 @@ graph TD
 ### 9.1 Security Checklist
 
 - Enforce HTTPS end-to-end
-- Set `ALLOWED_ORIGINS` precisely; avoid `*` except for the dedicated SSO verify route
+- Set `ALLOWED_ORIGINS` precisely
 - Keep `SESSION_SECRET` long and random; rotate if leaked
 - Ensure `secure` cookies in production; `sameSite: 'None'`
 - Validate and sanitize inputs for all endpoints
@@ -882,7 +870,7 @@ graph TD
 ### 9.2 Operations Notes
 
 - Session store uses MongoDB with TTL; monitor collection size and TTL indexes
-- Azure Blob containers must exist and be configured; SAS expiry is set far in the future for read-only links
+
 - Razorpay API keys must be scoped and rotated per org policy
 
 ### 9.3 Future Enhancements
