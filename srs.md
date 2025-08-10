@@ -283,7 +283,7 @@ flowchart LR
 
 The following diagrams illustrate the typical resource access per role (summarized from default permissions). They are indicative; custom permissions can override defaults.
 
-Student
+Student (defaults overview)
 
 ```mermaid
 graph LR
@@ -295,7 +295,7 @@ graph LR
   STU --> SINV["Student Inventory: create/view"]
 ```
 
-Warden
+Warden (defaults overview)
 
 ```mermaid
 graph LR
@@ -309,7 +309,7 @@ graph LR
   WAR --> FB["Feedback: view/react"]
 ```
 
-Admin
+Admin (defaults overview)
 
 ```mermaid
 graph LR
@@ -326,7 +326,7 @@ graph LR
   ADM --> USR["Users: all actions"]
 ```
 
-Security
+Security (defaults overview)
 
 ```mermaid
 graph LR
@@ -337,12 +337,133 @@ graph LR
   SEC --> STINF["Students Info: view"]
 ```
 
-Super Admin
+Super Admin (defaults overview)
 
 ```mermaid
 graph LR
   SA[Super Admin]
   SA --> ALL["All resources: full access"]
+```
+
+#### 3.4.2 Route-derived Role Access (Authorizations in routes/\*)
+
+These diagrams reflect actual `authorizeRoles(...)` usage found in the route files and key `requirePermission(...)`-gated reads. They represent modules/endpoints currently accessible per role, independent of default permission maps.
+
+Student (from `studentRoutes`, `complaintRoutes`, `eventRoutes`, `feedbackRoutes`, `lostAndFoundRoutes`, `uploadRoutes`, `paymentRoutes`, `undertakingRoutes`, `securityRoutes`)
+
+```mermaid
+graph LR
+  STU[Student]
+  STU --> SMOD["Student Module"]
+  STU --> CMP["Complaints: create/view/edit/delete (self)"]
+  STU --> EV["Events: view"]
+  STU --> FB["Feedback: view"]
+  STU --> LAF["Lost and Found: view"]
+  STU --> UP["Uploads: profile, student-id"]
+  STU --> PAY["Payments: status"]
+  STU --> UND["Undertakings: view/accept"]
+  STU --> SEC["Security Entries: view"]
+```
+
+Warden (from `studentRoutes`, `hostelRoutes`, `complaintRoutes`, `disCoRoutes`, `familyMemberRoutes`, `eventRoutes`, `feedbackRoutes`, `lostAndFoundRoutes`, `inventoryRoutes`, `userRoutes`, `dashboardRoutes`, `uploadRoutes`, `securityRoutes`)
+
+```mermaid
+graph LR
+  WAR[Warden]
+  WAR --> STINF["Students: view/edit via permissions"]
+  WAR --> HOST["Hostel: units/rooms"]
+  WAR --> CMP["Complaints: create/view/update"]
+  WAR --> LAF["Lost and Found: create/edit/delete/view"]
+  WAR --> EV["Events: view"]
+  WAR --> FB["Feedback: view"]
+  WAR --> INV["Inventory: assign/view/edit"]
+  WAR --> FAM["Family Members: manage"]
+  WAR --> DSC["DisCo: view by student"]
+  WAR --> USR["Users: search/by-role/get"]
+  WAR --> DB["Dashboard: counts/stats"]
+  WAR --> UP["Uploads: profile"]
+  WAR --> SEC["Security Entries: view"]
+```
+
+Associate Warden & Hostel Supervisor (similar to Warden per routes)
+
+```mermaid
+graph LR
+  AW[Associate Warden] --> STINF
+  AW --> HOST
+  AW --> CMP
+  AW --> LAF
+  AW --> EV
+  AW --> FB
+  AW --> INV
+  AW --> FAM
+  AW --> DSC
+  AW --> USR
+  AW --> DB
+  AW --> UP
+  AW --> SEC
+
+  HS[Hostel Supervisor] --> STINF
+  HS --> HOST
+  HS --> CMP
+  HS --> LAF
+  HS --> EV
+  HS --> FB
+  HS --> INV
+  HS --> FAM
+  HS --> DSC
+  HS --> USR
+  HS --> DB
+  HS --> UP
+  HS --> SEC
+```
+
+Admin (from virtually all modules; `adminRoutes`, `configRoutes`, `userRoutes`, `dashboardRoutes`, `taskRoutes`, `paymentRoutes`, etc.)
+
+```mermaid
+graph LR
+  ADM[Admin]
+  ADM --> ALL["Core Modules: all actions"]
+  ADM --> CFG["Config"]
+  ADM --> USR["Users incl. bulk ops"]
+  ADM --> DB["Dashboard"]
+  ADM --> TSK["Tasks"]
+  ADM --> PAY["Payments: create-link + status"]
+```
+
+Super Admin
+
+```mermaid
+graph LR
+  SA[Super Admin]
+  SA --> USR["Users: bulk ops"]
+  SA --> DB["Dashboard"]
+  SA --> INV["Inventory"]
+  SA --> TSK["Tasks"]
+  SA --> CORE["Core Modules (admin-level)"]
+```
+
+Security & Hostel Gate (from `securityRoutes`, `lostAndFoundRoutes`)
+
+```mermaid
+graph LR
+  SEC[Security]
+  SEC --> EN["Security Entries: view"]
+  SEC --> LAF["Lost and Found: create/edit/delete/view"]
+  SEC --> EV["Events: view"]
+  SEC --> STINF["Students: view (where permitted)"]
+
+  HG[Hostel Gate]
+  HG --> EN["Security Entries: view"]
+  HG --> LAF["Lost and Found: create/edit/delete/view"]
+```
+
+Maintenance Staff (from `complaintRoutes`)
+
+```mermaid
+graph LR
+  MSF[Maintenance Staff]
+  MSF --> CMP["Complaints: update-status, stats, updates"]
 ```
 
 ### 3.5 File Uploads and Storage (Azure/local)
