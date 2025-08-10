@@ -279,6 +279,72 @@ flowchart LR
   E -- False --> Y[[403 Forbidden]]
 ```
 
+#### 3.4.1 Role-wise Access Diagrams
+
+The following diagrams illustrate the typical resource access per role (summarized from default permissions). They are indicative; custom permissions can override defaults.
+
+Student
+
+```mermaid
+graph LR
+  STU[Student]
+  STU --> EV["Events: view/react"]
+  STU --> LAF["Lost and Found: create/view/react"]
+  STU --> CMP["Complaints: create/view"]
+  STU --> FB["Feedback: create/view"]
+  STU --> SINV["Student Inventory: create/view"]
+```
+
+Warden
+
+```mermaid
+graph LR
+  WAR[Warden]
+  WAR --> STINF["Students Info: view/react"]
+  WAR --> SINV["Student Inventory: view/edit/create/delete/react"]
+  WAR --> CMP["Complaints: create/view"]
+  WAR --> LAF["Lost and Found: view"]
+  WAR --> EV["Events: view"]
+  WAR --> VIS["Visitors: view"]
+  WAR --> FB["Feedback: view/react"]
+```
+
+Admin
+
+```mermaid
+graph LR
+  ADM[Admin]
+  ADM --> STINF["Students Info: all actions"]
+  ADM --> SINV["Student Inventory: all actions"]
+  ADM --> LAF["Lost and Found: all actions"]
+  ADM --> EV["Events: all actions"]
+  ADM --> VIS["Visitors: all actions"]
+  ADM --> CMP["Complaints: all actions"]
+  ADM --> FB["Feedback: all actions"]
+  ADM --> RMS["Rooms: all actions"]
+  ADM --> HOS["Hostels: all actions"]
+  ADM --> USR["Users: all actions"]
+```
+
+Security
+
+```mermaid
+graph LR
+  SEC[Security]
+  SEC --> VIS["Visitors: view/edit/create/react"]
+  SEC --> LAF["Lost and Found: view/edit/create/react"]
+  SEC --> EV["Events: view"]
+  SEC --> STINF["Students Info: view"]
+```
+
+Super Admin
+
+```mermaid
+graph LR
+  SA[Super Admin]
+  SA --> ALL["All resources: full access"]
+```
+
 ### 3.5 File Uploads and Storage (Azure/local)
 
 - Endpoints (authenticated):
@@ -461,7 +527,7 @@ Implemented models include (selection): `User`, `StudentProfile`, `Warden`, `Ass
 - Create indexes for frequent lookups (e.g., `User.email`, complaint status)
 - Maintain referential integrity for role-linked hostels and allocations
 
-### 7.4 ER Diagram (High-Level)
+### 7.4 ER Diagram (Detailed)
 
 ```mermaid
 erDiagram
@@ -470,6 +536,120 @@ erDiagram
     string name
     string email
     string role
+    string phone
+    string profileImage
+    map permissions
+  }
+
+  STUDENT_PROFILE {
+    string id
+    string userId
+    string enrollmentNo
+    string department
+    date dateOfBirth
+  }
+
+  WARDEN {
+    string id
+    string userId
+    string hostelId
+  }
+
+  ASSOCIATE_WARDEN {
+    string id
+    string userId
+    string hostelId
+  }
+
+  HOSTEL_SUPERVISOR {
+    string id
+    string userId
+    string hostelId
+  }
+
+  SECURITY {
+    string id
+    string userId
+  }
+
+  HOSTEL_GATE {
+    string id
+    string userId
+  }
+
+  HOSTEL {
+    string id
+    string name
+  }
+
+  UNIT {
+    string id
+    string hostelId
+    string name
+  }
+
+  ROOM {
+    string id
+    string unitId
+    string number
+    int capacity
+  }
+
+  ROOM_ALLOCATION {
+    string id
+    string roomId
+    string studentProfileId
+    date from
+    date to
+  }
+
+  COMPLAINT {
+    string id
+    string studentProfileId
+    string category
+    string status
+  }
+
+  LOST_AND_FOUND {
+    string id
+    string studentProfileId
+    string type
+    string description
+  }
+
+  EVENT {
+    string id
+    string title
+    date date
+    string createdByUserId
+  }
+
+  NOTIFICATION {
+    string id
+    string targetRole
+    string message
+  }
+
+  VISITOR_REQUEST {
+    string id
+    string studentProfileId
+    string visitorName
+    dateTime time
+  }
+
+  VISITOR_LOG {
+    string id
+    string studentProfileId
+    dateTime timeIn
+    dateTime timeOut
+  }
+
+  SESSION {
+    string id
+    string userId
+    string sessionId
+    dateTime loginTime
+    dateTime lastActive
   }
 
   HOSTEL ||--|{ UNIT : contains
