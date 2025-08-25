@@ -95,6 +95,16 @@ export const getAllHostelSupervisors = async (req, res) => {
       status: hs.status || (hs.hostelIds && hs.hostelIds.length > 0 ? "assigned" : "unassigned"),
     }))
 
+    formattedHostelSupervisors.sort((a, b) => {
+      const aHasChief = a.email.toLowerCase().includes("chief")
+      const bHasChief = b.email.toLowerCase().includes("chief")
+
+      if (aHasChief && !bHasChief) return -1
+      if (!aHasChief && bHasChief) return 1
+
+      return a.name.localeCompare(b.name)
+    })
+
     res.status(200).json(formattedHostelSupervisors)
   } catch (error) {
     console.error("Error getting all hostel supervisors:", error)

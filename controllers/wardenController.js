@@ -94,6 +94,15 @@ export const getAllWardens = async (req, res) => {
       status: warden.status || (warden.hostelIds && warden.hostelIds.length > 0 ? "assigned" : "unassigned"),
     }))
 
+    formattedWardens.sort((a, b) => {
+      const aHasChief = a.email.toLowerCase().includes("chief")
+      const bHasChief = b.email.toLowerCase().includes("chief")
+
+      if (aHasChief && !bHasChief) return -1
+      if (!aHasChief && bHasChief) return 1
+
+      return a.name.localeCompare(b.name)
+    })
     res.status(200).json(formattedWardens)
   } catch (error) {
     console.error("Error getting all wardens:", error)
