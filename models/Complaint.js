@@ -6,7 +6,7 @@ const ComplaintSchema = new mongoose.Schema({
   description: { type: String, required: true },
   status: {
     type: String,
-    enum: ["Pending", "Resolved", "In Progress", "Rejected"],
+    enum: ["Pending", "Resolved", "In Progress", "Forwarded to IDO", "Rejected"],
     default: "Pending",
   },
   category: {
