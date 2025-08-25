@@ -4,7 +4,7 @@ const MaintenanceStaffSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, unique: true },
   category: {
     type: String,
-    enum: ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other"],
+    enum: ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Attendant", "Other"],
     required: true,
   },
   createdAt: { type: Date, default: Date.now },
