@@ -44,6 +44,9 @@ const visitorRequestSchema = new mongoose.Schema({
     enum: ["Pending", "Approved", "Rejected"],
     default: "Pending",
   },
+  approveInfo: {
+    type: String,
+  },
   reasonForRejection: {
     type: String,
   },

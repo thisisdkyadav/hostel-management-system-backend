@@ -135,6 +135,7 @@ export const getVisitorRequestById = async (req, res) => {
       status: visitorRequest.status,
       isAllocated,
       allocatedRooms: rooms || [],
+      approveInfo: visitorRequest.approveInfo || null,
       rejectionReason: visitorRequest.reasonForRejection || null,
       hostelId: visitorRequest.hostelId?._id || null,
       hostelName: visitorRequest.hostelId?.name || null,
@@ -226,8 +227,7 @@ export const deleteVisitorRequest = async (req, res) => {
 
 export const updateVisitorRequestStatus = async (req, res) => {
   const { requestId, action } = req.params
-  const { reason, hostelId: assignedHostelId, amount } = req.body
-  console.log(req.body)
+  const { reason, hostelId: assignedHostelId, amount, approvalInformation } = req.body
 
   try {
     if (action !== "approve" && action !== "reject") {
@@ -239,16 +239,17 @@ export const updateVisitorRequestStatus = async (req, res) => {
     const status = action === "approve" ? "Approved" : "Rejected"
     const reasonForRejection = action === "reject" ? reason : undefined
     const hostelId = action === "approve" ? assignedHostelId : undefined
+    const approveInfo = action === "approve" ? approvalInformation : undefined
     let paymentLink = null
     let paymentId = null
-    if (action === "approve") {
-      const paymentData = await createPaymentLink(amount)
-      paymentLink = paymentData.paymentLink
-      paymentId = paymentData.paymentId
-      console.log(paymentLink, paymentId)
-    }
+    // if (action === "approve") {
+    //   const paymentData = await createPaymentLink(amount)
+    //   paymentLink = paymentData.paymentLink
+    //   paymentId = paymentData.paymentId
+    //   console.log(paymentLink, paymentId)
+    // }
 
-    const updatedRequest = await VisitorRequest.findByIdAndUpdate(requestId, { status, reasonForRejection, hostelId, paymentLink, paymentId }, { new: true })
+    const updatedRequest = await VisitorRequest.findByIdAndUpdate(requestId, { status, reasonForRejection, hostelId, approveInfo }, { new: true })
 
     if (!updatedRequest) {
       return res.status(404).json({
