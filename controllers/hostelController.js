@@ -598,55 +598,69 @@ export const bulkUpdateRooms = async (req, res) => {
       return res.status(404).json({ message: "Hostel not found" })
     }
 
-    const uniqueUnits = [...new Set(rooms.map((room) => room.unitNumber))]
-    console.log("Unique Units:", uniqueUnits)
-    const units = await Unit.find({ hostelId, unitNumber: { $in: uniqueUnits } })
-    if (!units) {
-      return res.status(404).json({ message: "Units not found" })
-    }
-
-    const unitMap = {}
-    units.forEach((unit) => {
-      unitMap[unit.unitNumber] = unit._id
-    })
-
-    const roomsToUpdate = rooms.map((room) => room.roomNumber)
-    const existingRooms = await Room.find({
-      hostelId,
-      roomNumber: { $in: roomsToUpdate },
-      unitId: { $in: Object.values(unitMap) },
-    }).populate("unitId", "unitNumber")
-
-    const filteredExistingRooms = existingRooms.filter((room) => rooms.some((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber))
-
-    // Group rooms into categories
+    // Prepare buckets
     const roomsToActivate = []
     const roomsToDeactivate = []
     const roomsToUpdateCapacity = []
 
-    uniqueUnits.forEach((unitNumber) => {
-      const roomsInUnit = filteredExistingRooms.filter((room) => room.unitId.unitNumber === unitNumber)
-      roomsInUnit.forEach((room) => {
-        const roomData = rooms.find((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber)
+    if (hostel.type === "unit-based") {
+      // Unit-based: match by unitNumber + roomNumber
+      const uniqueUnits = [...new Set(rooms.map((room) => room.unitNumber))]
+      const units = await Unit.find({ hostelId, unitNumber: { $in: uniqueUnits } })
+
+      const unitMap = {}
+      units.forEach((unit) => {
+        unitMap[unit.unitNumber] = unit._id
+      })
+
+      const roomsToUpdate = rooms.map((room) => room.roomNumber)
+      const existingRooms = await Room.find({
+        hostelId,
+        roomNumber: { $in: roomsToUpdate },
+        unitId: { $in: Object.values(unitMap) },
+      }).populate("unitId", "unitNumber")
+
+      const filteredExistingRooms = existingRooms.filter((room) => rooms.some((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber))
+
+      uniqueUnits.forEach((unitNumber) => {
+        const roomsInUnit = filteredExistingRooms.filter((room) => room.unitId.unitNumber === unitNumber)
+        roomsInUnit.forEach((room) => {
+          const roomData = rooms.find((r) => r.roomNumber === room.roomNumber && r.unitNumber === room.unitId.unitNumber)
+          if (roomData) {
+            if (roomData.status && room.status !== roomData.status) {
+              if (roomData.status === "Active") {
+                roomsToActivate.push(room._id)
+              } else if (roomData.status === "Inactive") {
+                roomsToDeactivate.push(room._id)
+              }
+            } else if (room.status === "Active" && roomData.capacity && room.capacity !== roomData.capacity) {
+              roomsToUpdateCapacity.push({ roomId: room._id, capacity: roomData.capacity })
+            }
+          }
+        })
+      })
+    } else if (hostel.type === "room-only") {
+      // Room-only: match by roomNumber only
+      const roomsToUpdate = rooms.map((room) => room.roomNumber)
+      const existingRooms = await Room.find({ hostelId, roomNumber: { $in: roomsToUpdate } })
+
+      existingRooms.forEach((room) => {
+        const roomData = rooms.find((r) => r.roomNumber === room.roomNumber)
         if (roomData) {
-          // Status change
           if (roomData.status && room.status !== roomData.status) {
             if (roomData.status === "Active") {
               roomsToActivate.push(room._id)
             } else if (roomData.status === "Inactive") {
               roomsToDeactivate.push(room._id)
             }
-          }
-          // Capacity change (only for active rooms)
-          else if (room.status === "Active" && roomData.capacity && room.capacity !== roomData.capacity) {
-            roomsToUpdateCapacity.push({
-              roomId: room._id,
-              capacity: roomData.capacity,
-            })
+          } else if (room.status === "Active" && roomData.capacity && room.capacity !== roomData.capacity) {
+            roomsToUpdateCapacity.push({ roomId: room._id, capacity: roomData.capacity })
           }
         }
       })
-    })
+    } else {
+      return res.status(400).json({ message: "Unsupported hostel type" })
+    }
 
     // No rooms to update
     if (roomsToActivate.length === 0 && roomsToDeactivate.length === 0 && roomsToUpdateCapacity.length === 0) {
@@ -658,31 +672,24 @@ export const bulkUpdateRooms = async (req, res) => {
 
     const updatedRoomIds = []
 
-    // Process activations
     if (roomsToActivate.length > 0) {
       const activatedRooms = await Room.activateRooms(roomsToActivate)
       updatedRoomIds.push(...activatedRooms.map((room) => room._id))
     }
 
-    // Process deactivations
     if (roomsToDeactivate.length > 0) {
       const deactivatedRooms = await Room.deactivateRooms(roomsToDeactivate)
       updatedRoomIds.push(...deactivatedRooms.map((room) => room._id))
     }
 
-    // Process capacity updates for rooms that don't change status
     if (roomsToUpdateCapacity.length > 0) {
       const bulkOps = roomsToUpdateCapacity.map((room) => ({
-        updateOne: {
-          filter: { _id: room.roomId },
-          update: { capacity: room.capacity },
-        },
+        updateOne: { filter: { _id: room.roomId }, update: { capacity: room.capacity } },
       }))
       await Room.bulkWrite(bulkOps)
       updatedRoomIds.push(...roomsToUpdateCapacity.map((room) => room.roomId))
     }
 
-    // Clean up allocations for deactivated rooms
     if (roomsToDeactivate.length > 0) {
       await RoomAllocation.deleteMany({ roomId: { $in: roomsToDeactivate } })
     }
