@@ -174,7 +174,7 @@ export const getHostels = async (req, res) => {
                 $sum: { $cond: [{ $gt: ["$occupancy", 0] }, 1, 0] },
               },
               vacantRoomsCount: {
-                $sum: { $cond: [{ $eq: ["$occupancy", 0] }, 1, 0] },
+                $sum: { $cond: [{ $and: [{ $eq: ["$occupancy", 0] }, { $eq: ["$status", "Active"] }] }, 1, 0] },
               },
               totalCapacity: { $sum: "$capacity" },
               totalOccupancy: { $sum: "$occupancy" },
