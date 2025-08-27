@@ -6,7 +6,7 @@ import { authorizeRoles } from "../middlewares/authorize.js"
 const router = express.Router()
 
 router.use(authenticate)
-router.use(authorizeRoles(["Super Admin"]))
+router.use(authorizeRoles(["Super Admin", "Admin"]))
 
 router.get("/dashboard", getDashboardStats)
 
