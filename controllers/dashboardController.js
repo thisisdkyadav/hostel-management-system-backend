@@ -248,6 +248,9 @@ const getStudentStats = async (hostelId = null) => {
   const totalGirls = genderTotals.find((g) => g._id === "Female")?.count || 0
   const grandTotal = totalBoys + totalGirls
 
+  // reorder in alphabetical order
+  degreeWise.sort((a, b) => a.degree.localeCompare(b.degree))
+
   return {
     // branchWise, // Commented out
     degreeWise,
