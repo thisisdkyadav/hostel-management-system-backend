@@ -170,6 +170,9 @@ export const getHostels = async (req, res) => {
             $group: {
               _id: null,
               totalRooms: { $sum: 1 },
+              totalActiveRooms: {
+                $sum: { $cond: [{ $eq: ["$status", "Active"] }, 1, 0] },
+              },
               occupiedRoomsCount: {
                 $sum: { $cond: [{ $gt: ["$occupancy", 0] }, 1, 0] },
               },
@@ -178,6 +181,12 @@ export const getHostels = async (req, res) => {
               },
               totalCapacity: { $sum: "$capacity" },
               totalOccupancy: { $sum: "$occupancy" },
+              activeRoomsCapacity: {
+                $sum: { $cond: [{ $eq: ["$status", "Active"] }, "$capacity", 0] },
+              },
+              activeRoomsOccupancy: {
+                $sum: { $cond: [{ $eq: ["$status", "Active"] }, "$occupancy", 0] },
+              },
             },
           },
         ]),
@@ -189,20 +198,27 @@ export const getHostels = async (req, res) => {
 
       let stats = {
         totalRooms: 0,
+        totalActiveRooms: 0,
         occupiedRooms: 0,
         vacantRooms: 0,
         capacity: 0,
         occupancyRate: 0,
+        activeRoomsCapacity: 0,
+        activeRoomsOccupancy: 0,
       }
 
       if (roomStats.length > 0) {
-        const { totalRooms, occupiedRoomsCount, vacantRoomsCount, totalCapacity, totalOccupancy } = roomStats[0]
+        const { totalRooms, totalActiveRooms, occupiedRoomsCount, vacantRoomsCount, totalCapacity, totalOccupancy, activeRoomsCapacity, activeRoomsOccupancy } = roomStats[0]
+
         stats = {
           totalRooms,
+          totalActiveRooms,
           occupiedRooms: occupiedRoomsCount,
           vacantRooms: vacantRoomsCount,
           capacity: totalCapacity,
-          occupancyRate: totalCapacity > 0 ? Math.round((totalOccupancy / totalCapacity) * 100) : 0,
+          occupancyRate: activeRoomsCapacity > 0 ? Math.round((activeRoomsOccupancy / activeRoomsCapacity) * 100) : 0,
+          activeRoomsCapacity,
+          activeRoomsOccupancy,
         }
       }
 
@@ -212,11 +228,14 @@ export const getHostels = async (req, res) => {
         type: hostel.type,
         gender: hostel.gender,
         totalRooms: stats.totalRooms,
+        totalActiveRooms: stats.totalActiveRooms,
         occupiedRooms: stats.occupiedRooms,
         vacantRooms: stats.vacantRooms,
         maintenanceIssues,
         capacity: stats.capacity,
         occupancyRate: stats.occupancyRate,
+        activeRoomsCapacity: stats.activeRoomsCapacity,
+        activeRoomsOccupancy: stats.activeRoomsOccupancy,
         isArchived: hostel.isArchived,
       }
     })
