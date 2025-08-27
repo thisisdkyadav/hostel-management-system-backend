@@ -641,7 +641,7 @@ export const getMultipleStudentDetails = async (req, res) => {
       })
     }
 
-    if (userIds.length > 50) {
+    if (userIds.length > 5000) {
       return res.status(400).json({
         success: false,
         message: "Maximum of 50 student profiles can be fetched at once",
