@@ -268,12 +268,10 @@ const getHostelStats = async () => {
 
   const hostelStatsPromises = hostels.map(async (hostel) => {
     // Get rooms for this hostel
-    const rooms = await Room.find({ hostelId: hostel._id })
+    const rooms = await Room.find({ hostelId: hostel._id, status: "Active" })
 
     // Calculate room statistics
     const totalRooms = rooms.length
-    const activeRooms = rooms.filter((room) => room.status === "Active").length
-    const inactiveRooms = totalRooms - activeRooms
 
     // Calculate capacity and occupancy
     const totalCapacity = rooms.reduce((sum, room) => sum + room.capacity, 0)
@@ -285,8 +283,6 @@ const getHostelStats = async () => {
       gender: hostel.gender,
       type: hostel.type,
       totalRooms,
-      occupied: activeRooms - (totalCapacity - currentOccupancy > 0 ? 1 : 0), // Approximation for visualization
-      vacant: inactiveRooms + (totalCapacity - currentOccupancy > 0 ? 1 : 0), // Approximation for visualization
       totalCapacity,
       currentOccupancy,
       vacantCapacity,
