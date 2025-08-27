@@ -252,15 +252,12 @@ StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
 StudentProfileSchema.statics.searchStudents = async function (params) {
   const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status, isDayScholar = "all" } = params
 
-  console.log(status)
-  console.log(params)
-
   const pipeline = []
 
   const matchProfile = {}
   if (rollNumber) matchProfile.rollNumber = { $regex: rollNumber, $options: "i" }
-  if (department) matchProfile.department = { $regex: department, $options: "i" }
-  if (degree) matchProfile.degree = { $regex: degree, $options: "i" }
+  if (department) matchProfile.department = department
+  if (degree) matchProfile.degree = degree
   if (gender) matchProfile.gender = gender
   if (admissionDateFrom || admissionDateTo) {
     matchProfile.admissionDate = {}
