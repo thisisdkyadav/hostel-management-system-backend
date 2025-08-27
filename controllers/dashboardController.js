@@ -344,6 +344,7 @@ const getComplaintStats = async () => {
   const pending = statusCounts.find((s) => s._id === "Pending")?.count || 0
   const inProgress = statusCounts.find((s) => s._id === "In Progress")?.count || 0
   const resolved = statusCounts.find((s) => s._id === "Resolved")?.count || 0
+  const forwardedToIDO = statusCounts.find((s) => s._id === "Forwarded to IDO")?.count || 0
 
   // Get complaints resolved today
   const today = new Date()
@@ -388,6 +389,7 @@ const getComplaintStats = async () => {
     inProgress,
     resolved,
     resolvedToday,
+    forwardedToIDO,
     byCategory,
     recentComplaints: formattedRecentComplaints,
   }
