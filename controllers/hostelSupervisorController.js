@@ -27,7 +27,7 @@ export const getHostelSupervisorProfile = async (req, res) => {
 
 export const createHostelSupervisor = async (req, res) => {
   try {
-    const { email, password, name, phone, hostelIds, joinDate } = req.body
+    const { email, password, name, phone, hostelIds, joinDate, category } = req.body
 
     if (!email || !password || !name) {
       return res.status(400).json({ message: "Email, password, and name are required" })
@@ -65,6 +65,7 @@ export const createHostelSupervisor = async (req, res) => {
       activeHostelId: activeHostelId,
       status: status,
       joinDate: joinDate || Date.now(),
+      category: category || "Hostel Supervisor",
     })
 
     await newHostelSupervisor.save()
@@ -93,6 +94,7 @@ export const getAllHostelSupervisors = async (req, res) => {
       joinDate: hs.joinDate ? hs.joinDate.toISOString().split("T")[0] : null,
       profileImage: hs.userId.profileImage,
       status: hs.status || (hs.hostelIds && hs.hostelIds.length > 0 ? "assigned" : "unassigned"),
+      category: hs.category || "Hostel Supervisor",
     }))
 
     formattedHostelSupervisors.sort((a, b) => {
@@ -115,7 +117,7 @@ export const getAllHostelSupervisors = async (req, res) => {
 export const updateHostelSupervisor = async (req, res) => {
   try {
     const { id } = req.params
-    const { phone, profileImage, joinDate, hostelIds } = req.body
+    const { phone, profileImage, joinDate, hostelIds, category } = req.body
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return res.status(400).json({ message: "hostelIds must be an array" })
@@ -156,6 +158,10 @@ export const updateHostelSupervisor = async (req, res) => {
 
     if (phone !== undefined) {
       userUpdateData.phone = phone
+    }
+
+    if (category !== undefined) {
+      updateData.category = category
     }
 
     if (Object.keys(userUpdateData).length > 0) {

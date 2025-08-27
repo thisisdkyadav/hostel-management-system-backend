@@ -27,7 +27,7 @@ export const getAssociateWardenProfile = async (req, res) => {
 
 export const createAssociateWarden = async (req, res) => {
   try {
-    const { email, password, name, phone, hostelIds, joinDate } = req.body
+    const { email, password, name, phone, hostelIds, joinDate, category } = req.body
 
     if (!email || !password || !name) {
       return res.status(400).json({ message: "Email, password, and name are required" })
@@ -65,6 +65,7 @@ export const createAssociateWarden = async (req, res) => {
       activeHostelId: activeHostelId,
       status: status,
       joinDate: joinDate || Date.now(),
+      category: category || "Associate Warden",
     })
 
     await newAssociateWarden.save()
@@ -93,6 +94,7 @@ export const getAllAssociateWardens = async (req, res) => {
       joinDate: aw.joinDate ? aw.joinDate.toISOString().split("T")[0] : null,
       profileImage: aw.userId.profileImage,
       status: aw.status || (aw.hostelIds && aw.hostelIds.length > 0 ? "assigned" : "unassigned"),
+      category: aw.category || "Associate Warden",
     }))
 
     formattedAssociateWardens.sort((a, b) => {
@@ -115,7 +117,7 @@ export const getAllAssociateWardens = async (req, res) => {
 export const updateAssociateWarden = async (req, res) => {
   try {
     const { id } = req.params
-    const { phone, profileImage, joinDate, hostelIds } = req.body
+    const { phone, profileImage, joinDate, hostelIds, category } = req.body
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return res.status(400).json({ message: "hostelIds must be an array" })
@@ -156,6 +158,10 @@ export const updateAssociateWarden = async (req, res) => {
 
     if (profileImage !== undefined) {
       userUpdateData.profileImage = profileImage
+    }
+
+    if (category !== undefined) {
+      updateData.category = category
     }
 
     if (Object.keys(userUpdateData).length > 0) {

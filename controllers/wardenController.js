@@ -26,7 +26,7 @@ export const getWardenProfile = async (req, res) => {
 
 export const createWarden = async (req, res) => {
   try {
-    const { email, password, name, phone, hostelIds, joinDate } = req.body
+    const { email, password, name, phone, hostelIds, joinDate, category } = req.body
 
     if (!email || !password || !name) {
       return res.status(400).json({ message: "Email, password, and name are required" })
@@ -64,6 +64,7 @@ export const createWarden = async (req, res) => {
       activeHostelId: activeHostelId,
       status: status,
       joinDate: joinDate || Date.now(),
+      category: category || "Warden",
     })
 
     await newWarden.save()
@@ -92,6 +93,7 @@ export const getAllWardens = async (req, res) => {
       joinDate: warden.joinDate ? warden.joinDate.toISOString().split("T")[0] : null,
       profileImage: warden.userId.profileImage,
       status: warden.status || (warden.hostelIds && warden.hostelIds.length > 0 ? "assigned" : "unassigned"),
+      category: warden.category || "Warden",
     }))
 
     formattedWardens.sort((a, b) => {
@@ -113,7 +115,7 @@ export const getAllWardens = async (req, res) => {
 export const updateWarden = async (req, res) => {
   try {
     const { id } = req.params
-    const { phone, profileImage, joinDate, hostelIds } = req.body
+    const { phone, profileImage, joinDate, hostelIds, category } = req.body
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return res.status(400).json({ message: "hostelIds must be an array" })
@@ -155,6 +157,10 @@ export const updateWarden = async (req, res) => {
 
     if (phone !== undefined) {
       userUpdateData.phone = phone
+    }
+
+    if (category !== undefined) {
+      updateData.category = category
     }
 
     if (Object.keys(userUpdateData).length > 0) {
