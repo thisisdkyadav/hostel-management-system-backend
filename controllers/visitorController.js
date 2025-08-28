@@ -37,8 +37,8 @@ export const getVisitorRequests = async (req, res) => {
     } else if (user.hostel) {
       query.hostelId = user.hostel._id
     }
-
-    const visitorRequests = await VisitorRequest.find(query).populate("userId", "name email profileImage").populate("visitors")
+    // newest first
+    const visitorRequests = await VisitorRequest.find(query).sort({ createdAt: -1 }).populate("userId", "name email profileImage").populate("visitors")
 
     const formattedRequests = visitorRequests.map((request) => {
       const visitorCount = request.visitors.length
