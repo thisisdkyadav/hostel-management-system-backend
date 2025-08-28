@@ -4,6 +4,7 @@ import Unit from "../models/Unit.js"
 import Room from "../models/Room.js"
 import StudentProfile from "../models/StudentProfile.js"
 import { createPaymentLink, checkPaymentStatus } from "../utils/utils.js"
+import { getConfigWithDefault } from "../utils/configDefaults.js"
 
 export const createVisitorRequest = async (req, res) => {
   const { visitors, reason, fromDate, toDate, h2FormUrl } = req.body
@@ -37,6 +38,10 @@ export const getVisitorRequests = async (req, res) => {
     } else if (user.hostel) {
       query.hostelId = user.hostel._id
     }
+
+    const systemSettings = await getConfigWithDefault("systemSettings")
+    const visitorPaymentLink = systemSettings?.value?.visitorPaymentLink
+
     // newest first
     const visitorRequests = await VisitorRequest.find(query).sort({ createdAt: -1 }).populate("userId", "name email profileImage").populate("visitors")
 
@@ -59,6 +64,7 @@ export const getVisitorRequests = async (req, res) => {
         studentEmail,
         studentProfileImage,
         h2FormUrl,
+        visitorPaymentLink,
       }
     })
 
@@ -80,6 +86,9 @@ export const getVisitorRequestById = async (req, res) => {
   const { requestId } = req.params
 
   try {
+    const systemSettings = await getConfigWithDefault("systemSettings")
+    const visitorPaymentLink = systemSettings?.value?.visitorPaymentLink
+
     const visitorRequest = await VisitorRequest.findById(requestId)
       .populate("userId", "name email profileImage")
       .populate("visitors")
@@ -152,6 +161,7 @@ export const getVisitorRequestById = async (req, res) => {
       paymentId: visitorRequest.paymentId || null,
       paymentStatus,
       h2FormUrl,
+      visitorPaymentLink,
     }
 
     res.status(200).json({
