@@ -18,6 +18,10 @@ export const defaultConfigs = {
     value: { BTech: 0, MTech: 0, PhD: 0 },
     description: "Number of registered students in each program",
   },
+  systemSettings: {
+    value: { visitorPaymentLink: "" },
+    description: "System-wide settings for the hostel management system",
+  },
   //   systemSettings: {
   //     value: {
   //       academicYear: "2023-2024",
