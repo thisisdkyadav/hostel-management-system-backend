@@ -15,6 +15,7 @@ const containerClientStudentId = blobServiceClient.getContainerClient(AZURE_STOR
 // Local storage paths
 const profileImagesPath = path.join(__dirname, "..", "uploads", "profile-images")
 const studentIdCardsPath = path.join(__dirname, "..", "uploads", "student-id-cards")
+const h2FormsPath = path.join(__dirname, "..", "uploads", "h2-forms")
 
 // Ensure directories exist
 if (USE_LOCAL_STORAGE) {
@@ -23,6 +24,9 @@ if (USE_LOCAL_STORAGE) {
   }
   if (!fs.existsSync(studentIdCardsPath)) {
     fs.mkdirSync(studentIdCardsPath, { recursive: true })
+  }
+  if (!fs.existsSync(h2FormsPath)) {
+    fs.mkdirSync(h2FormsPath, { recursive: true })
   }
 }
 
@@ -130,6 +134,65 @@ export const uploadStudentIdCard = async (req, res) => {
 
       const sasUrl = `${blockBlobClient.url}?${sasToken}`
 
+      return res.status(200).json({ url: sasUrl })
+    }
+  } catch (error) {
+    console.error("Upload Error:", error)
+    res.status(500).json({ error: "Upload failed" })
+  }
+}
+
+export const h2FormPDF = async (req, res) => {
+  const user = req.user
+  const userId = user?._id
+  try {
+    // Support either single file (req.file) or any field (req.files)
+    const incomingFile = req.file || (Array.isArray(req.files) && req.files.length > 0 ? req.files[0] : undefined)
+    if (!incomingFile) {
+      return res.status(400).json({ error: "No file uploaded" })
+    }
+
+    const { originalname, buffer, mimetype } = incomingFile
+
+    // Basic validation for PDF
+    const isPdf = mimetype === "application/pdf" || originalname.toLowerCase().endsWith(".pdf")
+    if (!isPdf) {
+      return res.status(400).json({ error: "Only PDF files are allowed" })
+    }
+
+    const timestamp = Date.now()
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, "_") + ".pdf"
+    const blobName = `h2-forms/${userId}-${timestamp}-${safeOriginal}`
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId}-${timestamp}-${safeOriginal}`
+      const filepath = path.join(h2FormsPath, filename)
+
+      fs.writeFileSync(filepath, buffer)
+
+      const url = `/uploads/h2-forms/${filename}`
+      return res.status(200).json({ url })
+    } else {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName)
+
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: "application/pdf" },
+      })
+
+      const sharedKeyCredential = new StorageSharedKeyCredential(AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY)
+      const expiryDate = new Date("2099-12-31")
+
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName: AZURE_STORAGE_CONTAINER_NAME,
+          blobName,
+          permissions: BlobSASPermissions.parse("r"),
+          expiresOn: expiryDate,
+        },
+        sharedKeyCredential
+      ).toString()
+
+      const sasUrl = `${blockBlobClient.url}?${sasToken}`
       return res.status(200).json({ url: sasUrl })
     }
   } catch (error) {

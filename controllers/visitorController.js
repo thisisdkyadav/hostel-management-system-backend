@@ -6,7 +6,7 @@ import StudentProfile from "../models/StudentProfile.js"
 import { createPaymentLink, checkPaymentStatus } from "../utils/utils.js"
 
 export const createVisitorRequest = async (req, res) => {
-  const { visitors, reason, fromDate, toDate } = req.body
+  const { visitors, reason, fromDate, toDate, h2FormUrl } = req.body
   const user = req.user
 
   try {
@@ -16,6 +16,7 @@ export const createVisitorRequest = async (req, res) => {
       fromDate,
       toDate,
       userId: user._id,
+      h2FormUrl,
     })
 
     await visitorRequest.save()
@@ -47,6 +48,7 @@ export const getVisitorRequests = async (req, res) => {
       const studentName = studentProfile ? studentProfile.name : ""
       const studentEmail = studentProfile ? studentProfile.email : ""
       const studentProfileImage = studentProfile ? studentProfile.profileImage : null
+      const h2FormUrl = request.h2FormUrl ? request.h2FormUrl : null
 
       return {
         ...request._doc,
@@ -56,6 +58,7 @@ export const getVisitorRequests = async (req, res) => {
         studentName,
         studentEmail,
         studentProfileImage,
+        h2FormUrl,
       }
     })
 
@@ -114,6 +117,7 @@ export const getVisitorRequestById = async (req, res) => {
     const visitorCount = visitorRequest.visitors.length
     const visitorNames = visitorRequest.visitors.map((visitor) => visitor.name).join(", ")
     const isAllocated = visitorRequest.allocatedRooms && visitorRequest.allocatedRooms.length > 0
+    const h2FormUrl = visitorRequest.h2FormUrl ? visitorRequest.h2FormUrl : null
 
     const paymentStatus = (await checkPaymentStatus(visitorRequest.paymentId)) || null
 
@@ -147,6 +151,7 @@ export const getVisitorRequestById = async (req, res) => {
       paymentLink: visitorRequest.paymentLink || null,
       paymentId: visitorRequest.paymentId || null,
       paymentStatus,
+      h2FormUrl,
     }
 
     res.status(200).json({
@@ -165,7 +170,7 @@ export const getVisitorRequestById = async (req, res) => {
 
 export const updateVisitorRequest = async (req, res) => {
   const { requestId } = req.params
-  const { reason, fromDate, toDate } = req.body
+  const { reason, fromDate, toDate, h2FormUrl } = req.body
 
   try {
     const request = await VisitorRequest.findById(requestId)
@@ -183,7 +188,7 @@ export const updateVisitorRequest = async (req, res) => {
       })
     }
 
-    const updatedRequest = await VisitorRequest.findByIdAndUpdate(requestId, { reason, fromDate, toDate }, { new: true })
+    const updatedRequest = await VisitorRequest.findByIdAndUpdate(requestId, { reason, fromDate, toDate, h2FormUrl }, { new: true })
 
     res.status(200).json({
       message: `Visitor request updated successfully`,

@@ -25,6 +25,9 @@ const visitorRequestSchema = new mongoose.Schema({
     type: Date,
     required: true,
   },
+  h2FormUrl: {
+    type: String,
+  },
   hostelId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Hostel",
