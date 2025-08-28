@@ -6,6 +6,7 @@ import Event from "../models/Event.js"
 import Complaint from "../models/Complaint.js"
 import { isDevelopmentEnvironment } from "../config/environment.js"
 import mongoose from "mongoose"
+import { getConfigWithDefault } from "../utils/configDefaults.js"
 
 /**
  * Get dashboard data for admin
@@ -248,6 +249,15 @@ const getStudentStats = async (hostelId = null) => {
   const totalGirls = genderTotals.find((g) => g._id === "Female")?.count || 0
   const grandTotal = totalBoys + totalGirls
 
+  const registeredStudents = await getConfigWithDefault("registeredStudents")
+
+  // add registered students to degreeWise
+  degreeWise.forEach((degree) => {
+    degree.registeredStudents = registeredStudents.value[degree.degree] || 0
+  })
+
+  const totalRegisteredStudents = Object.values(registeredStudents.value).reduce((sum, count) => sum + count, 0)
+
   // reorder in alphabetical order
   degreeWise.sort((a, b) => a.degree.localeCompare(b.degree))
 
@@ -257,6 +267,7 @@ const getStudentStats = async (hostelId = null) => {
     totalBoys,
     totalGirls,
     grandTotal,
+    totalRegisteredStudents,
   }
 }
 

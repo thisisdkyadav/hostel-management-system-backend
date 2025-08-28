@@ -14,6 +14,10 @@ export const defaultConfigs = {
     value: ["profileImage", "dateOfBirth"],
     description: "Fields that students are allowed to edit in their profile",
   },
+  registeredStudents: {
+    value: { BTech: 0, MTech: 0, PhD: 0 },
+    description: "Number of registered students in each program",
+  },
   //   systemSettings: {
   //     value: {
   //       academicYear: "2023-2024",
