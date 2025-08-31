@@ -15,7 +15,7 @@ export const defaultConfigs = {
     description: "Fields that students are allowed to edit in their profile",
   },
   registeredStudents: {
-    value: { BTech: 0, MTech: 0, PhD: 0 },
+    value: { BTech: { total: 0, boys: 0, girls: 0 }, MTech: { total: 0, boys: 0, girls: 0 }, PhD: { total: 0, boys: 0, girls: 0 } },
     description: "Number of registered students in each program",
   },
   systemSettings: {
