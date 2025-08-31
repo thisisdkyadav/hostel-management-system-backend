@@ -200,3 +200,70 @@ export const h2FormPDF = async (req, res) => {
     res.status(500).json({ error: "Upload failed" })
   }
 }
+
+export const uploadPaymentScreenshot = async (req, res) => {
+  const user = req.user
+  const userId = user?._id
+  try {
+    const incomingFile = req.file || (Array.isArray(req.files) && req.files.length > 0 ? req.files[0] : undefined)
+    if (!incomingFile) {
+      return res.status(400).json({ error: "No file uploaded" })
+    }
+
+    const { originalname, buffer, mimetype } = incomingFile
+
+    // Basic validation for image types
+    const allowedMimeTypes = ["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]
+    if (!allowedMimeTypes.includes(mimetype)) {
+      return res.status(400).json({ error: "Only image files are allowed (png, jpg, jpeg, webp, gif)" })
+    }
+
+    const timestamp = Date.now()
+    const parsed = path.parse(originalname)
+    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, "_")
+    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : ".png"
+    const blobName = `payment-screenshots/${userId || "anonymous"}-${timestamp}-${safeBase}${safeExt}`
+
+    if (USE_LOCAL_STORAGE) {
+      // Ensure directory exists locally
+      const paymentScreenshotsPath = path.join(__dirname, "..", "uploads", "payment-screenshots")
+      if (!fs.existsSync(paymentScreenshotsPath)) {
+        fs.mkdirSync(paymentScreenshotsPath, { recursive: true })
+      }
+
+      const filename = `${userId || "anonymous"}-${timestamp}-${safeBase}${safeExt}`
+      const filepath = path.join(paymentScreenshotsPath, filename)
+
+      fs.writeFileSync(filepath, buffer)
+
+      const url = `/uploads/payment-screenshots/${filename}`
+      return res.status(200).json({ url })
+    } else {
+      // Upload to Azure in the default container under payment-screenshots/
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName)
+
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: mimetype },
+      })
+
+      const sharedKeyCredential = new StorageSharedKeyCredential(AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY)
+      const expiryDate = new Date("2099-12-31")
+
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName: AZURE_STORAGE_CONTAINER_NAME,
+          blobName,
+          permissions: BlobSASPermissions.parse("r"),
+          expiresOn: expiryDate,
+        },
+        sharedKeyCredential
+      ).toString()
+
+      const sasUrl = `${blockBlobClient.url}?${sasToken}`
+      return res.status(200).json({ url: sasUrl })
+    }
+  } catch (error) {
+    console.error("Upload Error:", error)
+    res.status(500).json({ error: "Upload failed" })
+  }
+}

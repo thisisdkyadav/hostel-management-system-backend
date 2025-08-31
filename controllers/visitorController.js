@@ -162,6 +162,7 @@ export const getVisitorRequestById = async (req, res) => {
       paymentStatus,
       h2FormUrl,
       visitorPaymentLink,
+      paymentInfo: visitorRequest.paymentInfo || null,
     }
 
     res.status(200).json({
@@ -471,6 +472,61 @@ export const getStudentVisitorRequests = async (req, res) => {
     console.error("Error fetching student visitor requests:", error)
     res.status(500).json({
       message: "Error fetching student visitor requests",
+      error: error.message,
+    })
+  }
+}
+
+export const updatePaymentInfo = async (req, res) => {
+  const { requestId } = req.params
+  const { amount, dateOfPayment, screenshot, additionalInfo, transactionId } = req.body
+
+  try {
+    const visitorRequest = await VisitorRequest.findById(requestId)
+    if (!visitorRequest) {
+      return res.status(404).json({
+        message: "Visitor request not found",
+        success: false,
+      })
+    }
+
+    if (visitorRequest.userId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({
+        message: "You are not authorized to update this payment information",
+        success: false,
+      })
+    }
+
+    const updatedRequest = await VisitorRequest.findByIdAndUpdate(
+      requestId,
+      {
+        paymentInfo: {
+          amount,
+          dateOfPayment,
+          screenshot,
+          additionalInfo,
+          transactionId,
+        },
+      },
+      { new: true }
+    )
+
+    if (!updatedRequest) {
+      return res.status(404).json({
+        message: "Visitor request not found",
+        success: false,
+      })
+    }
+
+    res.status(200).json({
+      message: "Payment information updated successfully",
+      success: true,
+      updatedRequest,
+    })
+  } catch (error) {
+    console.error("Error updating payment information:", error)
+    res.status(500).json({
+      message: "Error updating payment information",
       error: error.message,
     })
   }

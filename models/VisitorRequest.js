@@ -36,6 +36,27 @@ const visitorRequestSchema = new mongoose.Schema({
     type: [mongoose.Schema.Types.ObjectId],
     ref: "Room",
   },
+  paymentInfo: {
+    amount: {
+      type: Number,
+      required: true,
+    },
+    dateOfPayment: {
+      type: Date,
+      required: true,
+    },
+    transactionId: {
+      type: String,
+      required: true,
+    },
+    screenshot: {
+      type: String,
+      required: true,
+    },
+    additionalInfo: {
+      type: String,
+    },
+  },
   paymentLink: {
     type: String,
   },

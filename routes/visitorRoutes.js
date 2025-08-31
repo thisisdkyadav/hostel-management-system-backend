@@ -1,5 +1,18 @@
 import express from "express"
-import { createVisitorRequest, deleteVisitorRequest, getVisitorRequests, updateVisitorRequest, updateVisitorRequestStatus, allocateRoomsToVisitorRequest, getVisitorRequestById, checkInVisitor, checkOutVisitor, updateCheckTime, getStudentVisitorRequests } from "../controllers/visitorController.js"
+import {
+  createVisitorRequest,
+  deleteVisitorRequest,
+  getVisitorRequests,
+  updateVisitorRequest,
+  updateVisitorRequestStatus,
+  allocateRoomsToVisitorRequest,
+  getVisitorRequestById,
+  checkInVisitor,
+  checkOutVisitor,
+  updateCheckTime,
+  getStudentVisitorRequests,
+  updatePaymentInfo,
+} from "../controllers/visitorController.js"
 import { getVisitorProfiles, createVisitorProfile, deleteVisitorProfile, updateVisitorProfile } from "../controllers/visitorProfileController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -22,5 +35,6 @@ router.post("/requests/:requestId/checkin", authorizeRoles(["Hostel Gate"]), che
 router.post("/requests/:requestId/checkout", authorizeRoles(["Hostel Gate"]), checkOutVisitor)
 router.put("/requests/:requestId/update-check-times", authorizeRoles(["Hostel Gate"]), updateCheckTime)
 router.post("/requests/:requestId/:action", authorizeRoles(["Admin"]), updateVisitorRequestStatus)
+router.put("/requests/:requestId/payment-info", authorizeRoles(["Student"]), updatePaymentInfo)
 
 export default router
