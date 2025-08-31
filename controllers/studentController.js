@@ -713,7 +713,7 @@ export const getStudentProfile = async (req, res) => {
 export const getStudentId = async (req, res) => {
   const { userId } = req.params
   const student = await StudentProfile.findOne({ userId })
-  res.status(200).json({ success: true, data: { studentId: student._id.toString() } })
+  res.status(200).json({ success: true, data: { studentId: student?._id?.toString() } })
 }
 
 export const updateStudentProfile = async (req, res) => {
