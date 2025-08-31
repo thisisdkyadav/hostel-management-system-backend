@@ -331,6 +331,7 @@ export const getRoomsByUnit = async (req, res) => {
       students:
         room.allocations.map((allocation) => ({
           id: allocation.studentProfileId._id,
+          userId: allocation.studentProfileId.userId._id,
           name: allocation.studentProfileId.userId.name,
           email: allocation.studentProfileId.userId.email,
           profileImage: allocation.studentProfileId.userId.profileImage,
