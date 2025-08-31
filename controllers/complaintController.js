@@ -223,19 +223,31 @@ export const getStats = async (req, res) => {
   try {
     const user = req.user
     const { role } = user
-
+    const { hostelId } = req.query
     const query = {}
+
+    if (["Student"].includes(role)) {
+      query.userId = user._id
+    }
+
+    if (user.hostel) {
+      query.hostelId = user.hostel._id
+    } else if (hostelId && ["Admin", "Maintenance Staff"].includes(role)) {
+      query.hostelId = hostelId
+    }
 
     const total = await Complaint.countDocuments(query)
     const pending = await Complaint.countDocuments({ ...query, status: "Pending" })
     const inProgress = await Complaint.countDocuments({ ...query, status: "In Progress" })
     const resolved = await Complaint.countDocuments({ ...query, status: "Resolved" })
+    const forwardedToIDO = await Complaint.countDocuments({ ...query, status: "Forwarded to IDO" })
 
     res.status(200).json({
       total,
       pending,
       inProgress,
       resolved,
+      forwardedToIDO,
     })
   } catch (error) {
     console.error(error)
