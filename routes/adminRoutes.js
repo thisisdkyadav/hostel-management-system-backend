@@ -1,6 +1,6 @@
 import express from "express"
 import { addHostel, getHostels, getHostelList, updateHostel } from "../controllers/hostelController.js"
-import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff, getTaskStats } from "../controllers/adminController.js"
+import { createSecurity, getAllSecurities, updateSecurity, updateUserPassword, deleteSecurity, createMaintenanceStaff, getAllMaintenanceStaff, updateMaintenanceStaff, deleteMaintenanceStaff, getTaskStats, getMaintenanceStaffStats } from "../controllers/adminController.js"
 import { createWarden, getAllWardens, updateWarden, deleteWarden } from "../controllers/wardenController.js"
 import { createAssociateWarden, getAllAssociateWardens, updateAssociateWarden, deleteAssociateWarden } from "../controllers/associateWardenController.js"
 import { createHostelSupervisor, getAllHostelSupervisors, updateHostelSupervisor, deleteHostelSupervisor } from "../controllers/hostelSupervisorController.js"
@@ -43,6 +43,8 @@ router.get("/maintenance", getAllMaintenanceStaff)
 router.post("/maintenance", createMaintenanceStaff)
 router.put("/maintenance/:id", updateMaintenanceStaff)
 router.delete("/maintenance/:id", deleteMaintenanceStaff)
+
+router.get("/maintenance-staff-stats/:staffId", getMaintenanceStaffStats)
 
 router.get("/insurance-providers", getInsuranceProviders)
 router.post("/insurance-providers", createInsuranceProvider)

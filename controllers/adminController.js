@@ -6,6 +6,7 @@ import MaintenanceStaff from "../models/MaintenanceStaff.js"
 import Task from "../models/Task.js"
 import StudentProfile from "../models/StudentProfile.js"
 import Configuration from "../models/configuration.js"
+import Complaint from "../models/Complaint.js"
 
 export const createSecurity = async (req, res) => {
   try {
@@ -415,6 +416,18 @@ export const renameDegree = async (req, res) => {
     await session.abortTransaction()
     session.endSession()
     console.error(error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
+
+// workdone - total and today's resolved complaints
+export const getMaintenanceStaffStats = async (req, res) => {
+  const { staffId } = req.params
+  try {
+    const totalWorkDone = await Complaint.countDocuments({ resolvedBy: staffId })
+    const todayWorkDone = await Complaint.countDocuments({ resolvedBy: staffId, resolvedDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) } })
+    res.status(200).json({ success: true, data: { totalWorkDone, todayWorkDone } })
+  } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message })
   }
 }
