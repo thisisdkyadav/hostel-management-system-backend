@@ -251,12 +251,15 @@ const getStudentStats = async (hostelId = null) => {
 
   const registeredStudents = await getConfigWithDefault("registeredStudents")
 
-  // add registered students to degreeWise
+  // add registered students to degreeWise (old format for backward compatibility)
   degreeWise.forEach((degree) => {
-    degree.registeredStudents = registeredStudents.value[degree.degree] || 0
+    const registeredData = registeredStudents.value[degree.degree]
+    degree.registeredStudents = registeredData ? registeredData.total : 0
+    // add new format
+    degree.registered = registeredData || { total: 0, boys: 0, girls: 0 }
   })
 
-  const totalRegisteredStudents = Object.values(registeredStudents.value).reduce((sum, count) => sum + count, 0)
+  const totalRegisteredStudents = Object.values(registeredStudents.value).reduce((sum, degreeData) => sum + (degreeData.total || 0), 0)
 
   // reorder in alphabetical order
   degreeWise.sort((a, b) => a.degree.localeCompare(b.degree))
