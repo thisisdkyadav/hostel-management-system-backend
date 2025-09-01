@@ -564,3 +564,97 @@ export const getStudentCount = async (req, res) => {
     })
   }
 }
+
+export const getWardenHostelStatistics = async (req, res) => {
+  const user = req.user
+  try {
+    if (!user?.hostel?._id) {
+      return res.status(400).json({ success: false, message: "User is not assigned to any hostel" })
+    }
+
+    const hostelId = user.hostel._id
+
+    const hostel = await Hostel.findById(hostelId, { _id: 1, name: 1, type: 1, gender: 1, isArchived: 1 })
+    if (!hostel) {
+      return res.status(404).json({ success: false, message: "Hostel not found" })
+    }
+
+    const [roomStats, maintenanceIssues] = await Promise.all([
+      Room.aggregate([
+        { $match: { hostelId: hostel._id } },
+        {
+          $group: {
+            _id: null,
+            totalRooms: { $sum: 1 },
+            totalActiveRooms: { $sum: { $cond: [{ $eq: ["$status", "Active"] }, 1, 0] } },
+            occupiedRoomsCount: { $sum: { $cond: [{ $gt: ["$occupancy", 0] }, 1, 0] } },
+            vacantRoomsCount: { $sum: { $cond: [{ $and: [{ $eq: ["$occupancy", 0] }, { $eq: ["$status", "Active"] }] }, 1, 0] } },
+            totalCapacity: { $sum: "$capacity" },
+            totalOccupancy: { $sum: "$occupancy" },
+            activeRoomsCapacity: { $sum: { $cond: [{ $eq: ["$status", "Active"] }, "$capacity", 0] } },
+            activeRoomsOccupancy: { $sum: { $cond: [{ $eq: ["$status", "Active"] }, "$occupancy", 0] } },
+          },
+        },
+      ]),
+      Complaint.countDocuments({
+        hostelId: hostel._id,
+        status: { $in: ["Pending", "In Progress"] },
+      }),
+    ])
+
+    let stats = {
+      totalRooms: 0,
+      totalActiveRooms: 0,
+      occupiedRooms: 0,
+      vacantRooms: 0,
+      capacity: 0,
+      occupancyRate: 0,
+      activeRoomsCapacity: 0,
+      activeRoomsOccupancy: 0,
+    }
+
+    if (roomStats.length > 0) {
+      const { totalRooms, totalActiveRooms, occupiedRoomsCount, vacantRoomsCount, totalCapacity, totalOccupancy, activeRoomsCapacity, activeRoomsOccupancy } = roomStats[0]
+
+      stats = {
+        totalRooms,
+        totalActiveRooms,
+        occupiedRooms: occupiedRoomsCount,
+        vacantRooms: vacantRoomsCount,
+        capacity: totalCapacity,
+        occupancyRate: activeRoomsCapacity > 0 ? Math.round((activeRoomsOccupancy / activeRoomsCapacity) * 100) : 0,
+        activeRoomsCapacity,
+        activeRoomsOccupancy,
+      }
+    }
+
+    const result = {
+      id: hostel._id,
+      name: hostel.name,
+      type: hostel.type,
+      gender: hostel.gender,
+      totalRooms: stats.totalRooms,
+      totalActiveRooms: stats.totalActiveRooms,
+      occupiedRooms: stats.occupiedRooms,
+      vacantRooms: stats.vacantRooms,
+      maintenanceIssues,
+      capacity: stats.capacity,
+      occupancyRate: stats.occupancyRate,
+      activeRoomsCapacity: stats.activeRoomsCapacity,
+      activeRoomsOccupancy: stats.activeRoomsOccupancy,
+      isArchived: hostel.isArchived,
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: result,
+    })
+  } catch (error) {
+    console.error("Warden hostel statistics error:", error)
+    return res.status(500).json({
+      success: false,
+      message: "Failed to retrieve warden hostel statistics",
+      error: isDevelopmentEnvironment ? error.message : undefined,
+    })
+  }
+}

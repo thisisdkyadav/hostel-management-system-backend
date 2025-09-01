@@ -1,5 +1,5 @@
 import express from "express"
-import { getDashboardData, getStudentStatistics, getHostelStatistics, getEventsData, getComplaintsStatistics, getStudentCount } from "../controllers/dashboardController.js"
+import { getDashboardData, getStudentStatistics, getHostelStatistics, getEventsData, getComplaintsStatistics, getStudentCount, getWardenHostelStatistics } from "../controllers/dashboardController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -11,6 +11,8 @@ router.use(authenticate)
 
 // Main dashboard route - requires admin level access
 router.get("/", authorizeRoles(["Admin", "Super Admin"]), getDashboardData)
+
+router.get("/warden/hostel-statistics", authorizeRoles(["Warden", "Associate Warden", "Hostel Supervisor"]), getWardenHostelStatistics)
 
 // Individual dashboard components
 // Student statistics

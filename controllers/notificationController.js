@@ -75,6 +75,11 @@ export const getNotifications = async (req, res) => {
         query.expiryDate = { $lt: now }
       }
     }
+
+    if (user.hostel) {
+      query.hostelId = user.hostel._id
+    }
+
     if (search) {
       const regex = new RegExp(search, "i")
       query.$or = [{ title: regex }, { message: regex }, { sender: regex }, { hostelId: { $in: [regex] } }, { degree: { $in: [regex] } }, { department: { $in: [regex] } }]
