@@ -22,14 +22,14 @@ const router = express.Router()
 router.use(authenticate)
 
 // Admin/Staff routes
-router.get("/admin/undertakings", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), getAllUndertakings)
+router.get("/admin/undertakings", authorizeRoles(["Admin", "Warden", "AssociateWarden", "Hostel Supervisor"]), getAllUndertakings)
 router.post("/admin/undertakings", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), createUndertaking)
 router.put("/admin/undertakings/:undertakingId", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), updateUndertaking)
 router.delete("/admin/undertakings/:undertakingId", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), deleteUndertaking)
-router.get("/admin/undertakings/:undertakingId/students", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), getAssignedStudents)
+router.get("/admin/undertakings/:undertakingId/students", authorizeRoles(["Admin", "Warden", "AssociateWarden", "Hostel Supervisor"]), getAssignedStudents)
 router.post("/admin/undertakings/:undertakingId/students/by-roll-numbers", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), addStudentsToUndertaking)
 router.delete("/admin/undertakings/:undertakingId/students/:studentId", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), removeStudentFromUndertaking)
-router.get("/admin/undertakings/:undertakingId/status", authorizeRoles(["Admin", "Warden", "AssociateWarden"]), getUndertakingStatus)
+router.get("/admin/undertakings/:undertakingId/status", authorizeRoles(["Admin", "Warden", "AssociateWarden", "Hostel Supervisor"]), getUndertakingStatus)
 
 // Student routes
 router.get("/student/undertakings/pending", authorizeRoles(["Student"]), getStudentPendingUndertakings)
