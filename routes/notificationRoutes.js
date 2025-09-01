@@ -8,7 +8,7 @@ router.use(authenticate)
 
 router.post("/", authorizeRoles(["Admin"]), createNotification)
 
-router.use(authorizeRoles(["Admin", "Student"]))
+router.use(authorizeRoles(["Admin", "Student", "Warden", "Associate Warden", "Hostel Supervisor"]))
 router.get("/", getNotifications)
 router.get("/stats", getNotificationStats)
 router.get("/active-count", getActiveNotificationsCount)
