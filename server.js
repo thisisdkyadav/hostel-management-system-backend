@@ -38,6 +38,7 @@ import configRoutes from "./routes/configRoutes.js"
 import studentProfileRoutes from "./routes/studentProfileRoutes.js"
 import ssoRoutes from "./routes/ssoRoutes.js"
 import { verifySSOToken } from "./controllers/ssoController.js"
+import leaveRoutes from "./routes/leaveRoutes.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -125,7 +126,7 @@ app.use("/api/config", configRoutes)
 app.use("/api/student-profile", studentProfileRoutes)
 app.use("/api/sso", ssoRoutes)
 app.use("/api/undertaking", undertakingRoutes)
-
+app.use("/api/leave", leaveRoutes)
 app.use("/external-api", externalApiRoutes)
 
 app.get("/", (req, res) => {
