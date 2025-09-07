@@ -27,6 +27,14 @@ const checkInOutSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  isSameHostel: {
+    type: Boolean,
+    required: true,
+  },
+  reason: {
+    type: String,
+    required: false,
+  },
   status: {
     type: String,
     enum: ["Checked In", "Checked Out"],

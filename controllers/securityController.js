@@ -41,7 +41,8 @@ export const getSecurity = async (req, res) => {
 }
 
 export const addStudentEntry = async (req, res) => {
-  const { hostelId, unit, room, bed, date, time, status } = req.body
+  const user = req.user
+  const { hostelId, unit, room, bed, date, time, status, reason } = req.body
   try {
     const studentUnit = await Unit.findOne({ unitNumber: unit, hostelId })
     if (!studentUnit) {
@@ -71,6 +72,8 @@ export const addStudentEntry = async (req, res) => {
       dateAndTime = new Date()
     }
 
+    const isSameHostel = studentUnit.hostelId === user.hostel._id
+
     const studentEntry = new CheckInOut({
       userId: roomAllocation.userId,
       hostelId,
@@ -78,6 +81,8 @@ export const addStudentEntry = async (req, res) => {
       room,
       bed,
       dateAndTime,
+      isSameHostel,
+      reason,
       status,
     })
 
@@ -91,7 +96,8 @@ export const addStudentEntry = async (req, res) => {
 }
 
 export const addStudentEntryWithEmail = async (req, res) => {
-  const { email, status } = req.body
+  const { email, status, reason } = req.body
+  const securityUser = req.user
   try {
     const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
     if (!user) {
@@ -99,14 +105,16 @@ export const addStudentEntryWithEmail = async (req, res) => {
     }
 
     const roomAllocation = await RoomAllocation.findOne({ userId: user._id }).populate("roomId").populate("unitId")
-
+    const isSameHostel = roomAllocation.hostelId === securityUser.hostel._id
     const studentEntry = new CheckInOut({
       userId: user._id,
-      status: "Checked In",
+      status,
       hostelId: roomAllocation.hostelId,
       unit: roomAllocation.unitId.unitNumber,
       room: roomAllocation.roomId.roomNumber,
       bed: roomAllocation.bedNumber,
+      isSameHostel,
+      reason,
       status,
     })
     await studentEntry.save()
@@ -322,6 +330,7 @@ export const deleteVisitor = async (req, res) => {
 }
 
 export const verifyQR = async (req, res) => {
+  const securityUser = req.user
   const { email, encryptedData } = req.body
   try {
     if (!email || !encryptedData) return res.status(400).json({ error: "Invalid QR Code" })
@@ -336,6 +345,9 @@ export const verifyQR = async (req, res) => {
 
     const studentProfile = await StudentProfile.getBasicStudentData(user._id.toString())
     if (!studentProfile) return res.status(404).json({ error: "Student not found" })
+
+    const isSameHostel = studentProfile.hostel === securityUser.hostel.name
+    studentProfile.isSameHostel = isSameHostel
 
     const lastCheckInOut = await CheckInOut.findOne({ userId: user._id }).sort({ dateAndTime: -1 }).exec()
     // if (!lastCheckInOut) return res.status(404).json({ error: "No check-in/out records found" })
