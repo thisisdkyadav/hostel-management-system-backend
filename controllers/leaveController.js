@@ -132,3 +132,26 @@ export const rejectLeave = async (req, res) => {
     res.status(500).json({ message: "Error rejecting leave", error: error.message, success: false })
   }
 }
+
+/**
+ * Join a leave
+ * @param {Object} req - Request object
+ * @param {Object} req.params - Params object
+ * @param {string} req.params.id - Leave ID
+ * @param {Object} req.body - Request body
+ * @param {string} req.body.joinInfo - Join info
+ */
+export const joinLeave = async (req, res) => {
+  const { id } = req.params
+  const { joinInfo } = req.body
+  try {
+    const leave = await Leave.findByIdAndUpdate(id, { joinInfo, joinDate: new Date(), joinStatus: "Joined" }, { new: true })
+    if (!leave) {
+      return res.status(404).json({ message: "Leave not found", success: false })
+    }
+    res.status(200).json({ message: "Leave joined successfully", leave, success: true })
+  } catch (error) {
+    console.error("Error joining leave:", error)
+    res.status(500).json({ message: "Error joining leave", error: error.message, success: false })
+  }
+}

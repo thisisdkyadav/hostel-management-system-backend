@@ -1,5 +1,5 @@
 import express from "express"
-import { createLeave, getMyLeaves, getLeaves, approveLeave, rejectLeave } from "../controllers/leaveController.js"
+import { createLeave, getMyLeaves, getLeaves, approveLeave, rejectLeave, joinLeave } from "../controllers/leaveController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 const router = express.Router()
@@ -13,5 +13,6 @@ router.use(authorizeRoles(["Admin"]))
 router.get("/all", getLeaves)
 router.put("/:id/approve", approveLeave)
 router.put("/:id/reject", rejectLeave)
+router.put("/:id/join", joinLeave)
 
 export default router

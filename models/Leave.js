@@ -10,6 +10,9 @@ const leaveSchema = new mongoose.Schema({
   reasonForRejection: { type: String },
   approvalDate: { type: Date },
   approvalBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  joinDate: { type: Date },
+  joinInfo: { type: String },
+  joinStatus: { type: String, enum: ["Joined", "Not Joined"], default: "Not Joined" },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 })
