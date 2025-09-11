@@ -584,6 +584,7 @@ export const getStudents = async (req, res) => {
     const studentProfilesResult = await StudentProfile.searchStudents(query)
     const studentProfiles = studentProfilesResult[0].data
     const totalCount = studentProfilesResult[0].totalCount[0]?.count || 0
+    const missingOptions = StudentProfile.getMissingFieldOptions()
 
     res.status(200).json({
       success: true,
@@ -594,6 +595,7 @@ export const getStudents = async (req, res) => {
         limit: parseInt(query.limit),
         pages: Math.ceil(totalCount / parseInt(query.limit)),
       },
+      meta: { missingOptions },
     })
   } catch (error) {
     console.error("Get students error:", error)

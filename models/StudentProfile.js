@@ -250,7 +250,7 @@ StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
 }
 
 StudentProfileSchema.statics.searchStudents = async function (params) {
-  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status, isDayScholar = "all" } = params
+  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status, isDayScholar = "all", missing } = params
 
   const pipeline = []
 
@@ -339,6 +339,63 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
     $unwind: { path: "$unit", preserveNullAndEmptyArrays: true },
   })
 
+  // Apply 'missing' filter: fields null/undefined/empty string/empty array
+  if (missing !== undefined && missing !== null && missing !== "") {
+    let missingFields = []
+    if (Array.isArray(missing)) {
+      missingFields = missing
+    } else if (typeof missing === "string") {
+      const trimmed = missing.trim()
+      try {
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          const parsed = JSON.parse(trimmed)
+          if (Array.isArray(parsed)) missingFields = parsed
+        } else {
+          missingFields = trimmed
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        }
+      } catch (e) {
+        missingFields = trimmed
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      }
+    }
+
+    if (missingFields.length > 0) {
+      const userFieldSet = new Set(["name", "email", "phone", "profileImage"])
+      const profileFieldSet = new Set(["rollNumber", "department", "degree", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"])
+
+      const andConditions = []
+      for (const key of missingFields) {
+        let path
+        if (userFieldSet.has(key)) {
+          path = `user.${key}`
+        } else if (profileFieldSet.has(key)) {
+          path = key
+        } else {
+          continue
+        }
+
+        andConditions.push({
+          $or: [
+            { $eq: [`$${path}`, null] },
+            { $eq: [`$${path}`, ""] },
+            {
+              $and: [{ $eq: [{ $isArray: `$${path}` }, true] }, { $eq: [{ $size: `$${path}` }, 0] }],
+            },
+          ],
+        })
+      }
+
+      if (andConditions.length > 0) {
+        pipeline.push({ $match: { $expr: { $and: andConditions } } })
+      }
+    }
+  }
+
   const matchAllocation = {}
   if (hostelId) {
     const matchAllocation = {}
@@ -405,6 +462,12 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   })
 
   return this.aggregate(pipeline)
+}
+
+// Expose allowed keys for frontend to build the missing filter UI
+StudentProfileSchema.statics.getMissingFieldOptions = function () {
+  return ["phone", "profileImage", "department", "degree", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail"]
+  // return ["name", "email", "phone", "profileImage", "rollNumber", "department", "degree", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"]
 }
 
 StudentProfileSchema.index({ userId: 1, rollNumber: 1 })
