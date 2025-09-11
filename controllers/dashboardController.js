@@ -251,12 +251,30 @@ const getStudentStats = async (hostelId = null) => {
 
   const registeredStudents = await getConfigWithDefault("registeredStudents")
 
-  // add registered students to degreeWise (old format for backward compatibility)
+  // Create a map of existing degrees for quick lookup
+  const existingDegrees = new Map(degreeWise.map((degree) => [degree.degree, degree]))
+
+  // Add registered students to existing degreeWise entries
   degreeWise.forEach((degree) => {
     const registeredData = registeredStudents.value[degree.degree]
     degree.registeredStudents = registeredData ? registeredData.total : 0
     // add new format
     degree.registered = registeredData || { total: 0, boys: 0, girls: 0 }
+  })
+
+  // Add degrees that exist only in registered students but not in degreeWise (only if total > 0)
+  Object.keys(registeredStudents.value).forEach((degreeName) => {
+    const registeredData = registeredStudents.value[degreeName]
+    if (!existingDegrees.has(degreeName) && registeredData && registeredData.total > 0) {
+      degreeWise.push({
+        degree: degreeName,
+        boys: 0,
+        girls: 0,
+        total: 0,
+        registeredStudents: registeredData.total,
+        registered: registeredData,
+      })
+    }
   })
 
   const totalRegisteredStudents = Object.values(registeredStudents.value).reduce((sum, degreeData) => sum + (degreeData.total || 0), 0)
