@@ -128,6 +128,7 @@ export const createStudentsProfiles = async (req, res) => {
             guardian: guardian || "",
             guardianPhone: guardianPhone || "",
             guardianEmail: guardianEmail || "",
+            status: "Active",
           }
           profileOps.push({
             insertOne: { document: profileData },
