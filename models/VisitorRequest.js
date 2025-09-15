@@ -39,19 +39,15 @@ const visitorRequestSchema = new mongoose.Schema({
   paymentInfo: {
     amount: {
       type: Number,
-      required: true,
     },
     dateOfPayment: {
       type: Date,
-      required: true,
     },
     transactionId: {
       type: String,
-      required: true,
     },
     screenshot: {
       type: String,
-      required: true,
     },
     additionalInfo: {
       type: String,
