@@ -802,6 +802,7 @@ export const getStudentDashboard = async (req, res) => {
         year: studentProfile.year,
         hostelName: studentProfile.hostel || null,
         profileImage: studentProfile.profileImage || null,
+        dateOfBirth: studentProfile.dateOfBirth || null,
       },
       roomInfo: null,
       stats: {
