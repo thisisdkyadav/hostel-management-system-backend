@@ -7,22 +7,24 @@ import Complaint from "../models/Complaint.js"
 import { isDevelopmentEnvironment } from "../config/environment.js"
 import mongoose from "mongoose"
 import { getConfigWithDefault } from "../utils/configDefaults.js"
+import Leave from "../models/Leave.js"
 
 /**
  * Get dashboard data for admin
  */
 export const getDashboardData = async (req, res) => {
   try {
-    const [studentData, hostelData, eventsData, complaintsData, hostlerAndDayScholarCounts] = await Promise.all([getStudentStats(), getHostelStats(), getEvents(), getComplaintStats(), getHostlerAndDayScholarCounts()])
+    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves] = await Promise.all([getStudentStats(), getHostelStats(), getEvents(), getComplaintStats(), getHostlerAndDayScholarCounts(), getUsersOnLeave()])
 
     return res.status(200).json({
       success: true,
       data: {
-        students: studentData,
-        hostels: hostelData,
-        events: eventsData,
-        complaints: complaintsData,
+        students,
+        hostels,
+        events,
+        complaints,
         hostlerAndDayScholarCounts,
+        leaves,
       },
     })
   } catch (error) {
@@ -674,5 +676,31 @@ export const getWardenHostelStatistics = async (req, res) => {
       message: "Failed to retrieve warden hostel statistics",
       error: isDevelopmentEnvironment ? error.message : undefined,
     })
+  }
+}
+
+export const getUsersOnLeave = async () => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  // Find leaves that are active today and approved
+  const leaves = await Leave.find({
+    startDate: { $lte: today },
+    endDate: { $gte: today },
+    status: "Approved",
+  })
+    .sort({ startDate: 1 })
+    // populate requesting user and approver basic info
+    .populate("userId", "name email")
+    .populate("approvalBy", "name email")
+
+  const count = leaves.length
+
+  return {
+    success: true,
+    data: {
+      count,
+      leaves,
+    },
   }
 }
