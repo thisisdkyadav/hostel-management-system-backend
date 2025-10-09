@@ -1,3 +1,4 @@
+import e from "express"
 import Complaint from "../models/Complaint.js"
 import RoomAllocation from "../models/RoomAllocation.js"
 
@@ -138,6 +139,7 @@ export const getAllComplaints = async (req, res) => {
         lastUpdated: complaint.updatedAt.toISOString(),
         feedback: complaint.feedback || "",
         feedbackRating: complaint.feedbackRating || null,
+        satisfactionStatus: complaint.satisfactionStatus || null,
         resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null,
       }
     })
@@ -325,6 +327,7 @@ export const getStudentComplaints = async (req, res) => {
         lastUpdated: complaint.updatedAt.toISOString(),
         feedback: complaint.feedback || "",
         feedbackRating: complaint.feedbackRating || null,
+        satisfactionStatus: complaint.satisfactionStatus || null,
         resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null,
       }
     })
@@ -379,5 +382,29 @@ export const updateComplaintResolutionNotes = async (req, res) => {
   } catch (error) {
     console.error("Error updating complaint resolution notes:", error)
     res.status(500).json({ message: "Error updating complaint resolution notes", error: error.message })
+  }
+}
+
+export const updateComplaintFeedback = async (req, res) => {
+  const user = req.user
+  const { complaintId } = req.params
+  const { feedback, feedbackRating, satisfactionStatus } = req.body
+  try {
+    // if the user is not the one who filed the complaint, return 403
+    const existingComplaint = await Complaint.findById(complaintId)
+    if (!existingComplaint) {
+      return res.status(404).json({ message: "Complaint not found" })
+    }
+    if (existingComplaint.userId.toString() !== user._id.toString()) {
+      return res.status(403).json({ message: "You are not authorized to update feedback for this complaint" })
+    }
+    const complaint = await Complaint.findByIdAndUpdate(complaintId, { feedback, feedbackRating, satisfactionStatus }, { new: true })
+    if (!complaint) {
+      return res.status(404).json({ message: "Complaint not found" })
+    }
+    res.status(200).json({ message: "Complaint feedback updated successfully", data: complaint })
+  } catch (error) {
+    console.error("Error updating complaint feedback:", error)
+    res.status(500).json({ message: "Error updating complaint feedback", error: error.message })
   }
 }

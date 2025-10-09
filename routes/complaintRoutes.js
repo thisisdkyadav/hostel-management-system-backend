@@ -1,5 +1,5 @@
 import express from "express"
-import { createComplaint, getAllComplaints, updateComplaintStatus, getStats, getStudentComplaints, complaintStatusUpdate, updateComplaintResolutionNotes } from "../controllers/complaintController.js"
+import { createComplaint, getAllComplaints, updateComplaintStatus, getStats, getStudentComplaints, complaintStatusUpdate, updateComplaintResolutionNotes, updateComplaintFeedback } from "../controllers/complaintController.js"
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { requirePermission } from "../utils/permissions.js"
@@ -16,5 +16,7 @@ router.get("/stats", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hos
 
 router.put("/:complaintId/status", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Maintenance Staff"]), complaintStatusUpdate)
 router.put("/:complaintId/resolution-notes", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Maintenance Staff"]), updateComplaintResolutionNotes)
+
+router.post("/:complaintId/feedback", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Student"]), updateComplaintFeedback)
 
 export default router

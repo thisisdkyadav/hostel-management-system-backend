@@ -33,6 +33,7 @@ const ComplaintSchema = new mongoose.Schema({
     type: Number,
     enum: [1, 2, 3, 4, 5], // Ratings from 1 to 5
   },
+  satisfactionStatus: { type: String, enum: ["Satisfied", "Unsatisfied", "False Resolution"] },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 })
