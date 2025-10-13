@@ -1,5 +1,5 @@
 import express from "express"
-import { getSecurity, verifyQR, addStudentEntryWithEmail, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor } from "../controllers/securityController.js"
+import { getSecurity, verifyQR, addStudentEntryWithEmail, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor, updateStudentEntryCrossHostelReason } from "../controllers/securityController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -15,6 +15,7 @@ router.post("/entries", authorizeRoles(["Hostel Gate"]), addStudentEntry)
 router.post("/entries/email", authorizeRoles(["Hostel Gate"]), addStudentEntryWithEmail)
 
 router.put("/entries/:entryId", authorizeRoles(["Hostel Gate"]), updateStudentEntry)
+router.patch("/entries/:entryId/cross-hostel-reason", authorizeRoles(["Hostel Gate"]), updateStudentEntryCrossHostelReason)
 router.delete("/entries/:entryId", authorizeRoles(["Hostel Gate"]), deleteStudentEntry)
 router.post("/verify-qr", authorizeRoles(["Hostel Gate"]), verifyQR)
 

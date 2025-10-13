@@ -358,3 +358,18 @@ export const verifyQR = async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 }
+
+export const updateStudentEntryCrossHostelReason = async (req, res) => {
+  const { entryId } = req.params
+  const { reason } = req.body
+  try {
+    const studentEntry = await CheckInOut.findByIdAndUpdate(entryId, { reason }, { new: true })
+    if (!studentEntry) {
+      return res.status(404).json({ message: "Entry not found" })
+    }
+    res.status(200).json({ message: "Student entry updated successfully", success: true, studentEntry })
+  } catch (error) {
+    console.error("Error updating student entry:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+}
