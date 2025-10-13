@@ -411,7 +411,7 @@ const getComplaintStats = async () => {
   thresholdDate.setDate(thresholdDate.getDate() - 20)
 
   const overdueCount = await Complaint.countDocuments({
-    status: { $ne: "Resolved", $ne: "Rejected" },
+    status: { $nin: ["Resolved", "Rejected"] },
     createdAt: { $lt: thresholdDate },
   })
 
