@@ -406,12 +406,12 @@ const getComplaintStats = async () => {
   // Get recent complaints
   const recentComplaints = await Complaint.find().sort({ createdAt: -1 }).limit(5).populate("userId", "name").populate("hostelId", "name").populate("roomId", "roomNumber").populate("unitId", "unitNumber")
 
-  // count of complaints that haven't resolved and are older than 20 days
+  // count of complaints are older than 20 days and status is not Resolved or Rejected
   const thresholdDate = new Date()
   thresholdDate.setDate(thresholdDate.getDate() - 20)
 
   const overdueCount = await Complaint.countDocuments({
-    status: { $ne: "Resolved" },
+    status: { $ne: "Resolved", $ne: "Rejected" },
     createdAt: { $lt: thresholdDate },
   })
 
