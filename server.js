@@ -1,4 +1,5 @@
 import express from "express"
+import { createServer } from "http"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import session from "express-session"
@@ -28,6 +29,7 @@ import permissionRoutes from "./routes/permissionRoutes.js"
 import taskRoutes from "./routes/taskRoutes.js"
 import userRoutes from "./routes/userRoutes.js"
 import undertakingRoutes from "./routes/undertakingRoutes.js"
+import onlineUsersRoutes from "./routes/onlineUsersRoutes.js"
 import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE, SESSION_SECRET, MONGO_URI } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
@@ -39,6 +41,8 @@ import studentProfileRoutes from "./routes/studentProfileRoutes.js"
 import ssoRoutes from "./routes/ssoRoutes.js"
 import { verifySSOToken } from "./controllers/ssoController.js"
 import leaveRoutes from "./routes/leaveRoutes.js"
+import { initializeSocketIO } from "./config/socket.js"
+import { setupSocketHandlers } from "./utils/socketHandlers.js"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -68,28 +72,28 @@ app.use(
 
 // Setup session middleware
 const isDevelopmentEnvironment = process.env.NODE_ENV === "development"
-app.use(
-  session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: MongoStore.create({
-      mongoUrl: MONGO_URI,
-      ttl: 7 * 24 * 60 * 60, // 7 days in seconds
-      autoRemove: "native", // Use MongoDB's TTL indexes
-      touchAfter: 24 * 3600, // Refresh the session only once per 24 hours
-      crypto: {
-        secret: SESSION_SECRET,
-      },
-    }),
-    cookie: {
-      httpOnly: true,
-      secure: !isDevelopmentEnvironment,
-      sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+const sessionMiddleware = session({
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: MONGO_URI,
+    ttl: 7 * 24 * 60 * 60, // 7 days in seconds
+    autoRemove: "native", // Use MongoDB's TTL indexes
+    touchAfter: 24 * 3600, // Refresh the session only once per 24 hours
+    crypto: {
+      secret: SESSION_SECRET,
     },
-  })
-)
+  }),
+  cookie: {
+    httpOnly: true,
+    secure: !isDevelopmentEnvironment,
+    sameSite: !isDevelopmentEnvironment ? "None" : "Strict",
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+  },
+})
+
+app.use(sessionMiddleware)
 
 // Serve static files from the uploads directory when using local storage
 if (USE_LOCAL_STORAGE) {
@@ -127,17 +131,43 @@ app.use("/api/student-profile", studentProfileRoutes)
 app.use("/api/sso", ssoRoutes)
 app.use("/api/undertaking", undertakingRoutes)
 app.use("/api/leave", leaveRoutes)
+app.use("/api/online-users", onlineUsersRoutes)
 app.use("/external-api", externalApiRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")
 })
 
+// Create HTTP server
+const httpServer = createServer(app)
+
+// Initialize Socket.IO with Redis adapter
+const io = initializeSocketIO(httpServer)
+
+// Setup Socket.IO event handlers
+setupSocketHandlers(io, sessionMiddleware)
+
 // Start server
-app.listen(PORT, "0.0.0.0", () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`Server is running on port ${PORT}`)
   // Connect to MongoDB
   console.log("Connecting to MongoDB...")
   connectDB()
   console.log("MongoDB connected successfully")
+})
+
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  console.log("SIGTERM signal received: closing HTTP server")
+  httpServer.close(() => {
+    console.log("HTTP server closed")
+  })
+})
+
+process.on("SIGINT", async () => {
+  console.log("SIGINT signal received: closing HTTP server")
+  httpServer.close(() => {
+    console.log("HTTP server closed")
+    process.exit(0)
+  })
 })
