@@ -28,12 +28,6 @@ const lostAndFoundSchema = new mongoose.Schema({
     {
       type: String,
       trim: true,
-      validate: {
-        validator: function (v) {
-          return !v || /^(https?|ftp):\/\/[^\s/$.?#].[^\s]*$/i.test(v)
-        },
-        message: (props) => `${props.value} is not a valid URL!`,
-      },
     },
   ],
 })
