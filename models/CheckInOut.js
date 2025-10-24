@@ -7,19 +7,28 @@ const checkInOutSchema = new mongoose.Schema({
     required: true,
   },
   hostelId: {
+    // gate hostel id
     type: mongoose.Schema.Types.ObjectId,
     ref: "Hostel",
     required: true,
   },
+  hostelName: {
+    // user hostel name
+    type: String,
+    required: true,
+  },
   room: {
+    // user room number
     type: String,
     required: true,
   },
   unit: {
+    // user unit number
     type: String,
-    required: true,
+    // required: true,
   },
   bed: {
+    // user bed number
     type: String,
     required: true,
   },

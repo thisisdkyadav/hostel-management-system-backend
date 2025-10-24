@@ -10,6 +10,8 @@ import HostelSupervisor from "../models/HostelSupervisor.js"
 import { decryptData } from "../utils/qrUtils.js"
 import User from "../models/User.js"
 import StudentProfile from "../models/StudentProfile.js"
+import { getIO } from "../config/socket.js"
+import * as liveCheckInOutService from "../services/liveCheckInOutService.js"
 
 export const getSecurity = async (req, res) => {
   const user = req.user
@@ -77,6 +79,7 @@ export const addStudentEntry = async (req, res) => {
     const studentEntry = new CheckInOut({
       userId: roomAllocation.userId,
       hostelId,
+      hostelName: studentUnit.hostelId.name,
       unit,
       room,
       bed,
@@ -87,6 +90,10 @@ export const addStudentEntry = async (req, res) => {
     })
 
     await studentEntry.save()
+
+    // Emit real-time event to admins using service
+    const io = getIO()
+    await liveCheckInOutService.emitNewEntryEvent(io, studentEntry)
 
     res.status(201).json({ message: "Student entry added successfully", success: true, studentEntry })
   } catch (error) {
@@ -104,12 +111,13 @@ export const addStudentEntryWithEmail = async (req, res) => {
       return res.status(404).json({ message: "User not found" })
     }
 
-    const roomAllocation = await RoomAllocation.findOne({ userId: user._id }).populate("roomId").populate("unitId")
+    const roomAllocation = await RoomAllocation.findOne({ userId: user._id }).populate("roomId").populate("unitId").populate("hostelId")
     const isSameHostel = roomAllocation.hostelId === securityUser.hostel._id
     const studentEntry = new CheckInOut({
       userId: user._id,
       status,
-      hostelId: roomAllocation.hostelId,
+      hostelId: securityUser.hostel._id,
+      hostelName: roomAllocation.hostelId.name,
       unit: roomAllocation.unitId.unitNumber,
       room: roomAllocation.roomId.roomNumber,
       bed: roomAllocation.bedNumber,
@@ -118,6 +126,11 @@ export const addStudentEntryWithEmail = async (req, res) => {
       status,
     })
     await studentEntry.save()
+
+    // Emit real-time event to admins using service
+    const io = getIO()
+    await liveCheckInOutService.emitNewEntryEvent(io, studentEntry)
+
     res.status(201).json({ message: "Student entry added successfully", success: true, studentEntry })
   } catch (error) {
     console.error("Error adding student entry:", error)
@@ -135,7 +148,7 @@ export const getRecentEntries = async (req, res) => {
       query.hostelId = user.hostel._id
     }
 
-    const recentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).limit(10).populate("userId", "name email phone").exec()
+    const recentEntries = await CheckInOut.find(query).sort({ dateAndTime: -1 }).limit(10).populate("userId", "name email phone profileImage").populate("hostelId", "name").exec()
 
     res.status(200).json(recentEntries)
   } catch (error) {

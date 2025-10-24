@@ -30,6 +30,7 @@ import taskRoutes from "./routes/taskRoutes.js"
 import userRoutes from "./routes/userRoutes.js"
 import undertakingRoutes from "./routes/undertakingRoutes.js"
 import onlineUsersRoutes from "./routes/onlineUsersRoutes.js"
+import liveCheckInOutRoutes from "./routes/liveCheckInOutRoutes.js"
 import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE, SESSION_SECRET, MONGO_URI } from "./config/environment.js"
 import connectDB from "./config/db.js"
 import dashboardRoutes from "./routes/dashboardRoutes.js"
@@ -132,6 +133,7 @@ app.use("/api/sso", ssoRoutes)
 app.use("/api/undertaking", undertakingRoutes)
 app.use("/api/leave", leaveRoutes)
 app.use("/api/online-users", onlineUsersRoutes)
+app.use("/api/live-checkinout", liveCheckInOutRoutes)
 app.use("/external-api", externalApiRoutes)
 
 app.get("/", (req, res) => {
