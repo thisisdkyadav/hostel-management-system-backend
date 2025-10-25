@@ -825,6 +825,7 @@ export const getStudentDashboard = async (req, res) => {
       },
       activeComplaints: [],
       upcomingEvents: [],
+      resolvedComplaintsWithoutFeedback: [],
     }
 
     if (studentProfile.allocationId) {
@@ -912,6 +913,25 @@ export const getStudentDashboard = async (req, res) => {
           priority: complaint.priority,
           category: complaint.category,
           description: complaint.description,
+          hostel: studentProfile.hostel,
+          roomNumber: dashboardData.roomInfo?.roomNumber || "",
+          createdDate: complaint.createdAt,
+        }))
+
+      // Get resolved complaints without feedback
+      dashboardData.resolvedComplaintsWithoutFeedback = complaints
+        .filter((c) => c.status === "Resolved" && !c.feedback && !c.feedbackRating)
+        .sort((a, b) => b.resolutionDate - a.resolutionDate)
+        .slice(0, 3)
+        .map((complaint) => ({
+          id: complaint._id,
+          title: complaint.title,
+          status: complaint.status,
+          priority: complaint.priority,
+          category: complaint.category,
+          description: complaint.description,
+          resolutionNotes: complaint.resolutionNotes,
+          resolutionDate: complaint.resolutionDate,
           hostel: studentProfile.hostel,
           roomNumber: dashboardData.roomInfo?.roomNumber || "",
           createdDate: complaint.createdAt,
