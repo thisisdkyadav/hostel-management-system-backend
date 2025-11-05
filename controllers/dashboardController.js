@@ -539,6 +539,9 @@ export const getStudentCount = async (req, res) => {
     // Create pipeline for gender counts
     const genderPipeline = []
 
+    // Always filter only active students
+    genderPipeline.push({ $match: { status: "Active" } })
+
     // If hostelId is provided, filter students by that hostel
     if (hostelId) {
       // Convert hostelId to ObjectId if it's a string
