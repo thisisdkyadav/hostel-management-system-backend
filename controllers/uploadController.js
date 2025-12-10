@@ -16,6 +16,7 @@ const containerClientStudentId = blobServiceClient.getContainerClient(AZURE_STOR
 const profileImagesPath = path.join(__dirname, "..", "uploads", "profile-images")
 const studentIdCardsPath = path.join(__dirname, "..", "uploads", "student-id-cards")
 const h2FormsPath = path.join(__dirname, "..", "uploads", "h2-forms")
+const certificatesPath = path.join(__dirname, "..", "uploads", "certificates")
 
 // Ensure directories exist
 if (USE_LOCAL_STORAGE) {
@@ -27,6 +28,9 @@ if (USE_LOCAL_STORAGE) {
   }
   if (!fs.existsSync(h2FormsPath)) {
     fs.mkdirSync(h2FormsPath, { recursive: true })
+  }
+  if (!fs.existsSync(certificatesPath)) {
+    fs.mkdirSync(certificatesPath, { recursive: true })
   }
 }
 
@@ -307,6 +311,71 @@ export const uploadLostAndFoundImage = async (req, res) => {
       return res.status(200).json({ url })
     } else {
       // Upload to Azure in the default container under lost-and-found/
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName)
+
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: mimetype },
+      })
+
+      const sharedKeyCredential = new StorageSharedKeyCredential(AZURE_STORAGE_ACCOUNT_NAME, AZURE_STORAGE_ACCOUNT_KEY)
+      const expiryDate = new Date("2099-12-31")
+
+      const sasToken = generateBlobSASQueryParameters(
+        {
+          containerName: AZURE_STORAGE_CONTAINER_NAME,
+          blobName,
+          permissions: BlobSASPermissions.parse("r"),
+          expiresOn: expiryDate,
+        },
+        sharedKeyCredential
+      ).toString()
+
+      const sasUrl = `${blockBlobClient.url}?${sasToken}`
+      return res.status(200).json({ url: sasUrl })
+    }
+  } catch (error) {
+    console.error("Upload Error:", error)
+    res.status(500).json({ error: "Upload failed" })
+  }
+}
+
+export const uploadCertificate = async (req, res) => {
+  const user = req.user
+  const userId = user?._id
+  try {
+    // Support either single file (req.file) or any field (req.files)
+    const incomingFile = req.file || (Array.isArray(req.files) && req.files.length > 0 ? req.files[0] : undefined)
+    if (!incomingFile) {
+      return res.status(400).json({ error: "No file uploaded" })
+    }
+
+    const { originalname, buffer, mimetype } = incomingFile
+
+    // Validation for PDF and image types
+    const allowedMimeTypes = ["application/pdf", "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"]
+    const isPdf = mimetype === "application/pdf" || originalname.toLowerCase().endsWith(".pdf")
+    const isImage = allowedMimeTypes.slice(1).includes(mimetype)
+
+    if (!isPdf && !isImage) {
+      return res.status(400).json({ error: "Only PDF and image files are allowed" })
+    }
+
+    const timestamp = Date.now()
+    const parsed = path.parse(originalname)
+    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, "_")
+    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : isPdf ? ".pdf" : ".png"
+    const blobName = `certificates/${userId || "anonymous"}-${timestamp}-${safeBase}${safeExt}`
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId || "anonymous"}-${timestamp}-${safeBase}${safeExt}`
+      const filepath = path.join(certificatesPath, filename)
+
+      fs.writeFileSync(filepath, buffer)
+
+      const url = `/uploads/certificates/${filename}`
+      return res.status(200).json({ url })
+    } else {
+      // Upload to Azure in the default container under certificates/
       const blockBlobClient = containerClient.getBlockBlobClient(blobName)
 
       await blockBlobClient.uploadData(buffer, {

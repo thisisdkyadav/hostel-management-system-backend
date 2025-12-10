@@ -2,7 +2,7 @@ import express from "express"
 import multer from "multer"
 import { authorizeRoles } from "../middlewares/authorize.js"
 import { authenticate } from "../middlewares/auth.js"
-import { uploadProfileImage, uploadStudentIdCard, h2FormPDF, uploadPaymentScreenshot, uploadLostAndFoundImage } from "../controllers/uploadController.js"
+import { uploadProfileImage, uploadStudentIdCard, h2FormPDF, uploadPaymentScreenshot, uploadLostAndFoundImage, uploadCertificate } from "../controllers/uploadController.js"
 
 const uploadRouter = express.Router()
 uploadRouter.use(authenticate)
@@ -15,4 +15,5 @@ uploadRouter.post("/student-id/:side", authorizeRoles(["Student"]), upload.singl
 uploadRouter.post("/h2-form", authorizeRoles(["Student"]), upload.any(), h2FormPDF)
 uploadRouter.post("/payment-screenshot", authorizeRoles(["Student"]), upload.single("image"), uploadPaymentScreenshot)
 uploadRouter.post("/lost-and-found-image", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), upload.single("image"), uploadLostAndFoundImage)
+uploadRouter.post("/certificate", authorizeRoles(["Admin"]), upload.any(), uploadCertificate)
 export default uploadRouter

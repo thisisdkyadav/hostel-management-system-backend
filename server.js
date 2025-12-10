@@ -19,6 +19,7 @@ import uploadRoutes from "./routes/uploadRoutes.js"
 import visitorRoutes from "./routes/visitorRoutes.js"
 import notificationRoutes from "./routes/notificationRoutes.js"
 import disCoRoutes from "./routes/disCoRoutes.js"
+import certificateRoutes from "./routes/certificateRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
 import externalApiRoutes from "./externalApi/index.js"
 import superAdminRoutes from "./routes/superAdminRoutes.js"
@@ -118,6 +119,7 @@ app.use("/api/feedback", feedbackRoutes)
 app.use("/api/visitor", visitorRoutes)
 app.use("/api/notification", notificationRoutes)
 app.use("/api/disCo", disCoRoutes)
+app.use("/api/certificate", certificateRoutes)
 app.use("/api/payment", paymentRoutes)
 app.use("/api/super-admin", superAdminRoutes)
 app.use("/api/family", familyMemberRoutes)
