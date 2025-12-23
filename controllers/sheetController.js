@@ -333,3 +333,133 @@ export const getHostelSheetData = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message })
   }
 }
+
+/**
+ * Get allocation summary - cross tabulation of degrees vs hostels
+ * Returns matrix with degrees as rows, hostels as columns
+ * Includes "Unknown" row for students without degree
+ * Includes totals for each row and column
+ */
+export const getAllocationSummary = async (req, res) => {
+  try {
+    // Get all hostels (non-archived)
+    const hostels = await Hostel.find({ isArchived: { $ne: true } })
+      .sort({ name: 1 })
+      .lean()
+
+    if (hostels.length === 0) {
+      return res.status(200).json({
+        success: true,
+        headers: ["", "Total"],
+        data: [{ degree: "Total", Total: 0 }],
+        grandTotal: 0,
+      })
+    }
+
+    // Get all allocations with student profile data
+    const allocations = await RoomAllocation.find({})
+      .populate({
+        path: "studentProfileId",
+        select: "degree",
+      })
+      .populate({
+        path: "hostelId",
+        select: "name",
+      })
+      .lean()
+
+    // Build count matrix: { degree: { hostelName: count } }
+    const degreeHostelCount = {}
+    const hostelTotals = {}
+    const degreeTotals = {}
+
+    // Initialize hostel totals
+    hostels.forEach((hostel) => {
+      hostelTotals[hostel.name] = 0
+    })
+
+    // Count allocations
+    allocations.forEach((alloc) => {
+      if (!alloc.hostelId || !alloc.studentProfileId) return
+
+      const hostelName = alloc.hostelId.name
+      const degree = alloc.studentProfileId.degree || "Unknown"
+
+      // Initialize degree row if not exists
+      if (!degreeHostelCount[degree]) {
+        degreeHostelCount[degree] = {}
+        degreeTotals[degree] = 0
+      }
+
+      // Initialize cell if not exists
+      if (!degreeHostelCount[degree][hostelName]) {
+        degreeHostelCount[degree][hostelName] = 0
+      }
+
+      // Increment counts
+      degreeHostelCount[degree][hostelName]++
+      hostelTotals[hostelName] = (hostelTotals[hostelName] || 0) + 1
+      degreeTotals[degree]++
+    })
+
+    // Get sorted degree names (put "Unknown" at the end)
+    const degreeNames = Object.keys(degreeHostelCount).sort((a, b) => {
+      if (a === "Unknown") return 1
+      if (b === "Unknown") return -1
+      return a.localeCompare(b)
+    })
+
+    // Build headers array: ["", hostel1, hostel2, ..., "Total"]
+    const headers = ["", ...hostels.map((h) => h.name), "Total"]
+
+    // Build data rows
+    const data = degreeNames.map((degree) => {
+      const row = { degree }
+
+      hostels.forEach((hostel) => {
+        row[hostel.name] = degreeHostelCount[degree][hostel.name] || 0
+      })
+
+      row.Total = degreeTotals[degree] || 0
+
+      return row
+    })
+
+    // Add total row
+    const totalRow = { degree: "Total" }
+    let grandTotal = 0
+
+    hostels.forEach((hostel) => {
+      totalRow[hostel.name] = hostelTotals[hostel.name] || 0
+      grandTotal += hostelTotals[hostel.name] || 0
+    })
+
+    totalRow.Total = grandTotal
+    data.push(totalRow)
+
+    // Build column definitions for TanStack Table
+    const columns = [
+      { accessorKey: "degree", header: "", category: "label" },
+      ...hostels.map((h) => ({
+        accessorKey: h.name,
+        header: h.name,
+        category: "hostel",
+        hostelId: h._id.toString(),
+      })),
+      { accessorKey: "Total", header: "Total", category: "total" },
+    ]
+
+    res.status(200).json({
+      success: true,
+      headers,
+      columns,
+      data,
+      grandTotal,
+      hostelCount: hostels.length,
+      degreeCount: degreeNames.length,
+    })
+  } catch (error) {
+    console.error("Error fetching allocation summary:", error)
+    res.status(500).json({ message: "Server error", error: error.message })
+  }
+}
