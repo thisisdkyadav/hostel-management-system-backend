@@ -32,6 +32,7 @@ import userRoutes from "./routes/userRoutes.js"
 import undertakingRoutes from "./routes/undertakingRoutes.js"
 import onlineUsersRoutes from "./routes/onlineUsersRoutes.js"
 import liveCheckInOutRoutes from "./routes/liveCheckInOutRoutes.js"
+import faceScannerRoutes from "./routes/faceScannerRoutes.js"
 import sheetRoutes from "./routes/sheetRoutes.js"
 import { PORT, ALLOWED_ORIGINS, USE_LOCAL_STORAGE, SESSION_SECRET, MONGO_URI } from "./config/environment.js"
 import connectDB from "./config/db.js"
@@ -64,6 +65,19 @@ const ssoCorsOptions = {
 
 // Apply special CORS for SSO routes only
 app.use("/api/sso/verify", cors(ssoCorsOptions), express.json(), verifySSOToken)
+
+// Define scanner-specific CORS settings (scanners hit API from any origin)
+const scannerCorsOptions = {
+  origin: "*", // Allow any origin for scanner
+  credentials: false, // No cookies needed, uses Basic Auth
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}
+
+// Apply special CORS for scanner action routes (before regular CORS)
+app.use("/api/face-scanner/ping", cors(scannerCorsOptions))
+app.use("/api/face-scanner/scan", cors(scannerCorsOptions))
+app.use("/api/face-scanner/test-auth", cors(scannerCorsOptions))
 
 // Regular CORS with credentials for all other routes
 app.use(
@@ -137,6 +151,7 @@ app.use("/api/undertaking", undertakingRoutes)
 app.use("/api/leave", leaveRoutes)
 app.use("/api/online-users", onlineUsersRoutes)
 app.use("/api/live-checkinout", liveCheckInOutRoutes)
+app.use("/api/face-scanner", faceScannerRoutes)
 app.use("/api/sheet", sheetRoutes)
 app.use("/external-api", externalApiRoutes)
 
