@@ -66,7 +66,6 @@ const searchComplaints = asyncHandler(async (req, res) => {
     keyword, // Title/Description
     status,
     category,
-    priority,
     hostelName,
     unitNumber,
     roomNumber,
@@ -194,7 +193,7 @@ const searchComplaints = asyncHandler(async (req, res) => {
   }
   if (status) query.status = status
   if (category) query.category = category
-  if (priority) query.priority = priority
+
 
   // Date Ranges
   if (createdStartDate || createdEndDate) {

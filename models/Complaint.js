@@ -14,11 +14,7 @@ const ComplaintSchema = new mongoose.Schema({
     enum: ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other"],
     default: "Other",
   },
-  priority: {
-    type: String,
-    enum: ["Low", "Medium", "High"],
-    default: "Low",
-  },
+
   location: { type: String }, // Location of the complaint for complaints outside hostel room/unit
   hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel" }, // Reference to the hostel
   unitId: { type: mongoose.Schema.Types.ObjectId, ref: "Unit" }, // Reference to the unit (if applicable)

@@ -5,7 +5,7 @@ import RoomAllocation from "../models/RoomAllocation.js"
 export const createComplaint = async (req, res) => {
   const user = req.user
   const { role } = user
-  const { userId, title, description, location, category, priority, attachments } = req.body
+  const { userId, title, description, location, category, attachments } = req.body
   try {
     let allocationDetails = null
     if (["Student"].includes(role)) {
@@ -24,7 +24,6 @@ export const createComplaint = async (req, res) => {
       description,
       location,
       category,
-      priority,
       hostelId: allocationDetails?.hostelId,
       unitId: allocationDetails?.unitId,
       roomId: allocationDetails?.roomId,
@@ -44,7 +43,7 @@ export const getAllComplaints = async (req, res) => {
   try {
     const user = req.user
     const { role } = user
-    const { page = 1, limit = 10, category, status, priority, hostelId, startDate, endDate } = req.query
+    const { page = 1, limit = 10, category, status, hostelId, startDate, endDate } = req.query
 
     const query = {}
 
@@ -66,9 +65,7 @@ export const getAllComplaints = async (req, res) => {
       query.status = status
     }
 
-    if (priority) {
-      query.priority = priority
-    }
+
 
     if (startDate || endDate) {
       query.createdAt = {}
@@ -112,7 +109,7 @@ export const getAllComplaints = async (req, res) => {
         description: complaint.description,
         status: complaint.status,
         category: complaint.category,
-        priority: complaint.priority,
+
         hostel: complaint.hostelId ? complaint.hostelId.name : null,
         roomNumber: roomNumber,
         location: complaint.location,
@@ -292,7 +289,7 @@ export const getStudentComplaints = async (req, res) => {
         description: complaint.description,
         status: complaint.status,
         category: complaint.category,
-        priority: complaint.priority,
+
         hostel: complaint.hostelId ? complaint.hostelId.name : "N/A",
         roomNumber: roomNumber,
         location: complaint.location,
