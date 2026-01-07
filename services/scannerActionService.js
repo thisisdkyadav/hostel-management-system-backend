@@ -11,10 +11,17 @@ import * as liveCheckInOutService from "./liveCheckInOutService.js"
 /**
  * Process student entry via hostel gate scanner
  * @param {Object} scanner - Scanner data from request
- * @param {string} rollNumber - Student roll number
+ * @param {Object} scanData - Scan data from device
+ * @param {string} scanData.employeeID - Student roll number
+ * @param {Date} scanData.dateTime - Date and time of scan
+ * @param {string} scanData.direction - "in" or "out"
+ * @param {string} scanData.modeofPunch - Mode of punch (Face, Fingerprint, etc)
+ * @param {string} scanData.deviceID - Device ID
  * @returns {Promise<Object>} Entry result
  */
-export const processHostelGateEntry = async (scanner, rollNumber) => {
+export const processHostelGateEntry = async (scanner, scanData) => {
+  const { employeeID: rollNumber, dateTime, direction, modeofPunch, deviceID } = scanData
+
   // Find student by roll number
   const studentProfile = await StudentProfile.findOne({
     rollNumber: { $regex: new RegExp(`^${rollNumber}$`, "i") },
@@ -45,7 +52,7 @@ export const processHostelGateEntry = async (scanner, rollNumber) => {
     return {
       success: false,
       status: 404,
-      message: "Student not found with this roll number",
+      message: `Student not found: ${rollNumber}`,
     }
   }
 
@@ -67,8 +74,8 @@ export const processHostelGateEntry = async (scanner, rollNumber) => {
     }
   }
 
-  // Determine status based on scanner direction
-  const status = scanner.direction === "in" ? "Checked In" : "Checked Out"
+  // Determine status based on direction
+  const status = direction === "in" ? "Checked In" : "Checked Out"
 
   // Gate hostel (where scanner is located)
   const gateHostelId = scanner.hostelId?._id || scanner.hostelId
@@ -87,6 +94,23 @@ export const processHostelGateEntry = async (scanner, rollNumber) => {
   const room = allocation.roomId?.roomNumber || ""
   const bed = allocation.bedNumber?.toString() || ""
 
+  // Check for duplicate entry (same student, same timestamp within 1 minute)
+  const oneMinuteAgo = new Date(dateTime.getTime() - 60000)
+  const existingEntry = await CheckInOut.findOne({
+    userId: studentProfile.userId._id,
+    dateAndTime: { $gte: oneMinuteAgo, $lte: dateTime },
+    status: status,
+  })
+
+  if (existingEntry) {
+    // Duplicate detected, return success but don't create new entry
+    return {
+      success: true,
+      status: 200,
+      message: "Duplicate entry ignored",
+    }
+  }
+
   // Create check-in/out entry
   const entry = new CheckInOut({
     userId: studentProfile.userId._id,
@@ -95,39 +119,27 @@ export const processHostelGateEntry = async (scanner, rollNumber) => {
     room,
     unit,
     bed,
-    dateAndTime: new Date(),
+    dateAndTime: dateTime,
     isSameHostel,
     status,
+    reason: modeofPunch ? `Via ${modeofPunch} scan` : undefined,
   })
 
   await entry.save()
 
   // Emit real-time event
-  const io = getIO()
-  await liveCheckInOutService.emitNewEntryEvent(io, entry)
-
-  // Format response
-  const displayRoom = unit ? `${unit}-${room}-${bed}` : `${room}-${bed}`
+  try {
+    const io = getIO()
+    await liveCheckInOutService.emitNewEntryEvent(io, entry)
+  } catch (emitError) {
+    console.error("Error emitting real-time event:", emitError)
+    // Don't fail the request if socket emission fails
+  }
 
   return {
     success: true,
     status: 201,
     message: `Student ${status.toLowerCase()} successfully`,
-    data: {
-      entry: {
-        _id: entry._id,
-        status: entry.status,
-        dateAndTime: entry.dateAndTime,
-        isSameHostel: entry.isSameHostel,
-      },
-      student: {
-        name: studentProfile.userId.name,
-        rollNumber: studentProfile.rollNumber,
-        profileImage: studentProfile.userId.profileImage,
-        hostel: studentHostelName,
-        room: displayRoom,
-      },
-    },
   }
 }
 
