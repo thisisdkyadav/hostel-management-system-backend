@@ -7,7 +7,7 @@ Date: 2026-01-08
 
 ### Revision History
 
-- 1.0 (2024-08-02): Initial SRS
+- 1.0 (2025-06-10): Initial SRS
 - 2.0 (2025-08-10): Fully revised to match implemented backend: session-based auth, RBAC/permissions, Razorpay payments, external API, deployment and detailed diagrams
 - 3.0 (2026-01-08): Comprehensive update with Socket.io (real-time), Redis adapter, Face Scanner (automated attendance), Leave Management, Certificates, Undertakings, and Spreadsheet-view data APIs.
 
