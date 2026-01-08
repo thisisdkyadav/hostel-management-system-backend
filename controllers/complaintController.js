@@ -43,7 +43,7 @@ export const getAllComplaints = async (req, res) => {
   try {
     const user = req.user
     const { role } = user
-    const { page = 1, limit = 10, category, status, hostelId, startDate, endDate } = req.query
+    const { page = 1, limit = 10, category, status, hostelId, startDate, endDate, feedbackRating, satisfactionStatus } = req.query
 
     const query = {}
 
@@ -65,7 +65,13 @@ export const getAllComplaints = async (req, res) => {
       query.status = status
     }
 
+    if (feedbackRating) {
+      query.feedbackRating = Number(feedbackRating)
+    }
 
+    if (satisfactionStatus) {
+      query.satisfactionStatus = satisfactionStatus
+    }
 
     if (startDate || endDate) {
       query.createdAt = {}
