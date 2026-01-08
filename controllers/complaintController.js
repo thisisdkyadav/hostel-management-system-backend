@@ -136,6 +136,15 @@ export const getAllComplaints = async (req, res) => {
               phone: complaint.assignedTo.phone || null,
             }
           : null,
+        resolvedBy: complaint.resolvedBy
+          ? {
+              id: complaint.resolvedBy._id,
+              email: complaint.resolvedBy.email,
+              name: complaint.resolvedBy.name,
+              profileImage: complaint.resolvedBy.profileImage || null,
+              phone: complaint.resolvedBy.phone || null,
+            }
+          : null,
         resolutionNotes: complaint.resolutionNotes || "",
         images: complaint.attachments || [],
         createdDate: complaint.createdAt.toISOString(),
