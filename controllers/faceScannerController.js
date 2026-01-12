@@ -200,7 +200,7 @@ export const regeneratePassword = async (req, res) => {
 /**
  * Test scanner authentication (for debugging)
  * GET /api/face-scanner/test-auth
- * Requires scanner Basic Auth
+ * Requires scanner auth header
  */
 export const testScannerAuth = async (req, res) => {
   res.status(200).json({

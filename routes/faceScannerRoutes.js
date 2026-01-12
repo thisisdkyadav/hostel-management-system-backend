@@ -16,7 +16,7 @@ import { processScan, ping } from "../controllers/scannerActionController.js"
 const router = express.Router()
 
 // =============================================
-// Scanner Action Routes (use scanner Basic Auth)
+// Scanner Action Routes (use scanner auth)
 // Automated - no manual verification needed
 // =============================================
 router.get("/ping", authenticateScanner, ping)

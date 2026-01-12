@@ -1,84 +1,111 @@
 import FaceScanner from "../models/FaceScanner.js"
 import bcrypt from "bcrypt"
+import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const logDir = path.join(__dirname, "../logs")
 
 /**
- * Middleware to authenticate face scanner requests using Basic Auth
- * Extracts credentials from Authorization header, verifies against database
- * Attaches scanner info to req.scanner on success
+ * Helper to log scanner requests for debugging
+ */
+const logScannerRequest = (req) => {
+  try {
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true })
+    }
+    const logFile = path.join(logDir, "scanner_requests.log")
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      method: req.method,
+      url: req.url,
+      headers: { ...req.headers },
+      body: req.body,
+      ip: req.ip || req.connection?.remoteAddress,
+    }
+    
+    fs.appendFileSync(logFile, JSON.stringify(logEntry, null, 2) + "\n---\n")
+  } catch (error) {
+    console.error("Failed to log scanner request:", error)
+  }
+}
+
+/**
+ * Middleware to authenticate face scanner requests using custom header
+ * 
+ * Authentication method:
+ * - Scanner has username (header key) and password (header value)
+ * - Device sends a custom header where:
+ *   - Header name = scanner's username (e.g., "abc")
+ *   - Header value = scanner's password (e.g., "123")
+ * - We find all scanners and check if any header matches
  */
 export const authenticateScanner = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization
-
-    if (!authHeader || !authHeader.startsWith("Basic ")) {
+    // Log the request to a file for debugging
+    logScannerRequest(req)
+    
+    // Get all active scanners
+    const scanners = await FaceScanner.find({ isActive: true }).populate("hostelId", "name type")
+    
+    if (scanners.length === 0) {
       return res.status(401).json({
-        success: false,
-        message: "Authentication required. Use Basic Auth with scanner credentials.",
+        isSuccess: "N",
+        outputMessage: "No scanners registered",
       })
     }
 
-    // Decode Base64 credentials
-    const base64Credentials = authHeader.slice(6)
-    const credentials = Buffer.from(base64Credentials, "base64").toString("utf8")
-    const [username, password] = credentials.split(":")
-
-    if (!username || !password) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials format",
-      })
+    // Check each scanner to see if its username (header key) exists in request headers
+    let authenticatedScanner = null
+    
+    for (const scanner of scanners) {
+      const headerKey = scanner.username.toLowerCase()
+      const headerValue = req.headers[headerKey]
+      
+      if (headerValue) {
+        // Header exists, verify the password
+        const isPasswordValid = await bcrypt.compare(headerValue, scanner.passwordHash)
+        
+        if (isPasswordValid) {
+          authenticatedScanner = scanner
+          break
+        }
+      }
     }
 
-    // Find scanner by username
-    const scanner = await FaceScanner.findOne({ username }).populate("hostelId", "name type")
-
-    if (!scanner) {
+    if (!authenticatedScanner) {
+      console.log("No matching scanner auth header found")
       return res.status(401).json({
-        success: false,
-        message: "Invalid scanner credentials",
-      })
-    }
-
-    // Check if scanner is active
-    if (!scanner.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: "Scanner is deactivated",
-      })
-    }
-
-    // Verify password
-    const isPasswordValid = await bcrypt.compare(password, scanner.passwordHash)
-
-    if (!isPasswordValid) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid scanner credentials",
+        isSuccess: "N",
+        outputMessage: "Invalid credentials",
       })
     }
 
     // Update last active timestamp (non-blocking)
-    FaceScanner.findByIdAndUpdate(scanner._id, { lastActiveAt: new Date() }).catch((err) =>
+    FaceScanner.findByIdAndUpdate(authenticatedScanner._id, { lastActiveAt: new Date() }).catch((err) =>
       console.error("Error updating scanner lastActiveAt:", err)
     )
 
     // Attach scanner data to request
     req.scanner = {
-      _id: scanner._id,
-      username: scanner.username,
-      name: scanner.name,
-      type: scanner.type,
-      direction: scanner.direction,
-      hostelId: scanner.hostelId,
-      isActive: scanner.isActive,
+      _id: authenticatedScanner._id,
+      username: authenticatedScanner.username,
+      name: authenticatedScanner.name,
+      type: authenticatedScanner.type,
+      direction: authenticatedScanner.direction,
+      hostelId: authenticatedScanner.hostelId,
+      isActive: authenticatedScanner.isActive,
     }
+
+    console.log("Scanner authenticated successfully:", req.scanner.name)
 
     next()
   } catch (error) {
     console.error("Scanner authentication error:", error)
     return res.status(500).json({
-      success: false,
-      message: "Authentication failed",
+      isSuccess: "N",
+      outputMessage: "Authentication failed",
     })
   }
 }

@@ -102,14 +102,14 @@ export const processHostelGateEntry = async (scanner, scanData) => {
     status: status,
   })
 
-  if (existingEntry) {
-    // Duplicate detected, return success but don't create new entry
-    return {
-      success: true,
-      status: 200,
-      message: "Duplicate entry ignored",
-    }
-  }
+  // if (existingEntry) {
+  //   // Duplicate detected, return success but don't create new entry
+  //   return {
+  //     success: true,
+  //     status: 200,
+  //     message: "Duplicate entry ignored",
+  //   }
+  // }
 
   // Create check-in/out entry
   const entry = new CheckInOut({
