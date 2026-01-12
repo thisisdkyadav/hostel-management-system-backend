@@ -1,5 +1,5 @@
 import express from "express"
-import { getSecurity, verifyQR, addStudentEntryWithEmail, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor, updateStudentEntryCrossHostelReason } from "../controllers/securityController.js"
+import { getSecurity, verifyQR, addStudentEntryWithEmail, addVisitor, getVisitors, updateVisitor, addStudentEntry, getRecentEntries, updateStudentEntry, getStudentEntries, deleteStudentEntry, deleteVisitor, updateStudentEntryCrossHostelReason, getFaceScannerEntries } from "../controllers/securityController.js"
 
 import { authenticate } from "../middlewares/auth.js"
 import { authorizeRoles } from "../middlewares/authorize.js"
@@ -11,6 +11,7 @@ router.get("/", getSecurity)
 
 router.get("/entries", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate", "Student"]), requirePermission("students_info", "view"), getStudentEntries)
 router.get("/entries/recent", authorizeRoles(["Hostel Gate"]), getRecentEntries)
+router.get("/entries/face-scanner", authorizeRoles(["Hostel Gate"]), getFaceScannerEntries)
 router.post("/entries", authorizeRoles(["Hostel Gate"]), addStudentEntry)
 router.post("/entries/email", authorizeRoles(["Hostel Gate"]), addStudentEntryWithEmail)
 

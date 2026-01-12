@@ -268,6 +268,16 @@ export const emitNewEntryEvent = async (io, entry) => {
     timestamp: new Date(),
   })
 
+  // Emit to hostel gate users at the specific hostel
+  const hostelId = entry.hostelId?._id || entry.hostelId
+  if (hostelId) {
+    io.to(`hostel:${hostelId}`).emit("gateentry:new", {
+      entry,
+      timestamp: new Date(),
+    })
+    console.log(`📡 Emitted gate entry event to hostel:${hostelId}`)
+  }
+
   console.log(`📡 Emitted new check-in/out event: ${entry.userId?.name} - ${entry.status}`)
 }
 

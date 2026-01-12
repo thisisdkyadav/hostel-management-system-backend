@@ -386,3 +386,57 @@ export const updateStudentEntryCrossHostelReason = async (req, res) => {
     res.status(500).json({ message: "Internal server error" })
   }
 }
+
+/**
+ * Get face scanner entries for hostel gate
+ * Used by guards to view real-time face scanner entries for their hostel
+ */
+export const getFaceScannerEntries = async (req, res) => {
+  const user = req.user
+  const { limit = 20, page = 1, status } = req.query
+
+  try {
+    const query = {}
+
+    // Filter by guard's hostel
+    if (user.hostel) {
+      query.hostelId = user.hostel._id
+    }
+
+    // Optional status filter
+    if (status) {
+      query.status = status
+    }
+
+    const skip = (page - 1) * limit
+    const entries = await CheckInOut.find(query)
+      .sort({ dateAndTime: -1 })
+      .skip(skip)
+      .limit(parseInt(limit))
+      .populate("userId", "name email phone profileImage")
+      .populate("hostelId", "name type")
+      .exec()
+
+    const total = await CheckInOut.countDocuments(query)
+
+    // Identify pending cross-hostel entries (check-in from other hostels without reason)
+    const pendingCrossHostelEntries = entries.filter(
+      (entry) => entry.isSameHostel === false && !entry.reason && entry.status === "Checked In"
+    )
+
+    res.status(200).json({
+      success: true,
+      entries,
+      pendingCrossHostelEntries,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / limit),
+      },
+    })
+  } catch (error) {
+    console.error("Error fetching face scanner entries:", error)
+    res.status(500).json({ message: "Internal server error" })
+  }
+}
