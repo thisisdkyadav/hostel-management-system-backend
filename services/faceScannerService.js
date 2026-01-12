@@ -9,7 +9,7 @@ const SALT_ROUNDS = 10
  * @returns {{ username: string, password: string }}
  */
 export const generateSecureCredentials = () => {
-  const username = `scanner_${crypto.randomBytes(8).toString("hex")}`
+  const username = `scanner-${crypto.randomBytes(8).toString("hex")}`
   const password = crypto.randomBytes(16).toString("base64url")
   return { username, password }
 }
