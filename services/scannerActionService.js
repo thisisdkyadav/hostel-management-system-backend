@@ -121,8 +121,7 @@ export const processHostelGateEntry = async (scanner, scanData) => {
     bed,
     dateAndTime: dateTime,
     isSameHostel,
-    status,
-    reason: modeofPunch ? `Via ${modeofPunch} scan` : undefined,
+    status
   })
 
   await entry.save()
