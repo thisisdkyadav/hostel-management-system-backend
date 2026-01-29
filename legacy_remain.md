@@ -130,51 +130,11 @@
 
 ### Controller Files
 
-| File | Line(s) | Description | Depends On | Status |
-|------|---------|-------------|------------|--------|
-| controllers/authController.js | ALL | Re-exports from src/api/v1/auth/auth.controller.js | routes/authRoutes.js | ⬜ |
-| controllers/userController.js | ALL | Re-exports from src/api/v1/users/users.controller.js | routes/userRoutes.js | ⬜ |
-| controllers/ssoController.js | ALL | Re-exports from src/api/v1/sso/sso.controller.js | routes/ssoRoutes.js, server.js | ⬜ |
-| controllers/hostelController.js | ALL | Re-exports from src/api/v1/hostels/hostels.controller.js | routes/hostelRoutes.js | ⬜ |
-| controllers/studentController.js | ALL | Re-exports from src/api/v1/students/students.controller.js | routes/studentRoutes.js | ⬜ |
-| controllers/studentProfileController.js | ALL | Re-exports from src/api/v1/student-profile/studentProfile.controller.js | routes/studentProfileRoutes.js | ⬜ |
-| controllers/wardenController.js | ALL | Re-exports from src/api/v1/wardens/wardens.controller.js | routes/wardenRoute.js | ⬜ |
-| controllers/associateWardenController.js | ALL | Re-exports from src/api/v1/wardens/associateWarden.controller.js | routes/wardenRoute.js | ⬜ |
-| controllers/complaintController.js | ALL | Re-exports from src/api/v1/complaints/complaints.controller.js | routes/complaintRoutes.js | ⬜ |
-| controllers/leaveController.js | ALL | Re-exports from src/api/v1/leaves/leaves.controller.js | routes/leaveRoutes.js | ⬜ |
-| controllers/visitorController.js | ALL | Re-exports from src/api/v1/visitors/visitors.controller.js | routes/visitorRoutes.js | ⬜ |
-| controllers/visitorProfileController.js | ALL | Re-exports from src/api/v1/visitors/visitorProfile.controller.js | routes/visitorRoutes.js | ⬜ |
-| controllers/familyMemberController.js | ALL | Re-exports from src/api/v1/family/family.controller.js | routes/familyMemberRoutes.js | ⬜ |
-| controllers/eventController.js | ALL | Re-exports from src/api/v1/events/events.controller.js | routes/eventRoutes.js | ⬜ |
-| controllers/hostelInventoryController.js | ALL | Re-exports from src/api/v1/inventory/hostelInventory.controller.js | routes/inventoryRoutes.js | ⬜ |
-| controllers/studentInventoryController.js | ALL | Re-exports from src/api/v1/inventory/studentInventory.controller.js | routes/inventoryRoutes.js | ⬜ |
-| controllers/inventoryItemTypeController.js | ALL | Re-exports from src/api/v1/inventory/inventoryItemType.controller.js | routes/inventoryRoutes.js | ⬜ |
-| controllers/lostAndFoundController.js | ALL | Re-exports from src/api/v1/lost-found/lostFound.controller.js | routes/lostAndFoundRoutes.js | ⬜ |
-| controllers/taskController.js | ALL | Re-exports from src/api/v1/tasks/tasks.controller.js | routes/taskRoutes.js | ⬜ |
-| controllers/securityController.js | ALL | Re-exports from src/api/v1/security/security.controller.js | routes/securityRoutes.js | ⬜ |
-| controllers/faceScannerController.js | ALL | Re-exports from src/api/v1/face-scanner/faceScanner.controller.js | routes/faceScannerRoutes.js | ⬜ |
-| controllers/scannerActionController.js | ALL | Re-exports from src/api/v1/face-scanner/scannerAction.controller.js | routes/faceScannerRoutes.js | ⬜ |
-| controllers/staffAttendanceController.js | ALL | Re-exports from src/api/v1/staff-attendance/staffAttendance.controller.js | routes/staffAttendanceRoutes.js | ⬜ |
-| controllers/liveCheckInOutController.js | ALL | Re-exports from src/api/v1/live-checkinout/liveCheckinout.controller.js | routes/liveCheckInOutRoutes.js | ⬜ |
-| controllers/adminController.js | ALL | Re-exports from src/api/v1/admin/admin.controller.js | routes/adminRoutes.js | ⬜ |
-| controllers/superAdminControllers.js | ALL | Re-exports from src/api/v1/super-admin/superAdmin.controller.js | routes/superAdminRoutes.js | ⬜ |
-| controllers/dashboardController.js | ALL | Re-exports from src/api/v1/dashboard/dashboard.controller.js | routes/dashboardRoutes.js | ⬜ |
-| controllers/statsController.js | ALL | Re-exports from src/api/v1/stats/stats.controller.js | routes/statsRoutes.js | ⬜ |
-| controllers/permissionController.js | ALL | Re-exports from src/api/v1/permissions/permissions.controller.js | routes/permissionRoutes.js | ⬜ |
-| controllers/notificationController.js | ALL | Re-exports from src/api/v1/notifications/notifications.controller.js | routes/notificationRoutes.js | ⬜ |
-| controllers/feedbackController.js | ALL | Re-exports from src/api/v1/feedback/feedback.controller.js | routes/feedbackRoutes.js | ⬜ |
-| controllers/certificateController.js | ALL | Re-exports from src/api/v1/certificates/certificates.controller.js | routes/certificateRoutes.js | ⬜ |
-| controllers/undertakingController.js | ALL | Re-exports from src/api/v1/undertakings/undertakings.controller.js | routes/undertakingRoutes.js | ⬜ |
-| controllers/disCoController.js | ALL | Re-exports from src/api/v1/disco/disco.controller.js | routes/disCoRoutes.js | ⬜ |
-| controllers/uploadController.js | ALL | Re-exports from src/api/v1/upload/upload.controller.js | routes/uploadRoutes.js | ⬜ |
-| controllers/paymentController.js | ALL | Re-exports from src/api/v1/payments/payments.controller.js | routes/paymentRoutes.js | ⬜ |
-| controllers/configController.js | ALL | Re-exports from src/api/v1/config/config.controller.js | routes/configRoutes.js | ⬜ |
-| controllers/sheetController.js | ALL | Re-exports from src/api/v1/sheets/sheets.controller.js | routes/sheetRoutes.js | ⬜ |
-| controllers/onlineUsersController.js | ALL | Re-exports from src/api/v1/online-users/onlineUsers.controller.js | routes/onlineUsersRoutes.js | ⬜ |
-| controllers/healthController.js | ALL | Re-exports from src/api/v1/health/health.controller.js | Various | ⬜ |
-| controllers/hostelGateController.js | ALL | Re-exports from src/api/v1/hostel-gate/hostelGate.controller.js | Various | ⬜ |
-| controllers/hostelSupervisorController.js | ALL | Re-exports from src/api/v1/hostel-supervisor/hostelSupervisor.controller.js | Various | ⬜ |
-| controllers/insuranceProviderController.js | ALL | Re-exports from src/api/v1/insurance/insurance.controller.js | Various | ⬜ |
+All 43 controllers re-export from `src/controllers/`:
+
+| File | Description | Status |
+|------|-------------|--------|
+| controllers/*.js (43 files) | Re-exports from src/controllers/*.js | ⬜ |
 
 ### Service Files
 
@@ -195,12 +155,6 @@
 | utils/socketHandlers.js | ALL | Re-exports from src/utils/socketHandlers.js | server.js | ⬜ |
 | utils/configDefaults.js | ALL | Re-exports from src/utils/configDefaults.js | configController.js | ⬜ |
 
-### External API Files
-
-| File | Line(s) | Description | Depends On | Status |
-|------|---------|-------------|------------|--------|
-| externalApi/index.js | ALL | Re-exports from src/external/index.js | server.js | ⬜ |
-
 ---
 
 ## Cleanup Checklist
@@ -214,7 +168,7 @@ Once all legacy files are marked ✅ (frontend updated):
 - [ ] Delete all re-export files in `controllers/`
 - [ ] Delete all re-export files in `services/`
 - [ ] Delete all re-export files in `utils/`
-- [ ] Delete `externalApi/` folder
+- [x] ~~Delete `externalApi/` folder~~ (Removed)
 - [ ] Update `server.js` to use new imports
 - [ ] Remove this file from the project
 

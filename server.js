@@ -21,7 +21,6 @@ import notificationRoutes from "./routes/notificationRoutes.js"
 import disCoRoutes from "./routes/disCoRoutes.js"
 import certificateRoutes from "./routes/certificateRoutes.js"
 import paymentRoutes from "./routes/paymentRoutes.js"
-import externalApiRoutes from "./externalApi/index.js"
 import superAdminRoutes from "./routes/superAdminRoutes.js"
 import familyMemberRoutes from "./routes/familyMemberRoutes.js"
 import staffAttendanceRoutes from "./routes/staffAttendanceRoutes.js"
@@ -153,7 +152,6 @@ app.use("/api/online-users", onlineUsersRoutes)
 app.use("/api/live-checkinout", liveCheckInOutRoutes)
 app.use("/api/face-scanner", faceScannerRoutes)
 app.use("/api/sheet", sheetRoutes)
-app.use("/external-api", externalApiRoutes)
 
 app.get("/", (req, res) => {
   res.send("Hello World!!")
