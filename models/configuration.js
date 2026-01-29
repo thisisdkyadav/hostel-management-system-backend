@@ -1,32 +1,7 @@
-import mongoose from "mongoose"
+/**
+ * @deprecated This file is kept for backward compatibility.
+ * Please import from 'src/models/config' instead.
+ */
 
-const configurationSchema = new mongoose.Schema({
-  key: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-  },
-  value: {
-    type: mongoose.Schema.Types.Mixed,
-    required: true,
-  },
-  description: {
-    type: String,
-    default: "",
-  },
-  lastUpdated: {
-    type: Date,
-    default: Date.now,
-  },
-})
-
-// Pre-save hook to update lastUpdated timestamp
-configurationSchema.pre("save", function (next) {
-  this.lastUpdated = Date.now()
-  next()
-})
-
-const Configuration = mongoose.model("Configuration", configurationSchema)
-
-export default Configuration
+export { default } from '../src/models/config/Configuration.model.js'
+export { default as Configuration } from '../src/models/config/Configuration.model.js'

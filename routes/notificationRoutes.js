@@ -1,16 +1,5 @@
-import express from "express"
-import { createNotification, getNotificationStats, getNotifications, getActiveNotificationsCount } from "../controllers/notificationController.js"
-import { authenticate } from "../middlewares/auth.js"
-import { authorizeRoles } from "../middlewares/authorize.js"
-
-const router = express.Router()
-router.use(authenticate)
-
-router.post("/", authorizeRoles(["Admin"]), createNotification)
-
-router.use(authorizeRoles(["Admin", "Student", "Warden", "Associate Warden", "Hostel Supervisor"]))
-router.get("/", getNotifications)
-router.get("/stats", getNotificationStats)
-router.get("/active-count", getActiveNotificationsCount)
-
-export default router
+/**
+ * @deprecated This file is maintained for backward compatibility.
+ * Import from 'src/routes/v1/notification.routes.js' for new code.
+ */
+export { default } from '../src/routes/v1/notification.routes.js';

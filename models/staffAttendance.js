@@ -1,17 +1,7 @@
-import mongoose from "mongoose"
+/**
+ * @deprecated This file is kept for backward compatibility.
+ * Please import from 'src/models/attendance' instead.
+ */
 
-const staffAttendanceSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },
-  type: {
-    type: String,
-    enum: ["checkIn", "checkOut"],
-    required: true,
-  },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-})
-
-const StaffAttendance = mongoose.model("StaffAttendance", staffAttendanceSchema)
-
-export default StaffAttendance
+export { default } from '../src/models/attendance/StaffAttendance.model.js'
+export { default as StaffAttendance } from '../src/models/attendance/StaffAttendance.model.js'

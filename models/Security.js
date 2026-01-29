@@ -1,11 +1,7 @@
-import mongoose from "mongoose"
+/**
+ * @deprecated This file is maintained for backward compatibility.
+ * Please import from 'src/models/user/Security.model.js' instead.
+ */
 
-const SecuritySchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-})
-
-const Security = mongoose.model("Security", SecuritySchema)
-export default Security
+export { default } from "../src/models/user/Security.model.js"
+export * from "../src/models/user/Security.model.js"

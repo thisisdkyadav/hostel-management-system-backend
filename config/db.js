@@ -1,15 +1,6 @@
-import mongoose from "mongoose";
-import "./environment.js";
-import { MONGO_URI } from "./environment.js";
-
-const connectDB = async () => {
-  try {
-    await mongoose.connect(MONGO_URI);
-    console.log("MongoDB connected successfully");
-  } catch (error) {
-    console.error("MongoDB Connection Error:", error);
-    process.exit(1);
-  }
-};
-
-export default connectDB;
+/**
+ * LEGACY FILE - Re-exports from new location
+ * TODO: Update all imports to use '../src/config' then delete this file
+ * @see src/config/database.config.js
+ */
+export { connectDatabase as default, connectDatabase, connectDB } from "../src/config/database.config.js"

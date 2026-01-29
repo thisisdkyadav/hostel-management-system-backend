@@ -1,23 +1,7 @@
-import mongoose from "mongoose";
+/**
+ * @deprecated This file is kept for backward compatibility.
+ * Please import from 'src/models/disco' instead.
+ */
 
-const DisCoActionSchema = new mongoose.Schema({
- userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  reason: {
-    type: String,
-    required: true,
-  },
-  actionTaken: {
-    type: String, 
-    required: true,
-  },
-  date: {
-    type: Date,
-    default: Date.now,
-    required: true,
-  },
-  remarks: {
-    type: String,
-  },
-});
-
-export default mongoose.model("DisCoAction", DisCoActionSchema);
+export { default } from '../src/models/disco/DisCoAction.model.js'
+export { default as DisCoAction } from '../src/models/disco/DisCoAction.model.js'

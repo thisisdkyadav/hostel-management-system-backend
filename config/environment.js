@@ -1,20 +1,24 @@
-import dotenv from "dotenv"
-
-dotenv.config()
-
-export const isDevelopmentEnvironment = process.env.NODE_ENV === "development",
-  PORT = process.env.PORT || 5000,
-  JWT_SECRET = process.env.JWT_SECRET,
-  SESSION_SECRET = process.env.SESSION_SECRET,
-  MONGO_URI = process.env.MONGO_URI,
-  REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379",
-  AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING,
-  AZURE_STORAGE_CONTAINER_NAME = process.env.AZURE_STORAGE_CONTAINER_NAME,
-  AZURE_STORAGE_ACCOUNT_NAME = process.env.AZURE_STORAGE_ACCOUNT_NAME,
-  AZURE_STORAGE_ACCOUNT_KEY = process.env.AZURE_STORAGE_ACCOUNT_KEY,
-  QR_PRIVATE_KEY = process.env.QR_PRIVATE_KEY,
-  RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID,
-  RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET,
-  AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID = process.env.AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID,
-  ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS,
-  USE_LOCAL_STORAGE = process.env.USE_LOCAL_STORAGE === "true"
+/**
+ * LEGACY FILE - Re-exports from new location
+ * TODO: Update all imports to use '../src/config' then delete this file
+ * @see src/config/env.config.js
+ */
+export {
+  isDevelopmentEnvironment,
+  PORT,
+  JWT_SECRET,
+  SESSION_SECRET,
+  MONGO_URI,
+  REDIS_URL,
+  AZURE_STORAGE_CONNECTION_STRING,
+  AZURE_STORAGE_CONTAINER_NAME,
+  AZURE_STORAGE_ACCOUNT_NAME,
+  AZURE_STORAGE_ACCOUNT_KEY,
+  QR_PRIVATE_KEY,
+  RAZORPAY_KEY_ID,
+  RAZORPAY_KEY_SECRET,
+  AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID,
+  ALLOWED_ORIGINS,
+  USE_LOCAL_STORAGE,
+  env,
+} from "../src/config/env.config.js"

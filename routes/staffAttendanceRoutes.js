@@ -1,20 +1,5 @@
-import express from "express"
-import { verifyQR, recordAttendance, getAttendanceRecords } from "../controllers/staffAttendanceController.js"
-import { authenticate } from "../middlewares/auth.js"
-import { authorizeRoles } from "../middlewares/authorize.js"
-
-const router = express.Router()
-
-// All routes are protected and require authentication
-router.use(authenticate)
-
-// Route to verify QR code for staff attendance
-router.post("/verify-qr", authorizeRoles(["Hostel Gate"]), verifyQR)
-
-// Route to record staff attendance (check-in or check-out)
-router.post("/attendance/record", authorizeRoles(["Hostel Gate"]), recordAttendance)
-
-// Route to get staff attendance records
-router.get("/attendance/records", authorizeRoles(["Admin", "Warden", "Associate Warden", "Hostel Supervisor", "Security", "Hostel Gate"]), getAttendanceRecords)
-
-export default router
+/**
+ * @deprecated This file is maintained for backward compatibility.
+ * Import from 'src/routes/v1/staffAttendance.routes.js' for new code.
+ */
+export { default } from '../src/routes/v1/staffAttendance.routes.js';

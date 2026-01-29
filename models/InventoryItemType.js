@@ -1,17 +1,7 @@
-import mongoose from "mongoose"
+/**
+ * @deprecated This file is kept for backward compatibility.
+ * Please import from 'src/models/inventory' instead.
+ */
 
-const InventoryItemTypeSchema = new mongoose.Schema({
-  name: { type: String, required: true, unique: true },
-  description: { type: String },
-  totalCount: { type: Number, required: true, default: 0 },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-})
-
-InventoryItemTypeSchema.pre("save", function (next) {
-  this.updatedAt = Date.now()
-  next()
-})
-
-const InventoryItemType = mongoose.model("InventoryItemType", InventoryItemTypeSchema)
-export default InventoryItemType
+export { default } from '../src/models/inventory/InventoryItemType.model.js'
+export { default as InventoryItemType } from '../src/models/inventory/InventoryItemType.model.js'

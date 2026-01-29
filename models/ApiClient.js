@@ -1,12 +1,7 @@
-import mongoose from "mongoose"
+/**
+ * @deprecated This file is kept for backward compatibility.
+ * Please import from 'src/models/scanner' instead.
+ */
 
-const apiClientSchema = new mongoose.Schema({
-  name: { type: String, required: true, unique: true },
-  apiKey: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now },
-  expiresAt: { type: Date },
-  isActive: { type: Boolean, default: true },
-})
-
-const ApiClient = mongoose.model("ApiClient", apiClientSchema)
-export default ApiClient
+export { default } from '../src/models/scanner/ApiClient.model.js'
+export { default as ApiClient } from '../src/models/scanner/ApiClient.model.js'

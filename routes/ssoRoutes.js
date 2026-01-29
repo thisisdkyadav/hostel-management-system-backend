@@ -1,9 +1,5 @@
-import express from "express"
-import { redirect, verifySSOToken } from "../controllers/ssoController.js"
-
-const router = express.Router()
-
-router.get("/redirect", redirect)
-router.post("/verify", verifySSOToken)
-
-export default router
+/**
+ * @deprecated This file is maintained for backward compatibility.
+ * Import from 'src/routes/v1/sso.routes.js' for new code.
+ */
+export { default } from '../src/routes/v1/sso.routes.js';

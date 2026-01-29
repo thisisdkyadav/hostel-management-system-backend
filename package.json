@@ -1,11 +1,13 @@
 {
   "name": "hms_backend",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Hostel Management System Backend",
-  "main": "server.js",
+  "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "dev": "nodemon server.js",
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "dev:legacy": "nodemon server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
