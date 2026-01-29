@@ -6,85 +6,100 @@ import Session from "../models/Session.js"
 import axios from "axios"
 
 export const login = async (req, res) => {
-  const { email, password } = req.body
+  const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required" })
+    return res.status(400).json({ message: "Email and password are required" });
   }
 
   try {
-    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
+    const user = await User.findOne({
+      email: { $regex: new RegExp(`^${email}$`, "i") },
+    })
       .select("+password")
-      .exec()
+      .exec();
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid email or password" })
+      return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // Check if user has a password set
     if (!user.password) {
-      return res.status(401).json({ message: "Password not set for this account" })
+      return res
+        .status(401)
+        .json({ message: "Password not set for this account" });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password)
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(401).json({ message: "Invalid email or password" })
+      return res.status(401).json({ message: "Invalid email or password" });
     }
 
-    // Store user info in session
-    req.session.userId = user._id
-    req.session.role = user.role
-    req.session.email = user.email
+    // --- session setup ---
+    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email);
+    const userResponse = await User.findByIdAndUpdate(
+      user._id,
+      { aesKey },
+      { new: true }
+    );
 
-    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email)
-    const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true })
-
-    // Store essential user data in session with properly serialized permissions
     const essentialData = {
       _id: userResponse._id,
       email: userResponse.email,
       role: userResponse.role,
-      // Convert Map to plain object for session storage
       permissions: Object.fromEntries(userResponse.permissions || new Map()),
-      // Include hostel data if available
       hostel: userResponse.hostel,
-    }
+    };
 
-    req.session.userData = essentialData
+    // persist userId + data in session
+    req.session.userId = user._id;
+    req.session.userData = essentialData;
+    req.session.role = user.role;
+    req.session.email = user.email;
 
     // Create device session record
-    const userAgent = req.headers["user-agent"] || "Unknown"
-    const deviceName = getDeviceNameFromUserAgent(userAgent)
-    const ip = req.ip || req.connection.remoteAddress
+    const userAgent = req.headers["user-agent"] || "Unknown";
+    const deviceName = getDeviceNameFromUserAgent(userAgent);
+    const ip = req.ip || req.connection.remoteAddress;
 
     await Session.create({
       userId: user._id,
       sessionId: req.sessionID,
-      userAgent: userAgent,
-      ip: ip,
-      deviceName: deviceName,
+      userAgent,
+      ip,
+      deviceName,
       loginTime: new Date(),
       lastActive: new Date(),
-    })
+    });
 
-    // Remove sensitive data and convert permissions Map to object for frontend
-    const userResponseObj = userResponse.toObject()
-    delete userResponseObj.password
-
-    // Convert permissions Map to a plain object for frontend
+    // remove sensitive data
+    const userResponseObj = userResponse.toObject();
+    delete userResponseObj.password;
     if (userResponseObj.permissions instanceof Map) {
-      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions)
+      userResponseObj.permissions = Object.fromEntries(
+        userResponseObj.permissions
+      );
     }
 
-    res.json({
-      user: userResponseObj,
-      message: "Login successful",
-    })
+    // --- important: explicitly save session before responding ---
+    req.session.save((err) => {
+      if (err) {
+        console.error("Session save error:", err);
+        return res
+          .status(500)
+          .json({ message: "Failed to create session. Please try again." });
+      }
+
+      res.json({
+        success: true,
+        message: "Login successful",
+        user: userResponseObj,
+      });
+    });
   } catch (error) {
-    console.error("Login error:", error.message)
-    res.status(500).json({ message: "Server error" })
+    console.error("Login error:", error.message);
+    res.status(500).json({ message: "Server error" });
   }
-}
+}; 
 
 export const loginWithGoogle = async (req, res) => {
   const { token } = req.body
