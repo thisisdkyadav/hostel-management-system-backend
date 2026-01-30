@@ -9,6 +9,9 @@ export * from "./auth.service.js"
 // Complaint services
 export * from "./complaint.service.js"
 
+// Student services
+export * from "./student.service.js"
+
 // Scanner services
 export * as faceScannerService from "./faceScanner.service.js"
 export * as scannerActionService from "./scannerAction.service.js"
@@ -28,6 +31,7 @@ export * as notificationService from "./notification.service.js"
 // Default exports for convenience
 import { authService } from "./auth.service.js"
 import { complaintService } from "./complaint.service.js"
+import { studentService } from "./student.service.js"
 import faceScannerServiceDefault from "./faceScanner.service.js"
 import scannerActionServiceDefault from "./scannerAction.service.js"
 import liveCheckInOutServiceDefault from "./liveCheckInOut.service.js"
@@ -38,6 +42,7 @@ import notificationServiceDefault from "./notification.service.js"
 export default {
   authService,
   complaintService,
+  studentService,
   faceScannerService: faceScannerServiceDefault,
   scannerActionService: scannerActionServiceDefault,
   liveCheckInOutService: liveCheckInOutServiceDefault,
