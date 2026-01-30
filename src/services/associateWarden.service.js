@@ -8,47 +8,53 @@
 import AssociateWarden from '../../models/AssociateWarden.js';
 import User from '../../models/User.js';
 import bcrypt from 'bcrypt';
+import { BaseService, success, notFound, badRequest, forbidden } from './base/index.js';
 
-class AssociateWardenService {
+class AssociateWardenService extends BaseService {
+  constructor() {
+    super(AssociateWarden, 'Associate Warden');
+  }
+
   /**
    * Get associate warden profile by user ID
+   * @param {string} userId - User ID
    */
   async getAssociateWardenProfile(userId) {
-    const associateWardenProfile = await AssociateWarden.findOne({ userId })
+    const associateWardenProfile = await this.model.findOne({ userId })
       .populate('userId', 'name email role phone profileImage')
       .populate('hostelIds', 'name type')
-      .populate('activeHostelId', 'name type')
-      .exec();
+      .populate('activeHostelId', 'name type');
 
     if (!associateWardenProfile) {
-      return { success: false, statusCode: 404, message: 'Associate Warden profile not found' };
+      return notFound(this.entityName + ' profile');
     }
 
     const formattedProfile = {
       ...associateWardenProfile.toObject(),
-      hostelId: associateWardenProfile.activeHostelId,
+      hostelId: associateWardenProfile.activeHostelId
     };
 
-    return { success: true, statusCode: 200, data: formattedProfile };
+    return success(formattedProfile);
   }
 
   /**
    * Create a new associate warden
+   * @param {Object} wardenData - Warden data
    */
   async createAssociateWarden(wardenData) {
     const { email, password, name, phone, hostelIds, joinDate, category } = wardenData;
 
     if (!email || !password || !name) {
-      return { success: false, statusCode: 400, message: 'Email, password, and name are required' };
+      return badRequest('Email, password, and name are required');
     }
 
     if (hostelIds && !Array.isArray(hostelIds)) {
-      return { success: false, statusCode: 400, message: 'hostelIds must be an array' };
+      return badRequest('hostelIds must be an array');
     }
 
     const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
     if (existingUser) {
-      return { success: false, statusCode: 400, message: 'User with this email already exists' };
+      return badRequest('User with this email already exists');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -59,7 +65,7 @@ class AssociateWardenService {
       email,
       password: hashedPassword,
       role: 'Associate Warden',
-      phone: phone || '',
+      phone: phone || ''
     });
 
     const savedUser = await newUser.save();
@@ -68,16 +74,14 @@ class AssociateWardenService {
     const status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
     const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null;
 
-    const newAssociateWarden = new AssociateWarden({
+    await this.model.create({
       userId: savedUser._id,
       hostelIds: validHostelIds,
-      activeHostelId: activeHostelId,
-      status: status,
+      activeHostelId,
+      status,
       joinDate: joinDate || Date.now(),
-      category: category || 'Associate Warden',
+      category: category || 'Associate Warden'
     });
-
-    await newAssociateWarden.save();
 
     return { success: true, statusCode: 201, message: 'Associate Warden created successfully' };
   }
@@ -86,10 +90,9 @@ class AssociateWardenService {
    * Get all associate wardens
    */
   async getAllAssociateWardens() {
-    const associateWardens = await AssociateWarden.find()
+    const associateWardens = await this.model.find()
       .populate('userId', 'name email phone profileImage')
-      .lean()
-      .exec();
+      .lean();
 
     const formattedAssociateWardens = associateWardens.map((aw) => ({
       id: aw._id,
@@ -102,7 +105,7 @@ class AssociateWardenService {
       joinDate: aw.joinDate ? aw.joinDate.toISOString().split('T')[0] : null,
       profileImage: aw.userId.profileImage,
       status: aw.status || (aw.hostelIds && aw.hostelIds.length > 0 ? 'assigned' : 'unassigned'),
-      category: aw.category || 'Associate Warden',
+      category: aw.category || 'Associate Warden'
     }));
 
     formattedAssociateWardens.sort((a, b) => {
@@ -115,34 +118,36 @@ class AssociateWardenService {
       return a.name.localeCompare(b.name);
     });
 
-    return { success: true, statusCode: 200, data: formattedAssociateWardens };
+    return success(formattedAssociateWardens);
   }
 
   /**
    * Update associate warden
+   * @param {string} id - Associate Warden ID
+   * @param {Object} wardenData - Update data
    */
   async updateAssociateWarden(id, wardenData) {
     const { phone, profileImage, joinDate, hostelIds, category } = wardenData;
 
     if (hostelIds && !Array.isArray(hostelIds)) {
-      return { success: false, statusCode: 400, message: 'hostelIds must be an array' };
+      return badRequest('hostelIds must be an array');
     }
 
     const updateData = {};
-    let userUpdateData = {};
+    const userUpdateData = {};
 
     if (hostelIds !== undefined) {
       const validHostelIds = Array.isArray(hostelIds) ? hostelIds : [];
       updateData.hostelIds = validHostelIds;
       updateData.status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
 
-      const currentAW = await AssociateWarden.findById(id).select('activeHostelId hostelIds').lean();
+      const currentAW = await this.model.findById(id).select('activeHostelId hostelIds').lean();
       if (!currentAW) {
-        return { success: false, statusCode: 404, message: 'Associate Warden not found' };
+        return notFound(this.entityName);
       }
 
       const currentActiveId = currentAW.activeHostelId ? currentAW.activeHostelId.toString() : null;
-      const newHostelIdStrings = validHostelIds.map((id) => id.toString());
+      const newHostelIdStrings = validHostelIds.map((hId) => hId.toString());
 
       if (validHostelIds.length === 0) {
         updateData.activeHostelId = null;
@@ -153,37 +158,26 @@ class AssociateWardenService {
       }
     }
 
-    if (joinDate !== undefined) {
-      updateData.joinDate = joinDate;
-    }
-
-    if (phone !== undefined) {
-      userUpdateData.phone = phone;
-    }
-
-    if (profileImage !== undefined) {
-      userUpdateData.profileImage = profileImage;
-    }
-
-    if (category !== undefined) {
-      updateData.category = category;
-    }
+    if (joinDate !== undefined) updateData.joinDate = joinDate;
+    if (phone !== undefined) userUpdateData.phone = phone;
+    if (profileImage !== undefined) userUpdateData.profileImage = profileImage;
+    if (category !== undefined) updateData.category = category;
 
     if (Object.keys(userUpdateData).length > 0) {
-      const associateWarden = await AssociateWarden.findById(id).select('userId');
+      const associateWarden = await this.model.findById(id).select('userId');
       if (!associateWarden) {
-        return { success: false, statusCode: 404, message: 'Associate Warden not found' };
+        return notFound(this.entityName);
       }
       await User.findByIdAndUpdate(associateWarden.userId, userUpdateData);
     }
 
     if (Object.keys(updateData).length > 0) {
-      const updatedAssociateWarden = await AssociateWarden.findByIdAndUpdate(id, updateData, { new: true }).lean();
+      const updatedAssociateWarden = await this.model.findByIdAndUpdate(id, updateData, { new: true }).lean();
       if (!updatedAssociateWarden) {
-        return { success: false, statusCode: 404, message: 'Associate Warden not found during update' };
+        return notFound(this.entityName + ' during update');
       }
     } else if (Object.keys(userUpdateData).length === 0) {
-      return { success: false, statusCode: 400, message: 'No update data provided' };
+      return badRequest('No update data provided');
     }
 
     return { success: true, statusCode: 200, message: 'Associate Warden updated successfully' };
@@ -191,11 +185,12 @@ class AssociateWardenService {
 
   /**
    * Delete associate warden
+   * @param {string} id - Associate Warden ID
    */
   async deleteAssociateWarden(id) {
-    const deletedAssociateWarden = await AssociateWarden.findByIdAndDelete(id);
+    const deletedAssociateWarden = await this.model.findByIdAndDelete(id);
     if (!deletedAssociateWarden) {
-      return { success: false, statusCode: 404, message: 'Associate Warden not found' };
+      return notFound(this.entityName);
     }
 
     await User.findByIdAndDelete(deletedAssociateWarden.userId);
@@ -205,22 +200,25 @@ class AssociateWardenService {
 
   /**
    * Set active hostel for associate warden
+   * @param {string} userId - User ID
+   * @param {string} hostelId - Hostel ID
+   * @param {Object} session - Session object
    */
   async setActiveHostelAW(userId, hostelId, session) {
     if (!hostelId) {
-      return { success: false, statusCode: 400, message: 'hostelId is required in the request body' };
+      return badRequest('hostelId is required in the request body');
     }
 
-    const associateWarden = await AssociateWarden.findOne({ userId });
+    const associateWarden = await this.model.findOne({ userId });
 
     if (!associateWarden) {
-      return { success: false, statusCode: 404, message: 'Associate Warden profile not found for this user' };
+      return notFound(this.entityName + ' profile for this user');
     }
 
     const isAssigned = associateWarden.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId));
 
     if (!isAssigned) {
-      return { success: false, statusCode: 403, message: 'Associate Warden is not assigned to the specified hostel' };
+      return forbidden('Associate Warden is not assigned to the specified hostel');
     }
 
     associateWarden.activeHostelId = hostelId;
@@ -236,19 +234,15 @@ class AssociateWardenService {
         email: user.email,
         role: user.role,
         permissions: Object.fromEntries(user.permissions || new Map()),
-        hostel: user.hostel,
+        hostel: user.hostel
       };
       await session.save();
     }
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Active hostel updated successfully for Associate Warden',
-        activeHostel: associateWarden.activeHostelId,
-      },
-    };
+    return success({
+      message: 'Active hostel updated successfully for Associate Warden',
+      activeHostel: associateWarden.activeHostelId
+    });
   }
 }
 

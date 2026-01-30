@@ -8,47 +8,53 @@
 import Warden from '../../models/Warden.js';
 import User from '../../models/User.js';
 import bcrypt from 'bcrypt';
+import { BaseService, success, notFound, badRequest, forbidden } from './base/index.js';
 
-class WardenService {
+class WardenService extends BaseService {
+  constructor() {
+    super(Warden, 'Warden');
+  }
+
   /**
    * Get warden profile by user ID
+   * @param {string} userId - User ID
    */
   async getWardenProfile(userId) {
-    const wardenProfile = await Warden.findOne({ userId })
+    const wardenProfile = await this.model.findOne({ userId })
       .populate('userId', 'name email role phone profileImage')
       .populate('hostelIds', 'name type')
-      .populate('activeHostelId', 'name type')
-      .exec();
+      .populate('activeHostelId', 'name type');
 
     if (!wardenProfile) {
-      return { success: false, statusCode: 404, message: 'Warden profile not found' };
+      return notFound(this.entityName + ' profile');
     }
 
     const formattedWardenProfile = {
       ...wardenProfile.toObject(),
-      hostelId: wardenProfile.activeHostelId,
+      hostelId: wardenProfile.activeHostelId
     };
 
-    return { success: true, statusCode: 200, data: formattedWardenProfile };
+    return success(formattedWardenProfile);
   }
 
   /**
    * Create a new warden
+   * @param {Object} wardenData - Warden data
    */
   async createWarden(wardenData) {
     const { email, password, name, phone, hostelIds, joinDate, category } = wardenData;
 
     if (!email || !password || !name) {
-      return { success: false, statusCode: 400, message: 'Email, password, and name are required' };
+      return badRequest('Email, password, and name are required');
     }
 
     if (hostelIds && !Array.isArray(hostelIds)) {
-      return { success: false, statusCode: 400, message: 'hostelIds must be an array' };
+      return badRequest('hostelIds must be an array');
     }
 
     const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
     if (existingUser) {
-      return { success: false, statusCode: 400, message: 'User with this email already exists' };
+      return badRequest('User with this email already exists');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -59,7 +65,7 @@ class WardenService {
       email,
       password: hashedPassword,
       role: 'Warden',
-      phone: phone || '',
+      phone: phone || ''
     });
 
     const savedUser = await newUser.save();
@@ -68,16 +74,14 @@ class WardenService {
     const status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
     const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null;
 
-    const newWarden = new Warden({
+    await this.model.create({
       userId: savedUser._id,
       hostelIds: validHostelIds,
-      activeHostelId: activeHostelId,
-      status: status,
+      activeHostelId,
+      status,
       joinDate: joinDate || Date.now(),
-      category: category || 'Warden',
+      category: category || 'Warden'
     });
-
-    await newWarden.save();
 
     return { success: true, statusCode: 201, message: 'Warden created successfully' };
   }
@@ -86,10 +90,9 @@ class WardenService {
    * Get all wardens
    */
   async getAllWardens() {
-    const wardens = await Warden.find()
+    const wardens = await this.model.find()
       .populate('userId', 'name email phone profileImage')
-      .lean()
-      .exec();
+      .lean();
 
     const formattedWardens = wardens.map((warden) => ({
       id: warden._id,
@@ -102,7 +105,7 @@ class WardenService {
       joinDate: warden.joinDate ? warden.joinDate.toISOString().split('T')[0] : null,
       profileImage: warden.userId.profileImage,
       status: warden.status || (warden.hostelIds && warden.hostelIds.length > 0 ? 'assigned' : 'unassigned'),
-      category: warden.category || 'Warden',
+      category: warden.category || 'Warden'
     }));
 
     formattedWardens.sort((a, b) => {
@@ -115,77 +118,64 @@ class WardenService {
       return a.name.localeCompare(b.name);
     });
 
-    return { success: true, statusCode: 200, data: formattedWardens };
+    return success(formattedWardens);
   }
 
   /**
    * Update warden
+   * @param {string} id - Warden ID
+   * @param {Object} wardenData - Update data
    */
   async updateWarden(id, wardenData) {
     const { phone, profileImage, joinDate, hostelIds, category } = wardenData;
 
     if (hostelIds && !Array.isArray(hostelIds)) {
-      return { success: false, statusCode: 400, message: 'hostelIds must be an array' };
+      return badRequest('hostelIds must be an array');
     }
 
     const updateData = {};
-    let userUpdateData = {};
+    const userUpdateData = {};
 
     if (hostelIds !== undefined) {
       const validHostelIds = Array.isArray(hostelIds) ? hostelIds : [];
       updateData.hostelIds = validHostelIds;
       updateData.status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
 
-      const currentWarden = await Warden.findById(id).select('activeHostelId hostelIds').lean();
+      const currentWarden = await this.model.findById(id).select('activeHostelId hostelIds').lean();
       if (!currentWarden) {
-        return { success: false, statusCode: 404, message: 'Warden not found' };
+        return notFound(this.entityName);
       }
 
       const currentActiveId = currentWarden.activeHostelId ? currentWarden.activeHostelId.toString() : null;
-      const newHostelIdStrings = validHostelIds.map((id) => id.toString());
-
-      console.log(validHostelIds, newHostelIdStrings);
+      const newHostelIdStrings = validHostelIds.map((hId) => hId.toString());
 
       if (validHostelIds.length === 0) {
         updateData.activeHostelId = null;
       } else if (!currentActiveId || (currentActiveId && !newHostelIdStrings.includes(currentActiveId))) {
         updateData.activeHostelId = validHostelIds[0];
-        console.log(updateData);
       }
     }
 
-    if (joinDate !== undefined) {
-      updateData.joinDate = joinDate;
-    }
-
-    if (profileImage !== undefined) {
-      userUpdateData.profileImage = profileImage;
-    }
-
-    if (phone !== undefined) {
-      userUpdateData.phone = phone;
-    }
-
-    if (category !== undefined) {
-      updateData.category = category;
-    }
+    if (joinDate !== undefined) updateData.joinDate = joinDate;
+    if (profileImage !== undefined) userUpdateData.profileImage = profileImage;
+    if (phone !== undefined) userUpdateData.phone = phone;
+    if (category !== undefined) updateData.category = category;
 
     if (Object.keys(userUpdateData).length > 0) {
-      const warden = await Warden.findById(id).select('userId');
+      const warden = await this.model.findById(id).select('userId');
       if (!warden) {
-        return { success: false, statusCode: 404, message: 'Warden not found' };
+        return notFound(this.entityName);
       }
       await User.findByIdAndUpdate(warden.userId, userUpdateData);
     }
 
     if (Object.keys(updateData).length > 0) {
-      const updatedWarden = await Warden.findByIdAndUpdate(id, updateData, { new: true }).lean();
-
+      const updatedWarden = await this.model.findByIdAndUpdate(id, updateData, { new: true }).lean();
       if (!updatedWarden) {
-        return { success: false, statusCode: 404, message: 'Warden not found during update' };
+        return notFound(this.entityName + ' during update');
       }
     } else if (Object.keys(userUpdateData).length === 0) {
-      return { success: false, statusCode: 400, message: 'No update data provided' };
+      return badRequest('No update data provided');
     }
 
     return { success: true, statusCode: 200, message: 'Warden updated successfully' };
@@ -193,11 +183,12 @@ class WardenService {
 
   /**
    * Delete warden
+   * @param {string} id - Warden ID
    */
   async deleteWarden(id) {
-    const deletedWarden = await Warden.findByIdAndDelete(id);
+    const deletedWarden = await this.model.findByIdAndDelete(id);
     if (!deletedWarden) {
-      return { success: false, statusCode: 404, message: 'Warden not found' };
+      return notFound(this.entityName);
     }
 
     await User.findByIdAndDelete(deletedWarden.userId);
@@ -207,22 +198,25 @@ class WardenService {
 
   /**
    * Set active hostel for warden
+   * @param {string} userId - User ID
+   * @param {string} hostelId - Hostel ID
+   * @param {Object} session - Session object
    */
   async setActiveHostel(userId, hostelId, session) {
     if (!hostelId) {
-      return { success: false, statusCode: 400, message: 'hostelId is required in the request body' };
+      return badRequest('hostelId is required in the request body');
     }
 
-    const warden = await Warden.findOne({ userId });
+    const warden = await this.model.findOne({ userId });
 
     if (!warden) {
-      return { success: false, statusCode: 404, message: 'Warden profile not found for this user' };
+      return notFound(this.entityName + ' profile for this user');
     }
 
     const isAssigned = warden.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId));
 
     if (!isAssigned) {
-      return { success: false, statusCode: 403, message: 'Warden is not assigned to the specified hostel' };
+      return forbidden('Warden is not assigned to the specified hostel');
     }
 
     warden.activeHostelId = hostelId;
@@ -238,19 +232,15 @@ class WardenService {
         email: user.email,
         role: user.role,
         permissions: Object.fromEntries(user.permissions || new Map()),
-        hostel: user.hostel,
+        hostel: user.hostel
       };
       await session.save();
     }
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Active hostel updated successfully',
-        activeHostel: warden.activeHostelId,
-      },
-    };
+    return success({
+      message: 'Active hostel updated successfully',
+      activeHostel: warden.activeHostelId
+    });
   }
 }
 

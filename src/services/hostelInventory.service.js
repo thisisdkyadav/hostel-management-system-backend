@@ -9,47 +9,49 @@ import HostelInventory from '../../models/HostelInventory.js';
 import InventoryItemType from '../../models/InventoryItemType.js';
 import Hostel from '../../models/Hostel.js';
 import mongoose from 'mongoose';
+import { BaseService, success, notFound, badRequest } from './base/index.js';
 
-class HostelInventoryService {
+class HostelInventoryService extends BaseService {
+  constructor() {
+    super(HostelInventory, 'Hostel inventory');
+  }
+
   /**
    * Assign inventory items to a hostel
+   * @param {Object} params - Assignment parameters
    */
   async assignInventoryToHostel({ hostelId, itemTypeId, allocatedCount }) {
     if (!hostelId || !itemTypeId || allocatedCount === undefined) {
-      return { success: false, statusCode: 400, message: 'Hostel ID, item type ID, and allocated count are required' };
+      return badRequest('Hostel ID, item type ID, and allocated count are required');
     }
 
     const hostel = await Hostel.findById(hostelId);
     if (!hostel) {
-      return { success: false, statusCode: 404, message: 'Hostel not found' };
+      return notFound('Hostel');
     }
 
     const itemType = await InventoryItemType.findById(itemTypeId);
     if (!itemType) {
-      return { success: false, statusCode: 404, message: 'Inventory item type not found' };
+      return notFound('Inventory item type');
     }
 
     if (allocatedCount < 0) {
-      return { success: false, statusCode: 400, message: 'Allocated count must be a positive number' };
+      return badRequest('Allocated count must be a positive number');
     }
 
-    const existingAllocations = await HostelInventory.aggregate([
+    const existingAllocations = await this.model.aggregate([
       { $match: { itemTypeId: new mongoose.Types.ObjectId(itemTypeId) } },
-      { $group: { _id: null, totalAllocated: { $sum: '$allocatedCount' } } },
+      { $group: { _id: null, totalAllocated: { $sum: '$allocatedCount' } } }
     ]);
 
     const totalAllocated = existingAllocations.length > 0 ? existingAllocations[0].totalAllocated : 0;
 
-    const existingAllocation = await HostelInventory.findOne({ hostelId, itemTypeId });
+    const existingAllocation = await this.model.findOne({ hostelId, itemTypeId });
     const currentAllocation = existingAllocation ? existingAllocation.allocatedCount : 0;
     const additionalAllocation = allocatedCount - currentAllocation;
 
     if (totalAllocated + additionalAllocation > itemType.totalCount) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: `Cannot allocate ${allocatedCount} items. Only ${itemType.totalCount - totalAllocated + currentAllocation} available globally.`,
-      };
+      return badRequest(`Cannot allocate ${allocatedCount} items. Only ${itemType.totalCount - totalAllocated + currentAllocation} available globally.`);
     }
 
     let hostelInventory;
@@ -58,36 +60,38 @@ class HostelInventoryService {
       existingAllocation.availableCount = existingAllocation.availableCount + additionalAllocation;
       hostelInventory = await existingAllocation.save();
     } else {
-      const newHostelInventory = new HostelInventory({
+      hostelInventory = await this.model.create({
         hostelId,
         itemTypeId,
         allocatedCount,
-        availableCount: allocatedCount,
+        availableCount: allocatedCount
       });
-      hostelInventory = await newHostelInventory.save();
     }
 
-    return { success: true, statusCode: 201, data: hostelInventory };
+    return success(hostelInventory, 201);
   }
 
   /**
    * Get inventory items for a specific hostel
+   * @param {string} hostelId - Hostel ID
    */
   async getHostelInventory(hostelId) {
     const hostel = await Hostel.findById(hostelId);
     if (!hostel) {
-      return { success: false, statusCode: 404, message: 'Hostel not found' };
+      return notFound('Hostel');
     }
 
-    const inventory = await HostelInventory.find({ hostelId })
+    const inventory = await this.model.find({ hostelId })
       .populate('itemTypeId', 'name description')
       .populate('hostelId', 'name');
 
-    return { success: true, statusCode: 200, data: inventory };
+    return success(inventory);
   }
 
   /**
    * Get all hostel inventory items with pagination
+   * @param {Object} user - User object
+   * @param {Object} options - Query options
    */
   async getAllHostelInventory(user, { page = 1, limit = 10, hostelId, itemTypeId }) {
     const query = {};
@@ -95,121 +99,108 @@ class HostelInventoryService {
     if (itemTypeId) query.itemTypeId = itemTypeId;
     if (user.hostel) query.hostelId = user.hostel._id;
 
-    const totalCount = await HostelInventory.countDocuments(query);
-    const inventory = await HostelInventory.find(query)
+    const totalCount = await this.model.countDocuments(query);
+    const inventory = await this.model.find(query)
       .populate('itemTypeId', 'name description')
       .populate('hostelId', 'name')
       .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit));
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        data: inventory,
-        pagination: {
-          totalCount,
-          totalPages: Math.ceil(totalCount / parseInt(limit)),
-          currentPage: parseInt(page),
-          limit: parseInt(limit),
-        },
-      },
-    };
+    return success({
+      data: inventory,
+      pagination: {
+        totalCount,
+        totalPages: Math.ceil(totalCount / parseInt(limit)),
+        currentPage: parseInt(page),
+        limit: parseInt(limit)
+      }
+    });
   }
 
   /**
    * Update hostel inventory allocation
+   * @param {string} id - Hostel inventory ID
+   * @param {Object} params - Update parameters
    */
   async updateHostelInventory(id, { allocatedCount }) {
     if (allocatedCount === undefined) {
-      return { success: false, statusCode: 400, message: 'Allocated count is required' };
+      return badRequest('Allocated count is required');
     }
 
     if (allocatedCount < 0) {
-      return { success: false, statusCode: 400, message: 'Allocated count must be a positive number' };
+      return badRequest('Allocated count must be a positive number');
     }
 
-    const hostelInventory = await HostelInventory.findById(id);
+    const hostelInventory = await this.model.findById(id);
     if (!hostelInventory) {
-      return { success: false, statusCode: 404, message: 'Hostel inventory record not found' };
+      return notFound('Hostel inventory record');
     }
 
     const itemType = await InventoryItemType.findById(hostelInventory.itemTypeId);
     if (!itemType) {
-      return { success: false, statusCode: 404, message: 'Inventory item type not found' };
+      return notFound('Inventory item type');
     }
 
-    const existingAllocations = await HostelInventory.aggregate([
+    const existingAllocations = await this.model.aggregate([
       {
         $match: {
           itemTypeId: hostelInventory.itemTypeId,
-          _id: { $ne: new mongoose.Types.ObjectId(id) },
-        },
+          _id: { $ne: new mongoose.Types.ObjectId(id) }
+        }
       },
-      { $group: { _id: null, totalAllocated: { $sum: '$allocatedCount' } } },
+      { $group: { _id: null, totalAllocated: { $sum: '$allocatedCount' } } }
     ]);
 
     const totalAllocatedElsewhere = existingAllocations.length > 0 ? existingAllocations[0].totalAllocated : 0;
 
     if (totalAllocatedElsewhere + allocatedCount > itemType.totalCount) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: `Cannot allocate ${allocatedCount} items. Only ${itemType.totalCount - totalAllocatedElsewhere} available globally.`,
-      };
+      return badRequest(`Cannot allocate ${allocatedCount} items. Only ${itemType.totalCount - totalAllocatedElsewhere} available globally.`);
     }
 
     const itemsInUse = hostelInventory.allocatedCount - hostelInventory.availableCount;
 
     if (allocatedCount < itemsInUse) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: `Cannot reduce allocation below ${itemsInUse} as these items are currently assigned to students.`,
-      };
+      return badRequest(`Cannot reduce allocation below ${itemsInUse} as these items are currently assigned to students.`);
     }
 
     hostelInventory.allocatedCount = allocatedCount;
     hostelInventory.availableCount = allocatedCount - itemsInUse;
 
     const updatedHostelInventory = await hostelInventory.save();
-    return { success: true, statusCode: 200, data: updatedHostelInventory };
+    return success(updatedHostelInventory);
   }
 
   /**
    * Delete hostel inventory allocation
+   * @param {string} id - Hostel inventory ID
    */
   async deleteHostelInventory(id) {
-    const hostelInventory = await HostelInventory.findById(id);
+    const hostelInventory = await this.model.findById(id);
     if (!hostelInventory) {
-      return { success: false, statusCode: 404, message: 'Hostel inventory record not found' };
+      return notFound('Hostel inventory record');
     }
 
     const itemsInUse = hostelInventory.allocatedCount - hostelInventory.availableCount;
     if (itemsInUse > 0) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: `Cannot delete allocation as ${itemsInUse} items are currently assigned to students.`,
-      };
+      return badRequest(`Cannot delete allocation as ${itemsInUse} items are currently assigned to students.`);
     }
 
-    await HostelInventory.findByIdAndDelete(id);
-    return { success: true, statusCode: 200, message: 'Hostel inventory allocation removed' };
+    await this.model.findByIdAndDelete(id);
+    return success({ message: 'Hostel inventory allocation removed' });
   }
 
   /**
    * Get inventory summary by hostel
    */
   async getInventorySummaryByHostel() {
-    const summary = await HostelInventory.aggregate([
+    const summary = await this.model.aggregate([
       {
         $lookup: {
           from: 'hostels',
           localField: 'hostelId',
           foreignField: '_id',
-          as: 'hostel',
-        },
+          as: 'hostel'
+        }
       },
       { $unwind: '$hostel' },
       {
@@ -217,8 +208,8 @@ class HostelInventoryService {
           from: 'inventoryitemtypes',
           localField: 'itemTypeId',
           foreignField: '_id',
-          as: 'itemType',
-        },
+          as: 'itemType'
+        }
       },
       { $unwind: '$itemType' },
       {
@@ -232,14 +223,14 @@ class HostelInventoryService {
               itemTypeId: '$itemTypeId',
               itemName: '$itemType.name',
               allocated: '$allocatedCount',
-              available: '$availableCount',
-            },
-          },
-        },
-      },
+              available: '$availableCount'
+            }
+          }
+        }
+      }
     ]);
 
-    return { success: true, statusCode: 200, data: summary };
+    return success(summary);
   }
 }
 

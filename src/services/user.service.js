@@ -7,86 +7,88 @@
 
 import User from '../../models/User.js';
 import bcrypt from 'bcrypt';
+import { BaseService, success, notFound, badRequest } from './base/index.js';
 
-class UserService {
+class UserService extends BaseService {
+  constructor() {
+    super(User, 'User');
+  }
+
   /**
    * Search users by name or email
+   * @param {Object} options - Search options
    */
   async searchUsers({ query, role }) {
     if (!query || query.trim() === '') {
-      return { success: false, statusCode: 400, message: 'Search query is required' };
+      return badRequest('Search query is required');
     }
 
     const searchQuery = {
       $or: [
         { name: { $regex: query, $options: 'i' } },
-        { email: { $regex: query, $options: 'i' } },
-      ],
+        { email: { $regex: query, $options: 'i' } }
+      ]
     };
 
-    if (role) {
-      searchQuery.role = role;
-    }
+    if (role) searchQuery.role = role;
 
-    const users = await User.find(searchQuery)
+    const users = await this.model.find(searchQuery)
       .select('_id name email role phone profileImage')
       .limit(5);
 
-    return { success: true, statusCode: 200, data: users };
+    return success(users);
   }
 
   /**
    * Get user by ID
+   * @param {string} id - User ID
    */
   async getUserById(id) {
-    const user = await User.findById(id).select('_id name email role phone profileImage');
+    const user = await this.model.findById(id).select('_id name email role phone profileImage');
 
     if (!user) {
-      return { success: false, statusCode: 404, message: 'User not found' };
+      return notFound(this.entityName);
     }
 
-    return { success: true, statusCode: 200, data: user };
+    return success(user);
   }
 
   /**
    * Get users by role
+   * @param {string} role - User role
    */
   async getUsersByRole(role) {
     if (!role) {
-      return { success: false, statusCode: 400, message: 'Role parameter is required' };
+      return badRequest('Role parameter is required');
     }
 
-    const users = await User.find({ role })
+    const users = await this.model.find({ role })
       .select('_id name email role phone profileImage')
       .sort({ name: 1 })
       .limit(50);
 
-    return { success: true, statusCode: 200, data: users };
+    return success(users);
   }
 
   /**
    * Bulk update user passwords
+   * @param {Array} passwordUpdates - Array of {email, password} objects
    */
   async bulkPasswordUpdate(passwordUpdates) {
     if (!passwordUpdates || !Array.isArray(passwordUpdates)) {
-      return { success: false, statusCode: 400, message: 'Password updates must be provided as an array' };
+      return badRequest('Password updates must be provided as an array');
     }
 
     const emails = passwordUpdates.map((update) => update.email);
 
-    const users = await User.find({
-      email: {
-        $in: emails.map((email) => new RegExp(`^${email}$`, 'i')),
-      },
+    const users = await this.model.find({
+      email: { $in: emails.map((email) => new RegExp(`^${email}$`, 'i')) }
     }).select('+password');
 
     const userMap = new Map();
     users.forEach((user) => userMap.set(user.email, user));
 
-    const results = {
-      successful: [],
-      failed: [],
-    };
+    const results = { successful: [], failed: [] };
 
     for (const update of passwordUpdates) {
       const { email, password } = update;
@@ -109,68 +111,50 @@ class UserService {
 
         await user.save();
         results.successful.push({ email });
-      } catch (error) {
-        results.failed.push({ email, reason: error.message });
+      } catch (err) {
+        results.failed.push({ email, reason: err.message });
       }
     }
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Bulk password update completed',
-        results,
-      },
-    };
+    return success({ message: 'Bulk password update completed', results });
   }
 
   /**
    * Remove password for a specific user
+   * @param {string} id - User ID
    */
   async removeUserPassword(id) {
-    const user = await User.findById(id);
+    const user = await this.model.findById(id);
     if (!user) {
-      return { success: false, statusCode: 404, message: 'User not found' };
+      return notFound(this.entityName);
     }
 
     user.password = null;
     await user.save();
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Password removed successfully',
-        user: {
-          _id: user._id,
-          email: user.email,
-          name: user.name,
-        },
-      },
-    };
+    return success({
+      message: 'Password removed successfully',
+      user: { _id: user._id, email: user.email, name: user.name }
+    });
   }
 
   /**
    * Bulk remove passwords for specified users
+   * @param {Array} emails - Array of user emails
    */
   async bulkRemovePasswords(emails) {
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
-      return { success: false, statusCode: 400, message: 'Array of user emails is required' };
+      return badRequest('Array of user emails is required');
     }
 
-    const users = await User.find({
-      email: {
-        $in: emails.map((email) => new RegExp(`^${email}$`, 'i')),
-      },
+    const users = await this.model.find({
+      email: { $in: emails.map((email) => new RegExp(`^${email}$`, 'i')) }
     });
 
     const userMap = new Map();
     users.forEach((user) => userMap.set(user.email, user));
 
-    const results = {
-      successful: [],
-      failed: [],
-    };
+    const results = { successful: [], failed: [] };
 
     for (const email of emails) {
       try {
@@ -183,35 +167,28 @@ class UserService {
 
         user.password = null;
         await user.save();
-
         results.successful.push({ email });
-      } catch (error) {
-        results.failed.push({ email, reason: error.message });
+      } catch (err) {
+        results.failed.push({ email, reason: err.message });
       }
     }
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Bulk password removal completed',
-        results,
-      },
-    };
+    return success({ message: 'Bulk password removal completed', results });
   }
 
   /**
    * Remove passwords for all users with a specific role
+   * @param {string} role - User role
    */
   async removePasswordsByRole(role) {
     if (!role) {
-      return { success: false, statusCode: 400, message: 'Role is required' };
+      return badRequest('Role is required');
     }
 
-    const users = await User.find({ role });
+    const users = await this.model.find({ role });
 
     if (users.length === 0) {
-      return { success: false, statusCode: 404, message: 'No users found with the specified role' };
+      return notFound('No users found with the specified role');
     }
 
     const updatePromises = users.map((user) => {
@@ -221,14 +198,10 @@ class UserService {
 
     await Promise.all(updatePromises);
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: `Passwords removed for ${users.length} users with role: ${role}`,
-        count: users.length,
-      },
-    };
+    return success({
+      message: `Passwords removed for ${users.length} users with role: ${role}`,
+      count: users.length
+    });
   }
 }
 

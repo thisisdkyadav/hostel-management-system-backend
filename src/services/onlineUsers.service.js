@@ -1,94 +1,103 @@
-import { getOnlineUsers as getRedisOnlineUsers, getOnlineStats as getRedisOnlineStats, getUserOnlineData, isUserOnline } from "../../utils/redisOnlineUsers.js"
-import Hostel from "../../models/Hostel.js"
+/**
+ * Online Users Service
+ * Handles online user tracking via Redis
+ * 
+ * @module services/onlineUsers.service
+ */
+
+import { getOnlineUsers as getRedisOnlineUsers, getOnlineStats as getRedisOnlineStats, getUserOnlineData } from '../../utils/redisOnlineUsers.js';
+import Hostel from '../../models/Hostel.js';
+import { success, notFound, error } from './base/index.js';
 
 class OnlineUsersService {
+  /**
+   * Get online users with pagination
+   * @param {Object} query - Query params (role, hostelId, page, limit)
+   */
   async getOnlineUsers(query) {
     try {
-      const { role, hostelId, page = 1, limit = 50 } = query
+      const { role, hostelId, page = 1, limit = 50 } = query;
 
-      const filter = {}
-      if (role) filter.role = role
-      if (hostelId) filter.hostelId = hostelId
+      const filter = {};
+      if (role) filter.role = role;
+      if (hostelId) filter.hostelId = hostelId;
 
-      // Get from Redis (FAST - in-memory)
-      let users = await getRedisOnlineUsers(filter)
+      // Get from Redis
+      let users = await getRedisOnlineUsers(filter);
 
       // Pagination
-      const total = users.length
-      const skip = (parseInt(page) - 1) * parseInt(limit)
-      users = users.slice(skip, skip + parseInt(limit))
+      const total = users.length;
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      users = users.slice(skip, skip + parseInt(limit));
 
-      // Populate hostel names if needed
+      // Populate hostel names
       if (users.length > 0) {
-        const hostelIds = [...new Set(users.filter((u) => u.hostelId).map((u) => u.hostelId))]
+        const hostelIds = [...new Set(users.filter((u) => u.hostelId).map((u) => u.hostelId))];
         if (hostelIds.length > 0) {
-          const hostels = await Hostel.find({ _id: { $in: hostelIds } }).select("name")
-          const hostelMap = {}
+          const hostels = await Hostel.find({ _id: { $in: hostelIds } }).select('name');
+          const hostelMap = {};
           hostels.forEach((h) => {
-            hostelMap[h._id.toString()] = h.name
-          })
+            hostelMap[h._id.toString()] = h.name;
+          });
 
           users = users.map((u) => ({
             ...u,
-            hostelName: u.hostelId ? hostelMap[u.hostelId.toString()] : null,
-          }))
+            hostelName: u.hostelId ? hostelMap[u.hostelId.toString()] : null
+          }));
         }
       }
 
-      return {
-        success: true,
-        statusCode: 200,
-        data: {
-          data: users,
-          pagination: {
-            total,
-            page: parseInt(page),
-            limit: parseInt(limit),
-            totalPages: Math.ceil(total / parseInt(limit)),
-          },
-        },
-      }
-    } catch (error) {
-      console.error("Error fetching online users:", error)
-      return { success: false, statusCode: 500, message: "Failed to fetch online users", error: error.message }
+      return success({
+        data: users,
+        pagination: {
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit))
+        }
+      });
+    } catch (err) {
+      return error('Failed to fetch online users', 500, err.message);
     }
   }
 
+  /**
+   * Get online statistics
+   */
   async getOnlineStats() {
     try {
-      // Get from Redis (FAST - in-memory)
-      const stats = await getRedisOnlineStats()
-
-      return { success: true, statusCode: 200, data: stats }
-    } catch (error) {
-      console.error("Error fetching online stats:", error)
-      return { success: false, statusCode: 500, message: "Failed to fetch online statistics", error: error.message }
+      const stats = await getRedisOnlineStats();
+      return success(stats);
+    } catch (err) {
+      return error('Failed to fetch online statistics', 500, err.message);
     }
   }
 
+  /**
+   * Get online status for a specific user
+   * @param {string} userId - User ID
+   */
   async getOnlineUserByUserId(userId) {
     try {
-      // Get from Redis (FAST - in-memory)
-      const userData = await getUserOnlineData(userId)
+      const userData = await getUserOnlineData(userId);
 
       if (!userData) {
-        return { success: false, statusCode: 404, message: "User is not currently online" }
+        return notFound('User is not currently online');
       }
 
-      // Populate hostel name if hostelId exists
+      // Populate hostel name
       if (userData.hostelId) {
-        const hostel = await Hostel.findById(userData.hostelId).select("name")
+        const hostel = await Hostel.findById(userData.hostelId).select('name');
         if (hostel) {
-          userData.hostelName = hostel.name
+          userData.hostelName = hostel.name;
         }
       }
 
-      return { success: true, statusCode: 200, data: userData }
-    } catch (error) {
-      console.error("Error fetching user online status:", error)
-      return { success: false, statusCode: 500, message: "Failed to fetch user online status", error: error.message }
+      return success(userData);
+    } catch (err) {
+      return error('Failed to fetch user online status', 500, err.message);
     }
   }
 }
 
-export const onlineUsersService = new OnlineUsersService()
+export const onlineUsersService = new OnlineUsersService();

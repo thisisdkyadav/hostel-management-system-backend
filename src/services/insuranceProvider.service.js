@@ -1,233 +1,187 @@
-import InsuranceProvider from "../../models/InsuranceProvider.js"
-import StudentProfile from "../../models/StudentProfile.js"
-import Health from "../../models/Health.js"
-import mongoose from "mongoose"
+/**
+ * Insurance Provider Service
+ * Handles insurance provider operations
+ * 
+ * @module services/insuranceProvider.service
+ */
 
-class InsuranceProviderService {
+import InsuranceProvider from '../../models/InsuranceProvider.js';
+import StudentProfile from '../../models/StudentProfile.js';
+import Health from '../../models/Health.js';
+import { BaseService, success, notFound, badRequest, withTransaction } from './base/index.js';
+
+class InsuranceProviderService extends BaseService {
+  constructor() {
+    super(InsuranceProvider, 'Insurance provider');
+  }
+
+  /**
+   * Create insurance provider
+   * @param {Object} data - Provider data
+   */
   async createInsuranceProvider(data) {
-    try {
-      const { name, address, phone, email, startDate, endDate } = data
-      const insuranceProvider = await InsuranceProvider.create({ name, address, phone, email, startDate, endDate })
-      return { success: true, statusCode: 201, data: { message: "Insurance provider created", insuranceProvider } }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    const result = await this.create(data);
+    if (result.success) {
+      return success({ message: 'Insurance provider created', insuranceProvider: result.data }, 201);
     }
+    return result;
   }
 
+  /**
+   * Get all insurance providers
+   */
   async getInsuranceProviders() {
-    try {
-      const insuranceProviders = await InsuranceProvider.find()
-      return { success: true, statusCode: 200, data: { message: "Insurance providers fetched", insuranceProviders } }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    const result = await this.findAll();
+    if (result.success) {
+      return success({ message: 'Insurance providers fetched', insuranceProviders: result.data });
     }
+    return result;
   }
 
+  /**
+   * Update insurance provider
+   * @param {string} id - Provider ID
+   * @param {Object} data - Update data
+   */
   async updateInsuranceProvider(id, data) {
-    try {
-      const { name, address, phone, email, startDate, endDate } = data
-      const insuranceProvider = await InsuranceProvider.findByIdAndUpdate(id, { name, address, phone, email, startDate, endDate }, { new: true })
-      return { success: true, statusCode: 200, data: { message: "Insurance provider updated", insuranceProvider } }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    const result = await this.updateById(id, data);
+    if (result.success) {
+      return success({ message: 'Insurance provider updated', insuranceProvider: result.data });
     }
+    return result;
   }
 
+  /**
+   * Delete insurance provider
+   * @param {string} id - Provider ID
+   */
   async deleteInsuranceProvider(id) {
-    try {
-      await InsuranceProvider.findByIdAndDelete(id)
-      return { success: true, statusCode: 200, data: { message: "Insurance provider deleted" } }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    const result = await this.deleteById(id);
+    if (result.success) {
+      return success({ message: 'Insurance provider deleted' });
     }
+    return result;
   }
 
+  /**
+   * Bulk update student insurance
+   * @param {Object} data - Bulk data with insuranceProviderId and studentsData
+   */
   async updateBulkStudentInsurance(data) {
-    const { insuranceProviderId, studentsData } = data
+    const { insuranceProviderId, studentsData } = data;
 
-    // Validate input
     if (!insuranceProviderId) {
-      return { success: false, statusCode: 400, message: "Insurance provider ID is required" }
+      return badRequest('Insurance provider ID is required');
     }
 
     if (!Array.isArray(studentsData) || studentsData.length === 0) {
-      return { success: false, statusCode: 400, message: "Students data array is required and must not be empty" }
+      return badRequest('Students data array is required and must not be empty');
     }
 
-    // Start a MongoDB session for transaction
-    const session = await mongoose.startSession()
-    session.startTransaction()
-
-    try {
+    return withTransaction(async (session) => {
       // Verify insurance provider exists
-      const insuranceProvider = await InsuranceProvider.findById(insuranceProviderId)
+      const insuranceProvider = await this.model.findById(insuranceProviderId);
       if (!insuranceProvider) {
-        await session.abortTransaction()
-        return { success: false, statusCode: 404, message: "Insurance provider not found" }
+        return notFound('Insurance provider');
       }
 
-      // Get roll numbers from request data
-      const rollNumbers = studentsData.map((student) => student.rollNumber.toUpperCase())
+      const rollNumbers = studentsData.map((s) => s.rollNumber.toUpperCase());
 
-      // Find student profiles by roll numbers
       const studentProfiles = await StudentProfile.find({
-        rollNumber: { $in: rollNumbers },
-      }).session(session)
+        rollNumber: { $in: rollNumbers }
+      }).session(session);
 
       if (studentProfiles.length === 0) {
-        await session.abortTransaction()
-        return { success: false, statusCode: 404, message: "No students found with the provided roll numbers" }
+        return notFound('No students found with the provided roll numbers');
       }
 
-      // Create mappings for easier processing
-      const studentProfileMap = {}
-      const userIdToRollNumberMap = {}
-      const userIds = []
-
+      // Build maps
+      const studentProfileMap = {};
+      const userIds = [];
       studentProfiles.forEach((profile) => {
-        studentProfileMap[profile.rollNumber] = profile
-        userIdToRollNumberMap[profile.userId.toString()] = profile.rollNumber
-        userIds.push(profile.userId)
-      })
+        studentProfileMap[profile.rollNumber] = profile;
+        userIds.push(profile.userId);
+      });
 
-      // Track results for the response
-      const results = {
-        success: [],
-        notFound: [],
-        failed: [],
-      }
+      const results = { success: [], notFound: [] };
 
-      // Track students data by user ID for faster lookup
-      const insuranceDataMap = {}
+      // Build insurance data map
+      const insuranceDataMap = {};
       studentsData.forEach((student) => {
-        const rollNumber = student.rollNumber.toUpperCase()
+        const rollNumber = student.rollNumber.toUpperCase();
         if (studentProfileMap[rollNumber]) {
-          const userId = studentProfileMap[rollNumber].userId.toString()
-          insuranceDataMap[userId] = {
+          insuranceDataMap[studentProfileMap[rollNumber].userId.toString()] = {
             rollNumber,
-            insuranceNumber: student.insuranceNumber,
-          }
+            insuranceNumber: student.insuranceNumber
+          };
         } else {
-          results.notFound.push(rollNumber)
+          results.notFound.push(rollNumber);
         }
-      })
+      });
 
-      // Get all existing health records in one query
-      const existingHealthRecords = await Health.find({
-        userId: { $in: userIds },
-      }).session(session)
-
-      // Create a map of userId to health record
-      const healthRecordMap = {}
+      // Get existing health records
+      const existingHealthRecords = await Health.find({ userId: { $in: userIds } }).session(session);
+      const healthRecordMap = {};
       existingHealthRecords.forEach((record) => {
-        healthRecordMap[record.userId.toString()] = record
-      })
+        healthRecordMap[record.userId.toString()] = record;
+      });
 
-      // Identify userIds that need new health records and those that need updates
-      const healthRecordsToCreate = []
-      const healthRecordsToUpdate = []
+      // Prepare operations
+      const healthRecordsToCreate = [];
+      const bulkUpdateOps = [];
 
       userIds.forEach((userId) => {
-        const userIdStr = userId.toString()
-        const insuranceData = insuranceDataMap[userIdStr]
+        const userIdStr = userId.toString();
+        const insuranceData = insuranceDataMap[userIdStr];
+        if (!insuranceData) return;
 
-        // Skip if we don't have insurance data for this user
-        if (!insuranceData) return
-
-        // Check if insurance number is empty, null or blank string
-        const isEmptyInsurance = !insuranceData.insuranceNumber || insuranceData.insuranceNumber.trim() === ""
+        const isEmptyInsurance = !insuranceData.insuranceNumber || insuranceData.insuranceNumber.trim() === '';
+        const insuranceObj = isEmptyInsurance
+          ? { insuranceProvider: null, insuranceNumber: null }
+          : { insuranceProvider: insuranceProviderId, insuranceNumber: insuranceData.insuranceNumber };
 
         if (healthRecordMap[userIdStr]) {
-          // Update existing record
-          const healthRecord = healthRecordMap[userIdStr]
-          healthRecord.insurance = isEmptyInsurance
-            ? { insuranceProvider: null, insuranceNumber: null }
-            : {
-                insuranceProvider: insuranceProviderId,
-                insuranceNumber: insuranceData.insuranceNumber,
-              }
-          healthRecordsToUpdate.push(healthRecord)
+          bulkUpdateOps.push({
+            updateOne: {
+              filter: { _id: healthRecordMap[userIdStr]._id },
+              update: { $set: { insurance: insuranceObj, updatedAt: Date.now() } }
+            }
+          });
         } else {
-          // Create new record
           healthRecordsToCreate.push({
-            userId: userId,
-            bloodGroup: "",
-            insurance: isEmptyInsurance
-              ? { insuranceProvider: null, insuranceNumber: null }
-              : {
-                  insuranceProvider: insuranceProviderId,
-                  insuranceNumber: insuranceData.insuranceNumber,
-                },
-          })
+            userId,
+            bloodGroup: '',
+            insurance: insuranceObj
+          });
         }
 
-        // Only add to success if we have valid insurance data
-        if (!isEmptyInsurance) {
-          results.success.push({
-            rollNumber: insuranceData.rollNumber,
-            userId: userId,
-            insuranceNumber: insuranceData.insuranceNumber,
-          })
-        } else {
-          results.success.push({
-            rollNumber: insuranceData.rollNumber,
-            userId: userId,
-            insuranceNumber: null,
-            note: "Insurance data set to null",
-          })
-        }
-      })
+        results.success.push({
+          rollNumber: insuranceData.rollNumber,
+          userId,
+          insuranceNumber: isEmptyInsurance ? null : insuranceData.insuranceNumber,
+          ...(isEmptyInsurance && { note: 'Insurance data set to null' })
+        });
+      });
 
-      // Bulk create new health records
       if (healthRecordsToCreate.length > 0) {
-        await Health.insertMany(healthRecordsToCreate, { session })
+        await Health.insertMany(healthRecordsToCreate, { session });
       }
-
-      // Bulk update existing health records
-      const bulkUpdateOps = healthRecordsToUpdate.map((record) => ({
-        updateOne: {
-          filter: { _id: record._id },
-          update: {
-            $set: {
-              insurance: record.insurance,
-              updatedAt: Date.now(),
-            },
-          },
-        },
-      }))
-
       if (bulkUpdateOps.length > 0) {
-        await Health.bulkWrite(bulkUpdateOps, { session })
+        await Health.bulkWrite(bulkUpdateOps, { session });
       }
 
-      // Commit the transaction
-      await session.commitTransaction()
-
-      return {
-        success: true,
-        statusCode: 200,
-        data: {
-          message: "Insurance provider update completed",
-          results: {
-            totalProcessed: studentsData.length,
-            successfulUpdates: results.success.length,
-            notFoundCount: results.notFound.length,
-            failedCount: results.failed.length,
-            notFound: results.notFound,
-            failed: results.failed,
-          },
-          successDetails: results.success,
+      return success({
+        message: 'Insurance provider update completed',
+        results: {
+          totalProcessed: studentsData.length,
+          successfulUpdates: results.success.length,
+          notFoundCount: results.notFound.length,
+          notFound: results.notFound
         },
-      }
-    } catch (error) {
-      // Abort transaction on error
-      await session.abortTransaction()
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
-    } finally {
-      // End session
-      session.endSession()
-    }
+        successDetails: results.success
+      });
+    });
   }
 }
 
-export const insuranceProviderService = new InsuranceProviderService()
+export const insuranceProviderService = new InsuranceProviderService();

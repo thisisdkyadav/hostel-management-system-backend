@@ -8,47 +8,53 @@
 import HostelSupervisor from '../../models/HostelSupervisor.js';
 import User from '../../models/User.js';
 import bcrypt from 'bcrypt';
+import { BaseService, success, notFound, badRequest, forbidden } from './base/index.js';
 
-class HostelSupervisorService {
+class HostelSupervisorService extends BaseService {
+  constructor() {
+    super(HostelSupervisor, 'Hostel Supervisor');
+  }
+
   /**
    * Get hostel supervisor profile by user ID
+   * @param {string} userId - User ID
    */
   async getHostelSupervisorProfile(userId) {
-    const hostelSupervisorProfile = await HostelSupervisor.findOne({ userId })
+    const hostelSupervisorProfile = await this.model.findOne({ userId })
       .populate('userId', 'name email role phone profileImage')
       .populate('hostelIds', 'name type')
-      .populate('activeHostelId', 'name type')
-      .exec();
+      .populate('activeHostelId', 'name type');
 
     if (!hostelSupervisorProfile) {
-      return { success: false, statusCode: 404, message: 'Hostel Supervisor profile not found' };
+      return notFound(this.entityName + ' profile');
     }
 
     const formattedProfile = {
       ...hostelSupervisorProfile.toObject(),
-      hostelId: hostelSupervisorProfile.activeHostelId,
+      hostelId: hostelSupervisorProfile.activeHostelId
     };
 
-    return { success: true, statusCode: 200, data: formattedProfile };
+    return success(formattedProfile);
   }
 
   /**
    * Create a new hostel supervisor
+   * @param {Object} supervisorData - Supervisor data
    */
   async createHostelSupervisor(supervisorData) {
     const { email, password, name, phone, hostelIds, joinDate, category } = supervisorData;
 
     if (!email || !password || !name) {
-      return { success: false, statusCode: 400, message: 'Email, password, and name are required' };
+      return badRequest('Email, password, and name are required');
     }
 
     if (hostelIds && !Array.isArray(hostelIds)) {
-      return { success: false, statusCode: 400, message: 'hostelIds must be an array' };
+      return badRequest('hostelIds must be an array');
     }
 
     const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
     if (existingUser) {
-      return { success: false, statusCode: 400, message: 'User with this email already exists' };
+      return badRequest('User with this email already exists');
     }
 
     const salt = await bcrypt.genSalt(10);
@@ -59,7 +65,7 @@ class HostelSupervisorService {
       email,
       password: hashedPassword,
       role: 'Hostel Supervisor',
-      phone: phone || '',
+      phone: phone || ''
     });
 
     const savedUser = await newUser.save();
@@ -68,16 +74,14 @@ class HostelSupervisorService {
     const status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
     const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null;
 
-    const newHostelSupervisor = new HostelSupervisor({
+    await this.model.create({
       userId: savedUser._id,
       hostelIds: validHostelIds,
-      activeHostelId: activeHostelId,
-      status: status,
+      activeHostelId,
+      status,
       joinDate: joinDate || Date.now(),
-      category: category || 'Hostel Supervisor',
+      category: category || 'Hostel Supervisor'
     });
-
-    await newHostelSupervisor.save();
 
     return { success: true, statusCode: 201, message: 'Hostel Supervisor created successfully' };
   }
@@ -86,10 +90,9 @@ class HostelSupervisorService {
    * Get all hostel supervisors
    */
   async getAllHostelSupervisors() {
-    const hostelSupervisors = await HostelSupervisor.find()
+    const hostelSupervisors = await this.model.find()
       .populate('userId', 'name email phone profileImage')
-      .lean()
-      .exec();
+      .lean();
 
     const formattedHostelSupervisors = hostelSupervisors.map((hs) => ({
       id: hs._id,
@@ -102,7 +105,7 @@ class HostelSupervisorService {
       joinDate: hs.joinDate ? hs.joinDate.toISOString().split('T')[0] : null,
       profileImage: hs.userId.profileImage,
       status: hs.status || (hs.hostelIds && hs.hostelIds.length > 0 ? 'assigned' : 'unassigned'),
-      category: hs.category || 'Hostel Supervisor',
+      category: hs.category || 'Hostel Supervisor'
     }));
 
     formattedHostelSupervisors.sort((a, b) => {
@@ -115,34 +118,36 @@ class HostelSupervisorService {
       return a.name.localeCompare(b.name);
     });
 
-    return { success: true, statusCode: 200, data: formattedHostelSupervisors };
+    return success(formattedHostelSupervisors);
   }
 
   /**
    * Update hostel supervisor
+   * @param {string} id - Hostel Supervisor ID
+   * @param {Object} supervisorData - Update data
    */
   async updateHostelSupervisor(id, supervisorData) {
     const { phone, profileImage, joinDate, hostelIds, category } = supervisorData;
 
     if (hostelIds && !Array.isArray(hostelIds)) {
-      return { success: false, statusCode: 400, message: 'hostelIds must be an array' };
+      return badRequest('hostelIds must be an array');
     }
 
     const updateData = {};
-    let userUpdateData = {};
+    const userUpdateData = {};
 
     if (hostelIds !== undefined) {
       const validHostelIds = Array.isArray(hostelIds) ? hostelIds : [];
       updateData.hostelIds = validHostelIds;
       updateData.status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
 
-      const currentHS = await HostelSupervisor.findById(id).select('activeHostelId hostelIds').lean();
+      const currentHS = await this.model.findById(id).select('activeHostelId hostelIds').lean();
       if (!currentHS) {
-        return { success: false, statusCode: 404, message: 'Hostel Supervisor not found' };
+        return notFound(this.entityName);
       }
 
       const currentActiveId = currentHS.activeHostelId ? currentHS.activeHostelId.toString() : null;
-      const newHostelIdStrings = validHostelIds.map((id) => id.toString());
+      const newHostelIdStrings = validHostelIds.map((hId) => hId.toString());
 
       if (validHostelIds.length === 0) {
         updateData.activeHostelId = null;
@@ -153,37 +158,26 @@ class HostelSupervisorService {
       }
     }
 
-    if (joinDate !== undefined) {
-      updateData.joinDate = joinDate;
-    }
-
-    if (profileImage !== undefined) {
-      userUpdateData.profileImage = profileImage;
-    }
-
-    if (phone !== undefined) {
-      userUpdateData.phone = phone;
-    }
-
-    if (category !== undefined) {
-      updateData.category = category;
-    }
+    if (joinDate !== undefined) updateData.joinDate = joinDate;
+    if (profileImage !== undefined) userUpdateData.profileImage = profileImage;
+    if (phone !== undefined) userUpdateData.phone = phone;
+    if (category !== undefined) updateData.category = category;
 
     if (Object.keys(userUpdateData).length > 0) {
-      const hostelSupervisor = await HostelSupervisor.findById(id).select('userId');
+      const hostelSupervisor = await this.model.findById(id).select('userId');
       if (!hostelSupervisor) {
-        return { success: false, statusCode: 404, message: 'Hostel Supervisor not found' };
+        return notFound(this.entityName);
       }
       await User.findByIdAndUpdate(hostelSupervisor.userId, userUpdateData);
     }
 
     if (Object.keys(updateData).length > 0) {
-      const updatedHostelSupervisor = await HostelSupervisor.findByIdAndUpdate(id, updateData, { new: true }).lean();
+      const updatedHostelSupervisor = await this.model.findByIdAndUpdate(id, updateData, { new: true }).lean();
       if (!updatedHostelSupervisor) {
-        return { success: false, statusCode: 404, message: 'Hostel Supervisor not found during update' };
+        return notFound(this.entityName + ' during update');
       }
     } else if (Object.keys(userUpdateData).length === 0) {
-      return { success: false, statusCode: 400, message: 'No update data provided' };
+      return badRequest('No update data provided');
     }
 
     return { success: true, statusCode: 200, message: 'Hostel Supervisor updated successfully' };
@@ -191,11 +185,12 @@ class HostelSupervisorService {
 
   /**
    * Delete hostel supervisor
+   * @param {string} id - Hostel Supervisor ID
    */
   async deleteHostelSupervisor(id) {
-    const deletedHostelSupervisor = await HostelSupervisor.findByIdAndDelete(id);
+    const deletedHostelSupervisor = await this.model.findByIdAndDelete(id);
     if (!deletedHostelSupervisor) {
-      return { success: false, statusCode: 404, message: 'Hostel Supervisor not found' };
+      return notFound(this.entityName);
     }
 
     await User.findByIdAndDelete(deletedHostelSupervisor.userId);
@@ -205,22 +200,25 @@ class HostelSupervisorService {
 
   /**
    * Set active hostel for hostel supervisor
+   * @param {string} userId - User ID
+   * @param {string} hostelId - Hostel ID
+   * @param {Object} session - Session object
    */
   async setActiveHostelHS(userId, hostelId, session) {
     if (!hostelId) {
-      return { success: false, statusCode: 400, message: 'hostelId is required in the request body' };
+      return badRequest('hostelId is required in the request body');
     }
 
-    const hostelSupervisor = await HostelSupervisor.findOne({ userId });
+    const hostelSupervisor = await this.model.findOne({ userId });
 
     if (!hostelSupervisor) {
-      return { success: false, statusCode: 404, message: 'Hostel Supervisor profile not found for this user' };
+      return notFound(this.entityName + ' profile for this user');
     }
 
     const isAssigned = hostelSupervisor.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId));
 
     if (!isAssigned) {
-      return { success: false, statusCode: 403, message: 'Hostel Supervisor is not assigned to the specified hostel' };
+      return forbidden('Hostel Supervisor is not assigned to the specified hostel');
     }
 
     hostelSupervisor.activeHostelId = hostelId;
@@ -236,19 +234,15 @@ class HostelSupervisorService {
         email: user.email,
         role: user.role,
         permissions: Object.fromEntries(user.permissions || new Map()),
-        hostel: user.hostel,
+        hostel: user.hostel
       };
       await session.save();
     }
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Active hostel updated successfully for Hostel Supervisor',
-        activeHostel: hostelSupervisor.activeHostelId,
-      },
-    };
+    return success({
+      message: 'Active hostel updated successfully for Hostel Supervisor',
+      activeHostel: hostelSupervisor.activeHostelId
+    });
   }
 }
 

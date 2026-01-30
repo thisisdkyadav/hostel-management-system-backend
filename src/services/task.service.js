@@ -7,60 +7,58 @@
 
 import Task from '../../models/Task.js';
 import User from '../../models/User.js';
+import { BaseService, success, notFound, badRequest, forbidden, PRESETS } from './base/index.js';
 
-class TaskService {
+class TaskService extends BaseService {
+  constructor() {
+    super(Task, 'Task');
+  }
+
   /**
    * Create a new task
+   * @param {Object} taskData - Task data
+   * @param {string} userId - Creator user ID
    */
   async createTask(taskData, userId) {
     const { title, description, priority, dueDate, category, assignedUsers } = taskData;
 
     if (!title || !description || !dueDate) {
-      return { success: false, statusCode: 400, message: 'Title, description, and due date are required' };
+      return badRequest('Title, description, and due date are required');
     }
 
     if (assignedUsers && assignedUsers.length > 0) {
-      const userCount = await User.countDocuments({
-        _id: { $in: assignedUsers },
-      });
-
+      const userCount = await User.countDocuments({ _id: { $in: assignedUsers } });
       if (userCount !== assignedUsers.length) {
-        return { success: false, statusCode: 400, message: 'One or more assigned users do not exist' };
+        return badRequest('One or more assigned users do not exist');
       }
     }
 
-    const newTask = new Task({
+    const result = await this.create({
       title,
       description,
       priority: priority || 'Medium',
       dueDate,
       category: category || 'Other',
       assignedUsers: assignedUsers || [],
-      createdBy: userId,
+      createdBy: userId
     });
 
-    const savedTask = await newTask.save();
-
-    return {
-      success: true,
-      statusCode: 201,
-      data: {
-        success: true,
-        message: 'Task created successfully',
-        task: savedTask,
-      },
-    };
+    if (result.success) {
+      return success({ success: true, message: 'Task created successfully', task: result.data }, 201);
+    }
+    return result;
   }
 
   /**
    * Get all tasks with pagination
+   * @param {Object} options - Filter options
    */
   async getAllTasks({ status, category, priority, page = 1, limit = 12 }) {
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
 
     if (isNaN(pageNum) || isNaN(limitNum) || pageNum < 1 || limitNum < 1) {
-      return { success: false, statusCode: 400, message: 'Invalid pagination parameters' };
+      return badRequest('Invalid pagination parameters');
     }
 
     const filter = {};
@@ -68,143 +66,132 @@ class TaskService {
     if (category) filter.category = category;
     if (priority) filter.priority = priority;
 
-    const totalTasks = await Task.countDocuments(filter);
-    const totalPages = Math.ceil(totalTasks / limitNum);
-    const skip = (pageNum - 1) * limitNum;
+    const result = await this.findPaginated(filter, {
+      page: pageNum,
+      limit: limitNum,
+      sort: { createdAt: -1 },
+      populate: [
+        { path: 'assignedUsers', select: 'name email role' },
+        { path: 'createdBy', select: 'name email' }
+      ]
+    });
 
-    const tasks = await Task.find(filter)
-      .populate('assignedUsers', 'name email role')
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        tasks,
+    if (result.success) {
+      const { items, pagination } = result.data;
+      return success({
+        tasks: items,
         pagination: {
-          total: totalTasks,
-          totalPages,
-          currentPage: pageNum,
-          perPage: limitNum,
-          hasNextPage: pageNum < totalPages,
-          hasPrevPage: pageNum > 1,
-        },
-      },
-    };
+          total: pagination.total,
+          totalPages: pagination.totalPages,
+          currentPage: pagination.page,
+          perPage: pagination.limit,
+          hasNextPage: pagination.page < pagination.totalPages,
+          hasPrevPage: pagination.page > 1
+        }
+      });
+    }
+    return result;
   }
 
   /**
-   * Get tasks assigned to a specific user with pagination
+   * Get tasks assigned to a specific user
+   * @param {string} userId - User ID
+   * @param {Object} options - Filter options
    */
   async getUserTasks(userId, { status, category, priority, page = 1, limit = 12 }) {
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
 
     if (isNaN(pageNum) || isNaN(limitNum) || pageNum < 1 || limitNum < 1) {
-      return { success: false, statusCode: 400, message: 'Invalid pagination parameters' };
+      return badRequest('Invalid pagination parameters');
     }
 
-    const filter = {
-      assignedUsers: userId,
-    };
-
+    const filter = { assignedUsers: userId };
     if (status) filter.status = status;
     if (category) filter.category = category;
     if (priority) filter.priority = priority;
 
-    const totalTasks = await Task.countDocuments(filter);
-    const totalPages = Math.ceil(totalTasks / limitNum);
-    const skip = (pageNum - 1) * limitNum;
+    const result = await this.findPaginated(filter, {
+      page: pageNum,
+      limit: limitNum,
+      sort: { dueDate: 1 },
+      populate: [
+        { path: 'assignedUsers', select: 'name email role' },
+        { path: 'createdBy', select: 'name email' }
+      ]
+    });
 
-    const tasks = await Task.find(filter)
-      .populate('assignedUsers', 'name email role')
-      .populate('createdBy', 'name email')
-      .sort({ dueDate: 1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        tasks,
+    if (result.success) {
+      const { items, pagination } = result.data;
+      return success({
+        tasks: items,
         pagination: {
-          total: totalTasks,
-          totalPages,
-          currentPage: pageNum,
-          perPage: limitNum,
-          hasNextPage: pageNum < totalPages,
-          hasPrevPage: pageNum > 1,
-        },
-      },
-    };
+          total: pagination.total,
+          totalPages: pagination.totalPages,
+          currentPage: pagination.page,
+          perPage: pagination.limit,
+          hasNextPage: pagination.page < pagination.totalPages,
+          hasPrevPage: pagination.page > 1
+        }
+      });
+    }
+    return result;
   }
 
   /**
    * Update task status
+   * @param {string} taskId - Task ID
+   * @param {string} status - New status
+   * @param {Object} user - Current user
    */
   async updateTaskStatus(taskId, status, user) {
     const validStatuses = ['Created', 'Assigned', 'In Progress', 'Completed'];
     if (!validStatuses.includes(status)) {
-      return { success: false, statusCode: 400, message: 'Invalid status value' };
+      return badRequest('Invalid status value');
     }
 
-    const task = await Task.findById(taskId);
-
+    const task = await this.model.findById(taskId);
     if (!task) {
-      return { success: false, statusCode: 404, message: 'Task not found' };
+      return notFound(this.entityName);
     }
 
     const isAdmin = user.role === 'Admin' || user.role === 'Super Admin';
     const isAssigned = task.assignedUsers.some((u) => u.toString() === user._id.toString());
 
     if (!isAdmin && !isAssigned) {
-      return { success: false, statusCode: 403, message: 'Not authorized to update this task' };
+      return forbidden('Not authorized to update this task');
     }
 
     if (!isAdmin && isAssigned) {
       if (status === 'Created' || status === 'Assigned') {
-        return { success: false, statusCode: 403, message: 'Assigned users can only update status to In Progress or Completed' };
+        return forbidden('Assigned users can only update status to In Progress or Completed');
       }
     }
 
     task.status = status;
     task.updatedAt = Date.now();
-
     await task.save();
 
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Task status updated successfully',
-        task,
-      },
-    };
+    return success({ message: 'Task status updated successfully', task });
   }
 
   /**
    * Update task details
+   * @param {string} taskId - Task ID
+   * @param {Object} taskData - Update data
    */
   async updateTask(taskId, taskData) {
     const { title, description, priority, dueDate, category, assignedUsers } = taskData;
 
-    const task = await Task.findById(taskId);
-
+    const task = await this.model.findById(taskId);
     if (!task) {
-      return { success: false, statusCode: 404, message: 'Task not found' };
+      return notFound(this.entityName);
     }
 
     if (assignedUsers) {
-      const userCount = await User.countDocuments({
-        _id: { $in: assignedUsers },
-      });
-
+      const userCount = await User.countDocuments({ _id: { $in: assignedUsers } });
       if (userCount !== assignedUsers.length) {
-        return { success: false, statusCode: 400, message: 'One or more assigned users do not exist' };
+        return badRequest('One or more assigned users do not exist');
       }
     }
 
@@ -222,28 +209,19 @@ class TaskService {
     }
 
     const updatedTask = await task.save();
-
-    return {
-      success: true,
-      statusCode: 200,
-      data: {
-        message: 'Task updated successfully',
-        task: updatedTask,
-      },
-    };
+    return success({ message: 'Task updated successfully', task: updatedTask });
   }
 
   /**
    * Delete task
+   * @param {string} taskId - Task ID
    */
   async deleteTask(taskId) {
-    const deletedTask = await Task.findByIdAndDelete(taskId);
-
-    if (!deletedTask) {
-      return { success: false, statusCode: 404, message: 'Task not found' };
+    const result = await this.deleteById(taskId);
+    if (result.success) {
+      return { success: true, statusCode: 200, message: 'Task deleted successfully' };
     }
-
-    return { success: true, statusCode: 200, message: 'Task deleted successfully' };
+    return result;
   }
 }
 
