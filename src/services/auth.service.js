@@ -8,11 +8,11 @@
  * @module services/auth.service
  */
 
-import User from '../../models/User.js';
-import Session from '../../models/Session.js';
+import { User } from '../models/index.js';
+import { Session } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import axios from 'axios';
-import { generateKey } from '../../utils/qrUtils.js';
+import { generateKey } from '../utils/qrUtils.js';
 
 /**
  * Helper function to extract device name from user agent

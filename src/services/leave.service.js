@@ -5,7 +5,7 @@
  * @module services/leave
  */
 
-import Leave from '../../models/Leave.js';
+import { Leave } from '../models/index.js';
 import { BaseService, success, notFound, error } from './base/index.js';
 
 class LeaveService extends BaseService {

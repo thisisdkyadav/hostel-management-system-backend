@@ -5,8 +5,8 @@
  * @module services/notification.service
  */
 
-import Notification from '../../models/Notification.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { Notification } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, error } from './base/index.js';
 
 class NotificationService extends BaseService {

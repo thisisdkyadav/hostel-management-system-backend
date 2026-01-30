@@ -5,8 +5,8 @@
  * @module services/disCo.service
  */
 
-import DisCoAction from '../../models/DisCoAction.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { DisCoAction } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, notFound, USER_BASIC } from './base/index.js';
 
 class DisCoService extends BaseService {

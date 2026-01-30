@@ -5,13 +5,13 @@
  */
 
 import { BaseService, success, notFound, badRequest, forbidden, withTransaction } from './base/index.js';
-import Hostel from '../../models/Hostel.js';
-import Room from '../../models/Room.js';
-import Unit from '../../models/Unit.js';
-import Complaint from '../../models/Complaint.js';
-import RoomAllocation from '../../models/RoomAllocation.js';
+import { Hostel } from '../models/index.js';
+import { Room } from '../models/index.js';
+import { Unit } from '../models/index.js';
+import { Complaint } from '../models/index.js';
+import { RoomAllocation } from '../models/index.js';
 import mongoose from 'mongoose';
-import StudentProfile from '../../models/StudentProfile.js';
+import { StudentProfile } from '../models/index.js';
 
 /**
  * Helper function to create units

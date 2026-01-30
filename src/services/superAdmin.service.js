@@ -5,11 +5,11 @@
  * @module services/superAdmin
  */
 
-import ApiClient from '../../models/ApiClient.js';
-import User from '../../models/User.js';
+import { ApiClient } from '../models/index.js';
+import { User } from '../models/index.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import Admin from '../../models/Admin.js';
+import { Admin } from '../models/index.js';
 import { success, badRequest, error } from './base/index.js';
 
 class SuperAdminService {

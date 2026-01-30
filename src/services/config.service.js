@@ -5,8 +5,8 @@
  * @module services/config.service
  */
 
-import Configuration from '../../models/configuration.js';
-import { defaultConfigs, getConfigWithDefault } from '../../utils/configDefaults.js';
+import { Configuration } from '../models/index.js';
+import { defaultConfigs, getConfigWithDefault } from '../utils/configDefaults.js';
 import { BaseService, success, notFound, badRequest, error } from './base/index.js';
 
 class ConfigService extends BaseService {

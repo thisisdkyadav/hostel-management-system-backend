@@ -13,7 +13,7 @@ import {
   approveLeave,
   rejectLeave,
   joinLeave,
-} from '../../../controllers/leaveController.js';
+} from '../../controllers/leaveController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 import { validate } from '../../validations/validate.middleware.js';

@@ -5,9 +5,9 @@
  * @module services/studentInventory
  */
 
-import StudentInventory from '../../models/StudentInventory.js';
-import HostelInventory from '../../models/HostelInventory.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { StudentInventory } from '../models/index.js';
+import { HostelInventory } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, notFound, badRequest } from './base/index.js';
 
 class StudentInventoryService extends BaseService {

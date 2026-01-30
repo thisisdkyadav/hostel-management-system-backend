@@ -5,14 +5,14 @@
  */
 
 import { BaseService, success, notFound, badRequest } from './base/index.js';
-import StudentProfile from '../../models/StudentProfile.js';
-import Hostel from '../../models/Hostel.js';
-import Room from '../../models/Room.js';
-import Event from '../../models/Event.js';
-import Complaint from '../../models/Complaint.js';
-import Leave from '../../models/Leave.js';
+import { StudentProfile } from '../models/index.js';
+import { Hostel } from '../models/index.js';
+import { Room } from '../models/index.js';
+import { Event } from '../models/index.js';
+import { Complaint } from '../models/index.js';
+import { Leave } from '../models/index.js';
 import mongoose from 'mongoose';
-import { getConfigWithDefault } from '../../utils/configDefaults.js';
+import { getConfigWithDefault } from '../utils/configDefaults.js';
 
 class DashboardService extends BaseService {
   constructor() {

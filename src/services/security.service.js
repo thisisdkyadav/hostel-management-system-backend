@@ -5,20 +5,20 @@
  */
 
 import { BaseService, success, notFound, badRequest, forbidden, paginated } from './base/index.js';
-import Security from '../../models/Security.js';
-import Warden from '../../models/Warden.js';
-import Visitor from '../../models/Visitors.js';
-import CheckInOut from '../../models/CheckInOut.js';
-import RoomAllocation from '../../models/RoomAllocation.js';
-import Unit from '../../models/Unit.js';
-import Room from '../../models/Room.js';
-import AssociateWarden from '../../models/AssociateWarden.js';
-import HostelSupervisor from '../../models/HostelSupervisor.js';
-import { decryptData } from '../../utils/qrUtils.js';
-import User from '../../models/User.js';
-import StudentProfile from '../../models/StudentProfile.js';
-import { getIO } from '../../config/socket.js';
-import * as liveCheckInOutService from '../../services/liveCheckInOutService.js';
+import { Security } from '../models/index.js';
+import { Warden } from '../models/index.js';
+import { Visitors as Visitor } from '../models/index.js';
+import { CheckInOut } from '../models/index.js';
+import { RoomAllocation } from '../models/index.js';
+import { Unit } from '../models/index.js';
+import { Room } from '../models/index.js';
+import { AssociateWarden } from '../models/index.js';
+import { HostelSupervisor } from '../models/index.js';
+import { decryptData } from '../utils/qrUtils.js';
+import { User } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
+import { getIO } from '../loaders/socket.loader.js';
+import * as liveCheckInOutService from './liveCheckInOut.service.js';
 
 class SecurityService extends BaseService {
   constructor() {

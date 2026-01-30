@@ -16,7 +16,7 @@ import {
   deleteAdmin,
   updateApiClient,
   getDashboardStats,
-} from '../../../controllers/superAdminControllers.js';
+} from '../../controllers/superAdminControllers.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

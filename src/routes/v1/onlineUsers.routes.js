@@ -10,7 +10,7 @@ import {
   getOnlineUsers,
   getOnlineStats,
   getOnlineUserByUserId,
-} from '../../../controllers/onlineUsersController.js';
+} from '../../controllers/onlineUsersController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

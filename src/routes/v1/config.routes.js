@@ -10,7 +10,7 @@ import {
   getConfigurationByKey,
   updateConfiguration,
   resetConfigurationToDefault,
-} from '../../../controllers/configController.js';
+} from '../../controllers/configController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

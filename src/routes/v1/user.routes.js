@@ -14,7 +14,7 @@ import {
   removeUserPassword,
   removePasswordsByRole,
   bulkRemovePasswords,
-} from '../../../controllers/userController.js';
+} from '../../controllers/userController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

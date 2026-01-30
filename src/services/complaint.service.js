@@ -5,8 +5,8 @@
  */
 
 import { BaseService, success, notFound, forbidden, paginated } from './base/index.js';
-import Complaint from '../../models/Complaint.js';
-import RoomAllocation from '../../models/RoomAllocation.js';
+import { Complaint } from '../models/index.js';
+import { RoomAllocation } from '../models/index.js';
 
 /**
  * Helper function to format complaint for response

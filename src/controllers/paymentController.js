@@ -1,7 +1,7 @@
 import Razorpay from "razorpay";
 import dotenv from "dotenv";
 dotenv.config();
-import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET } from "../../config/environment.js";
+import { RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET } from "../config/env.config.js";
 import { asyncHandler } from "../utils/index.js";
 
 let instance = new Razorpay({

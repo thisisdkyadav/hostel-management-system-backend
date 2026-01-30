@@ -5,8 +5,8 @@
  * @module services/certificate.service
  */
 
-import Certificate from '../../models/Certificate.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { Certificate } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, notFound, PRESETS } from './base/index.js';
 
 class CertificateService extends BaseService {

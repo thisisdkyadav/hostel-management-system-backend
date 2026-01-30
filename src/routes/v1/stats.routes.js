@@ -17,7 +17,7 @@ import {
   getVisitorStats,
   getEventStats,
   getWardenStats,
-} from '../../../controllers/statsController.js';
+} from '../../controllers/statsController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 
 const router = express.Router();

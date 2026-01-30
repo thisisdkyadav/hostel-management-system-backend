@@ -13,7 +13,7 @@ import {
   getUsersByRole,
   resetRolePermissions,
   setRolePermissions,
-} from '../../../controllers/permissionController.js';
+} from '../../controllers/permissionController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

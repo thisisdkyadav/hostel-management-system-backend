@@ -5,8 +5,8 @@
  * @module services/hostelSupervisor
  */
 
-import HostelSupervisor from '../../models/HostelSupervisor.js';
-import User from '../../models/User.js';
+import { HostelSupervisor } from '../models/index.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, badRequest, forbidden } from './base/index.js';
 

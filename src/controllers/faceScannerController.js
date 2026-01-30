@@ -1,4 +1,4 @@
-import * as faceScannerService from "../../services/faceScannerService.js"
+import * as faceScannerService from "../services/faceScanner.service.js"
 import { asyncHandler } from "../utils/index.js"
 
 /**

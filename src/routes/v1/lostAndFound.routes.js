@@ -11,10 +11,10 @@ import {
   getLostAndFound,
   updateLostAndFound,
   deleteLostAndFound,
-} from '../../../controllers/lostAndFoundController.js';
+} from '../../controllers/lostAndFoundController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+import { requirePermission } from '../../utils/permissions.js';
 
 const router = express.Router();
 

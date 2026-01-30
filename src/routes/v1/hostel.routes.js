@@ -19,8 +19,8 @@ import {
   deleteAllocation,
   changeArchiveStatus,
   deleteAllAllocations,
-} from '../../../controllers/hostelController.js';
-import { updateRoomAllocations } from '../../../controllers/studentController.js';
+} from '../../controllers/hostelController.js';
+import { updateRoomAllocations } from '../../controllers/studentController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

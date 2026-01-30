@@ -5,7 +5,7 @@
  * @module services/lostAndFound.service
  */
 
-import LostAndFound from '../../models/LostAndFound.js';
+import { LostAndFound } from '../models/index.js';
 import { BaseService, success } from './base/index.js';
 
 class LostAndFoundService extends BaseService {

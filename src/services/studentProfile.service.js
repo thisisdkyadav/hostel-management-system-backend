@@ -6,11 +6,11 @@
 
 import BaseService from './base/BaseService.js';
 import { success, notFound, badRequest, forbidden } from './base/ServiceResponse.js';
-import StudentProfile from '../../models/StudentProfile.js';
-import User from '../../models/User.js';
-import FamilyMember from '../../models/FamilyMember.js';
-import { getConfigWithDefault } from '../../utils/configDefaults.js';
-import Health from '../../models/Health.js';
+import { StudentProfile } from '../models/index.js';
+import { User } from '../models/index.js';
+import { FamilyMember } from '../models/index.js';
+import { getConfigWithDefault } from '../utils/configDefaults.js';
+import { Health } from '../models/index.js';
 
 class StudentProfileService extends BaseService {
   constructor() {

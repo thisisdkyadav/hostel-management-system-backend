@@ -11,7 +11,7 @@ import {
   getHostels,
   getHostelList,
   updateHostel,
-} from '../../../controllers/hostelController.js';
+} from '../../controllers/hostelController.js';
 import {
   createSecurity,
   getAllSecurities,
@@ -24,32 +24,32 @@ import {
   deleteMaintenanceStaff,
   getTaskStats,
   getMaintenanceStaffStats,
-} from '../../../controllers/adminController.js';
+} from '../../controllers/adminController.js';
 import {
   createWarden,
   getAllWardens,
   updateWarden,
   deleteWarden,
-} from '../../../controllers/wardenController.js';
+} from '../../controllers/wardenController.js';
 import {
   createAssociateWarden,
   getAllAssociateWardens,
   updateAssociateWarden,
   deleteAssociateWarden,
-} from '../../../controllers/associateWardenController.js';
+} from '../../controllers/associateWardenController.js';
 import {
   createHostelSupervisor,
   getAllHostelSupervisors,
   updateHostelSupervisor,
   deleteHostelSupervisor,
-} from '../../../controllers/hostelSupervisorController.js';
+} from '../../controllers/hostelSupervisorController.js';
 import {
   getInsuranceProviders,
   createInsuranceProvider,
   updateInsuranceProvider,
   deleteInsuranceProvider,
   updateBulkStudentInsurance,
-} from '../../../controllers/insuranceProviderController.js';
+} from '../../controllers/insuranceProviderController.js';
 import {
   getHealth,
   updateHealth,
@@ -58,13 +58,13 @@ import {
   updateInsuranceClaim,
   deleteInsuranceClaim,
   updateBulkStudentHealth,
-} from '../../../controllers/healthController.js';
+} from '../../controllers/healthController.js';
 import {
   createHostelGate,
   getAllHostelGates,
   updateHostelGate,
   deleteHostelGate,
-} from '../../../controllers/hostelGateController.js';
+} from '../../controllers/hostelGateController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

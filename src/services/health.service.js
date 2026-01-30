@@ -5,9 +5,9 @@
  * @module services/health
  */
 
-import Health from '../../models/Health.js';
-import InsuranceClaim from '../../models/InsuranceClaim.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { Health } from '../models/index.js';
+import { InsuranceClaim } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, badRequest, notFound, withTransaction } from './base/index.js';
 
 class HealthService extends BaseService {

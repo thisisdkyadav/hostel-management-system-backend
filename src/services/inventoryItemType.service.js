@@ -5,7 +5,7 @@
  * @module services/inventoryItemType.service
  */
 
-import InventoryItemType from '../../models/InventoryItemType.js';
+import { InventoryItemType } from '../models/index.js';
 import { BaseService, success, badRequest, notFound, conflict, error } from './base/index.js';
 
 class InventoryItemTypeService extends BaseService {

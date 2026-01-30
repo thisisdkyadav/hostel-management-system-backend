@@ -9,9 +9,9 @@ import express from 'express';
 import {
   createPaymentLink,
   checkPaymentStatus,
-} from '../../../controllers/paymentController.js';
+} from '../../controllers/paymentController.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+import { requirePermission } from '../../utils/permissions.js';
 
 const router = express.Router();
 

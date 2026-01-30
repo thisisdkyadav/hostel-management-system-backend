@@ -17,8 +17,8 @@ import {
   deleteFaceScanner,
   regeneratePassword,
   testScannerAuth,
-} from '../../../controllers/faceScannerController.js';
-import { processScan, ping } from '../../../controllers/scannerActionController.js';
+} from '../../controllers/faceScannerController.js';
+import { processScan, ping } from '../../controllers/scannerActionController.js';
 
 const router = express.Router();
 

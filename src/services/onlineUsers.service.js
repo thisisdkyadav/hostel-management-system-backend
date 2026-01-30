@@ -5,8 +5,8 @@
  * @module services/onlineUsers.service
  */
 
-import { getOnlineUsers as getRedisOnlineUsers, getOnlineStats as getRedisOnlineStats, getUserOnlineData } from '../../utils/redisOnlineUsers.js';
-import Hostel from '../../models/Hostel.js';
+import { getOnlineUsers as getRedisOnlineUsers, getOnlineStats as getRedisOnlineStats, getUserOnlineData } from '../utils/redisOnlineUsers.js';
+import { Hostel } from '../models/index.js';
 import { success, notFound, error } from './base/index.js';
 
 class OnlineUsersService {

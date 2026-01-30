@@ -11,10 +11,10 @@ import {
   getCertificatesByStudent,
   updateCertificate,
   deleteCertificate,
-} from '../../../controllers/certificateController.js';
+} from '../../controllers/certificateController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+import { requirePermission } from '../../utils/permissions.js';
 
 const router = express.Router();
 

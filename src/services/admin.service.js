@@ -5,15 +5,15 @@
  */
 
 import { BaseService, success, notFound, badRequest, withTransaction } from './base/index.js';
-import Warden from '../../models/Warden.js';
-import User from '../../models/User.js';
+import { Warden } from '../models/index.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
-import Security from '../../models/Security.js';
-import MaintenanceStaff from '../../models/MaintenanceStaff.js';
-import Task from '../../models/Task.js';
-import StudentProfile from '../../models/StudentProfile.js';
-import Configuration from '../../models/configuration.js';
-import Complaint from '../../models/Complaint.js';
+import { Security } from '../models/index.js';
+import { MaintenanceStaff } from '../models/index.js';
+import { Task } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
+import { Configuration } from '../models/index.js';
+import { Complaint } from '../models/index.js';
 
 class AdminService extends BaseService {
   constructor() {

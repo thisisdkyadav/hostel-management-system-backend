@@ -9,15 +9,15 @@ import express from 'express';
 import {
   getWardenProfile,
   setActiveHostel,
-} from '../../../controllers/wardenController.js';
+} from '../../controllers/wardenController.js';
 import {
   getAssociateWardenProfile,
   setActiveHostelAW,
-} from '../../../controllers/associateWardenController.js';
+} from '../../controllers/associateWardenController.js';
 import {
   getHostelSupervisorProfile,
   setActiveHostelHS,
-} from '../../../controllers/hostelSupervisorController.js';
+} from '../../controllers/hostelSupervisorController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

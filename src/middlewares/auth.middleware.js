@@ -3,8 +3,8 @@
  * Handles session-based authentication
  */
 // Using old model paths until Phase 3 (Models Migration)
-import User from "../../models/User.js"
-import Session from "../../models/Session.js"
+import { User } from "../models/index.js"
+import { Session } from "../models/index.js"
 
 /**
  * Helper function to refresh user data in session

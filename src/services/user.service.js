@@ -5,7 +5,7 @@
  * @module services/user
  */
 
-import User from '../../models/User.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, badRequest } from './base/index.js';
 

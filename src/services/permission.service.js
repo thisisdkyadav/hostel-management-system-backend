@@ -5,8 +5,8 @@
  * @module services/permission
  */
 
-import User from '../../models/User.js';
-import { getDefaultPermissions } from '../../utils/permissions.js';
+import { User } from '../models/index.js';
+import { getDefaultPermissions } from '../utils/permissions.js';
 import { success, notFound, badRequest } from './base/index.js';
 
 const VALID_ROLES = [

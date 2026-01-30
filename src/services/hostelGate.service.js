@@ -5,9 +5,9 @@
  * @module services/hostelGate.service
  */
 
-import HostelGate from '../../models/HostelGate.js';
-import Hostel from '../../models/Hostel.js';
-import User from '../../models/User.js';
+import { HostelGate } from '../models/index.js';
+import { Hostel } from '../models/index.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, conflict, error } from './base/index.js';
 

@@ -3,8 +3,8 @@
  * Handles all business logic for real-time check-in/out monitoring
  */
 
-import CheckInOut from "../../models/CheckInOut.js"
-import Hostel from "../../models/Hostel.js"
+import { CheckInOut } from "../models/index.js"
+import { Hostel } from "../models/index.js"
 
 /**
  * Get live check-in/out entries with advanced filters

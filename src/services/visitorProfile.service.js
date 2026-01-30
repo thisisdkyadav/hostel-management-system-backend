@@ -5,7 +5,7 @@
  * @module services/visitorProfile.service
  */
 
-import VisitorProfile from '../../models/VisitorProfile.js';
+import { VisitorProfile } from '../models/index.js';
 import { BaseService, success } from './base/index.js';
 
 class VisitorProfileService extends BaseService {

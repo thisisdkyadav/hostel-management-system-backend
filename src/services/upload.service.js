@@ -13,7 +13,7 @@ import {
   AZURE_STORAGE_ACCOUNT_KEY,
   AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID,
   USE_LOCAL_STORAGE,
-} from '../../config/environment.js';
+} from '../config/env.config.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';

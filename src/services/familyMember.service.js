@@ -5,9 +5,9 @@
  * @module services/familyMember.service
  */
 
-import FamilyMember from '../../models/FamilyMember.js';
-import User from '../../models/User.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { FamilyMember } from '../models/index.js';
+import { User } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, notFound, badRequest, withTransaction } from './base/index.js';
 
 class FamilyMemberService extends BaseService {

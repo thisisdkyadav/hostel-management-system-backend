@@ -1,4 +1,4 @@
-import Configuration from "../models/configuration.js"
+import Configuration from "../models/config/Configuration.model.js"
 
 // Default configuration values
 export const defaultConfigs = {
@@ -22,19 +22,6 @@ export const defaultConfigs = {
     value: { visitorPaymentLink: "" },
     description: "System-wide settings for the hostel management system",
   },
-  //   systemSettings: {
-  //     value: {
-  //       academicYear: "2023-2024",
-  //       semesterDates: {
-  //         fall: { start: "2023-08-15", end: "2023-12-15" },
-  //         spring: { start: "2024-01-15", end: "2024-05-15" },
-  //       },
-  //       maintenanceMode: false,
-  //       maxRoomCapacity: 4,
-  //       feePaymentDeadline: "2023-09-30",
-  //     },
-  //     description: "System-wide settings for the hostel management system",
-  //   },
 }
 
 /**

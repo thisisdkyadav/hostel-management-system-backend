@@ -5,8 +5,8 @@
  * @module services/feedback.service
  */
 
-import Feedback from '../../models/Feedback.js';
-import StudentProfile from '../../models/StudentProfile.js';
+import { Feedback } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
 import { BaseService, success, badRequest, PRESETS } from './base/index.js';
 
 class FeedbackService extends BaseService {

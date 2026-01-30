@@ -1,5 +1,5 @@
-import User from "../models/User.js"
-import { getIO } from "../config/socket.js"
+import User from "../models/user/User.model.js"
+import { getIO } from "../loaders/socket.loader.js"
 import { addOnlineUser, removeOnlineUser, updateUserActivity } from "./redisOnlineUsers.js"
 
 /**

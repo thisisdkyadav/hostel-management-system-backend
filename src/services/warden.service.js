@@ -5,8 +5,8 @@
  * @module services/warden
  */
 
-import Warden from '../../models/Warden.js';
-import User from '../../models/User.js';
+import { Warden } from '../models/index.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, badRequest, forbidden } from './base/index.js';
 

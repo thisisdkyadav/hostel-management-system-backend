@@ -15,10 +15,10 @@ import {
   complaintStatusUpdate,
   updateComplaintResolutionNotes,
   updateComplaintFeedback,
-} from '../../../controllers/complaintController.js';
+} from '../../controllers/complaintController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+import { requirePermission } from '../../utils/permissions.js';
 import { validate } from '../../validations/validate.middleware.js';
 import {
   createComplaintSchema,

@@ -5,8 +5,8 @@
  * @module services/task
  */
 
-import Task from '../../models/Task.js';
-import User from '../../models/User.js';
+import { Task } from '../models/index.js';
+import { User } from '../models/index.js';
 import { BaseService, success, notFound, badRequest, forbidden, PRESETS } from './base/index.js';
 
 class TaskService extends BaseService {

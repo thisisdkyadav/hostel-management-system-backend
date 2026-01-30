@@ -5,10 +5,10 @@
  * @module services/staffAttendance.service
  */
 
-import StaffAttendance from '../../models/staffAttendance.js';
-import User from '../../models/User.js';
-import Security from '../../models/Security.js';
-import { decryptData } from '../../utils/qrUtils.js';
+import { StaffAttendance } from '../models/index.js';
+import { User } from '../models/index.js';
+import { Security } from '../models/index.js';
+import { decryptData } from '../utils/qrUtils.js';
 import { BaseService, success, badRequest, error } from './base/index.js';
 
 class StaffAttendanceService extends BaseService {

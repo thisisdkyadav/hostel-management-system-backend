@@ -15,7 +15,7 @@ import {
   updateFamilyMember,
   deleteFamilyMember,
   getHealth,
-} from '../../../controllers/studentProfileController.js';
+} from '../../controllers/studentProfileController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

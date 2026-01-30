@@ -5,9 +5,9 @@
  * @module services/hostelInventory
  */
 
-import HostelInventory from '../../models/HostelInventory.js';
-import InventoryItemType from '../../models/InventoryItemType.js';
-import Hostel from '../../models/Hostel.js';
+import { HostelInventory } from '../models/index.js';
+import { InventoryItemType } from '../models/index.js';
+import { Hostel } from '../models/index.js';
 import mongoose from 'mongoose';
 import { BaseService, success, notFound, badRequest } from './base/index.js';
 

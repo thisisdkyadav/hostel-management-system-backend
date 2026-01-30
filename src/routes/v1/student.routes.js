@@ -24,16 +24,16 @@ import {
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
   getStudentId,
-} from '../../../controllers/studentController.js';
+} from '../../controllers/studentController.js';
 import {
   getDepartmentsList,
   getDegreesList,
   renameDepartment,
   renameDegree,
-} from '../../../controllers/adminController.js';
+} from '../../controllers/adminController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+import { requirePermission } from '../../utils/permissions.js';
 
 const router = express.Router();
 

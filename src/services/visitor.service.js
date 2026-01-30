@@ -6,12 +6,12 @@
  */
 
 import mongoose from 'mongoose';
-import VisitorRequest from '../../models/VisitorRequest.js';
-import Unit from '../../models/Unit.js';
-import Room from '../../models/Room.js';
-import StudentProfile from '../../models/StudentProfile.js';
-import { checkPaymentStatus } from '../../utils/utils.js';
-import { getConfigWithDefault } from '../../utils/configDefaults.js';
+import { VisitorRequest } from '../models/index.js';
+import { Unit } from '../models/index.js';
+import { Room } from '../models/index.js';
+import { StudentProfile } from '../models/index.js';
+import { checkPaymentStatus } from '../utils/utils.js';
+import { getConfigWithDefault } from '../utils/configDefaults.js';
 import { BaseService, success, notFound, badRequest, forbidden, error, withTransaction } from './base/index.js';
 
 class VisitorService extends BaseService {

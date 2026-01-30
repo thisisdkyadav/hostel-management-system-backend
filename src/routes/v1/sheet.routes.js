@@ -9,7 +9,7 @@ import express from 'express';
 import {
   getHostelSheetData,
   getAllocationSummary,
-} from '../../../controllers/sheetController.js';
+} from '../../controllers/sheetController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

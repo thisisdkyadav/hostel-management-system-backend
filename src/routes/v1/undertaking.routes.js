@@ -20,7 +20,7 @@ import {
   acceptUndertaking,
   getStudentAcceptedUndertakings,
   getStudentPendingUndertakingsCount,
-} from '../../../controllers/undertakingController.js';
+} from '../../controllers/undertakingController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

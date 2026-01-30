@@ -5,16 +5,16 @@
  * @module services/stats
  */
 
-import Hostel from '../../models/Hostel.js';
-import Warden from '../../models/Warden.js';
-import Complaint from '../../models/Complaint.js';
-import Event from '../../models/Event.js';
-import LostAndFound from '../../models/LostAndFound.js';
-import Security from '../../models/Security.js';
-import MaintenanceStaff from '../../models/MaintenanceStaff.js';
-import Room from '../../models/Room.js';
-import RoomChangeRequest from '../../models/RoomChangeRequest.js';
-import Visitors from '../../models/Visitors.js';
+import { Hostel } from '../models/index.js';
+import { Warden } from '../models/index.js';
+import { Complaint } from '../models/index.js';
+import { Event } from '../models/index.js';
+import { LostAndFound } from '../models/index.js';
+import { Security } from '../models/index.js';
+import { MaintenanceStaff } from '../models/index.js';
+import { Room } from '../models/index.js';
+import { RoomChangeRequest } from '../models/index.js';
+import { Visitors } from '../models/index.js';
 import { success } from './base/index.js';
 
 class StatsService {

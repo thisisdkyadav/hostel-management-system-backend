@@ -15,7 +15,7 @@ import {
   verifySSOToken,
   getUserDevices,
   logoutDevice,
-} from '../../../controllers/authController.js';
+} from '../../controllers/authController.js';
 import { authenticate, refreshUserData } from '../../middlewares/auth.middleware.js';
 import { validate } from '../../validations/validate.middleware.js';
 import {

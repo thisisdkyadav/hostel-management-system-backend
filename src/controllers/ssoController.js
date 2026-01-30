@@ -1,4 +1,4 @@
-import { JWT_SECRET } from "../../config/environment.js"
+import { JWT_SECRET } from "../config/env.config.js"
 import jwt from "jsonwebtoken"
 import { asyncHandler } from "../utils/index.js"
 

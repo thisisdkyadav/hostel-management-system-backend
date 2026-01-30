@@ -6,7 +6,7 @@
  */
 
 import express from 'express';
-import { redirect, verifySSOToken } from '../../../controllers/ssoController.js';
+import { redirect, verifySSOToken } from '../../controllers/ssoController.js';
 
 const router = express.Router();
 

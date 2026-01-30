@@ -3,7 +3,7 @@
  * Handles authentication for face scanner devices
  */
 // Using old model path until Phase 3 (Models Migration)
-import FaceScanner from "../../models/FaceScanner.js"
+import { FaceScanner } from "../models/index.js"
 import bcrypt from "bcrypt"
 import fs from "fs"
 import path from "path"

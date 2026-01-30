@@ -6,18 +6,18 @@
 
 import BaseService from './base/BaseService.js';
 import { success, notFound, badRequest, forbidden, withTransaction } from './base/index.js';
-import StudentProfile from '../../models/StudentProfile.js';
-import Complaint from '../../models/Complaint.js';
-import Events from '../../models/Event.js';
-import RoomAllocation from '../../models/RoomAllocation.js';
-import Room from '../../models/Room.js';
-import Unit from '../../models/Unit.js';
-import LostAndFound from '../../models/LostAndFound.js';
+import { StudentProfile } from '../models/index.js';
+import { Complaint } from '../models/index.js';
+import { Event as Events } from '../models/index.js';
+import { RoomAllocation } from '../models/index.js';
+import { Room } from '../models/index.js';
+import { Unit } from '../models/index.js';
+import { LostAndFound } from '../models/index.js';
 import mongoose from 'mongoose';
-import User from '../../models/User.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
-import { formatDate } from '../../utils/utils.js';
-import Hostel from '../../models/Hostel.js';
+import { formatDate } from '../utils/utils.js';
+import { Hostel } from '../models/index.js';
 
 class StudentService extends BaseService {
   constructor() {

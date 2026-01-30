@@ -11,7 +11,7 @@ import {
   getNotificationStats,
   getNotifications,
   getActiveNotificationsCount,
-} from '../../../controllers/notificationController.js';
+} from '../../controllers/notificationController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

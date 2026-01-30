@@ -3,9 +3,9 @@
  * Handles actions performed by different scanner types
  */
 
-import CheckInOut from "../../models/CheckInOut.js"
-import StudentProfile from "../../models/StudentProfile.js"
-import { getIO } from "../../config/socket.js"
+import { CheckInOut } from "../models/index.js"
+import { StudentProfile } from "../models/index.js"
+import { getIO } from "../loaders/socket.loader.js"
 import * as liveCheckInOutService from "./liveCheckInOut.service.js"
 
 /**

@@ -13,7 +13,7 @@ import {
   updateInventoryItemType,
   deleteInventoryItemType,
   updateInventoryItemTypeCount,
-} from '../../../controllers/inventoryItemTypeController.js';
+} from '../../controllers/inventoryItemTypeController.js';
 import {
   assignInventoryToHostel,
   getHostelInventory,
@@ -21,7 +21,7 @@ import {
   updateHostelInventory,
   deleteHostelInventory,
   getInventorySummaryByHostel,
-} from '../../../controllers/hostelInventoryController.js';
+} from '../../controllers/hostelInventoryController.js';
 import {
   assignInventoryToStudent,
   getStudentInventory,
@@ -30,10 +30,10 @@ import {
   updateInventoryStatus,
   getInventorySummaryByStudent,
   getInventorySummaryByItemType,
-} from '../../../controllers/studentInventoryController.js';
+} from '../../controllers/studentInventoryController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+import { requirePermission } from '../../utils/permissions.js';
 
 const router = express.Router();
 

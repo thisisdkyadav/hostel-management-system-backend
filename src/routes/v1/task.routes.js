@@ -13,7 +13,7 @@ import {
   updateTaskStatus,
   updateTask,
   deleteTask,
-} from '../../../controllers/taskController.js';
+} from '../../controllers/taskController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

@@ -1,4 +1,4 @@
-import { getRedisClients } from "../config/socket.js"
+import { getRedisClients } from "../loaders/socket.loader.js"
 
 /**
  * Redis helper functions for managing online users

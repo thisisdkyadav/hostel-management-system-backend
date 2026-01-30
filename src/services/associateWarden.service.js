@@ -5,8 +5,8 @@
  * @module services/associateWarden
  */
 
-import AssociateWarden from '../../models/AssociateWarden.js';
-import User from '../../models/User.js';
+import { AssociateWarden } from '../models/index.js';
+import { User } from '../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, badRequest, forbidden } from './base/index.js';
 

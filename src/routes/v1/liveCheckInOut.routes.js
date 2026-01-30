@@ -11,7 +11,7 @@ import {
   getHostelWiseStats,
   getRecentActivity,
   getTimeBasedAnalytics,
-} from '../../../controllers/liveCheckInOutController.js';
+} from '../../controllers/liveCheckInOutController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

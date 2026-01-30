@@ -4,7 +4,7 @@
  */
 
 import mongoose from "mongoose"
-import { getDefaultPermissions } from "../../../utils/permissions.js"
+import { getDefaultPermissions } from "../../utils/permissions.js"
 
 const UserSchema = new mongoose.Schema(
   {

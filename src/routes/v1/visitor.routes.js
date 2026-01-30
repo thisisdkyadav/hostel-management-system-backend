@@ -19,13 +19,13 @@ import {
   updateCheckTime,
   getStudentVisitorRequests,
   updatePaymentInfo,
-} from '../../../controllers/visitorController.js';
+} from '../../controllers/visitorController.js';
 import {
   getVisitorProfiles,
   createVisitorProfile,
   deleteVisitorProfile,
   updateVisitorProfile,
-} from '../../../controllers/visitorProfileController.js';
+} from '../../controllers/visitorProfileController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 

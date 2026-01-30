@@ -1,4 +1,4 @@
-import * as scannerActionService from "../../services/scannerActionService.js"
+import * as scannerActionService from "../services/scannerAction.service.js"
 import { asyncHandler } from "../utils/index.js"
 
 /**

@@ -14,7 +14,7 @@ import {
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
-} from '../../../controllers/uploadController.js';
+} from '../../controllers/uploadController.js';
 import { authenticate } from '../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
 
