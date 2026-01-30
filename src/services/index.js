@@ -52,6 +52,75 @@ export * as paymentService from "./payment.service.js"
 // Notification services
 export * as notificationService from "./notification.service.js"
 
+// Hostel Inventory services
+export * from "./hostelInventory.service.js"
+
+// User services
+export * from "./user.service.js"
+
+// Task services
+export * from "./task.service.js"
+
+// Warden services
+export * from "./warden.service.js"
+
+// Hostel Supervisor services
+export * from "./hostelSupervisor.service.js"
+
+// Associate Warden services
+export * from "./associateWarden.service.js"
+
+// Stats services
+export * from "./stats.service.js"
+
+// Health services
+export * from "./health.service.js"
+
+// Insurance Provider services
+export * from "./insuranceProvider.service.js"
+
+// Staff Attendance services
+export * from "./staffAttendance.service.js"
+
+// Inventory Item Type services
+export * from "./inventoryItemType.service.js"
+
+// Super Admin services
+export * from "./superAdmin.service.js"
+
+// Leave services
+export * from "./leave.service.js"
+
+// Family Member services
+export * from "./familyMember.service.js"
+
+// Feedback services
+export * from "./feedback.service.js"
+
+// Online Users services
+export * from "./onlineUsers.service.js"
+
+// Event services
+export * from "./event.service.js"
+
+// Hostel Gate services
+export * from "./hostelGate.service.js"
+
+// Config services
+export * from "./config.service.js"
+
+// Certificate services
+export * from "./certificate.service.js"
+
+// DisCo services
+export * from "./disCo.service.js"
+
+// Visitor Profile services
+export * from "./visitorProfile.service.js"
+
+// Lost And Found services
+export * from "./lostAndFound.service.js"
+
 // Default exports for convenience
 import { authService } from "./auth.service.js"
 import { complaintService } from "./complaint.service.js"

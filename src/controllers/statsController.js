@@ -1,236 +1,139 @@
-import Hostel from "../../models/Hostel.js"
-import Warden from "../../models/Warden.js"
-import StudentProfile from "../../models/StudentProfile.js"
-import Complaint from "../../models/Complaint.js"
-import Event from "../../models/Event.js"
-import LostAndFound from "../../models/LostAndFound.js"
-import Security from "../../models/Security.js"
-import MaintenanceStaff from "../../models/MaintenanceStaff.js"
-import Room from "../../models/Room.js"
-import RoomChangeRequest from "../../models/RoomChangeRequest.js"
-import Visitors from "../../models/Visitors.js"
-import Unit from "../../models/Unit.js"
+/**
+ * Stats Controller
+ * Handles HTTP requests for statistics operations.
+ * Business logic delegated to StatsService.
+ * 
+ * @module controllers/stats
+ */
 
+import { statsService } from '../services/stats.service.js';
+
+/**
+ * Get hostel statistics
+ * @route GET /api/stats/hostels
+ */
 export const getHostelStats = async (req, res) => {
   try {
-    const [totalHostels, roomStats] = await Promise.all([
-      Hostel.countDocuments(),
-      Room.aggregate([
-        { $match: { status: "Active" } },
-        {
-          $group: {
-            _id: null,
-            totalRooms: { $sum: 1 },
-            occupiedRooms: {
-              $sum: { $cond: [{ $gt: ["$occupancy", 0] }, 1, 0] },
-            },
-            availableRooms: {
-              $sum: { $cond: [{ $eq: ["$occupancy", 0] }, 1, 0] },
-            },
-          },
-        },
-      ]),
-    ])
-
-    let stats = {
-      totalRooms: 0,
-      occupiedRooms: 0,
-      availableRooms: 0,
-      occupancyRate: 0,
-    }
-
-    if (roomStats.length > 0) {
-      const { totalRooms, occupiedRooms, availableRooms } = roomStats[0]
-      stats = {
-        totalRooms,
-        occupiedRooms,
-        availableRooms,
-        occupancyRate: totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0,
-      }
-    }
-
-    res.status(200).json({
-      totalHostels,
-      totalRooms: stats.totalRooms,
-      occupancyRate: stats.occupancyRate,
-      availableRooms: stats.availableRooms,
-    })
+    const result = await statsService.getHostelStats();
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalWardens, assignedWardens, unassignedWardens
+/**
+ * Get warden statistics
+ * @route GET /api/stats/wardens
+ */
 export const getWardenStats = async (req, res) => {
   try {
-    const totalWardens = await Warden.countDocuments()
-    const assignedWardens = await Warden.countDocuments({ status: "assigned" })
-    const unassignedWardens = await Warden.countDocuments({ status: "unassigned" })
-
-    res.status(200).json({
-      total: totalWardens,
-      assigned: assignedWardens,
-      unassigned: unassignedWardens,
-    })
+    const result = await statsService.getWardenStats();
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalEvents, upcomingEvents, pastEvents
+/**
+ * Get event statistics for a hostel
+ * @route GET /api/stats/events/:hostelId
+ */
 export const getEventStats = async (req, res) => {
-  const { hostelId } = req.params
   try {
-    const currentDate = new Date()
-    const totalEvents = await Event.countDocuments({ hostelId })
-    const upcomingEvents = await Event.countDocuments({ dateAndTime: { $gt: currentDate }, hostelId })
-    const pastEvents = await Event.countDocuments({ dateAndTime: { $lte: currentDate }, hostelId })
-
-    res.status(200).json({
-      total: totalEvents,
-      upcoming: upcomingEvents,
-      past: pastEvents,
-    })
+    const result = await statsService.getEventStats(req.params.hostelId);
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalLostAndFound, ActiveLostAndFound, ClaimedLostAndFound
+/**
+ * Get lost and found statistics
+ * @route GET /api/stats/lost-and-found
+ */
 export const getLostAndFoundStats = async (req, res) => {
   try {
-    const totalLostAndFound = await LostAndFound.countDocuments()
-    const activeLostAndFound = await LostAndFound.countDocuments({ status: "Active" })
-    const claimedLostAndFound = await LostAndFound.countDocuments({ status: "Claimed" })
-
-    res.status(200).json({
-      total: totalLostAndFound,
-      active: activeLostAndFound,
-      claimed: claimedLostAndFound,
-    })
+    const result = await statsService.getLostAndFoundStats();
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalSecurityStaff, assignedSecurityStaff, unassignedSecurityStaff
+/**
+ * Get security staff statistics
+ * @route GET /api/stats/security
+ */
 export const getSecurityStaffStats = async (req, res) => {
   try {
-    const totalSecurityStaff = await Security.countDocuments()
-    const assignedSecurityStaff = await Security.countDocuments({ hostelId: { $ne: null } })
-    const unassignedSecurityStaff = await Security.countDocuments({ hostelId: null })
-
-    res.status(200).json({
-      total: totalSecurityStaff,
-      assigned: assignedSecurityStaff,
-      unassigned: unassignedSecurityStaff,
-    })
+    const result = await statsService.getSecurityStaffStats();
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalMaintenanceStaff, plumbingStaff, electricalStaff, cleanlinessStaff, internetStaff, civilStaff
+/**
+ * Get maintenance staff statistics
+ * @route GET /api/stats/maintenance
+ */
 export const getMaintenanceStaffStats = async (req, res) => {
   try {
-    const totalMaintenanceStaff = await MaintenanceStaff.countDocuments()
-    const plumbingStaff = await MaintenanceStaff.countDocuments({ category: "Plumbing" })
-    const electricalStaff = await MaintenanceStaff.countDocuments({ category: "Electrical" })
-    const cleanlinessStaff = await MaintenanceStaff.countDocuments({ category: "Cleanliness" })
-    const internetStaff = await MaintenanceStaff.countDocuments({ category: "Internet" })
-    const civilStaff = await MaintenanceStaff.countDocuments({ category: "Civil" })
-
-    res.status(200).json({
-      total: totalMaintenanceStaff,
-      plumbing: plumbingStaff,
-      electrical: electricalStaff,
-      cleanliness: cleanlinessStaff,
-      internet: internetStaff,
-      civil: civilStaff,
-    })
+    const result = await statsService.getMaintenanceStaffStats();
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalRooms, availableRooms, occupiedRooms
+/**
+ * Get room statistics for a hostel
+ * @route GET /api/stats/rooms/:hostelId
+ */
 export const getRoomStats = async (req, res) => {
-  const { hostelId } = req.params
   try {
-    const totalRooms = await Room.countDocuments({ hostelId })
-    const availableRooms = await Room.countDocuments({ occupancy: 0, hostelId })
-    const occupiedRooms = await Room.countDocuments({ occupancy: { $gt: 0 }, hostelId })
-
-    res.status(200).json({
-      totalRooms,
-      availableRooms,
-      occupiedRooms,
-    })
+    const result = await statsService.getRoomStats(req.params.hostelId);
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalRoomChangeRequests, pendingRoomChangeRequests, approvedRoomChangeRequests, rejectedRoomChangeRequests
+/**
+ * Get room change request statistics for a hostel
+ * @route GET /api/stats/room-change-requests/:hostelId
+ */
 export const getRoomChangeRequestStats = async (req, res) => {
-  const { hostelId } = req.params
   try {
-    const totalRoomChangeRequests = await RoomChangeRequest.countDocuments({ hostelId })
-    const pendingRoomChangeRequests = await RoomChangeRequest.countDocuments({ status: "Pending", hostelId })
-    const approvedRoomChangeRequests = await RoomChangeRequest.countDocuments({ status: "Approved", hostelId })
-    const rejectedRoomChangeRequests = await RoomChangeRequest.countDocuments({ status: "Rejected", hostelId })
-
-    res.status(200).json({
-      total: totalRoomChangeRequests,
-      pending: pendingRoomChangeRequests,
-      approved: approvedRoomChangeRequests,
-      rejected: rejectedRoomChangeRequests,
-    })
+    const result = await statsService.getRoomChangeRequestStats(req.params.hostelId);
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalVisitors, checkedInVisitors, checkedOutVisitors, todaysVisitors
+/**
+ * Get visitor statistics for a hostel
+ * @route GET /api/stats/visitors/:hostelId
+ */
 export const getVisitorStats = async (req, res) => {
-  const { hostelId } = req.params
   try {
-    const currentDate = new Date()
-    const totalVisitors = await Visitors.countDocuments({ hostelId })
-    const checkedInVisitors = await Visitors.countDocuments({ status: "Checked In", hostelId })
-    const checkedOutVisitors = await Visitors.countDocuments({ status: "Checked Out", hostelId })
-    const todaysVisitors = await Visitors.countDocuments({
-      hostelId,
-      checkIn: { $gte: new Date(currentDate.setHours(0, 0, 0, 0)) },
-      checkIn: { $lt: new Date(currentDate.setHours(23, 59, 59, 999)) },
-    })
-
-    res.status(200).json({
-      total: totalVisitors,
-      checkedIn: checkedInVisitors,
-      checkedOut: checkedOutVisitors,
-      todays: todaysVisitors,
-    })
+    const result = await statsService.getVisitorStats(req.params.hostelId);
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
-// required stats totalComplaints, pendingComplaints, resolvedComplaints, inProgressComplaints
+/**
+ * Get complaint statistics
+ * @route GET /api/stats/complaints
+ */
 export const getComplaintsStats = async (req, res) => {
   try {
-    const totalComplaints = await Complaint.countDocuments()
-    const pendingComplaints = await Complaint.countDocuments({ status: "Pending" })
-    const resolvedComplaints = await Complaint.countDocuments({ status: "Resolved" })
-    const inProgressComplaints = await Complaint.countDocuments({ status: "In Progress" })
-
-    res.status(200).json({
-      total: totalComplaints,
-      pending: pendingComplaints,
-      resolved: resolvedComplaints,
-      inProgress: inProgressComplaints,
-    })
+    const result = await statsService.getComplaintsStats();
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};

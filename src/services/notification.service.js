@@ -4,10 +4,183 @@
  */
 
 import Notification from '../../models/Notification.js'
+import StudentProfile from '../../models/StudentProfile.js'
 
 class NotificationService {
+  // ========== Controller Methods (for thin controller pattern) ==========
+
   /**
-   * Create a notification
+   * Create notification - Controller method
+   */
+  async create(data, senderId) {
+    const { title, message, type, hostelId, degree, department, gender, expiryDate } = data
+
+    try {
+      const notification = new Notification({
+        title,
+        message,
+        type,
+        sender: senderId,
+        hostelId,
+        degree,
+        department,
+        gender,
+        expiryDate,
+      })
+
+      await notification.save()
+
+      return { success: true, statusCode: 201, data: { message: "Notification created successfully", notification } }
+    } catch (error) {
+      console.error("Error creating notification:", error)
+      return { success: false, statusCode: 500, message: "Internal server error" }
+    }
+  }
+
+  /**
+   * Get notifications - Controller method
+   */
+  async getAll(query, user) {
+    const { page, limit, type, hostelId, degree, department, gender, search, expiryStatus } = query
+
+    try {
+      const queryObj = {}
+      if (type) queryObj.type = type
+      if (user.role === "Student") {
+        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
+        const hostelIdVal = studentProfile.currentRoomAllocation?.hostelId
+        const { gender: studentGender, degree: studentDegree, department: studentDepartment } = studentProfile
+        queryObj.$and = [
+          { $or: [{ gender: null }, { gender: studentGender }] },
+          { $or: [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: hostelIdVal }] },
+          { $or: [{ degree: { $size: 0 } }, { degree: null }, { degree: studentDegree }] },
+          { $or: [{ department: { $size: 0 } }, { department: null }, { department: studentDepartment }] },
+        ]
+      } else {
+        // For non-student users
+        if (hostelId) {
+          const hostelIds = Array.isArray(hostelId) ? hostelId : [hostelId]
+          queryObj.$or = [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: { $in: hostelIds } }]
+        }
+        if (degree) {
+          const degrees = Array.isArray(degree) ? degree : [degree]
+          queryObj.$and = queryObj.$and || []
+          queryObj.$and.push({
+            $or: [{ degree: { $size: 0 } }, { degree: null }, { degree: { $in: degrees } }],
+          })
+        }
+        if (department) {
+          const departments = Array.isArray(department) ? department : [department]
+          queryObj.$and = queryObj.$and || []
+          queryObj.$and.push({
+            $or: [{ department: { $size: 0 } }, { department: null }, { department: { $in: departments } }],
+          })
+        }
+        if (gender) queryObj.gender = gender
+      }
+
+      if (expiryStatus) {
+        const now = new Date()
+        if (expiryStatus === "active") {
+          queryObj.expiryDate = { $gte: now }
+        } else if (expiryStatus === "expired") {
+          queryObj.expiryDate = { $lt: now }
+        }
+      }
+
+      if (user.hostel) {
+        queryObj.hostelId = user.hostel._id
+      }
+
+      if (search) {
+        const regex = new RegExp(search, "i")
+        queryObj.$or = [{ title: regex }, { message: regex }, { sender: regex }, { hostelId: { $in: [regex] } }, { degree: { $in: [regex] } }, { department: { $in: [regex] } }]
+      }
+
+      const pageInt = parseInt(page) || 1
+      const limitInt = parseInt(limit) || 10
+      const skip = (pageInt - 1) * limitInt
+
+      const notifications = await Notification.find(queryObj).sort({ createdAt: -1 }).skip(skip).limit(limitInt).populate("sender", "name email").populate("hostelId", "name")
+
+      const totalNotifications = await Notification.countDocuments(queryObj)
+      const totalPages = Math.ceil(totalNotifications / limitInt)
+
+      return {
+        success: true,
+        statusCode: 200,
+        data: {
+          data: notifications,
+          meta: { totalCount: totalNotifications, totalPages, currentPage: pageInt },
+        },
+      }
+    } catch (error) {
+      console.error("Error fetching notifications:", error)
+      return { success: false, statusCode: 500, message: "Internal server error" }
+    }
+  }
+
+  /**
+   * Get notification stats - Controller method
+   */
+  async getStats(user) {
+    try {
+      let queryObj = {}
+      if (user.role === "Student") {
+        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
+        const hostelId = studentProfile.currentRoomAllocation?.hostelId
+        const { gender, degree, department } = studentProfile
+        queryObj = {
+          $and: [
+            { $or: [{ gender: null }, { gender: gender }] },
+            { $or: [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: hostelId }] },
+            { $or: [{ degree: { $size: 0 } }, { degree: null }, { degree: degree }] },
+            { $or: [{ department: { $size: 0 } }, { department: null }, { department: department }] },
+          ],
+        }
+      }
+
+      const now = new Date()
+      const total = await Notification.countDocuments(queryObj)
+      const active = await Notification.countDocuments({ ...queryObj, expiryDate: { $gte: now } })
+      const expired = await Notification.countDocuments({ ...queryObj, expiryDate: { $lt: now } })
+
+      return { success: true, statusCode: 200, data: { data: { total, active, expired } } }
+    } catch (error) {
+      console.error("Error fetching notification stats:", error)
+      return { success: false, statusCode: 500, message: "Internal server error" }
+    }
+  }
+
+  /**
+   * Get active notifications count - Controller method
+   */
+  async getActiveCount(user) {
+    try {
+      const now = new Date()
+      let queryObj = {}
+      if (user.role === "Student") {
+        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation", "hostelId")
+        const hostelId = studentProfile.currentRoomAllocation?.hostelId
+        const { gender, degree, department } = studentProfile
+        queryObj = {
+          $and: [{ $or: [{ gender: null }, { gender: gender }] }, { $or: [{ hostelId: { $size: 0 } }, { hostelId: hostelId }] }, { $or: [{ degree: { $size: 0 } }, { degree: degree }] }, { $or: [{ department: { $size: 0 } }, { department: department }] }],
+        }
+      }
+
+      const activeCount = await Notification.countDocuments({ ...queryObj, expiryDate: { $gte: now } })
+
+      return { success: true, statusCode: 200, data: { activeCount } }
+    } catch (error) {
+      console.error("Error fetching active notifications count:", error)
+      return { success: false, statusCode: 500, message: "Internal server error" }
+    }
+  }
+
+  // ========== Legacy Methods (for backwards compatibility) ==========
+
+  /**
+   * Create a notification (legacy)
    * @param {Object} options Notification options
    * @param {string} options.title Notification title
    * @param {string} options.message Notification message

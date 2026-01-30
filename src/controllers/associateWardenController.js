@@ -1,263 +1,125 @@
-import AssociateWarden from "../../models/AssociateWarden.js"
-import User from "../../models/User.js"
-import bcrypt from "bcrypt"
+/**
+ * Associate Warden Controller
+ * Handles HTTP requests for associate warden operations.
+ * Business logic delegated to AssociateWardenService.
+ * 
+ * @module controllers/associateWarden
+ */
 
+import { associateWardenService } from '../services/associateWarden.service.js';
+
+/**
+ * Get associate warden profile
+ * @route GET /api/associate-wardens/profile
+ */
 export const getAssociateWardenProfile = async (req, res) => {
-  const user = req.user
-  const userId = user._id
   try {
-    const associateWardenProfile = await AssociateWarden.findOne({ userId }).populate("userId", "name email role phone profileImage").populate("hostelIds", "name type").populate("activeHostelId", "name type").exec()
-
-    if (!associateWardenProfile) {
-      return res.status(404).json({ message: "Associate Warden profile not found" })
+    const result = await associateWardenService.getAssociateWardenProfile(req.user._id);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.message });
     }
-
-    // Format the response to include activeHostelId as hostelId for compatibility
-    const formattedProfile = {
-      ...associateWardenProfile.toObject(), // Convert mongoose doc to plain object
-      hostelId: associateWardenProfile.activeHostelId, // Add active hostel under the key 'hostelId'
-    }
-
-    res.status(200).json(formattedProfile) // Send the formatted profile
+    
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    console.error("Error fetching associate warden profile:", error)
-    res.status(500).json({ message: "Server error", error: error.message })
+    console.error('Error fetching associate warden profile:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
+/**
+ * Create a new associate warden
+ * @route POST /api/associate-wardens
+ */
 export const createAssociateWarden = async (req, res) => {
   try {
-    const { email, password, name, phone, hostelIds, joinDate, category } = req.body
-
-    if (!email || !password || !name) {
-      return res.status(400).json({ message: "Email, password, and name are required" })
+    const result = await associateWardenService.createAssociateWarden(req.body);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.message });
     }
-
-    if (hostelIds && !Array.isArray(hostelIds)) {
-      return res.status(400).json({ message: "hostelIds must be an array" })
-    }
-
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
-    if (existingUser) {
-      return res.status(400).json({ message: "User with this email already exists" })
-    }
-
-    const salt = await bcrypt.genSalt(10)
-    const hashedPassword = await bcrypt.hash(password, salt)
-
-    const newUser = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role: "Associate Warden",
-      phone: phone || "",
-    })
-
-    const savedUser = await newUser.save()
-
-    const validHostelIds = hostelIds && hostelIds.length > 0 ? hostelIds : []
-    const status = validHostelIds.length > 0 ? "assigned" : "unassigned"
-    const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null
-
-    const newAssociateWarden = new AssociateWarden({
-      userId: savedUser._id,
-      hostelIds: validHostelIds,
-      activeHostelId: activeHostelId,
-      status: status,
-      joinDate: joinDate || Date.now(),
-      category: category || "Associate Warden",
-    })
-
-    await newAssociateWarden.save()
-
-    res.status(201).json({
-      message: "Associate Warden created successfully",
-    })
+    
+    res.status(result.statusCode).json({ message: result.message });
   } catch (error) {
-    console.error("Error creating associate warden:", error)
-    res.status(500).json({ message: "Server error", error: error.message })
+    console.error('Error creating associate warden:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
+/**
+ * Get all associate wardens
+ * @route GET /api/associate-wardens
+ */
 export const getAllAssociateWardens = async (req, res) => {
   try {
-    const associateWardens = await AssociateWarden.find().populate("userId", "name email phone profileImage").lean().exec()
-
-    const formattedAssociateWardens = associateWardens.map((aw) => ({
-      id: aw._id,
-      userId: aw.userId._id,
-      name: aw.userId.name,
-      email: aw.userId.email,
-      phone: aw.userId.phone,
-      hostelIds: aw.hostelIds || [],
-      activeHostelId: aw.activeHostelId || null,
-      joinDate: aw.joinDate ? aw.joinDate.toISOString().split("T")[0] : null,
-      profileImage: aw.userId.profileImage,
-      status: aw.status || (aw.hostelIds && aw.hostelIds.length > 0 ? "assigned" : "unassigned"),
-      category: aw.category || "Associate Warden",
-    }))
-
-    formattedAssociateWardens.sort((a, b) => {
-      const aHasChief = a.email.toLowerCase().includes("chief")
-      const bHasChief = b.email.toLowerCase().includes("chief")
-
-      if (aHasChief && !bHasChief) return -1
-      if (!aHasChief && bHasChief) return 1
-
-      return a.name.localeCompare(b.name)
-    })
-
-    res.status(200).json(formattedAssociateWardens)
+    const result = await associateWardenService.getAllAssociateWardens();
+    
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    console.error("Error getting all associate wardens:", error)
-    res.status(500).json({ message: "Server error", error: error.message })
+    console.error('Error getting all associate wardens:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
+/**
+ * Update associate warden
+ * @route PUT /api/associate-wardens/:id
+ */
 export const updateAssociateWarden = async (req, res) => {
   try {
-    const { id } = req.params
-    const { phone, profileImage, joinDate, hostelIds, category } = req.body
-
-    if (hostelIds && !Array.isArray(hostelIds)) {
-      return res.status(400).json({ message: "hostelIds must be an array" })
+    const result = await associateWardenService.updateAssociateWarden(req.params.id, req.body);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.message });
     }
-
-    const updateData = {}
-    let userUpdateData = {}
-
-    if (hostelIds !== undefined) {
-      const validHostelIds = Array.isArray(hostelIds) ? hostelIds : []
-      updateData.hostelIds = validHostelIds
-      updateData.status = validHostelIds.length > 0 ? "assigned" : "unassigned"
-
-      const currentAW = await AssociateWarden.findById(id).select("activeHostelId hostelIds").lean()
-      if (!currentAW) {
-        return res.status(404).json({ message: "Associate Warden not found" })
-      }
-
-      const currentActiveId = currentAW.activeHostelId ? currentAW.activeHostelId.toString() : null
-      const newHostelIdStrings = validHostelIds.map((id) => id.toString())
-
-      if (validHostelIds.length === 0) {
-        updateData.activeHostelId = null
-      } else if (currentActiveId && !newHostelIdStrings.includes(currentActiveId)) {
-        updateData.activeHostelId = validHostelIds[0]
-      } else if (!currentActiveId && validHostelIds.length > 0) {
-        updateData.activeHostelId = validHostelIds[0]
-      }
-    }
-
-    if (joinDate !== undefined) {
-      updateData.joinDate = joinDate
-    }
-
-    if (phone !== undefined) {
-      userUpdateData.phone = phone
-    }
-
-    if (profileImage !== undefined) {
-      userUpdateData.profileImage = profileImage
-    }
-
-    if (category !== undefined) {
-      updateData.category = category
-    }
-
-    if (Object.keys(userUpdateData).length > 0) {
-      const associateWarden = await AssociateWarden.findById(id).select("userId")
-      if (!associateWarden) {
-        return res.status(404).json({ message: "Associate Warden not found" })
-      }
-      await User.findByIdAndUpdate(associateWarden.userId, userUpdateData)
-    }
-
-    if (Object.keys(updateData).length > 0) {
-      const updatedAssociateWarden = await AssociateWarden.findByIdAndUpdate(id, updateData, { new: true }).lean()
-      if (!updatedAssociateWarden) {
-        return res.status(404).json({ message: "Associate Warden not found during update" })
-      }
-    } else if (Object.keys(userUpdateData).length === 0) {
-      return res.status(400).json({ message: "No update data provided" })
-    }
-
-    res.status(200).json({ message: "Associate Warden updated successfully", success: true })
+    
+    res.status(result.statusCode).json({ message: result.message, success: true });
   } catch (error) {
-    console.error("Error updating associate warden:", error)
-    if (error.name === "CastError") {
-      return res.status(400).json({ message: "Invalid Associate Warden ID format" })
+    console.error('Error updating associate warden:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid Associate Warden ID format' });
     }
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
+/**
+ * Delete associate warden
+ * @route DELETE /api/associate-wardens/:id
+ */
 export const deleteAssociateWarden = async (req, res) => {
   try {
-    const { id } = req.params
-
-    const deletedAssociateWarden = await AssociateWarden.findByIdAndDelete(id)
-    if (!deletedAssociateWarden) {
-      return res.status(404).json({ message: "Associate Warden not found" })
+    const result = await associateWardenService.deleteAssociateWarden(req.params.id);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.message });
     }
-
-    await User.findByIdAndDelete(deletedAssociateWarden.userId)
-
-    res.status(200).json({ message: "Associate Warden deleted successfully" })
+    
+    res.status(result.statusCode).json({ message: result.message });
   } catch (error) {
-    console.error("Error deleting associate warden:", error)
-    res.status(500).json({ message: "Server error", error: error.message })
+    console.error('Error deleting associate warden:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
 
+/**
+ * Set active hostel for associate warden
+ * @route POST /api/associate-wardens/active-hostel
+ */
 export const setActiveHostelAW = async (req, res) => {
-  const userId = req.user._id
-  const { hostelId } = req.body
-
-  if (!hostelId) {
-    return res.status(400).json({ message: "hostelId is required in the request body" })
-  }
-
   try {
-    const associateWarden = await AssociateWarden.findOne({ userId })
-
-    if (!associateWarden) {
-      return res.status(404).json({ message: "Associate Warden profile not found for this user" })
+    const result = await associateWardenService.setActiveHostelAW(req.user._id, req.body.hostelId, req.session);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.message });
     }
-
-    const isAssigned = associateWarden.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId))
-
-    if (!isAssigned) {
-      return res.status(403).json({ message: "Associate Warden is not assigned to the specified hostel" })
-    }
-
-    associateWarden.activeHostelId = hostelId
-    await associateWarden.save()
-
-    await associateWarden.populate("activeHostelId", "name type")
-
-    // Refresh user data in session after changing active hostel
-    const user = await User.findById(userId)
-    if (user) {
-      // Update the session with fresh essential user data
-      req.session.userData = {
-        _id: user._id,
-        email: user.email,
-        role: user.role,
-        permissions: Object.fromEntries(user.permissions || new Map()),
-        hostel: user.hostel, // This will have updated hostel info after the populate middleware runs
-      }
-      await req.session.save()
-    }
-
-    res.status(200).json({
-      message: "Active hostel updated successfully for Associate Warden",
-      activeHostel: associateWarden.activeHostelId,
-    })
+    
+    res.status(result.statusCode).json(result.data);
   } catch (error) {
-    console.error("Error setting active hostel for Associate Warden:", error)
-    if (error.name === "CastError") {
-      return res.status(400).json({ message: "Invalid hostel ID format" })
+    console.error('Error setting active hostel for Associate Warden:', error);
+    if (error.name === 'CastError') {
+      return res.status(400).json({ message: 'Invalid hostel ID format' });
     }
-    res.status(500).json({ message: "Server error", error: error.message })
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
-}
+};
