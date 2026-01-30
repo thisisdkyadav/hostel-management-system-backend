@@ -1,125 +1,135 @@
-import Feedback from "../../models/Feedback.js"
-import StudentProfile from "../../models/StudentProfile.js"
+/**
+ * Feedback Service
+ * Handles student feedback operations
+ * 
+ * @module services/feedback.service
+ */
 
-class FeedbackService {
+import Feedback from '../../models/Feedback.js';
+import StudentProfile from '../../models/StudentProfile.js';
+import { BaseService, success, badRequest, PRESETS } from './base/index.js';
+
+class FeedbackService extends BaseService {
+  constructor() {
+    super(Feedback, 'Feedback');
+  }
+
+  /**
+   * Create feedback for a student
+   * @param {Object} data - Feedback data (title, description)
+   * @param {Object} user - Current user
+   */
   async createFeedback(data, user) {
-    try {
-      console.log("Creating feedback...")
+    const userId = user._id;
 
-      const userId = user._id
+    const studentProfile = await StudentProfile.findOne({ userId }).populate('currentRoomAllocation');
 
-      const studentProfile = await StudentProfile.findOne({ userId }).populate("currentRoomAllocation")
-      console.log("Student Profile:", studentProfile)
-
-      if (!studentProfile || !studentProfile.currentRoomAllocation) {
-        return {
-          success: false,
-          statusCode: 400,
-          message: "Cannot create feedback. User doesn't have an active hostel allocation.",
-        }
-      }
-      const hostelId = studentProfile.currentRoomAllocation.hostelId
-
-      const feedback = new Feedback({
-        userId,
-        hostelId,
-        title: data.title,
-        description: data.description,
-      })
-
-      console.log("Feedback Data:", feedback)
-
-      await feedback.save()
-      return { success: true, statusCode: 201, data: { message: "Feedback created successfully", feedback, success: true } }
-    } catch (error) {
-      console.error("Error creating feedback:", error)
-      return { success: false, statusCode: 500, message: "Error creating feedback", error: error.message }
+    if (!studentProfile || !studentProfile.currentRoomAllocation) {
+      return badRequest("Cannot create feedback. User doesn't have an active hostel allocation.");
     }
+
+    const result = await this.create({
+      userId,
+      hostelId: studentProfile.currentRoomAllocation.hostelId,
+      title: data.title,
+      description: data.description
+    });
+
+    if (result.success) {
+      return success(
+        { message: 'Feedback created successfully', feedback: result.data, success: true },
+        201
+      );
+    }
+    return result;
   }
 
+  /**
+   * Get feedbacks based on user role
+   * @param {Object} query - Query filters
+   * @param {Object} user - Current user
+   */
   async getFeedbacks(query, user) {
-    try {
-      const queryObj = query || {}
+    const queryObj = query || {};
 
-      if (user.hostel) {
-        queryObj.hostelId = user.hostel._id
-      } else if (user.role === "Student") {
-        queryObj.userId = user._id
-      }
-
-      const feedbacks = await Feedback.find(queryObj).populate("userId", "name email profileImage").populate("hostelId", "name")
-      return { success: true, statusCode: 200, data: { feedbacks, success: true } }
-    } catch (error) {
-      console.error("Error fetching feedback:", error)
-      return { success: false, statusCode: 500, message: "Error fetching feedback", error: error.message }
+    if (user.hostel) {
+      queryObj.hostelId = user.hostel._id;
+    } else if (user.role === 'Student') {
+      queryObj.userId = user._id;
     }
+
+    const result = await this.findAll(queryObj, { populate: PRESETS.FEEDBACK });
+    if (result.success) {
+      return success({ feedbacks: result.data, success: true });
+    }
+    return result;
   }
 
+  /**
+   * Update feedback status
+   * @param {string} feedbackId - Feedback ID
+   * @param {string} status - New status
+   */
   async updateFeedbackStatus(feedbackId, status) {
-    try {
-      const feedback = await Feedback.findByIdAndUpdate(feedbackId, { status, reply: null }, { new: true })
-      if (!feedback) {
-        return { success: false, statusCode: 404, message: "Feedback not found" }
-      }
-      return { success: true, statusCode: 200, data: { message: "Feedback status updated successfully", feedback, success: true } }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Error updating feedback status", error: error.message }
+    const result = await this.updateById(feedbackId, { status, reply: null });
+    if (result.success) {
+      return success({ message: 'Feedback status updated successfully', feedback: result.data, success: true });
     }
+    return result;
   }
 
+  /**
+   * Reply to feedback
+   * @param {string} feedbackId - Feedback ID
+   * @param {string} reply - Reply text
+   */
   async replyToFeedback(feedbackId, reply) {
-    try {
-      const feedback = await Feedback.findByIdAndUpdate(feedbackId, { reply, status: "Seen" }, { new: true })
-      if (!feedback) {
-        return { success: false, statusCode: 404, message: "Feedback not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Reply added successfully", feedback, success: true } }
-    } catch (error) {
-      console.error("Error replying to feedback:", error)
-      return { success: false, statusCode: 500, message: "Error replying to feedback", error: error.message }
+    const result = await this.updateById(feedbackId, { reply, status: 'Seen' });
+    if (result.success) {
+      return success({ message: 'Reply added successfully', feedback: result.data, success: true });
     }
+    return result;
   }
 
+  /**
+   * Update feedback
+   * @param {string} feedbackId - Feedback ID
+   * @param {Object} data - Update data
+   */
   async updateFeedback(feedbackId, data) {
-    try {
-      const feedback = await Feedback.findByIdAndUpdate(feedbackId, { title: data.title, description: data.description }, { new: true })
-
-      if (!feedback) {
-        return { success: false, statusCode: 404, message: "Feedback not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Feedback updated successfully", feedback, success: true } }
-    } catch (error) {
-      console.error("Error updating feedback:", error)
-      return { success: false, statusCode: 500, message: "Error updating feedback", error: error.message }
+    const result = await this.updateById(feedbackId, {
+      title: data.title,
+      description: data.description
+    });
+    if (result.success) {
+      return success({ message: 'Feedback updated successfully', feedback: result.data, success: true });
     }
+    return result;
   }
 
+  /**
+   * Delete feedback
+   * @param {string} feedbackId - Feedback ID
+   */
   async deleteFeedback(feedbackId) {
-    try {
-      const feedback = await Feedback.findByIdAndDelete(feedbackId)
-
-      if (!feedback) {
-        return { success: false, statusCode: 404, message: "Feedback not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Feedback deleted successfully", success: true } }
-    } catch (error) {
-      console.error("Error deleting feedback:", error)
-      return { success: false, statusCode: 500, message: "Error deleting feedback", error: error.message }
+    const result = await this.deleteById(feedbackId);
+    if (result.success) {
+      return success({ message: 'Feedback deleted successfully', success: true });
     }
+    return result;
   }
 
+  /**
+   * Get feedbacks for a specific student
+   * @param {string} userId - Student user ID
+   */
   async getStudentFeedbacks(userId) {
-    try {
-      const feedbacks = await Feedback.find({ userId }).populate("userId", "name email profileImage").populate("hostelId", "name")
-      return { success: true, statusCode: 200, data: { feedbacks, success: true } }
-    } catch (error) {
-      console.error("Error fetching student feedback:", error)
-      return { success: false, statusCode: 500, message: "Error fetching student feedback", error: error.message }
+    const result = await this.findAll({ userId }, { populate: PRESETS.FEEDBACK });
+    if (result.success) {
+      return success({ feedbacks: result.data, success: true });
     }
+    return result;
   }
 }
 
-export const feedbackService = new FeedbackService()
+export const feedbackService = new FeedbackService();

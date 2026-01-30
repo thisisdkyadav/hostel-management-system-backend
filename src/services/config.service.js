@@ -1,95 +1,105 @@
-import Configuration from "../../models/configuration.js"
-import { defaultConfigs, getConfigWithDefault } from "../../utils/configDefaults.js"
+/**
+ * Configuration Service
+ * Handles system configuration operations
+ * 
+ * @module services/config.service
+ */
 
-class ConfigService {
+import Configuration from '../../models/configuration.js';
+import { defaultConfigs, getConfigWithDefault } from '../../utils/configDefaults.js';
+import { BaseService, success, notFound, badRequest, error } from './base/index.js';
+
+class ConfigService extends BaseService {
+  constructor() {
+    super(Configuration, 'Configuration');
+  }
+
+  /**
+   * Get configuration by key
+   * @param {string} key - Configuration key
+   * @param {boolean} valueOnly - Return only the value
+   */
   async getConfigurationByKey(key, valueOnly = false) {
     try {
-      // Use the utility function to get config with default fallback
-      const config = await getConfigWithDefault(key)
+      const config = await getConfigWithDefault(key);
 
       if (!config) {
-        return { success: false, statusCode: 404, message: `Configuration with key '${key}' not found and no default exists` }
+        return notFound(`Configuration with key '${key}'`);
       }
 
-      // Return only the value if specified
       if (valueOnly) {
-        return { success: true, statusCode: 200, data: config.value, valueOnly: true }
+        return { success: true, statusCode: 200, data: config.value, valueOnly: true };
       }
 
-      // Return without MongoDB specific fields
-      const configResponse = {
+      return success({
         key: config.key,
         value: config.value,
         description: config.description,
-        lastUpdated: config.lastUpdated,
-      }
-
-      return { success: true, statusCode: 200, data: configResponse }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Error retrieving configuration", error: error.message }
+        lastUpdated: config.lastUpdated
+      });
+    } catch (err) {
+      return error('Error retrieving configuration', 500, err.message);
     }
   }
 
+  /**
+   * Update configuration
+   * @param {string} key - Configuration key
+   * @param {Object} data - Update data with value and description
+   */
   async updateConfiguration(key, data) {
-    try {
-      const { value, description } = data
+    const { value, description } = data;
 
-      if (value === undefined) {
-        return { success: false, statusCode: 400, message: "Configuration value is required" }
-      }
-
-      const updatedConfig = await Configuration.findOneAndUpdate(
-        { key },
-        {
-          key,
-          value,
-          description: description || defaultConfigs[key]?.description || "",
-          lastUpdated: Date.now(),
-        },
-        { new: true, upsert: true, runValidators: true }
-      )
-
-      return {
-        success: true,
-        statusCode: 200,
-        data: {
-          message: `Configuration '${key}' updated successfully`,
-          configuration: updatedConfig,
-        },
-      }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Error updating configuration", error: error.message }
+    if (value === undefined) {
+      return badRequest('Configuration value is required');
     }
+
+    const result = await this.upsert(
+      { key },
+      {
+        key,
+        value,
+        description: description || defaultConfigs[key]?.description || '',
+        lastUpdated: Date.now()
+      }
+    );
+
+    if (result.success) {
+      return success({
+        message: `Configuration '${key}' updated successfully`,
+        configuration: result.data
+      });
+    }
+    return result;
   }
 
+  /**
+   * Reset configuration to default value
+   * @param {string} key - Configuration key
+   */
   async resetConfigurationToDefault(key) {
-    try {
-      // Check if default exists for this key
-      if (!defaultConfigs[key]) {
-        return { success: false, statusCode: 404, message: `No default configuration exists for key '${key}'` }
-      }
+    if (!defaultConfigs[key]) {
+      return notFound(`No default configuration exists for key '${key}'`);
+    }
 
-      const defaultConfig = {
+    const result = await this.upsert(
+      { key },
+      {
         key,
         value: defaultConfigs[key].value,
         description: defaultConfigs[key].description,
-        lastUpdated: Date.now(),
+        lastUpdated: Date.now()
       }
+    );
 
-      const updatedConfig = await Configuration.findOneAndUpdate({ key }, defaultConfig, { new: true, upsert: true })
-
-      return {
-        success: true,
-        statusCode: 200,
-        data: {
-          message: `Configuration '${key}' reset to default successfully`,
-          configuration: updatedConfig,
-        },
-      }
-    } catch (error) {
-      return { success: false, statusCode: 500, message: "Error resetting configuration", error: error.message }
+    if (result.success) {
+      return success({
+        message: `Configuration '${key}' reset to default successfully`,
+        configuration: result.data
+      });
     }
+    return result;
   }
 }
 
-export const configService = new ConfigService()
+export const configService = new ConfigService();

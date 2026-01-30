@@ -1,82 +1,78 @@
-import VisitorProfile from "../../models/VisitorProfile.js"
+/**
+ * Visitor Profile Service
+ * Handles saved visitor profile operations
+ * 
+ * @module services/visitorProfile.service
+ */
 
-class VisitorProfileService {
+import VisitorProfile from '../../models/VisitorProfile.js';
+import { BaseService, success } from './base/index.js';
+
+class VisitorProfileService extends BaseService {
+  constructor() {
+    super(VisitorProfile, 'Visitor profile');
+  }
+
+  /**
+   * Get visitor profiles for a student
+   * @param {string} userId - Student user ID
+   */
   async getVisitorProfiles(userId) {
-    try {
-      const visitorProfiles = await VisitorProfile.find({ studentUserId: userId })
-
-      return {
+    const result = await this.findAll({ studentUserId: userId });
+    if (result.success) {
+      return success({
+        message: 'Visitor profiles fetched successfully',
         success: true,
-        statusCode: 200,
-        data: {
-          message: "Visitor profiles fetched successfully",
-          success: true,
-          data: visitorProfiles || [],
-        },
-      }
-    } catch (error) {
-      console.error("Error fetching visitor profiles:", error)
-      return {
-        success: false,
-        statusCode: 500,
-        message: "Error fetching visitor profiles",
-        error: error.message,
-      }
+        data: result.data || []
+      });
     }
+    return result;
   }
 
+  /**
+   * Create visitor profile
+   * @param {Object} data - Profile data
+   * @param {string} userId - Student user ID
+   */
   async createVisitorProfile(data, userId) {
-    const { name, phone, email, relation, address } = data
+    const result = await this.create({
+      studentUserId: userId,
+      ...data
+    });
 
-    try {
-      const visitorProfile = new VisitorProfile({
-        studentUserId: userId,
-        name,
-        phone,
-        email,
-        relation,
-        address,
-      })
-
-      await visitorProfile.save()
-      return { success: true, statusCode: 201, data: { message: "Visitor profile created successfully", visitorProfile, success: true } }
-    } catch (error) {
-      console.error("Error creating visitor profile:", error)
-      return { success: false, statusCode: 500, message: "Error creating visitor profile", error: error.message }
+    if (result.success) {
+      return success(
+        { message: 'Visitor profile created successfully', visitorProfile: result.data, success: true },
+        201
+      );
     }
+    return result;
   }
 
+  /**
+   * Update visitor profile
+   * @param {string} visitorId - Visitor profile ID
+   * @param {Object} data - Update data
+   */
   async updateVisitorProfile(visitorId, data) {
-    const { name, phone, email, relation, address } = data
-
-    try {
-      const updatedVisitorProfile = await VisitorProfile.findByIdAndUpdate(visitorId, { name, phone, email, relation, address }, { new: true })
-
-      if (!updatedVisitorProfile) {
-        return { success: false, statusCode: 404, message: "Visitor profile not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Visitor profile updated successfully", visitorProfile: updatedVisitorProfile } }
-    } catch (error) {
-      console.error("Error updating visitor profile:", error)
-      return { success: false, statusCode: 500, message: "Error updating visitor profile", error: error.message }
+    const result = await this.updateById(visitorId, data);
+    if (result.success) {
+      return success({ message: 'Visitor profile updated successfully', visitorProfile: result.data });
     }
+    return result;
   }
 
+  /**
+   * Delete visitor profile
+   * @param {string} visitorId - Visitor profile ID
+   */
   async deleteVisitorProfile(visitorId) {
-    try {
-      const deletedVisitorProfile = await VisitorProfile.findByIdAndDelete(visitorId)
-
-      if (!deletedVisitorProfile) {
-        return { success: false, statusCode: 404, message: "Visitor profile not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Visitor profile deleted successfully", success: true } }
-    } catch (error) {
-      console.error("Error deleting visitor profile:", error)
-      return { success: false, statusCode: 500, message: "Error deleting visitor profile", error: error.message }
+    const result = await this.deleteById(visitorId);
+    if (result.success) {
+      return success({ message: 'Visitor profile deleted successfully', success: true });
     }
+    return result;
   }
 }
 
-export const visitorProfileService = new VisitorProfileService()
+export const visitorProfileService = new VisitorProfileService();

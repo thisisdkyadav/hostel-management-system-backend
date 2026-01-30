@@ -1,91 +1,93 @@
-import Certificate from "../../models/Certificate.js"
-import StudentProfile from "../../models/StudentProfile.js"
+/**
+ * Certificate Service
+ * Handles student certificate operations
+ * 
+ * @module services/certificate.service
+ */
 
-class CertificateService {
+import Certificate from '../../models/Certificate.js';
+import StudentProfile from '../../models/StudentProfile.js';
+import { BaseService, success, notFound, PRESETS } from './base/index.js';
+
+class CertificateService extends BaseService {
+  constructor() {
+    super(Certificate, 'Certificate');
+  }
+
+  /**
+   * Add certificate for a student
+   * @param {Object} data - Certificate data with studentId
+   */
   async addCertificate(data) {
-    const { studentId, certificateType, certificateUrl, issueDate, remarks } = data
-    try {
-      console.log(studentId)
+    const { studentId, certificateType, certificateUrl, issueDate, remarks } = data;
 
-      const studentProfile = await StudentProfile.findOne({ userId: studentId })
-
-      if (!studentProfile) {
-        return { success: false, statusCode: 404, message: "Student profile not found" }
-      }
-      console.log(studentProfile)
-
-      const newCertificate = new Certificate({
-        userId: studentId,
-        certificateType,
-        certificateUrl,
-        issueDate,
-        remarks,
-      })
-
-      await newCertificate.save()
-
-      return { success: true, statusCode: 201, data: { message: "Certificate added successfully", certificate: newCertificate } }
-    } catch (error) {
-      console.error("Error adding certificate:", error)
-      return { success: false, statusCode: 500, message: "Error adding certificate", error: error.message }
+    // Verify student exists
+    const studentProfile = await StudentProfile.findOne({ userId: studentId });
+    if (!studentProfile) {
+      return notFound('Student profile');
     }
+
+    const result = await this.create({
+      userId: studentId,
+      certificateType,
+      certificateUrl,
+      issueDate,
+      remarks
+    });
+
+    if (result.success) {
+      return success(
+        { message: 'Certificate added successfully', certificate: result.data },
+        201
+      );
+    }
+    return result;
   }
 
+  /**
+   * Get all certificates for a student
+   * @param {string} studentId - Student user ID
+   */
   async getCertificatesByStudent(studentId) {
-    try {
-      const certificates = await Certificate.find({ userId: studentId }).populate("userId", "name email")
+    const result = await this.findAll(
+      { userId: studentId },
+      { populate: PRESETS.CERTIFICATE }
+    );
 
-      return {
+    if (result.success) {
+      return success({
         success: true,
-        statusCode: 200,
-        data: {
-          success: true,
-          message: "Certificates fetched successfully",
-          certificates,
-        },
-      }
-    } catch (error) {
-      console.error("Error fetching certificates:", error)
-      return {
-        success: false,
-        statusCode: 500,
-        message: "Error fetching certificates",
-        error: error.message,
-      }
+        message: 'Certificates fetched successfully',
+        certificates: result.data
+      });
     }
+    return result;
   }
 
+  /**
+   * Update a certificate
+   * @param {string} certificateId - Certificate ID
+   * @param {Object} data - Update data
+   */
   async updateCertificate(certificateId, data) {
-    const { certificateType, certificateUrl, issueDate, remarks } = data
-
-    try {
-      const updated = await Certificate.findByIdAndUpdate(certificateId, { certificateType, certificateUrl, issueDate, remarks }, { new: true })
-
-      if (!updated) {
-        return { success: false, statusCode: 404, message: "Certificate not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Certificate updated successfully", certificate: updated } }
-    } catch (error) {
-      console.error("Error updating certificate:", error)
-      return { success: false, statusCode: 500, message: "Error updating certificate", error: error.message }
+    const result = await this.updateById(certificateId, data);
+    if (result.success) {
+      return success({ message: 'Certificate updated successfully', certificate: result.data });
     }
+    return result;
   }
 
+  /**
+   * Delete a certificate
+   * @param {string} certificateId - Certificate ID
+   */
   async deleteCertificate(certificateId) {
-    try {
-      const deleted = await Certificate.findByIdAndDelete(certificateId)
-
-      if (!deleted) {
-        return { success: false, statusCode: 404, message: "Certificate not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Certificate deleted successfully" } }
-    } catch (error) {
-      console.error("Error deleting certificate:", error)
-      return { success: false, statusCode: 500, message: "Error deleting certificate", error: error.message }
+    const result = await this.deleteById(certificateId);
+    if (result.success) {
+      return success({ message: 'Certificate deleted successfully' });
     }
+    return result;
   }
 }
 
-export const certificateService = new CertificateService()
+export const certificateService = new CertificateService();

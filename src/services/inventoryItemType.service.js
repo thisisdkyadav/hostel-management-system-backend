@@ -1,169 +1,165 @@
-import InventoryItemType from "../../models/InventoryItemType.js"
+/**
+ * Inventory Item Type Service
+ * Handles inventory item type operations
+ * 
+ * @module services/inventoryItemType.service
+ */
 
-class InventoryItemTypeService {
+import InventoryItemType from '../../models/InventoryItemType.js';
+import { BaseService, success, badRequest, notFound, conflict, error } from './base/index.js';
+
+class InventoryItemTypeService extends BaseService {
+  constructor() {
+    super(InventoryItemType, 'Inventory item type');
+  }
+
+  /**
+   * Create inventory item type
+   * @param {Object} data - Item type data
+   */
   async createInventoryItemType(data) {
-    try {
-      const { name, description, totalCount } = data
+    const { name, description, totalCount } = data;
 
-      if (!name) {
-        return { success: false, statusCode: 400, message: "Name is required" }
-      }
-
-      // Check if item type already exists
-      const existingItemType = await InventoryItemType.findOne({ name })
-      if (existingItemType) {
-        return { success: false, statusCode: 400, message: "Inventory item type already exists" }
-      }
-
-      // Create new inventory item type
-      const inventoryItemType = new InventoryItemType({
-        name,
-        description,
-        totalCount: totalCount || 0,
-      })
-
-      const savedItemType = await inventoryItemType.save()
-
-      return { success: true, statusCode: 201, data: savedItemType }
-    } catch (error) {
-      console.error(error)
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    if (!name) {
+      return badRequest('Name is required');
     }
+
+    // Check if exists
+    const existing = await this.model.findOne({ name });
+    if (existing) {
+      return conflict('Inventory item type already exists');
+    }
+
+    const result = await this.create({
+      name,
+      description,
+      totalCount: totalCount || 0
+    });
+
+    if (result.success) {
+      return success(result.data, 201);
+    }
+    return result;
   }
 
+  /**
+   * Get inventory item types with pagination
+   * @param {Object} query - Query params
+   */
   async getInventoryItemTypes(query) {
-    try {
-      const { page = 1, limit = 10, search } = query
+    const { page = 1, limit = 10, search } = query;
 
-      const queryObj = {}
-      if (search) {
-        queryObj.name = { $regex: search, $options: "i" }
-      }
-
-      const totalCount = await InventoryItemType.countDocuments(queryObj)
-      const inventoryItemTypes = await InventoryItemType.find(queryObj)
-        .sort({ name: 1 })
-        .skip((parseInt(page) - 1) * parseInt(limit))
-        .limit(parseInt(limit))
-
-      return {
-        success: true,
-        statusCode: 200,
-        data: {
-          data: inventoryItemTypes,
-          pagination: {
-            totalCount,
-            totalPages: Math.ceil(totalCount / parseInt(limit)),
-            currentPage: parseInt(page),
-            limit: parseInt(limit),
-          },
-        },
-      }
-    } catch (error) {
-      console.error(error)
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    const queryObj = {};
+    if (search) {
+      queryObj.name = { $regex: search, $options: 'i' };
     }
-  }
 
-  async getInventoryItemTypeById(id) {
-    try {
-      const inventoryItemType = await InventoryItemType.findById(id)
+    const result = await this.findPaginated(queryObj, {
+      page,
+      limit,
+      sort: { name: 1 }
+    });
 
-      if (!inventoryItemType) {
-        return { success: false, statusCode: 404, message: "Inventory item type not found" }
-      }
-
-      return { success: true, statusCode: 200, data: inventoryItemType }
-    } catch (error) {
-      console.error(error)
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
-    }
-  }
-
-  async updateInventoryItemType(id, data) {
-    try {
-      const { name, description, totalCount } = data
-
-      const inventoryItemType = await InventoryItemType.findById(id)
-      if (!inventoryItemType) {
-        return { success: false, statusCode: 404, message: "Inventory item type not found" }
-      }
-
-      // Check if name is being changed and if it already exists
-      if (name && name !== inventoryItemType.name) {
-        const existingItemType = await InventoryItemType.findOne({ name })
-        if (existingItemType) {
-          return { success: false, statusCode: 400, message: "An inventory item type with this name already exists" }
+    if (result.success) {
+      return success({
+        data: result.data.items,
+        pagination: {
+          totalCount: result.data.pagination.total,
+          totalPages: result.data.pagination.totalPages,
+          currentPage: result.data.pagination.page,
+          limit: result.data.pagination.limit
         }
-      }
-
-      const updateData = {}
-      if (name !== undefined) updateData.name = name
-      if (description !== undefined) updateData.description = description
-      if (totalCount !== undefined) updateData.totalCount = totalCount
-
-      const updatedInventoryItemType = await InventoryItemType.findByIdAndUpdate(id, updateData, { new: true })
-
-      return { success: true, statusCode: 200, data: updatedInventoryItemType }
-    } catch (error) {
-      console.error(error)
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+      });
     }
+    return result;
   }
 
+  /**
+   * Get inventory item type by ID
+   * @param {string} id - Item type ID
+   */
+  async getInventoryItemTypeById(id) {
+    return this.findById(id);
+  }
+
+  /**
+   * Update inventory item type
+   * @param {string} id - Item type ID
+   * @param {Object} data - Update data
+   */
+  async updateInventoryItemType(id, data) {
+    const { name, description, totalCount } = data;
+
+    const itemType = await this.model.findById(id);
+    if (!itemType) {
+      return notFound(this.entityName);
+    }
+
+    // Check name uniqueness if changing
+    if (name && name !== itemType.name) {
+      const existing = await this.model.findOne({ name });
+      if (existing) {
+        return badRequest('An inventory item type with this name already exists');
+      }
+    }
+
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (totalCount !== undefined) updateData.totalCount = totalCount;
+
+    return this.updateById(id, updateData);
+  }
+
+  /**
+   * Delete inventory item type
+   * @param {string} id - Item type ID
+   */
   async deleteInventoryItemType(id) {
     try {
-      const inventoryItemType = await InventoryItemType.findById(id)
-      if (!inventoryItemType) {
-        return { success: false, statusCode: 404, message: "Inventory item type not found" }
+      const itemType = await this.model.findById(id);
+      if (!itemType) {
+        return notFound(this.entityName);
       }
 
-      // Check if this item type is being used in hostel inventory
-      const HostelInventory = await import("../../models/HostelInventory.js").then((module) => module.default)
-      const hostelInventoryCount = await HostelInventory.countDocuments({ itemTypeId: id })
-
-      if (hostelInventoryCount > 0) {
-        return { success: false, statusCode: 400, message: "Cannot delete inventory item type that is assigned to hostels" }
+      // Check usage in hostel inventory
+      const HostelInventory = (await import('../../models/HostelInventory.js')).default;
+      const hostelCount = await HostelInventory.countDocuments({ itemTypeId: id });
+      if (hostelCount > 0) {
+        return badRequest('Cannot delete inventory item type that is assigned to hostels');
       }
 
-      // Check if this item type is being used in student inventory
-      const StudentInventory = await import("../../models/StudentInventory.js").then((module) => module.default)
-      const studentInventoryCount = await StudentInventory.countDocuments({ itemTypeId: id })
-
-      if (studentInventoryCount > 0) {
-        return { success: false, statusCode: 400, message: "Cannot delete inventory item type that is assigned to students" }
+      // Check usage in student inventory
+      const StudentInventory = (await import('../../models/StudentInventory.js')).default;
+      const studentCount = await StudentInventory.countDocuments({ itemTypeId: id });
+      if (studentCount > 0) {
+        return badRequest('Cannot delete inventory item type that is assigned to students');
       }
 
-      await InventoryItemType.findByIdAndDelete(id)
-      return { success: true, statusCode: 200, data: { message: "Inventory item type removed" } }
-    } catch (error) {
-      console.error(error)
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+      const result = await this.deleteById(id);
+      if (result.success) {
+        return success({ message: 'Inventory item type removed' });
+      }
+      return result;
+    } catch (err) {
+      return error('Server error', 500, err.message);
     }
   }
 
+  /**
+   * Update inventory item type count
+   * @param {string} id - Item type ID
+   * @param {Object} data - Count data
+   */
   async updateInventoryItemTypeCount(id, data) {
-    try {
-      const { totalCount } = data
+    const { totalCount } = data;
 
-      if (totalCount === undefined) {
-        return { success: false, statusCode: 400, message: "Total count is required" }
-      }
-
-      const inventoryItemType = await InventoryItemType.findById(id)
-      if (!inventoryItemType) {
-        return { success: false, statusCode: 404, message: "Inventory item type not found" }
-      }
-
-      inventoryItemType.totalCount = totalCount
-      const updatedInventoryItemType = await inventoryItemType.save()
-
-      return { success: true, statusCode: 200, data: updatedInventoryItemType }
-    } catch (error) {
-      console.error(error)
-      return { success: false, statusCode: 500, message: "Server error", error: error.message }
+    if (totalCount === undefined) {
+      return badRequest('Total count is required');
     }
+
+    return this.updateById(id, { totalCount });
   }
 }
 
-export const inventoryItemTypeService = new InventoryItemTypeService()
+export const inventoryItemTypeService = new InventoryItemTypeService();

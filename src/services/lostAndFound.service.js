@@ -1,68 +1,72 @@
-import LostAndFound from "../../models/LostAndFound.js"
+/**
+ * Lost and Found Service
+ * Handles CRUD operations for lost and found items
+ * 
+ * @module services/lostAndFound.service
+ */
 
-class LostAndFoundService {
+import LostAndFound from '../../models/LostAndFound.js';
+import { BaseService, success } from './base/index.js';
+
+class LostAndFoundService extends BaseService {
+  constructor() {
+    super(LostAndFound, 'Lost and found item');
+  }
+
+  /**
+   * Create a new lost and found item
+   * @param {Object} data - Item data
+   */
   async createLostAndFound(data) {
-    const { itemName, description, dateFound, images, status } = data
-
-    try {
-      const lostAndFoundItem = new LostAndFound({
-        itemName,
-        description,
-        dateFound,
-        images,
-        status,
-      })
-
-      await lostAndFoundItem.save()
-
-      return { success: true, statusCode: 201, data: { message: "Lost and found item created successfully", lostAndFoundItem } }
-    } catch (error) {
-      console.error("Error creating lost and found item:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+    const result = await this.create(data);
+    if (result.success) {
+      return success(
+        { message: 'Lost and found item created successfully', lostAndFoundItem: result.data },
+        201
+      );
     }
+    return result;
   }
 
+  /**
+   * Get all lost and found items
+   */
   async getLostAndFound() {
-    try {
-      const lostAndFoundItems = await LostAndFound.find()
-      return { success: true, statusCode: 200, data: { lostAndFoundItems } }
-    } catch (error) {
-      console.error("Error fetching lost and found items:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+    const result = await this.findAll();
+    if (result.success) {
+      return success({ lostAndFoundItems: result.data });
     }
+    return result;
   }
 
+  /**
+   * Update a lost and found item
+   * @param {string} id - Item ID
+   * @param {Object} data - Update data
+   */
   async updateLostAndFound(id, data) {
-    const { itemName, description, dateFound, images, status } = data
-
-    try {
-      const lostAndFoundItem = await LostAndFound.findByIdAndUpdate(id, { itemName, description, dateFound, images, status }, { new: true })
-
-      if (!lostAndFoundItem) {
-        return { success: false, statusCode: 404, message: "Lost and found item not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Lost and found item updated successfully", success: true, lostAndFoundItem } }
-    } catch (error) {
-      console.error("Error updating lost and found item:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+    const result = await this.updateById(id, data);
+    if (result.success) {
+      return success({
+        message: 'Lost and found item updated successfully',
+        success: true,
+        lostAndFoundItem: result.data
+      });
     }
+    return result;
   }
 
+  /**
+   * Delete a lost and found item
+   * @param {string} id - Item ID
+   */
   async deleteLostAndFound(id) {
-    try {
-      const lostAndFoundItem = await LostAndFound.findByIdAndDelete(id)
-
-      if (!lostAndFoundItem) {
-        return { success: false, statusCode: 404, message: "Lost and found item not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Lost and found item deleted successfully", success: true } }
-    } catch (error) {
-      console.error("Error deleting lost and found item:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+    const result = await this.deleteById(id);
+    if (result.success) {
+      return success({ message: 'Lost and found item deleted successfully', success: true });
     }
+    return result;
   }
 }
 
-export const lostAndFoundService = new LostAndFoundService()
+export const lostAndFoundService = new LostAndFoundService();

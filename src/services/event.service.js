@@ -1,98 +1,105 @@
-import Event from "../../models/Event.js"
-import StudentProfile from "../../models/StudentProfile.js"
+/**
+ * Event Service
+ * Handles hostel event operations
+ * 
+ * @module services/event.service
+ */
 
-class EventService {
-  async createEvent(data, user) {
-    const { eventName, description, dateAndTime, hostelId, gender } = data
+import Event from '../../models/Event.js';
+import StudentProfile from '../../models/StudentProfile.js';
+import { BaseService, success, notFound, error, PRESETS } from './base/index.js';
 
-    try {
-      let StaffHostelId = null
-
-      if (user.hostel) {
-        StaffHostelId = user.hostel._id
-      }
-
-      const event = new Event({
-        eventName,
-        description,
-        dateAndTime,
-        hostelId: StaffHostelId ? StaffHostelId : hostelId,
-        gender,
-      })
-
-      await event.save()
-
-      return { success: true, statusCode: 201, data: { message: "Event created successfully", event } }
-    } catch (error) {
-      console.error("Error creating event:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
-    }
+class EventService extends BaseService {
+  constructor() {
+    super(Event, 'Event');
   }
 
+  /**
+   * Create a new event
+   * @param {Object} data - Event data
+   * @param {Object} user - Current user
+   */
+  async createEvent(data, user) {
+    const { eventName, description, dateAndTime, hostelId, gender } = data;
+
+    const staffHostelId = user.hostel ? user.hostel._id : null;
+
+    const result = await this.create({
+      eventName,
+      description,
+      dateAndTime,
+      hostelId: staffHostelId || hostelId,
+      gender
+    });
+
+    if (result.success) {
+      return success({ message: 'Event created successfully', event: result.data }, 201);
+    }
+    return result;
+  }
+
+  /**
+   * Get events based on user role
+   * @param {Object} user - Current user
+   */
   async getEvents(user) {
     try {
-      const query = {}
-      const role = user.role
-      const hostel = user.hostel
-      if (role === "Student") {
-        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate("currentRoomAllocation")
-        const hostelId = studentProfile.currentRoomAllocation.hostelId
-        query.hostelId = { $in: [hostelId, null] }
-        query.gender = { $in: [studentProfile.gender, null] }
+      const query = {};
+      const { role, hostel } = user;
+
+      if (role === 'Student') {
+        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate('currentRoomAllocation');
+        const hostelId = studentProfile.currentRoomAllocation.hostelId;
+        query.hostelId = { $in: [hostelId, null] };
+        query.gender = { $in: [studentProfile.gender, null] };
       } else if (hostel) {
-        query.hostelId = { $in: [hostel._id, null] }
+        query.hostelId = { $in: [hostel._id, null] };
       }
 
-      const events = await Event.find(query).populate("hostelId")
-      if (events.length > 0) {
-        return { success: true, statusCode: 200, data: { events } }
-      } else {
-        return { success: false, statusCode: 404, message: "No events found" }
+      const result = await this.findAll(query, { populate: PRESETS.EVENT });
+
+      if (result.success && result.data.length > 0) {
+        return success({ events: result.data });
       }
-    } catch (error) {
-      console.error("Error fetching events:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+      return notFound('Events');
+    } catch (err) {
+      return error('Internal server error', 500, err.message);
     }
   }
 
+  /**
+   * Update an event
+   * @param {string} id - Event ID
+   * @param {Object} data - Update data
+   */
   async updateEvent(id, data) {
-    const { eventName, description, dateAndTime, hostelId, gender } = data
+    const { eventName, description, dateAndTime, hostelId, gender } = data;
 
-    try {
-      const updates = {
-        eventName,
-        description,
-        dateAndTime,
-        hostelId: hostelId ? hostelId : null,
-        gender,
-      }
-      const event = await Event.findByIdAndUpdate(id, updates, { new: true })
+    const result = await this.updateById(id, {
+      eventName,
+      description,
+      dateAndTime,
+      hostelId: hostelId || null,
+      gender
+    });
 
-      if (!event) {
-        return { success: false, statusCode: 404, message: "Event not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Event updated successfully", success: true, event } }
-    } catch (error) {
-      console.error("Error updating event:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+    if (result.success) {
+      return success({ message: 'Event updated successfully', success: true, event: result.data });
     }
+    return result;
   }
 
+  /**
+   * Delete an event
+   * @param {string} id - Event ID
+   */
   async deleteEvent(id) {
-    try {
-      const event = await Event.findByIdAndDelete(id)
-
-      if (!event) {
-        return { success: false, statusCode: 404, message: "Event not found" }
-      }
-
-      return { success: true, statusCode: 200, data: { message: "Event deleted successfully", success: true } }
-    } catch (error) {
-      console.error("Error deleting event:", error)
-      return { success: false, statusCode: 500, message: "Internal server error" }
+    const result = await this.deleteById(id);
+    if (result.success) {
+      return success({ message: 'Event deleted successfully', success: true });
     }
+    return result;
   }
 }
 
-export const eventService = new EventService()
+export const eventService = new EventService();
