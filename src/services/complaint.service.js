@@ -1,20 +1,15 @@
 /**
  * Complaint Service
- * Contains business logic extracted from complaintController
- * 
- * IMPORTANT: All logic copied exactly from controller
- * Only HTTP-specific code (req, res) removed
- * 
+ * Handles complaint management with BaseService pattern
  * @module services/complaint.service
  */
 
+import { BaseService, success, notFound, forbidden, paginated } from './base/index.js';
 import Complaint from '../../models/Complaint.js';
 import RoomAllocation from '../../models/RoomAllocation.js';
 
 /**
  * Helper function to format complaint for response
- * @param {Object} complaint - Complaint document
- * @returns {Object} Formatted complaint
  */
 function formatComplaint(complaint) {
   let roomNumber = '';
@@ -30,8 +25,8 @@ function formatComplaint(complaint) {
     description: complaint.description,
     status: complaint.status,
     category: complaint.category,
-    hostel: complaint.hostelId ? complaint.hostelId.name : null,
-    roomNumber: roomNumber,
+    hostel: complaint.hostelId?.name || null,
+    roomNumber,
     location: complaint.location,
     reportedBy: {
       id: complaint.userId._id,
@@ -39,26 +34,22 @@ function formatComplaint(complaint) {
       name: complaint.userId.name,
       profileImage: complaint.userId.profileImage || null,
       phone: complaint.userId.phone || null,
-      role: complaint.userId.role,
+      role: complaint.userId.role
     },
-    assignedTo: complaint.assignedTo
-      ? {
-          id: complaint.assignedTo._id,
-          email: complaint.assignedTo.email,
-          name: complaint.assignedTo.name,
-          profileImage: complaint.assignedTo.profileImage || null,
-          phone: complaint.assignedTo.phone || null,
-        }
-      : null,
-    resolvedBy: complaint.resolvedBy
-      ? {
-          id: complaint.resolvedBy._id,
-          email: complaint.resolvedBy.email,
-          name: complaint.resolvedBy.name,
-          profileImage: complaint.resolvedBy.profileImage || null,
-          phone: complaint.resolvedBy.phone || null,
-        }
-      : null,
+    assignedTo: complaint.assignedTo ? {
+      id: complaint.assignedTo._id,
+      email: complaint.assignedTo.email,
+      name: complaint.assignedTo.name,
+      profileImage: complaint.assignedTo.profileImage || null,
+      phone: complaint.assignedTo.phone || null
+    } : null,
+    resolvedBy: complaint.resolvedBy ? {
+      id: complaint.resolvedBy._id,
+      email: complaint.resolvedBy.email,
+      name: complaint.resolvedBy.name,
+      profileImage: complaint.resolvedBy.profileImage || null,
+      phone: complaint.resolvedBy.phone || null
+    } : null,
     resolutionNotes: complaint.resolutionNotes || '',
     images: complaint.attachments || [],
     createdDate: complaint.createdAt.toISOString(),
@@ -66,12 +57,12 @@ function formatComplaint(complaint) {
     feedback: complaint.feedback || '',
     feedbackRating: complaint.feedbackRating || null,
     satisfactionStatus: complaint.satisfactionStatus || null,
-    resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null,
+    resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null
   };
 }
 
 /**
- * Format complaint for student complaints endpoint (slightly different format)
+ * Format complaint for student complaints endpoint
  */
 function formatStudentComplaint(complaint) {
   let roomNumber = '';
@@ -89,34 +80,30 @@ function formatStudentComplaint(complaint) {
     description: complaint.description,
     status: complaint.status,
     category: complaint.category,
-    hostel: complaint.hostelId ? complaint.hostelId.name : 'N/A',
-    roomNumber: roomNumber,
+    hostel: complaint.hostelId?.name || 'N/A',
+    roomNumber,
     location: complaint.location,
     reportedBy: {
       id: complaint.userId._id,
       email: complaint.userId.email,
       name: complaint.userId.name,
       profileImage: complaint.userId.profileImage || null,
-      phone: complaint.userId.phone || null,
+      phone: complaint.userId.phone || null
     },
-    assignedTo: complaint.assignedTo
-      ? {
-          id: complaint.assignedTo._id,
-          email: complaint.assignedTo.email,
-          name: complaint.assignedTo.name,
-          profileImage: complaint.assignedTo.profileImage || null,
-          phone: complaint.assignedTo.phone || null,
-        }
-      : null,
-    resolvedBy: complaint.resolvedBy
-      ? {
-          id: complaint.resolvedBy._id,
-          email: complaint.resolvedBy.email,
-          name: complaint.resolvedBy.name,
-          profileImage: complaint.resolvedBy.profileImage || null,
-          phone: complaint.resolvedBy.phone || null,
-        }
-      : null,
+    assignedTo: complaint.assignedTo ? {
+      id: complaint.assignedTo._id,
+      email: complaint.assignedTo.email,
+      name: complaint.assignedTo.name,
+      profileImage: complaint.assignedTo.profileImage || null,
+      phone: complaint.assignedTo.phone || null
+    } : null,
+    resolvedBy: complaint.resolvedBy ? {
+      id: complaint.resolvedBy._id,
+      email: complaint.resolvedBy.email,
+      name: complaint.resolvedBy.name,
+      profileImage: complaint.resolvedBy.profileImage || null,
+      phone: complaint.resolvedBy.phone || null
+    } : null,
     resolutionNotes: complaint.resolutionNotes || '',
     images: complaint.attachments || [],
     createdDate: complaint.createdAt.toISOString(),
@@ -124,47 +111,36 @@ function formatStudentComplaint(complaint) {
     feedback: complaint.feedback || '',
     feedbackRating: complaint.feedbackRating || null,
     satisfactionStatus: complaint.satisfactionStatus || null,
-    resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null,
+    resolutionDate: complaint.resolutionDate ? complaint.resolutionDate.toISOString() : null
   };
 }
 
-class ComplaintService {
+class ComplaintService extends BaseService {
+  constructor() {
+    super(Complaint, 'Complaint');
+  }
+
   /**
    * Get room allocation details for a user
-   * @param {Object} user - User object
-   * @param {string} userId - User ID for complaint
-   * @returns {Promise<{success: boolean, allocationDetails?: Object, error?: string, statusCode?: number}>}
    */
   async getAllocationDetails(user, userId) {
-    const { role } = user;
-    
-    if (['Student'].includes(role)) {
+    if (['Student'].includes(user.role)) {
       const allocationDetails = await RoomAllocation.findOne({ userId });
       if (!allocationDetails) {
-        return { 
-          success: false, 
-          error: 'Room allocation not found', 
-          statusCode: 404 
-        };
+        return notFound('Room allocation not found');
       }
-      return { success: true, allocationDetails };
+      return success(allocationDetails);
     } else if (user.hostel) {
-      return { 
-        success: true, 
-        allocationDetails: { hostelId: user.hostel._id } 
-      };
+      return success({ hostelId: user.hostel._id });
     }
-    
-    return { success: true, allocationDetails: null };
+    return success(null);
   }
 
   /**
    * Create a new complaint
-   * @param {Object} options - Complaint data
-   * @returns {Promise<Object>} Created complaint
    */
   async createComplaint({ userId, title, description, location, category, attachments, allocationDetails }) {
-    const newComplaint = new Complaint({
+    const complaint = await this.model.create({
       userId,
       title,
       description,
@@ -173,53 +149,36 @@ class ComplaintService {
       hostelId: allocationDetails?.hostelId,
       unitId: allocationDetails?.unitId,
       roomId: allocationDetails?.roomId,
-      attachments,
+      attachments
     });
-
-    await newComplaint.save();
-    return newComplaint;
+    return success(complaint);
   }
 
   /**
    * Build query for fetching complaints based on user role and filters
    */
   buildComplaintsQuery(user, filters) {
-    const { role } = user;
     const { category, status, hostelId, startDate, endDate, feedbackRating, satisfactionStatus } = filters;
-    
     const query = {};
 
-    if (['Student'].includes(role)) {
+    if (['Student'].includes(user.role)) {
       query.userId = user._id;
     }
 
     if (user.hostel) {
       query.hostelId = user.hostel._id;
-    } else if (hostelId && ['Admin', 'Maintenance Staff'].includes(role)) {
+    } else if (hostelId && ['Admin', 'Maintenance Staff'].includes(user.role)) {
       query.hostelId = hostelId;
     }
 
-    if (category) {
-      query.category = category;
-    }
-
-    if (status) {
-      query.status = status;
-    }
-
-    if (feedbackRating) {
-      query.feedbackRating = Number(feedbackRating);
-    }
-
-    if (satisfactionStatus) {
-      query.satisfactionStatus = satisfactionStatus;
-    }
+    if (category) query.category = category;
+    if (status) query.status = status;
+    if (feedbackRating) query.feedbackRating = Number(feedbackRating);
+    if (satisfactionStatus) query.satisfactionStatus = satisfactionStatus;
 
     if (startDate || endDate) {
       query.createdAt = {};
-      if (startDate) {
-        query.createdAt.$gte = new Date(startDate);
-      }
+      if (startDate) query.createdAt.$gte = new Date(startDate);
       if (endDate) {
         const endDateObj = new Date(endDate);
         endDateObj.setDate(endDateObj.getDate() + 1);
@@ -232,9 +191,6 @@ class ComplaintService {
 
   /**
    * Get all complaints with pagination
-   * @param {Object} user - User object
-   * @param {Object} filters - Query filters
-   * @returns {Promise<{complaints: Array, total: number, page: number, totalPages: number}>}
    */
   async getAllComplaints(user, filters) {
     const { page = 1, limit = 10 } = filters;
@@ -243,37 +199,28 @@ class ComplaintService {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    const totalCount = await Complaint.countDocuments(query);
+    const [totalCount, complaints] = await Promise.all([
+      this.model.countDocuments(query),
+      this.model.find(query)
+        .populate('userId', 'name email phone profileImage role')
+        .populate('hostelId', 'name')
+        .populate('unitId', 'unitNumber')
+        .populate('roomId', 'roomNumber')
+        .populate('assignedTo', 'name email phone profileImage')
+        .populate('resolvedBy', 'name email phone profileImage')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+    ]);
 
-    const complaints = await Complaint.find(query)
-      .populate('userId', 'name email phone profileImage role')
-      .populate('hostelId', 'name')
-      .populate('unitId', 'unitNumber')
-      .populate('roomId', 'roomNumber')
-      .populate('assignedTo', 'name email phone profileImage')
-      .populate('resolvedBy', 'name email phone profileImage')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const formattedComplaints = complaints.map(formatComplaint);
-
-    return {
-      complaints: formattedComplaints,
-      total: totalCount,
-      page: parseInt(page),
-      totalPages: Math.ceil(totalCount / limitNum),
-    };
+    return paginated(complaints.map(formatComplaint), totalCount, parseInt(page), limitNum);
   }
 
   /**
    * Get complaint by ID
-   * @param {string} complaintId - Complaint ID
-   * @param {Object} user - User object
-   * @returns {Promise<{success: boolean, complaint?: Object, error?: string, statusCode?: number}>}
    */
   async getComplaintById(complaintId, user) {
-    const complaint = await Complaint.findById(complaintId)
+    const complaint = await this.model.findById(complaintId)
       .populate('userId', 'name email phone profileImage role')
       .populate('hostelId', 'name')
       .populate('unitId', 'unitNumber')
@@ -282,44 +229,29 @@ class ComplaintService {
       .populate('resolvedBy', 'name email phone profileImage');
 
     if (!complaint) {
-      return { 
-        success: false, 
-        error: 'Complaint not found', 
-        statusCode: 404 
-      };
+      return notFound('Complaint not found');
     }
 
     // Check authorization
-    if (user.hostel && !['Admin', 'Maintenance Staff'].includes(user.role) && 
+    if (user.hostel && !['Admin', 'Maintenance Staff'].includes(user.role) &&
         complaint.hostelId.toString() !== user.hostel._id.toString()) {
-      return { 
-        success: false, 
-        error: 'You are not authorized to access this complaint', 
-        statusCode: 403 
-      };
+      return forbidden('You are not authorized to access this complaint');
     }
 
     if (['Student'].includes(user.role) && complaint.userId.toString() !== user._id.toString()) {
-      return { 
-        success: false, 
-        error: 'You are not authorized to access this complaint', 
-        statusCode: 403 
-      };
+      return forbidden('You are not authorized to access this complaint');
     }
 
-    return { success: true, complaint };
+    return success(complaint);
   }
 
   /**
    * Update complaint status (legacy method)
-   * @param {string} complaintId - Complaint ID
-   * @param {Object} updateData - Update data
-   * @returns {Promise<{success: boolean, complaint?: Object, error?: string, statusCode?: number}>}
    */
   async updateComplaintStatus(complaintId, updateData) {
     const { status, assignedTo, resolutionNotes, feedback, feedbackRating } = updateData;
 
-    const complaint = await Complaint.findByIdAndUpdate(
+    const complaint = await this.model.findByIdAndUpdate(
       complaintId,
       {
         status,
@@ -327,190 +259,127 @@ class ComplaintService {
         resolutionNotes,
         feedback,
         feedbackRating,
-        resolutionDate: status === 'Resolved' ? new Date() : null,
+        resolutionDate: status === 'Resolved' ? new Date() : null
       },
       { new: true }
     );
 
     if (!complaint) {
-      return { 
-        success: false, 
-        error: 'Complaint not found', 
-        statusCode: 404 
-      };
+      return notFound('Complaint not found');
     }
 
-    return { success: true, complaint };
+    return success(complaint);
   }
 
   /**
    * Get complaint statistics
-   * @param {Object} user - User object
-   * @param {string} hostelId - Optional hostel ID filter
-   * @returns {Promise<Object>} Stats object
    */
   async getStats(user, hostelId) {
-    const { role } = user;
     const query = {};
 
-    if (['Student'].includes(role)) {
+    if (['Student'].includes(user.role)) {
       query.userId = user._id;
     }
 
     if (user.hostel) {
       query.hostelId = user.hostel._id;
-    } else if (hostelId && ['Admin', 'Maintenance Staff'].includes(role)) {
+    } else if (hostelId && ['Admin', 'Maintenance Staff'].includes(user.role)) {
       query.hostelId = hostelId;
     }
 
     const [total, pending, inProgress, resolved, forwardedToIDO] = await Promise.all([
-      Complaint.countDocuments(query),
-      Complaint.countDocuments({ ...query, status: 'Pending' }),
-      Complaint.countDocuments({ ...query, status: 'In Progress' }),
-      Complaint.countDocuments({ ...query, status: 'Resolved' }),
-      Complaint.countDocuments({ ...query, status: 'Forwarded to IDO' }),
+      this.model.countDocuments(query),
+      this.model.countDocuments({ ...query, status: 'Pending' }),
+      this.model.countDocuments({ ...query, status: 'In Progress' }),
+      this.model.countDocuments({ ...query, status: 'Resolved' }),
+      this.model.countDocuments({ ...query, status: 'Forwarded to IDO' })
     ]);
 
-    return { total, pending, inProgress, resolved, forwardedToIDO };
+    return success({ total, pending, inProgress, resolved, forwardedToIDO });
   }
 
   /**
    * Get complaints for a specific student
-   * @param {string} userId - Student user ID
-   * @param {Object} pagination - Pagination options
-   * @returns {Promise<{complaints: Array, total: number, page: number, totalPages: number}>}
    */
   async getStudentComplaints(userId, { page = 1, limit = 10 }) {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    const totalCount = await Complaint.countDocuments({ userId });
+    const [totalCount, complaints] = await Promise.all([
+      this.model.countDocuments({ userId }),
+      this.model.find({ userId })
+        .populate('userId', 'name email phone profileImage role')
+        .populate('hostelId', 'name')
+        .populate('unitId', 'unitNumber')
+        .populate('roomId', 'roomNumber')
+        .populate('assignedTo', 'name email phone profileImage')
+        .populate('resolvedBy', 'name email phone profileImage')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+    ]);
 
-    const complaints = await Complaint.find({ userId })
-      .populate('userId', 'name email phone profileImage role')
-      .populate('hostelId', 'name')
-      .populate('unitId', 'unitNumber')
-      .populate('roomId', 'roomNumber')
-      .populate('assignedTo', 'name email phone profileImage')
-      .populate('resolvedBy', 'name email phone profileImage')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum);
-
-    const formattedComplaints = complaints.map(formatStudentComplaint);
-
-    return {
-      complaints: formattedComplaints,
-      total: totalCount,
-      page: parseInt(page),
-      totalPages: Math.ceil(totalCount / limitNum),
-    };
+    return paginated(complaints.map(formatStudentComplaint), totalCount, parseInt(page), limitNum);
   }
 
   /**
    * Update complaint status (new method)
-   * @param {string} complaintId - Complaint ID
-   * @param {string} status - New status
-   * @param {string} userId - User ID making the change
-   * @returns {Promise<{success: boolean, complaint?: Object, error?: string, statusCode?: number}>}
    */
   async updateStatus(complaintId, status, userId) {
-    let complaint;
-    if (status === 'Resolved') {
-      const date = new Date();
-      complaint = await Complaint.findByIdAndUpdate(
-        complaintId, 
-        { status, resolvedBy: userId, resolutionDate: date }, 
-        { new: true }
-      );
-    } else {
-      complaint = await Complaint.findByIdAndUpdate(
-        complaintId, 
-        { status }, 
-        { new: true }
-      );
-    }
+    const updateData = status === 'Resolved'
+      ? { status, resolvedBy: userId, resolutionDate: new Date() }
+      : { status };
+
+    const complaint = await this.model.findByIdAndUpdate(complaintId, updateData, { new: true });
 
     if (!complaint) {
-      return { 
-        success: false, 
-        error: 'Complaint not found', 
-        statusCode: 404 
-      };
+      return notFound('Complaint not found');
     }
 
-    return { success: true, complaint };
+    return success(complaint);
   }
 
   /**
    * Update resolution notes
-   * @param {string} complaintId - Complaint ID
-   * @param {string} resolutionNotes - Resolution notes
-   * @returns {Promise<{success: boolean, complaint?: Object, error?: string, statusCode?: number}>}
    */
   async updateResolutionNotes(complaintId, resolutionNotes) {
-    const complaint = await Complaint.findByIdAndUpdate(
-      complaintId, 
-      { resolutionNotes }, 
+    const complaint = await this.model.findByIdAndUpdate(
+      complaintId,
+      { resolutionNotes },
       { new: true }
     );
 
     if (!complaint) {
-      return { 
-        success: false, 
-        error: 'Complaint not found', 
-        statusCode: 404 
-      };
+      return notFound('Complaint not found');
     }
 
-    return { success: true, complaint };
+    return success(complaint);
   }
 
   /**
    * Update complaint feedback
-   * @param {string} complaintId - Complaint ID
-   * @param {string} userId - User ID making the update
-   * @param {Object} feedbackData - Feedback data
-   * @returns {Promise<{success: boolean, complaint?: Object, error?: string, statusCode?: number}>}
    */
   async updateFeedback(complaintId, userId, feedbackData) {
     const { feedback, feedbackRating, satisfactionStatus } = feedbackData;
 
-    // Check if complaint exists and user is authorized
-    const existingComplaint = await Complaint.findById(complaintId);
+    const existingComplaint = await this.model.findById(complaintId);
     if (!existingComplaint) {
-      return { 
-        success: false, 
-        error: 'Complaint not found', 
-        statusCode: 404 
-      };
+      return notFound('Complaint not found');
     }
 
     if (existingComplaint.userId.toString() !== userId.toString()) {
-      return { 
-        success: false, 
-        error: 'You are not authorized to update feedback for this complaint', 
-        statusCode: 403 
-      };
+      return forbidden('You are not authorized to update feedback for this complaint');
     }
 
-    const complaint = await Complaint.findByIdAndUpdate(
-      complaintId, 
-      { feedback, feedbackRating, satisfactionStatus }, 
+    const complaint = await this.model.findByIdAndUpdate(
+      complaintId,
+      { feedback, feedbackRating, satisfactionStatus },
       { new: true }
     );
 
-    if (!complaint) {
-      return { 
-        success: false, 
-        error: 'Complaint not found', 
-        statusCode: 404 
-      };
-    }
-
-    return { success: true, complaint };
+    return success(complaint);
   }
 }
 
 export const complaintService = new ComplaintService();
-export default ComplaintService;
+export default complaintService;
