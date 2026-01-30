@@ -1,6 +1,7 @@
 # Backend Issues - To Be Fixed
 
 > **Created**: January 29, 2026
+> **Updated**: January 30, 2026
 > **Purpose**: Track identified issues and their resolution status
 
 ---
@@ -10,10 +11,10 @@
 | # | Issue | Status | Priority |
 |---|-------|--------|----------|
 | 1 | No error handling middleware | ✅ Done | High |
-| 2 | Validation missing | ❌ Not Done | High |
+| 2 | Validation missing | ⚠️ Partial | High |
 | 3 | Inconsistent response format | ⚠️ Partial | Medium |
-| 4 | Fat controllers | ❌ Not Done | Medium |
-| 5 | No request validation | ❌ Not Done | High |
+| 4 | Fat controllers | ✅ Done | Medium |
+| 5 | No request validation | ⚠️ Partial | High |
 | 6 | Flat folder structure | ✅ Done | High |
 | 7 | No DTOs/Response formatters | ⚠️ Partial | Low |
 | 8 | No centralized constants | ✅ Done | Medium |
@@ -21,6 +22,8 @@
 | 10 | Mixed naming conventions | ✅ Done | Low |
 
 **Legend**: ✅ Done | ⚠️ Partial | ❌ Not Done
+
+**Progress**: 6/10 Done, 4/10 Partial, 0/10 Not Done
 
 ---
 
@@ -55,20 +58,30 @@
 ### 2. Validation Missing
 **Location**: Controllers  
 **Impact**: No input validation layer  
-**Status**: ❌ Not Done
+**Status**: ⚠️ Partial
 
 **What was done**:
-- Nothing
+- ✅ Installed Joi validation library
+- ✅ Created validation middleware (`src/validations/validate.middleware.js`)
+- ✅ Created 12 validation schema files with 80+ schemas:
+  - `common.validation.js` - objectId, email, phone, pagination
+  - `auth.validation.js` - 4 schemas
+  - `student.validation.js` - 13 schemas
+  - `complaint.validation.js` - 8 schemas
+  - `visitor.validation.js` - 11 schemas
+  - `leave.validation.js` - 8 schemas
+  - `hostel.validation.js` - 6 schemas
+  - `user.validation.js` - 7 schemas
+  - `event.validation.js` - 8 schemas
+  - `notification.validation.js` - 10 schemas
+  - `payment.validation.js` - 10 schemas
 
 **What's missing**:
-- Validation library (Joi, Zod, or express-validator)
-- Validation schemas for each endpoint
-- Validation middleware
+- Integrate validation into remaining routes (3/35 done)
 
 **To complete**:
-- Install validation library: `npm install joi` or `npm install zod`
-- Create validation schemas in `src/validations/`
-- Add validation middleware to routes
+- Add `validate(schema)` middleware to remaining 32 route files
+- Pattern established, work is mechanical
 
 ---
 
@@ -78,14 +91,11 @@
 **Status**: ⚠️ Partial
 
 **What was done**:
-- Created `src/utils/response.utils.js` with standardized helpers:
-  - `sendSuccess(res, data, message, statusCode)`
-  - `sendError(res, message, statusCode)`
-  - `sendPaginated(res, data, pagination)`
+- Created `src/core/responses/ApiResponse.js` with standardized helpers
 
 **What's missing**:
 - Controllers still use old format
-- Need to update all 43 controllers to use new utilities
+- Need to update all controllers to use new utilities
 
 **To complete**:
 - Replace `res.json({ message })` with `sendSuccess(res, null, message)`
@@ -96,52 +106,51 @@
 ### 4. Fat Controllers
 **Location**: e.g., authController.js (438 lines)  
 **Impact**: Business logic mixed with HTTP handling  
-**Status**: ❌ Not Done
+**Status**: ✅ Done
 
 **What was done**:
-- Created `src/services/` layer
-- Migrated 3 existing services
+- ✅ Created 43 service files in `src/services/`
+- ✅ Refactored ALL controllers to thin pattern (HTTP handling only)
+- ✅ Moved all business logic to services
+- ✅ Services use standardized return format: `{success, statusCode, data?, message?}`
 
-**What's missing**:
-- Business logic still in controllers
-- Need to extract logic to service layer
+**Fat controllers refactored**:
+| Controller | Before | After | Service |
+|------------|--------|-------|---------|
+| authController.js | 437 | ~305 | auth.service.js |
+| studentController.js | 1238 | ~345 | student.service.js |
+| hostelController.js | 778 | ~250 | hostel.service.js |
+| dashboardController.js | 719 | ~160 | dashboard.service.js |
+| visitorController.js | 533 | ~250 | visitor.service.js |
+| complaintController.js | 422 | ~241 | complaint.service.js |
+| + 25 more controllers | - | - | - |
 
-**Fat controllers identified**:
-| Controller | Lines | Recommended Split |
-|------------|-------|-------------------|
-| authController.js | 438 | auth.service.js |
-| studentController.js | 500+ | student.service.js |
-| complaintController.js | 400+ | complaint.service.js |
-| wardenController.js | 300+ | warden.service.js |
-| visitorController.js | 300+ | visitor.service.js |
-
-**To complete**:
-- Extract database operations to services
-- Keep controllers thin (HTTP handling only)
+**Result**: ~4000+ lines of business logic moved to service layer
 
 ---
 
 ### 5. No Request Validation
 **Location**: Routes  
 **Impact**: Direct access to req.body without validation  
-**Status**: ❌ Not Done
+**Status**: ⚠️ Partial
 
 **What was done**:
-- Nothing
+- ✅ Validation middleware created
+- ✅ 80+ validation schemas ready
+- ✅ Integrated into 3 route files:
+  - `auth.routes.js`
+  - `complaint.routes.js`
+  - `leave.routes.js`
 
 **What's missing**:
-- Request body validation
-- Query parameter validation
-- URL parameter validation
+- Request validation on remaining 32 route files
 
-**Example of current code**:
+**Example usage**:
 ```javascript
-// Current - No validation
-const { email, password } = req.body;
+import { validate } from '../../validations/validate.middleware.js';
+import { createStudentSchema } from '../../validations/student.validation.js';
 
-// Should be
-const { error, value } = loginSchema.validate(req.body);
-if (error) return sendError(res, error.message, 400);
+router.post('/students', validate(createStudentSchema), studentController.create);
 ```
 
 ---
@@ -152,11 +161,11 @@ if (error) return sendError(res, error.message, 400);
 **Status**: ✅ Done
 
 **What was done**:
-- Models organized by domain in `src/models/`
+- Models organized by domain in `src/models/` (17 domain folders)
   - `user/`, `hostel/`, `student/`, `complaint/`, `visitor/`, etc.
-- Routes versioned in `src/routes/v1/`
+- Routes versioned in `src/routes/v1/` (35 route files)
 - Config organized in `src/config/`
-- Services in `src/services/`
+- Services in `src/services/` (43 service files)
 - Middlewares in `src/middlewares/`
 - Loaders in `src/loaders/`
 - Controllers migrated to `src/controllers/`
@@ -171,7 +180,7 @@ if (error) return sendError(res, error.message, 400);
 **Status**: ⚠️ Partial
 
 **What was done**:
-- Created `src/utils/response.utils.js`
+- Created `src/core/responses/ApiResponse.js`
 - Created `src/core/responses/` directory
 
 **What's missing**:
