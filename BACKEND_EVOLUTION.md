@@ -444,7 +444,47 @@ src/services/base/
 
 ---
 
-## 7. Files to Archive
+## 7. Phase 4: Controller Layer Cleanup (READY)
+
+See detailed plan: `PHASE4_CONTROLLER_PLAN.md`
+
+### Objective
+Reduce controller boilerplate while **preserving all existing response formats** (no frontend breaking changes).
+
+### Helpers Created
+
+```
+src/utils/
+├── asyncHandler.js       ✅ (existing - wraps async functions)
+└── controllerHelpers.js  ✅ (NEW - sendRawResponse, createServiceHandler, etc.)
+```
+
+### Available Helpers
+
+| Helper | Purpose |
+|--------|---------|
+| `asyncHandler(fn)` | Removes try-catch, errors go to global handler |
+| `sendRawResponse(res, result)` | Sends `result.data` directly |
+| `sendServiceResponse(res, result)` | Sends wrapped response |
+| `createServiceHandler(fn, opts)` | Creates complete handler for simple endpoints |
+| `createCustomHandler(fn, transformer)` | For custom response formats |
+
+### Estimated Impact (When Complete)
+
+| Metric | Before | After | Reduction |
+|--------|--------|-------|-----------|
+| Try-catch blocks | 209 | 0 | 100% |
+| Console.error calls | 177 | 0 | 100% |
+| 500 error handlers | 208 | 0 | 100% |
+| Controller lines | ~4,500 | ~2,500 | ~44% |
+
+### Status
+- ✅ Helpers created
+- ⏳ Controller refactoring pending (can be done incrementally)
+
+---
+
+## 8. Files to Archive
 
 These tracking files can be archived now:
 - `phase2_plan.md` → Archive
