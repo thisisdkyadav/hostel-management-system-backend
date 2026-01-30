@@ -1,437 +1,305 @@
-import { isDevelopmentEnvironment } from "../../config/environment.js"
-import User from "../../models/User.js"
-import bcrypt from "bcrypt"
-import { generateKey } from "../../utils/qrUtils.js"
-import Session from "../../models/Session.js"
-import axios from "axios"
+/**
+ * Auth Controller
+ * Handles HTTP layer for authentication operations
+ * 
+ * Business logic delegated to authService
+ * Controller only handles req/res, session, cookies
+ * 
+ * @module controllers/authController
+ */
 
+import { authService } from '../services/auth.service.js';
+
+/**
+ * Login with email and password
+ * POST /api/auth/login
+ */
 export const login = async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ message: "Email and password are required" });
+    return res.status(400).json({ message: 'Email and password are required' });
   }
 
   try {
-    const user = await User.findOne({
-      email: { $regex: new RegExp(`^${email}$`, "i") },
-    })
-      .select("+password")
-      .exec();
-
-    if (!user) {
-      return res.status(401).json({ message: "Invalid email or password" });
+    // Validate credentials via service
+    const result = await authService.validateCredentials(email, password);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.error });
     }
 
-    if (!user.password) {
-      return res
-        .status(401)
-        .json({ message: "Password not set for this account" });
-    }
+    const user = result.user;
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ message: "Invalid email or password" });
-    }
+    // Setup session data via service
+    const { userResponse, essentialData } = await authService.setupUserSession(user);
 
-    // --- session setup ---
-    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email);
-    const userResponse = await User.findByIdAndUpdate(
-      user._id,
-      { aesKey },
-      { new: true }
-    );
-
-    const essentialData = {
-      _id: userResponse._id,
-      email: userResponse.email,
-      role: userResponse.role,
-      permissions: Object.fromEntries(userResponse.permissions || new Map()),
-      hostel: userResponse.hostel,
-    };
-
-    // persist userId + data in session
+    // Store session data (HTTP-specific, stays in controller)
     req.session.userId = user._id;
     req.session.userData = essentialData;
     req.session.role = user.role;
     req.session.email = user.email;
 
     // Create device session record
-    const userAgent = req.headers["user-agent"] || "Unknown";
-    const deviceName = getDeviceNameFromUserAgent(userAgent);
+    const userAgent = req.headers['user-agent'] || 'Unknown';
     const ip = req.ip || req.connection.remoteAddress;
 
-    await Session.create({
+    await authService.createDeviceSession({
       userId: user._id,
       sessionId: req.sessionID,
       userAgent,
       ip,
-      deviceName,
-      loginTime: new Date(),
-      lastActive: new Date(),
     });
 
-    // remove sensitive data
-    const userResponseObj = userResponse.toObject();
-    delete userResponseObj.password;
-    if (userResponseObj.permissions instanceof Map) {
-      userResponseObj.permissions = Object.fromEntries(
-        userResponseObj.permissions
-      );
-    }
-
-    // --- important: explicitly save session before responding ---
+    // Explicitly save session before responding
     req.session.save((err) => {
       if (err) {
-        console.error("Session save error:", err);
-        return res
-          .status(500)
-          .json({ message: "Failed to create session. Please try again." });
+        console.error('Session save error:', err);
+        return res.status(500).json({ 
+          message: 'Failed to create session. Please try again.' 
+        });
       }
 
       res.json({
         success: true,
-        message: "Login successful",
-        user: userResponseObj,
+        message: 'Login successful',
+        user: userResponse,
       });
     });
   } catch (error) {
-    console.error("Login error:", error.message);
-    res.status(500).json({ message: "Server error" });
+    console.error('Login error:', error.message);
+    res.status(500).json({ message: 'Server error' });
   }
-}; 
+};
 
+/**
+ * Login with Google OAuth
+ * POST /api/auth/google
+ */
 export const loginWithGoogle = async (req, res) => {
-  const { token } = req.body
+  const { token } = req.body;
+
   try {
-    const googleResponse = await axios.get(`https://www.googleapis.com/oauth2/v3/tokeninfo?id_token=${token}`)
-
-    const { email } = googleResponse.data
-
-    // Use regex for case-insensitive email search
-    let user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
-    if (!user) {
-      return res.status(401).json({ message: "User not found" })
+    // Validate Google token via service
+    const result = await authService.validateGoogleToken(token);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.error });
     }
 
-    // Store user info in session
-    req.session.userId = user._id
-    req.session.role = user.role
-    req.session.email = user.email
+    const user = result.user;
 
-    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email)
-    const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true })
+    // Store session data
+    req.session.userId = user._id;
+    req.session.role = user.role;
+    req.session.email = user.email;
 
-    // Store essential user data in session with properly serialized permissions
-    const essentialData = {
-      _id: userResponse._id,
-      email: userResponse.email,
-      role: userResponse.role,
-      // Convert Map to plain object for session storage
-      permissions: Object.fromEntries(userResponse.permissions || new Map()),
-      // Include hostel data if available
-      hostel: userResponse.hostel,
-    }
-
-    req.session.userData = essentialData
+    // Setup session data via service
+    const { userResponse, essentialData } = await authService.setupUserSession(user);
+    req.session.userData = essentialData;
 
     // Create device session record
-    const userAgent = req.headers["user-agent"] || "Unknown"
-    const deviceName = getDeviceNameFromUserAgent(userAgent)
-    const ip = req.ip || req.connection.remoteAddress
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const ip = req.ip || req.connection.remoteAddress;
 
-    await Session.create({
+    await authService.createDeviceSession({
       userId: user._id,
       sessionId: req.sessionID,
-      userAgent: userAgent,
-      ip: ip,
-      deviceName: deviceName,
-      loginTime: new Date(),
-      lastActive: new Date(),
-    })
-
-    // Remove sensitive data and convert permissions Map to object for frontend
-    const userResponseObj = userResponse.toObject()
-    delete userResponseObj.password
-
-    // Convert permissions Map to a plain object for frontend
-    if (userResponseObj.permissions instanceof Map) {
-      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions)
-    }
+      userAgent,
+      ip,
+    });
 
     res.json({
-      user: userResponseObj,
-      message: "Login successful",
-    })
+      user: userResponse,
+      message: 'Login successful',
+    });
   } catch (error) {
-    res.status(401).json({ message: "Invalid Google Token" })
+    res.status(401).json({ message: 'Invalid Google Token' });
   }
-}
+};
 
+/**
+ * Logout current session
+ * GET /api/auth/logout
+ */
 export const logout = async (req, res) => {
   if (req.sessionID) {
     try {
-      // Remove the session from our own tracking
-      await Session.deleteOne({ sessionId: req.sessionID })
+      // Remove the session from tracking
+      await authService.deleteSession(req.sessionID);
 
       // Destroy the express session
       req.session.destroy((err) => {
         if (err) {
-          return res.status(500).json({ message: "Logout failed" })
+          return res.status(500).json({ message: 'Logout failed' });
         }
-        res.clearCookie("connect.sid")
-        res.json({ message: "Logged out successfully" })
-      })
+        res.clearCookie('connect.sid');
+        res.json({ message: 'Logged out successfully' });
+      });
     } catch (error) {
-      console.error("Logout error:", error.message)
-      res.status(500).json({ message: "Server error" })
+      console.error('Logout error:', error.message);
+      res.status(500).json({ message: 'Server error' });
     }
   } else {
-    res.json({ message: "No active session" })
+    res.json({ message: 'No active session' });
   }
-}
+};
 
+/**
+ * Get current user
+ * GET /api/auth/user
+ */
 export const getUser = async (req, res) => {
-  const user = req.user
-  const userId = user._id
+  const userId = req.user._id;
 
   try {
-    const user = await User.findById(userId).select("-password").exec()
-    if (!user) {
-      return res.status(404).json({ message: "User not found" })
+    const result = await authService.getUserById(userId);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.error });
     }
-    res.json(user)
-  } catch (error) {
-    console.error("Error fetching user:", error)
-    res.status(500).json({ message: "Server error" })
-  }
-}
 
+    res.json(result.user);
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * Update user password
+ * POST /api/auth/update-password
+ */
 export const updatePassword = async (req, res) => {
-  const { oldPassword, newPassword } = req.body
-  const userId = req.user._id
+  const { oldPassword, newPassword } = req.body;
+  const userId = req.user._id;
 
   if (!oldPassword || !newPassword) {
-    return res.status(400).json({ message: "Old password and new password are required" })
+    return res.status(400).json({ 
+      message: 'Old password and new password are required' 
+    });
   }
 
   try {
-    const user = await User.findById(userId).select("+password").exec()
-    if (!user) {
-      return res.status(404).json({ message: "User not found" })
+    const result = await authService.updatePassword(userId, oldPassword, newPassword);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.error });
     }
 
-    // Check if user has a password set
-    if (!user.password) {
-      return res.status(401).json({ message: "No password is currently set for this account" })
-    }
-
-    const isMatch = await bcrypt.compare(oldPassword, user.password)
-    if (!isMatch) {
-      return res.status(401).json({ message: "Old password is incorrect" })
-    }
-
-    const salt = await bcrypt.genSalt(10)
-    const hashedPassword = await bcrypt.hash(newPassword, salt)
-    user.password = hashedPassword
-    await user.save()
-
-    res.json({ message: "Password updated successfully" })
+    res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    console.error("Error updating password:", error)
-    res.status(500).json({ message: "Server error" })
+    console.error('Error updating password:', error);
+    res.status(500).json({ message: 'Server error' });
   }
-}
+};
 
+/**
+ * Get user devices/sessions
+ * GET /api/auth/user/devices
+ */
 export const getUserDevices = async (req, res) => {
   try {
-    const userId = req.user._id
+    const userId = req.user._id;
 
-    // Get all sessions from our tracking database
-    const sessions = await Session.find({ userId }).sort({ lastActive: -1 })
+    const devices = await authService.getUserDevices(
+      userId, 
+      req.sessionID, 
+      req.sessionStore
+    );
 
-    // Verify each session still exists in the session store
-    const validSessions = []
-
-    for (const session of sessions) {
-      // Check if the session is the current one
-      const isCurrent = session.sessionId === req.sessionID
-
-      // For non-current sessions, verify they still exist in the session store
-      if (isCurrent || (await sessionExistsInStore(req.sessionStore, session.sessionId))) {
-        validSessions.push({
-          ...session.toObject(),
-          isCurrent,
-        })
-      } else {
-        // If session doesn't exist in store but is in our tracking DB, clean it up
-        await Session.deleteOne({ _id: session._id })
-      }
-    }
-
-    res.json({ devices: validSessions })
+    res.json({ devices });
   } catch (error) {
-    console.error("Error fetching devices:", error)
-    res.status(500).json({ message: "Server error" })
+    console.error('Error fetching devices:', error);
+    res.status(500).json({ message: 'Server error' });
   }
-}
+};
 
-// Helper function to check if a session exists in the session store
-async function sessionExistsInStore(store, sessionId) {
-  return new Promise((resolve) => {
-    store.get(sessionId, (err, session) => {
-      if (err || !session) {
-        resolve(false)
-      } else {
-        resolve(true)
-      }
-    })
-  })
-}
-
+/**
+ * Logout specific device
+ * POST /api/auth/user/devices/logout/:sessionId
+ */
 export const logoutDevice = async (req, res) => {
   try {
-    const userId = req.user._id
-    const { sessionId } = req.params
+    const userId = req.user._id;
+    const { sessionId } = req.params;
 
-    // Verify the session belongs to the current user
-    const session = await Session.findOne({
-      sessionId: sessionId,
-      userId: userId,
-    })
+    const result = await authService.logoutDevice(userId, sessionId, req.sessionID);
 
-    if (!session) {
-      return res.status(404).json({ message: "Session not found or unauthorized" })
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.error });
     }
 
     // If trying to logout current session, use regular logout
-    if (sessionId === req.sessionID) {
-      return logout(req, res)
+    if (result.isCurrentSession) {
+      return logout(req, res);
     }
 
-    // Delete the session from our tracking database
-    await Session.deleteOne({ sessionId: sessionId })
-
-    // Also destroy the actual Express session in MongoDB
+    // Destroy the session in the store
     try {
-      // Get the MongoDB connection from the session store
-      const sessionStore = req.sessionStore
-
-      // Destroy the session in the store
-      sessionStore.destroy(sessionId, (err) => {
+      req.sessionStore.destroy(sessionId, (err) => {
         if (err) {
-          console.error("Error destroying session in store:", err)
+          console.error('Error destroying session in store:', err);
         }
-      })
+      });
     } catch (err) {
-      console.error("Error accessing session store:", err)
+      console.error('Error accessing session store:', err);
     }
 
-    res.json({ message: "Device logged out successfully" })
+    res.json({ message: 'Device logged out successfully' });
   } catch (error) {
-    console.error("Error logging out device:", error)
-    res.status(500).json({ message: "Server error" })
+    console.error('Error logging out device:', error);
+    res.status(500).json({ message: 'Server error' });
   }
-}
+};
 
+/**
+ * Verify SSO token and login
+ * POST /api/auth/verify-sso-token
+ */
 export const verifySSOToken = async (req, res) => {
-  const { token } = req.body
+  const { token } = req.body;
 
   if (!token) {
-    return res.status(400).json({ message: "Token is required" })
+    return res.status(400).json({ message: 'Token is required' });
   }
 
   try {
-    // Verify token with SSO server
-    const response = await axios.post("https://hms-sso.andiindia.in/api/auth/verify-sso-token", { token })
-
-    if (!response.data.success) {
-      return res.status(401).json({ message: "Invalid or expired SSO token" })
+    // Verify SSO token via service
+    const result = await authService.verifySSOToken(token);
+    
+    if (!result.success) {
+      return res.status(result.statusCode).json({ message: result.error });
     }
 
-    // Find user by email from SSO response
-    const email = response.data.user.email
-    // Use regex for case-insensitive email search
-    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } }).exec()
+    const user = result.user;
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found in system" })
-    }
+    // Store session data
+    req.session.userId = user._id;
+    req.session.role = user.role;
+    req.session.email = user.email;
 
-    // Store user info in session
-    req.session.userId = user._id
-    req.session.role = user.role
-    req.session.email = user.email
-
-    const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email)
-    const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true }).select("-password").exec()
-
-    // Store essential user data in session with properly serialized permissions
-    const essentialData = {
-      _id: userResponse._id,
-      email: userResponse.email,
-      role: userResponse.role,
-      // Convert Map to plain object for session storage
-      permissions: Object.fromEntries(userResponse.permissions || new Map()),
-      // Include hostel data if available
-      hostel: userResponse.hostel,
-    }
-
-    req.session.userData = essentialData
+    // Setup session data via service
+    const { userResponse, essentialData } = await authService.setupUserSession(user);
+    req.session.userData = essentialData;
 
     // Create device session record
-    const userAgent = req.headers["user-agent"] || "Unknown"
-    const deviceName = getDeviceNameFromUserAgent(userAgent)
-    const ip = req.ip || req.connection.remoteAddress
+    const userAgent = req.headers['user-agent'] || 'Unknown';
+    const ip = req.ip || req.connection.remoteAddress;
 
-    await Session.create({
+    await authService.createDeviceSession({
       userId: user._id,
       sessionId: req.sessionID,
-      userAgent: userAgent,
-      ip: ip,
-      deviceName: deviceName,
-      loginTime: new Date(),
-      lastActive: new Date(),
-    })
-
-    // Convert userResponse to object and ensure permissions is a plain object
-    const userResponseObj = userResponse.toObject ? userResponse.toObject() : userResponse
-
-    // Convert permissions Map to a plain object for frontend
-    if (userResponseObj.permissions instanceof Map) {
-      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions)
-    }
+      userAgent,
+      ip,
+    });
 
     res.json({
-      user: userResponseObj,
-      message: "SSO authentication successful",
-    })
+      user: userResponse,
+      message: 'SSO authentication successful',
+    });
   } catch (error) {
-    console.error("SSO verification error:", error.message)
-    res.status(500).json({ message: "Failed to verify SSO token" })
+    console.error('SSO verification error:', error.message);
+    res.status(500).json({ message: 'Failed to verify SSO token' });
   }
-}
-
-// Helper function to extract device name from user agent
-function getDeviceNameFromUserAgent(userAgent) {
-  if (!userAgent) return "Unknown device"
-
-  // Mobile detection
-  if (/iPhone/.test(userAgent)) return "iPhone"
-  if (/iPad/.test(userAgent)) return "iPad"
-  if (/Android/.test(userAgent)) return "Android device"
-
-  // Browser detection
-  if (/Chrome/.test(userAgent) && !/Chromium|Edge/.test(userAgent)) return "Chrome browser"
-  if (/Firefox/.test(userAgent)) return "Firefox browser"
-  if (/Safari/.test(userAgent) && !/Chrome|Chromium/.test(userAgent)) return "Safari browser"
-  if (/Edge|Edg/.test(userAgent)) return "Edge browser"
-  if (/MSIE|Trident/.test(userAgent)) return "Internet Explorer"
-
-  // OS detection for desktop
-  if (/Windows/.test(userAgent)) return "Windows device"
-  if (/Macintosh|Mac OS X/.test(userAgent)) return "Mac device"
-  if (/Linux/.test(userAgent)) return "Linux device"
-
-  return "Unknown device"
-}
+};
