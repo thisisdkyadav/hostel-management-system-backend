@@ -9,7 +9,7 @@
 
 | # | Issue | Status | Priority |
 |---|-------|--------|----------|
-| 1 | No error handling middleware | ⚠️ Partial | High |
+| 1 | No error handling middleware | ✅ Done | High |
 | 2 | Validation missing | ❌ Not Done | High |
 | 3 | Inconsistent response format | ⚠️ Partial | Medium |
 | 4 | Fat controllers | ❌ Not Done | Medium |
@@ -29,24 +29,26 @@
 ### 1. No Error Handling Middleware
 **Location**: server.js  
 **Impact**: Inconsistent error responses  
-**Status**: ⚠️ Partial
+**Status**: ✅ Done
 
 **What was done**:
 - Created `src/utils/asyncHandler.js` for async error wrapping
-- Created `src/core/errors/` directory structure
-
-**What's missing**:
-- Global error handling middleware in Express
-- Centralized error response formatting
-- Custom error classes (ValidationError, NotFoundError, etc.)
-
-**To complete**:
-```javascript
-// Need to add to src/middlewares/error.middleware.js
-export const errorHandler = (err, req, res, next) => {
-  // Centralized error handling
-};
-```
+- Created `src/core/errors/AppError.js` with custom error classes:
+  - `AppError` (base class)
+  - `BadRequestError` (400)
+  - `UnauthorizedError` (401)
+  - `ForbiddenError` (403)
+  - `NotFoundError` (404)
+  - `ConflictError` (409)
+  - `ValidationError` (422)
+  - `TooManyRequestsError` (429)
+  - `InternalError` (500)
+- Created `src/core/errors/errorHandler.js` with:
+  - Global error handler middleware
+  - Mongoose error handling (CastError, ValidationError, 11000)
+  - JWT error handling
+  - 404 not found handler
+- Integrated into `src/loaders/express.loader.js`
 
 ---
 

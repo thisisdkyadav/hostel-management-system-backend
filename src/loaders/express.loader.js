@@ -14,6 +14,9 @@ import { fileURLToPath } from 'url';
 // Configuration
 import env from '../config/env.config.js';
 
+// Error Handlers
+import { errorHandler, notFoundHandler } from '../core/errors/errorHandler.js';
+
 // Controllers for special routes
 import { verifySSOToken } from '../../controllers/ssoController.js';
 
@@ -236,6 +239,16 @@ export const initializeExpress = (app) => {
   app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
+
+  // ============================================
+  // Error Handling (must be LAST)
+  // ============================================
+  
+  // 404 handler for undefined routes
+  app.use(notFoundHandler);
+  
+  // Global error handler
+  app.use(errorHandler);
 
   return { app, sessionMiddleware };
 };
