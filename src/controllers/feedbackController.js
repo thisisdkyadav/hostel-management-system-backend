@@ -1,57 +1,57 @@
 import { feedbackService } from "../services/feedback.service.js"
+import { asyncHandler } from "../utils/controllerHelpers.js"
 
-export const createFeedback = async (req, res) => {
+/**
+ * Helper: Error format with success: false
+ */
+const sendWithSuccess = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, success: false })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+/**
+ * Helper: Error format with error field
+ */
+const sendWithError = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, error: result.error })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+export const createFeedback = asyncHandler(async (req, res) => {
   const result = await feedbackService.createFeedback(req.body, req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, success: false })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithSuccess(res, result)
+})
 
-export const getFeedbacks = async (req, res) => {
+export const getFeedbacks = asyncHandler(async (req, res) => {
   const result = await feedbackService.getFeedbacks(req.query, req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithError(res, result)
+})
 
-export const updateFeedbackStatus = async (req, res) => {
+export const updateFeedbackStatus = asyncHandler(async (req, res) => {
   const result = await feedbackService.updateFeedbackStatus(req.params.feedbackId, req.body.status)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, success: false })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithSuccess(res, result)
+})
 
-export const replyToFeedback = async (req, res) => {
+export const replyToFeedback = asyncHandler(async (req, res) => {
   const result = await feedbackService.replyToFeedback(req.params.feedbackId, req.body.reply)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, success: false })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithSuccess(res, result)
+})
 
-export const updateFeedback = async (req, res) => {
+export const updateFeedback = asyncHandler(async (req, res) => {
   const result = await feedbackService.updateFeedback(req.params.feedbackId, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, success: false })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithSuccess(res, result)
+})
 
-export const deleteFeedback = async (req, res) => {
+export const deleteFeedback = asyncHandler(async (req, res) => {
   const result = await feedbackService.deleteFeedback(req.params.feedbackId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, success: false })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithSuccess(res, result)
+})
 
-export const getStudentFeedbacks = async (req, res) => {
+export const getStudentFeedbacks = asyncHandler(async (req, res) => {
   const result = await feedbackService.getStudentFeedbacks(req.params.userId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendWithError(res, result)
+})

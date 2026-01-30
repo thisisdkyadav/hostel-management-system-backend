@@ -1,41 +1,35 @@
 import { hostelGateService } from "../services/hostelGate.service.js"
+import { asyncHandler } from "../utils/index.js"
 
-export const createHostelGate = async (req, res) => {
+// Helper: Error format { message }
+const sendResponse = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+export const createHostelGate = asyncHandler(async (req, res) => {
   const result = await hostelGateService.createHostelGate(req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getAllHostelGates = async (req, res) => {
+export const getAllHostelGates = asyncHandler(async (req, res) => {
   const result = await hostelGateService.getAllHostelGates()
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const updateHostelGate = async (req, res) => {
+export const updateHostelGate = asyncHandler(async (req, res) => {
   const result = await hostelGateService.updateHostelGate(req.params.hostelId, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const deleteHostelGate = async (req, res) => {
+export const deleteHostelGate = asyncHandler(async (req, res) => {
   const result = await hostelGateService.deleteHostelGate(req.params.hostelId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getHostelGateProfile = async (req, res) => {
+export const getHostelGateProfile = asyncHandler(async (req, res) => {
   const result = await hostelGateService.getHostelGateProfile(req.params.hostelId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})

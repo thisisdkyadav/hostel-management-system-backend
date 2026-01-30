@@ -1,7 +1,8 @@
 import { JWT_SECRET } from "../../config/environment.js"
 import jwt from "jsonwebtoken"
+import { asyncHandler } from "../utils/index.js"
 
-export const redirect = async (req, res) => {
+export const redirect = asyncHandler(async (req, res) => {
   const redirectTo = req.query.redirect_to
 
   if (!redirectTo) {
@@ -25,9 +26,9 @@ export const redirect = async (req, res) => {
   redirectUrl.searchParams.append("token", token)
 
   res.redirect(redirectUrl.toString())
-}
+})
 
-export const verifySSOToken = async (req, res) => {
+export const verifySSOToken = asyncHandler(async (req, res) => {
   const { token } = req.body
 
   if (!token) {
@@ -37,25 +38,17 @@ export const verifySSOToken = async (req, res) => {
     })
   }
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET)
+  const decoded = jwt.verify(token, JWT_SECRET)
 
-    if (!decoded) {
-      return res.status(401).json({
-        success: false,
-        error: "Invalid or expired token",
-      })
-    }
-
-    return res.json({
-      success: true,
-      user: { email: decoded.email },
-    })
-  } catch (error) {
-    console.error("Token verification error:", error.message)
+  if (!decoded) {
     return res.status(401).json({
       success: false,
-      error: "Invalid or expired token: " + error.message,
+      error: "Invalid or expired token",
     })
   }
-}
+
+  return res.json({
+    success: true,
+    user: { email: decoded.email },
+  })
+})

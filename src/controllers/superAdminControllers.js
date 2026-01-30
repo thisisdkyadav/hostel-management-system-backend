@@ -1,73 +1,55 @@
 import { superAdminService } from "../services/superAdmin.service.js"
+import { asyncHandler } from "../utils/index.js"
 
-export const createApiClient = async (req, res) => {
+// Helper for error format { message, error }
+const sendResponse = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, error: result.error })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+export const createApiClient = asyncHandler(async (req, res) => {
   const result = await superAdminService.createApiClient(req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getApiClients = async (req, res) => {
+export const getApiClients = asyncHandler(async (req, res) => {
   const result = await superAdminService.getApiClients()
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const deleteApiClient = async (req, res) => {
+export const deleteApiClient = asyncHandler(async (req, res) => {
   const result = await superAdminService.deleteApiClient(req.params.clientId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const updateApiClient = async (req, res) => {
+export const updateApiClient = asyncHandler(async (req, res) => {
   const result = await superAdminService.updateApiClient(req.params.clientId, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const createAdmin = async (req, res) => {
+export const createAdmin = asyncHandler(async (req, res) => {
   const result = await superAdminService.createAdmin(req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getAdmins = async (req, res) => {
+export const getAdmins = asyncHandler(async (req, res) => {
   const result = await superAdminService.getAdmins()
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const updateAdmin = async (req, res) => {
+export const updateAdmin = asyncHandler(async (req, res) => {
   const result = await superAdminService.updateAdmin(req.params.adminId, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const deleteAdmin = async (req, res) => {
+export const deleteAdmin = asyncHandler(async (req, res) => {
   const result = await superAdminService.deleteAdmin(req.params.adminId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getDashboardStats = async (req, res) => {
+export const getDashboardStats = asyncHandler(async (req, res) => {
   const result = await superAdminService.getDashboardStats()
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})

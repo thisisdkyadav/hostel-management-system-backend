@@ -1,33 +1,30 @@
 import { eventService } from "../services/event.service.js"
+import { asyncHandler } from "../utils/index.js"
 
-export const createEvent = async (req, res) => {
+// Helper: Error format { message }
+const sendResponse = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+export const createEvent = asyncHandler(async (req, res) => {
   const result = await eventService.createEvent(req.body, req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getEvents = async (req, res) => {
+export const getEvents = asyncHandler(async (req, res) => {
   const result = await eventService.getEvents(req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const updateEvent = async (req, res) => {
+export const updateEvent = asyncHandler(async (req, res) => {
   const result = await eventService.updateEvent(req.params.id, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const deleteEvent = async (req, res) => {
+export const deleteEvent = asyncHandler(async (req, res) => {
   const result = await eventService.deleteEvent(req.params.id)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})

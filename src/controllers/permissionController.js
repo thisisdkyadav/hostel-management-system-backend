@@ -7,102 +7,66 @@
  */
 
 import { permissionService } from '../services/permission.service.js';
-import { isDevelopmentEnvironment } from '../../config/environment.js';
+import { asyncHandler } from '../utils/index.js';
 
 /**
  * Get permissions for a specific user
  */
-export const getUserPermissions = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const result = await permissionService.getUserPermissions(userId);
+export const getUserPermissions = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const result = await permissionService.getUserPermissions(userId);
 
-    return res.status(result.statusCode).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  } catch (error) {
-    console.error('Get user permissions error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve user permissions',
-      error: isDevelopmentEnvironment ? error.message : undefined,
-    });
-  }
-};
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
 
 /**
  * Update permissions for a specific user
  */
-export const updateUserPermissions = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { permissions } = req.body;
-    const result = await permissionService.updateUserPermissions(userId, permissions);
+export const updateUserPermissions = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const { permissions } = req.body;
+  const result = await permissionService.updateUserPermissions(userId, permissions);
 
-    return res.status(result.statusCode).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  } catch (error) {
-    console.error('Update user permissions error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to update user permissions',
-      error: isDevelopmentEnvironment ? error.message : undefined,
-    });
-  }
-};
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
 
 /**
  * Reset a user's permissions to the default for their role
  */
-export const resetUserPermissions = async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const result = await permissionService.resetUserPermissions(userId);
+export const resetUserPermissions = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+  const result = await permissionService.resetUserPermissions(userId);
 
-    return res.status(result.statusCode).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  } catch (error) {
-    console.error('Reset user permissions error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to reset user permissions',
-      error: isDevelopmentEnvironment ? error.message : undefined,
-    });
-  }
-};
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
 
 /**
  * Get users by role with their permissions
  */
-export const getUsersByRole = async (req, res) => {
-  try {
-    const { role } = req.params;
-    const { page, limit } = req.query;
-    const result = await permissionService.getUsersByRole(role, { page, limit });
+export const getUsersByRole = asyncHandler(async (req, res) => {
+  const { role } = req.params;
+  const { page, limit } = req.query;
+  const result = await permissionService.getUsersByRole(role, { page, limit });
 
-    return res.status(result.statusCode).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-      pagination: result.pagination,
-    });
-  } catch (error) {
-    console.error('Get users by role error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve users',
-      error: isDevelopmentEnvironment ? error.message : undefined,
-    });
-  }
-};
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+    pagination: result.pagination,
+  });
+});
 
 /**
  * Initialize permissions for a newly created user
@@ -115,46 +79,28 @@ export const initializeUserPermissions = async (userId) => {
 /**
  * Reset permissions for all users with a specific role
  */
-export const resetRolePermissions = async (req, res) => {
-  try {
-    const { role } = req.params;
-    const result = await permissionService.resetRolePermissions(role);
+export const resetRolePermissions = asyncHandler(async (req, res) => {
+  const { role } = req.params;
+  const result = await permissionService.resetRolePermissions(role);
 
-    return res.status(result.statusCode).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  } catch (error) {
-    console.error('Reset role permissions error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to reset role permissions',
-      error: isDevelopmentEnvironment ? error.message : undefined,
-    });
-  }
-};
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
 
 /**
  * Set custom permissions for all users with a specific role
  */
-export const setRolePermissions = async (req, res) => {
-  try {
-    const { role } = req.params;
-    const { permissions } = req.body;
-    const result = await permissionService.setRolePermissions(role, permissions);
+export const setRolePermissions = asyncHandler(async (req, res) => {
+  const { role } = req.params;
+  const { permissions } = req.body;
+  const result = await permissionService.setRolePermissions(role, permissions);
 
-    return res.status(result.statusCode).json({
-      success: result.success,
-      message: result.message,
-      data: result.data,
-    });
-  } catch (error) {
-    console.error('Set role permissions error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to set role permissions',
-      error: isDevelopmentEnvironment ? error.message : undefined,
-    });
-  }
-};
+  return res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});

@@ -1,41 +1,35 @@
 import { familyMemberService } from "../services/familyMember.service.js"
+import { asyncHandler } from "../utils/index.js"
 
-export const createFamilyMember = async (req, res) => {
+// Helper: Error format { message, error }
+const sendResponse = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, error: result.error })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+export const createFamilyMember = asyncHandler(async (req, res) => {
   const result = await familyMemberService.createFamilyMember(req.params.userId, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getFamilyMembers = async (req, res) => {
+export const getFamilyMembers = asyncHandler(async (req, res) => {
   const result = await familyMemberService.getFamilyMembers(req.params.userId)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const updateFamilyMember = async (req, res) => {
+export const updateFamilyMember = asyncHandler(async (req, res) => {
   const result = await familyMemberService.updateFamilyMember(req.params.id, req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const deleteFamilyMember = async (req, res) => {
+export const deleteFamilyMember = asyncHandler(async (req, res) => {
   const result = await familyMemberService.deleteFamilyMember(req.params.id)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const updateBulkFamilyMembers = async (req, res) => {
+export const updateBulkFamilyMembers = asyncHandler(async (req, res) => {
   const result = await familyMemberService.updateBulkFamilyMembers(req.body)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message, error: result.error })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})

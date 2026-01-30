@@ -7,264 +7,189 @@
  */
 
 import { adminService } from '../services/admin.service.js';
+import { asyncHandler } from '../utils/index.js';
 
 /**
  * Create a security user
  */
-export const createSecurity = async (req, res) => {
-  try {
-    const result = await adminService.createSecurity(req.body);
+export const createSecurity = asyncHandler(async (req, res) => {
+  const result = await adminService.createSecurity(req.body);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
-    return res.status(result.statusCode).json({
-      message: result.message,
-      security: result.data.security,
-    });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
   }
-};
+
+  return res.status(result.statusCode).json({
+    message: result.message,
+    security: result.data.security,
+  });
+});
 
 /**
  * Get all securities
  */
-export const getAllSecurities = async (req, res) => {
-  try {
-    const result = await adminService.getAllSecurities();
-    return res.status(result.statusCode).json(result.data);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+export const getAllSecurities = asyncHandler(async (req, res) => {
+  const result = await adminService.getAllSecurities();
+  return res.status(result.statusCode).json(result.data);
+});
 
 /**
  * Update a security
  */
-export const updateSecurity = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await adminService.updateSecurity(id, req.body);
+export const updateSecurity = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await adminService.updateSecurity(id, req.body);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
+  if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
   }
-};
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
 
 /**
  * Delete a security
  */
-export const deleteSecurity = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await adminService.deleteSecurity(id);
+export const deleteSecurity = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await adminService.deleteSecurity(id);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
+  if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
   }
-};
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
 
 /**
  * Update user password
  */
-export const updateUserPassword = async (req, res) => {
-  try {
-    const { email, newPassword } = req.body;
-    const result = await adminService.updateUserPassword(email, newPassword);
+export const updateUserPassword = asyncHandler(async (req, res) => {
+  const { email, newPassword } = req.body;
+  const result = await adminService.updateUserPassword(email, newPassword);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
-    return res.status(result.statusCode).json({
-      message: result.message,
-      success: true,
-    });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
   }
-};
+
+  return res.status(result.statusCode).json({
+    message: result.message,
+    success: true,
+  });
+});
 
 /**
  * Create a maintenance staff
  */
-export const createMaintenanceStaff = async (req, res) => {
-  try {
-    const result = await adminService.createMaintenanceStaff(req.body);
+export const createMaintenanceStaff = asyncHandler(async (req, res) => {
+  const result = await adminService.createMaintenanceStaff(req.body);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
-    return res.status(result.statusCode).json({
-      message: result.message,
-      success: true,
-    });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
   }
-};
+
+  return res.status(result.statusCode).json({
+    message: result.message,
+    success: true,
+  });
+});
 
 /**
  * Get all maintenance staff
  */
-export const getAllMaintenanceStaff = async (req, res) => {
-  try {
-    const result = await adminService.getAllMaintenanceStaff();
-    return res.status(result.statusCode).json(result.data);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+export const getAllMaintenanceStaff = asyncHandler(async (req, res) => {
+  const result = await adminService.getAllMaintenanceStaff();
+  return res.status(result.statusCode).json(result.data);
+});
 
 /**
  * Update a maintenance staff
  */
-export const updateMaintenanceStaff = async (req, res) => {
-  console.log('Updating maintenance staff with data:', req.body);
+export const updateMaintenanceStaff = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await adminService.updateMaintenanceStaff(id, req.body);
 
-  try {
-    const { id } = req.params;
-    const result = await adminService.updateMaintenanceStaff(id, req.body);
-
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
+  if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
   }
-};
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
 
 /**
  * Delete a maintenance staff
  */
-export const deleteMaintenanceStaff = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await adminService.deleteMaintenanceStaff(id);
+export const deleteMaintenanceStaff = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await adminService.deleteMaintenanceStaff(id);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
+  if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
   }
-};
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
 
 /**
  * Get task statistics
  */
-export const getTaskStats = async (req, res) => {
-  try {
-    const result = await adminService.getTaskStats();
-    return res.status(result.statusCode).json(result.data);
-  } catch (error) {
-    console.error('Error fetching task stats:', error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+export const getTaskStats = asyncHandler(async (req, res) => {
+  const result = await adminService.getTaskStats();
+  return res.status(result.statusCode).json(result.data);
+});
 
 /**
  * Get list of departments
  */
-export const getDepartmentsList = async (req, res) => {
-  try {
-    const result = await adminService.getDepartmentsList();
-    return res.status(result.statusCode).json(result.data);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+export const getDepartmentsList = asyncHandler(async (req, res) => {
+  const result = await adminService.getDepartmentsList();
+  return res.status(result.statusCode).json(result.data);
+});
 
 /**
  * Rename a department
  */
-export const renameDepartment = async (req, res) => {
-  try {
-    const { oldName, newName } = req.body;
-    const result = await adminService.renameDepartment(oldName, newName);
+export const renameDepartment = asyncHandler(async (req, res) => {
+  const { oldName, newName } = req.body;
+  const result = await adminService.renameDepartment(oldName, newName);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
+  if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
   }
-};
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
 
 /**
  * Get list of degrees
  */
-export const getDegreesList = async (req, res) => {
-  try {
-    const result = await adminService.getDegreesList();
-    return res.status(result.statusCode).json(result.data);
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+export const getDegreesList = asyncHandler(async (req, res) => {
+  const result = await adminService.getDegreesList();
+  return res.status(result.statusCode).json(result.data);
+});
 
 /**
  * Rename a degree
  */
-export const renameDegree = async (req, res) => {
-  try {
-    const { oldName, newName } = req.body;
-    const result = await adminService.renameDegree(oldName, newName);
+export const renameDegree = asyncHandler(async (req, res) => {
+  const { oldName, newName } = req.body;
+  const result = await adminService.renameDegree(oldName, newName);
 
-    if (!result.success) {
-      return res.status(result.statusCode).json({ message: result.message });
-    }
-
+  if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
-  } catch (error) {
-    console.error(error);
-    return res.status(500).json({ message: 'Server error', error: error.message });
   }
-};
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
 
 /**
  * Get maintenance staff statistics
  */
-export const getMaintenanceStaffStats = async (req, res) => {
-  try {
-    const { staffId } = req.params;
-    const result = await adminService.getMaintenanceStaffStats(staffId);
-    return res.status(result.statusCode).json({
-      success: true,
-      data: result.data,
-    });
-  } catch (error) {
-    return res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
+export const getMaintenanceStaffStats = asyncHandler(async (req, res) => {
+  const { staffId } = req.params;
+  const result = await adminService.getMaintenanceStaffStats(staffId);
+  return res.status(result.statusCode).json({
+    success: true,
+    data: result.data,
+  });
+});

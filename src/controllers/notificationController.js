@@ -1,33 +1,30 @@
 import { notificationService } from "../services/notification.service.js"
+import { asyncHandler } from "../utils/index.js"
 
-export const createNotification = async (req, res) => {
+// Helper: Error format { error }
+const sendResponse = (res, result) => {
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message })
+  }
+  res.status(result.statusCode).json(result.data)
+}
+
+export const createNotification = asyncHandler(async (req, res) => {
   const result = await notificationService.create(req.body, req.user._id)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ error: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getNotifications = async (req, res) => {
+export const getNotifications = asyncHandler(async (req, res) => {
   const result = await notificationService.getAll(req.query, req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ error: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getNotificationStats = async (req, res) => {
+export const getNotificationStats = asyncHandler(async (req, res) => {
   const result = await notificationService.getStats(req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ error: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
 
-export const getActiveNotificationsCount = async (req, res) => {
+export const getActiveNotificationsCount = asyncHandler(async (req, res) => {
   const result = await notificationService.getActiveCount(req.user)
-  if (!result.success) {
-    return res.status(result.statusCode).json({ error: result.message })
-  }
-  res.status(result.statusCode).json(result.data)
-}
+  sendResponse(res, result)
+})
