@@ -5,7 +5,7 @@
  */
 
 import BaseService from './base/BaseService.js';
-import { success, notFound, badRequest, forbidden, withTransaction } from './base/ServiceResponse.js';
+import { success, notFound, badRequest, forbidden, withTransaction } from './base/index.js';
 import StudentProfile from '../../models/StudentProfile.js';
 import Complaint from '../../models/Complaint.js';
 import Events from '../../models/Event.js';

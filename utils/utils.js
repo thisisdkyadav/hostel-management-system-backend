@@ -1,8 +1,16 @@
 import Razorpay from "razorpay"
-const instance = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-})
+
+// Lazy initialization to avoid errors when env vars not loaded
+let _razorpayInstance = null;
+const getRazorpayInstance = () => {
+  if (!_razorpayInstance) {
+    _razorpayInstance = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_KEY_SECRET,
+    });
+  }
+  return _razorpayInstance;
+};
 
 export const formatDate = (dateStr, inputFormat = "DD-MM-YYYY") => {
   if (!dateStr) return null
@@ -39,6 +47,7 @@ export const formatDate = (dateStr, inputFormat = "DD-MM-YYYY") => {
 export const createPaymentLink = async (amount) => {
   console.log("Creating payment link with amount:", amount)
 
+  const instance = getRazorpayInstance();
   const paymentLink = await instance.paymentLink.create({
     amount: amount * 100,
     currency: "INR",
@@ -54,6 +63,7 @@ export const createPaymentLink = async (amount) => {
 
 export const checkPaymentStatus = async (paymentId) => {
   try {
+    const instance = getRazorpayInstance();
     const payment = await instance.paymentLink.fetch(paymentId)
     return payment.status
   } catch (error) {
