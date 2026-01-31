@@ -26,7 +26,7 @@ export const recordAttendance = asyncHandler(async (req, res) => {
   }
   res.status(result.statusCode).json({
     success: true,
-    message: result.data.message,
+    message: result.message,
     attendance: result.data.attendance,
   })
 })

@@ -8,11 +8,29 @@
 export class ServiceResponse {
   /**
    * Success response
-   * @param {any} data - Response data
+   * Supports two calling conventions:
+   * 1. success(data, statusCode?, message?) - Standard positional arguments
+   * 2. success({ message, data, ...rest }) - Object-style (legacy, when first arg is object with message key)
+   * 
+   * @param {any} data - Response data OR object with { message, data?, ...otherFields }
    * @param {number} statusCode - HTTP status code (default: 200)
    * @param {string} message - Optional success message
    */
   static success(data, statusCode = 200, message = null) {
+    // Detect object-style usage: success({ message: '...', data: ... }) or success({ message: '...', someField: ... })
+    // This is for backward compatibility with services that pass an object with message key
+    if (data && typeof data === 'object' && !Array.isArray(data) && 'message' in data && typeof data.message === 'string') {
+      const { message: objMessage, ...rest } = data;
+      // If there's only one other key and it's 'data', unwrap it
+      const keys = Object.keys(rest);
+      if (keys.length === 1 && keys[0] === 'data') {
+        return { success: true, statusCode: typeof statusCode === 'number' ? statusCode : 200, message: objMessage, data: rest.data };
+      }
+      // Otherwise, spread the rest as data (for { message, leave: ... } style)
+      return { success: true, statusCode: typeof statusCode === 'number' ? statusCode : 200, message: objMessage, data: rest };
+    }
+    
+    // Standard positional argument style: success(data, statusCode, message)
     const response = { success: true, statusCode, data };
     if (message) response.message = message;
     return response;
