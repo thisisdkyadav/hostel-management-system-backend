@@ -17,8 +17,7 @@
 8. [Error Handling](#8-error-handling)
 9. [Database Models](#9-database-models)
 10. [Authentication & Authorization](#10-authentication--authorization)
-11. [Validation](#11-validation)
-12. [Quick Reference](#12-quick-reference)
+11. [Quick Reference](#11-quick-reference)
 
 ---
 
@@ -31,9 +30,9 @@
 | Runtime | Node.js (ES Modules) |
 | Framework | Express.js |
 | Database | MongoDB + Mongoose |
-| Validation | Joi |
 | Authentication | JWT + Sessions |
 | File Storage | Local / Cloud |
+| API Version | v1 (`/api/v1/*`) |
 
 ### Architecture Pattern
 
@@ -263,39 +262,28 @@ export const exampleService = new ExampleService();
 Routes define endpoints and apply middleware:
 
 ```javascript
-// src/routes/v1/example.routes.js
+// src/apps/hostel/routes/example.routes.js
 
 import express from 'express';
-import { protect } from '../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../middlewares/authorize.middleware.js';
-import { validate } from '../../middlewares/validate.middleware.js';
-import * as exampleController from '../../controllers/exampleController.js';
-import * as validation from '../../validations/example.validation.js';
+import { authenticate } from '../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+import * as exampleController from '../controllers/exampleController.js';
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(protect);
+router.use(authenticate);
 
-// GET /api/example - List all (with query validation)
-router.get(
-  '/',
-  validate(validation.getExamplesSchema, 'query'),
-  exampleController.getAll
-);
+// GET /api/v1/example - List all
+router.get('/', exampleController.getAll);
 
-// GET /api/example/:id - Get by ID
-router.get(
-  '/:id',
-  validate(validation.idParamSchema, 'params'),
-  exampleController.getById
-);
+// GET /api/v1/example/:id - Get by ID
+router.get('/:id', exampleController.getById);
 
-// POST /api/example - Create (Admin only)
+// POST /api/v1/example - Create (Admin only)
 router.post(
   '/',
   authorizeRoles(['Admin', 'Super Admin']),
-  validate(validation.createExampleSchema),
   exampleController.create
 );
 

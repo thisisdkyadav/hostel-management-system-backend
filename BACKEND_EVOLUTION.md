@@ -135,25 +135,17 @@ backend/
 
 ---
 
-### Phase 2 Step 2: Validation Layer ✅
+### Phase 2 Step 2: Validation Layer (REMOVED)
 
-**Files Created**: 12 validation schema files with 80+ schemas
+**Status**: Validation schemas were created but removed from active use.
 
-| File | Schemas |
-|------|---------|
-| `common.validation.js` | objectId, email, phone, pagination |
-| `auth.validation.js` | 4 schemas |
-| `student.validation.js` | 13 schemas |
-| `complaint.validation.js` | 8 schemas |
-| `visitor.validation.js` | 11 schemas |
-| `leave.validation.js` | 8 schemas |
-| `hostel.validation.js` | 6 schemas |
-| `user.validation.js` | 7 schemas |
-| `event.validation.js` | 8 schemas |
-| `notification.validation.js` | 10 schemas |
-| `payment.validation.js` | 10 schemas |
+**Reason**: Validation middleware was causing issues and adding complexity. Schemas remain in `src/validations/` for future use if needed.
 
-**Integration Status**: 3/35 routes have validation (auth, complaint, leave)
+**Files exist but not integrated**:
+- `common.validation.js` - Reusable validators
+- `auth.validation.js`, `complaint.validation.js`, etc.
+
+**Decision**: Routes work without validation. Can be re-added later when API is stable.
 
 ---
 
@@ -301,49 +293,55 @@ src/services/base/
 
 ### Metrics Summary
 
-| Metric | Before | After Phase 3 |
-|--------|--------|---------------|
-| Service files | 43 | 43 |
-| Total service lines | 13,494 | ~12,400 |
+| Metric | Before | After |
+|--------|--------|-------|
+| Service files | 43 | 42 (payment removed) |
+| Total service lines | 13,494 | ~12,200 |
 | Services with BaseService | 0 | 31 |
 | Old response patterns | 233 | 6 |
-| Validation schemas | 80+ | 80+ |
-| Routes with validation | 3/35 | 3/35 |
+| Validation schemas | 0 | 80+ (not integrated) |
+| Routes with validation | 0 | 0 (removed) |
 | Model domain folders | 17 | 17 |
-| Route files in v1/ | 35 | 35 |
+| API versioning | None | /api/v1 |
 
 ### Issue Resolution Status
 
 | # | Issue | Status |
 |---|-------|--------|
 | 1 | No error handling middleware | ✅ Done |
-| 2 | No input validation | ⚠️ Partial (schemas ready) |
+| 2 | No input validation | ❌ Removed (schemas exist for future) |
 | 3 | Fat controllers | ✅ Done |
 | 4 | Flat folder structure | ✅ Done |
-| 5 | No API versioning | ✅ Done |
+| 5 | No API versioning | ✅ Done (`/api/v1`) |
 | 6 | Mixed naming conventions | ✅ Done |
 | 7 | No centralized constants | ✅ Done |
 | 8 | Inconsistent response format | ✅ Done (ServiceResponse) |
 | 9 | No service layer | ✅ Done |
 | 10 | No DTOs/formatters | ⚠️ Partial |
 
-**Progress**: 8/10 Done, 2/10 Partial
+**Progress**: 8/10 Done, 1 Partial, 1 Deferred
 
 ---
 
 ## 4. Remaining Work
 
-### Low Priority Items
+### Completed Recently
 
-#### Validation Integration
-- 32 route files need validation middleware added
-- Pattern established, work is mechanical
-- Can be done incrementally as routes are touched
+- ✅ **API Versioning**: All routes now use `/api/v1` prefix
+- ✅ **Payment removal**: Razorpay integration removed (unused feature)
+- ✅ **Validation removed**: Simplified routes, schemas kept for future
+
+### Low Priority Items
 
 #### DTOs/Formatters
 - Some endpoints still return raw Mongoose documents
 - Could add response formatters for consistency
 - Low priority - current responses work fine
+
+#### Validation (Future)
+- Schemas exist in `src/validations/`
+- Can be re-integrated when API is stable
+- Not blocking any functionality
 
 ---
 

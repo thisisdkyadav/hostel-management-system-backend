@@ -19,12 +19,12 @@ import { ValidationError } from '../core/errors/index.js';
  */
 export const validate = (schema) => {
   return (req, res, next) => {
-    const dataToValidate = {};
-    
-    // Only validate what's defined in schema
-    if (schema.body) dataToValidate.body = req.body;
-    if (schema.params) dataToValidate.params = req.params;
-    if (schema.query) dataToValidate.query = req.query;
+    // Build object with body, params, query to validate against schema
+    const dataToValidate = {
+      body: req.body,
+      params: req.params,
+      query: req.query,
+    };
 
     const { error, value } = schema.validate(dataToValidate, {
       abortEarly: false,      // Return all errors, not just first
@@ -57,11 +57,12 @@ export const validate = (schema) => {
 export const validateAsync = (schema) => {
   return async (req, res, next) => {
     try {
-      const dataToValidate = {};
-      
-      if (schema.body) dataToValidate.body = req.body;
-      if (schema.params) dataToValidate.params = req.params;
-      if (schema.query) dataToValidate.query = req.query;
+      // Build object with body, params, query to validate against schema
+      const dataToValidate = {
+        body: req.body,
+        params: req.params,
+        query: req.query,
+      };
 
       const value = await schema.validateAsync(dataToValidate, {
         abortEarly: false,

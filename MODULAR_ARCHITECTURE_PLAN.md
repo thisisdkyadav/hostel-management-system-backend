@@ -230,19 +230,19 @@ export const createGrievance = asyncHandler(async (req, res) => {
 ```javascript
 import express from 'express';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { validate } from '../../../../middlewares/validate.middleware.js';
 import * as controller from './grievance.controller.js';
-import * as validation from './grievance.validation.js';
 
 const router = express.Router();
 
 router.get('/stats', authorizeRoles(['Admin']), controller.getStatistics);
 router.route('/')
-  .get(validate(validation.getGrievancesSchema, 'query'), controller.getGrievances)
-  .post(validate(validation.createGrievanceSchema), controller.createGrievance);
+  .get(controller.getGrievances)
+  .post(controller.createGrievance);
 
 export default router;
 ```
+
+> **Note**: Validation middleware has been removed for simplicity. Schemas exist in `src/validations/` for future use.
 
 ### 4.3 Import Paths (from module files)
 

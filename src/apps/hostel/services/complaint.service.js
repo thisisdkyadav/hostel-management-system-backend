@@ -213,7 +213,7 @@ class ComplaintService extends BaseService {
         .limit(limitNum)
     ]);
 
-    return paginated(complaints.map(formatComplaint), totalCount, parseInt(page), limitNum);
+    return paginated(complaints.map(formatComplaint), { page: parseInt(page), limit: limitNum, total: totalCount });
   }
 
   /**
@@ -319,7 +319,7 @@ class ComplaintService extends BaseService {
         .limit(limitNum)
     ]);
 
-    return paginated(complaints.map(formatStudentComplaint), totalCount, parseInt(page), limitNum);
+    return paginated(complaints.map(formatStudentComplaint), { page: parseInt(page), limit: limitNum, total: totalCount });
   }
 
   /**

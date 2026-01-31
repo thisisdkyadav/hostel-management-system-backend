@@ -19,15 +19,6 @@ import {
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
 import { requirePermission } from '../../../utils/permissions.js';
-import { validate } from '../../../validations/validate.middleware.js';
-import {
-  createComplaintSchema,
-  getAllComplaintsSchema,
-  getStudentComplaintsSchema,
-  updateComplaintStatusSchema,
-  updateComplaintResolutionNotesSchema,
-  updateComplaintFeedbackSchema,
-} from '../../../validations/complaint.validation.js';
 
 const router = express.Router();
 
@@ -46,7 +37,6 @@ router.post(
     'Student',
   ]),
   requirePermission('complaints', 'create'),
-  validate(createComplaintSchema),
   createComplaint
 );
 
@@ -62,7 +52,6 @@ router.get(
     'Student',
   ]),
   requirePermission('complaints', 'view'),
-  validate(getAllComplaintsSchema),
   getAllComplaints
 );
 
@@ -71,7 +60,6 @@ router.get(
   '/student/complaints/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requirePermission('students_info', 'view'),
-  validate(getStudentComplaintsSchema),
   getStudentComplaints
 );
 
@@ -79,13 +67,11 @@ router.get(
 router.put(
   '/update-status/:id',
   authorizeRoles(['Maintenance Staff']),
-  validate(updateComplaintStatusSchema),
   updateComplaintStatus
 );
 router.put(
   '/:complaintId/status',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']),
-  validate(updateComplaintStatusSchema),
   complaintStatusUpdate
 );
 
@@ -93,7 +79,6 @@ router.put(
 router.put(
   '/:complaintId/resolution-notes',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']),
-  validate(updateComplaintResolutionNotesSchema),
   updateComplaintResolutionNotes
 );
 
@@ -101,7 +86,6 @@ router.put(
 router.post(
   '/:complaintId/feedback',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
-  validate(updateComplaintFeedbackSchema),
   updateComplaintFeedback
 );
 

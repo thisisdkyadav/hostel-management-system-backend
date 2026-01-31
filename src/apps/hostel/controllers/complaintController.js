@@ -50,11 +50,11 @@ export const getAllComplaints = asyncHandler(async (req, res) => {
   const result = await complaintService.getAllComplaints(user, filters);
 
   res.status(200).json({
-    data: result.complaints || [],
+    data: result.data?.items || [],
     meta: {
-      total: result.total,
-      currentPage: result.page,
-      totalPages: result.totalPages,
+      total: result.data?.pagination?.total || 0,
+      currentPage: result.data?.pagination?.page || 1,
+      totalPages: result.data?.pagination?.totalPages || 0,
     },
     message: 'Complaints fetched successfully',
     status: 'success',
@@ -125,11 +125,11 @@ export const getStudentComplaints = asyncHandler(async (req, res) => {
   const result = await complaintService.getStudentComplaints(userId, { page, limit });
 
   res.status(200).json({
-    data: result.complaints || [],
+    data: result.data?.items || [],
     meta: {
-      total: result.total,
-      currentPage: result.page,
-      totalPages: result.totalPages,
+      total: result.data?.pagination?.total || 0,
+      currentPage: result.data?.pagination?.page || 1,
+      totalPages: result.data?.pagination?.totalPages || 0,
     },
     message: 'Student complaints fetched successfully',
   });
