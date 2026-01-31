@@ -56,6 +56,11 @@ import studentProfileRoutes from '../routes/v1/studentProfile.routes.js';
 import ssoRoutes from '../routes/v1/sso.routes.js';
 import leaveRoutes from '../routes/v1/leave.routes.js';
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// SUB-APPLICATIONS (Modular Apps)
+// ═══════════════════════════════════════════════════════════════════════════════
+import studentAffairsApp from '../apps/student-affairs/index.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -227,6 +232,18 @@ export const initializeExpress = (app) => {
   
   // Face Scanner
   app.use('/api/face-scanner', faceScannerRoutes);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SUB-APPLICATIONS (Modular Apps)
+  // ═══════════════════════════════════════════════════════════════════════════
+  
+  // Student Affairs System - Grievances, Scholarships, Counseling, etc.
+  app.use('/api/student-affairs', studentAffairsApp);
+  
+  // Future sub-applications:
+  // app.use('/api/academics', academicsApp);
+  // app.use('/api/library', libraryApp);
+  // app.use('/api/placement', placementApp);
 
   // ============================================
   // Health Check / Root
