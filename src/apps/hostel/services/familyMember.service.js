@@ -143,7 +143,9 @@ class FamilyMemberService extends BaseService {
           totalUpdated: results.success.length,
           totalProcessed: familyData.members.length,
           notFoundCount: results.notFound.length,
-          notFound: results.notFound
+          failedCount: 0,
+          notFound: results.notFound,
+          failed: []
         }
       });
     });

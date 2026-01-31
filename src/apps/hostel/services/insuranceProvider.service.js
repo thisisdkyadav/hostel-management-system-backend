@@ -176,7 +176,9 @@ class InsuranceProviderService extends BaseService {
           totalProcessed: studentsData.length,
           successfulUpdates: results.success.length,
           notFoundCount: results.notFound.length,
-          notFound: results.notFound
+          failedCount: 0,
+          notFound: results.notFound,
+          failed: []
         },
         successDetails: results.success
       });
