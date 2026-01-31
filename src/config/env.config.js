@@ -54,12 +54,6 @@ export const env = {
     studentIdContainer: process.env.AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID,
   },
 
-  // Razorpay
-  razorpay: {
-    keyId: process.env.RAZORPAY_KEY_ID,
-    keySecret: process.env.RAZORPAY_KEY_SECRET,
-  },
-
   // QR
   QR_PRIVATE_KEY: process.env.QR_PRIVATE_KEY,
 
@@ -86,8 +80,6 @@ export const AZURE_STORAGE_CONTAINER_NAME = env.azure.containerName
 export const AZURE_STORAGE_ACCOUNT_NAME = env.azure.accountName
 export const AZURE_STORAGE_ACCOUNT_KEY = env.azure.accountKey
 export const QR_PRIVATE_KEY = env.QR_PRIVATE_KEY
-export const RAZORPAY_KEY_ID = env.razorpay.keyId
-export const RAZORPAY_KEY_SECRET = env.razorpay.keySecret
 export const AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID = env.azure.studentIdContainer
 export const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS // Keep as string for legacy
 export const USE_LOCAL_STORAGE = env.USE_LOCAL_STORAGE

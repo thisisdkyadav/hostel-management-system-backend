@@ -10,7 +10,6 @@ import { VisitorRequest } from '../../../models/index.js';
 import { Unit } from '../../../models/index.js';
 import { Room } from '../../../models/index.js';
 import { StudentProfile } from '../../../models/index.js';
-import { checkPaymentStatus } from '../../../utils/utils.js';
 import { getConfigWithDefault } from '../../../utils/configDefaults.js';
 import { BaseService, success, notFound, badRequest, forbidden, error, withTransaction } from '../../../services/base/index.js';
 
@@ -129,7 +128,8 @@ class VisitorService extends BaseService {
       return unit ? [roomNumber, unit] : [roomNumber];
     });
 
-    const paymentStatus = (await checkPaymentStatus(visitorRequest.paymentId)) || null;
+    // Payment status check removed - feature not in use
+    const paymentStatus = null;
 
     const formattedRequest = {
       _id: visitorRequest._id,

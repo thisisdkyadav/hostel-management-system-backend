@@ -42,9 +42,6 @@ export * as eventValidation from './event.validation.js';
 // Notification validation
 export * as notificationValidation from './notification.validation.js';
 
-// Payment validation
-export * as paymentValidation from './payment.validation.js';
-
 /**
  * Re-export individual schemas for convenience
  * This allows both import patterns:

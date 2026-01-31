@@ -37,7 +37,7 @@ import visitorRoutes from './routes/visitor.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import disCoRoutes from './routes/disco.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
-import paymentRoutes from './routes/payment.routes.js';
+// Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
 import staffAttendanceRoutes from './routes/staffAttendance.routes.js';
@@ -127,9 +127,6 @@ router.use('/live-checkinout', liveCheckInOutRoutes);
 
 // Tasks
 router.use('/tasks', taskRoutes);
-
-// Payment
-router.use('/payment', paymentRoutes);
 
 // Configuration
 router.use('/config', configRoutes);
