@@ -125,19 +125,19 @@ export const initializeExpress = (app) => {
   app.use(express.json({ limit: '1mb' }));
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // SUB-APPLICATIONS
+  // SUB-APPLICATIONS (API v1)
   // ═══════════════════════════════════════════════════════════════════════════
   
   // Hostel Management System (main app)
-  app.use('/api', hostelApp);
+  app.use('/api/v1', hostelApp);
   
-  // Student Affairs System (new modular app)
-  app.use('/api/student-affairs', studentAffairsApp);
+  // Student Affairs System (modular app)
+  app.use('/api/v1/student-affairs', studentAffairsApp);
   
   // Future sub-applications:
-  // app.use('/api/academics', academicsApp);
-  // app.use('/api/library', libraryApp);
-  // app.use('/api/placement', placementApp);
+  // app.use('/api/v1/academics', academicsApp);
+  // app.use('/api/v1/library', libraryApp);
+  // app.use('/api/v1/placement', placementApp);
 
   // ============================================
   // Health Check / Root
