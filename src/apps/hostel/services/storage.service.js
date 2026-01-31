@@ -21,8 +21,8 @@ const getEnvConfig = () => ({
   useLocalStorage: process.env.USE_LOCAL_STORAGE === 'true'
 })
 
-// Local storage paths
-const uploadsBasePath = path.join(__dirname, '..', '..', 'uploads')
+// Local storage paths - 4 levels up from src/apps/hostel/services/ to backend/uploads/
+const uploadsBasePath = path.join(__dirname, '..', '..', '..', '..', 'uploads')
 
 class StorageService {
   constructor() {

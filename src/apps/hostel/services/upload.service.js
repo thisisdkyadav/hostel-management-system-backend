@@ -26,8 +26,8 @@ const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_C
 const containerClient = blobServiceClient.getContainerClient(AZURE_STORAGE_CONTAINER_NAME);
 const containerClientStudentId = blobServiceClient.getContainerClient(AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID);
 
-// Local storage paths
-const uploadsBasePath = path.join(__dirname, '..', '..', 'uploads');
+// Local storage paths - 4 levels up from src/apps/hostel/services/ to backend/uploads/
+const uploadsBasePath = path.join(__dirname, '..', '..', '..', '..', 'uploads');
 const profileImagesPath = path.join(uploadsBasePath, 'profile-images');
 const studentIdCardsPath = path.join(uploadsBasePath, 'student-id-cards');
 const h2FormsPath = path.join(uploadsBasePath, 'h2-forms');
