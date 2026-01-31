@@ -17,48 +17,13 @@ import env from '../config/env.config.js';
 // Error Handlers
 import { errorHandler, notFoundHandler } from '../core/errors/errorHandler.js';
 
-// Controllers for special routes
-import { verifySSOToken } from '../controllers/ssoController.js';
-
-// All route imports (using new organized paths)
-import authRoutes from '../routes/v1/auth.routes.js';
-import wardenRoutes from '../routes/v1/warden.routes.js';
-import studentRoutes from '../routes/v1/student.routes.js';
-import adminRoutes from '../routes/v1/admin.routes.js';
-import complaintRoutes from '../routes/v1/complaint.routes.js';
-import LostAndFoundRoutes from '../routes/v1/lostAndFound.routes.js';
-import securityRoutes from '../routes/v1/security.routes.js';
-import eventRoutes from '../routes/v1/event.routes.js';
-import hostelRoutes from '../routes/v1/hostel.routes.js';
-import statsRoutes from '../routes/v1/stats.routes.js';
-import feedbackRoutes from '../routes/v1/feedback.routes.js';
-import uploadRoutes from '../routes/v1/upload.routes.js';
-import visitorRoutes from '../routes/v1/visitor.routes.js';
-import notificationRoutes from '../routes/v1/notification.routes.js';
-import disCoRoutes from '../routes/v1/disco.routes.js';
-import certificateRoutes from '../routes/v1/certificate.routes.js';
-import paymentRoutes from '../routes/v1/payment.routes.js';
-import superAdminRoutes from '../routes/v1/superAdmin.routes.js';
-import familyMemberRoutes from '../routes/v1/familyMember.routes.js';
-import staffAttendanceRoutes from '../routes/v1/staffAttendance.routes.js';
-import inventoryRoutes from '../routes/v1/inventory.routes.js';
-import permissionRoutes from '../routes/v1/permission.routes.js';
-import taskRoutes from '../routes/v1/task.routes.js';
-import userRoutes from '../routes/v1/user.routes.js';
-import undertakingRoutes from '../routes/v1/undertaking.routes.js';
-import onlineUsersRoutes from '../routes/v1/onlineUsers.routes.js';
-import liveCheckInOutRoutes from '../routes/v1/liveCheckInOut.routes.js';
-import faceScannerRoutes from '../routes/v1/faceScanner.routes.js';
-import sheetRoutes from '../routes/v1/sheet.routes.js';
-import dashboardRoutes from '../routes/v1/dashboard.routes.js';
-import configRoutes from '../routes/v1/config.routes.js';
-import studentProfileRoutes from '../routes/v1/studentProfile.routes.js';
-import ssoRoutes from '../routes/v1/sso.routes.js';
-import leaveRoutes from '../routes/v1/leave.routes.js';
+// Controllers for special routes (SSO verify needs special CORS handling)
+import { verifySSOToken } from '../apps/hostel/controllers/ssoController.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SUB-APPLICATIONS (Modular Apps)
+// SUB-APPLICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
+import hostelApp from '../apps/hostel/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -156,88 +121,17 @@ export const initializeExpress = (app) => {
     app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
   }
 
-  // Upload routes (before JSON parser for multipart)
-  app.use('/api/upload', uploadRoutes);
-
   // JSON parser for remaining routes
   app.use(express.json({ limit: '1mb' }));
 
-  // ============================================
-  // API Routes
-  // ============================================
-  
-  // Authentication
-  app.use('/api/auth', authRoutes);
-  app.use('/api/sso', ssoRoutes);
-  
-  // User management
-  app.use('/api/warden', wardenRoutes);
-  app.use('/api/admin', adminRoutes);
-  app.use('/api/security', securityRoutes);
-  app.use('/api/super-admin', superAdminRoutes);
-  app.use('/api/users', userRoutes);
-  app.use('/api/permissions', permissionRoutes);
-  
-  // Student
-  app.use('/api/student', studentRoutes);
-  app.use('/api/student-profile', studentProfileRoutes);
-  app.use('/api/family', familyMemberRoutes);
-  
-  // Hostel
-  app.use('/api/hostel', hostelRoutes);
-  app.use('/api/dashboard', dashboardRoutes);
-  
-  // Complaints
-  app.use('/api/complaint', complaintRoutes);
-  
-  // Events & Lost and Found
-  app.use('/api/event', eventRoutes);
-  app.use('/api/lost-and-found', LostAndFoundRoutes);
-  
-  // Visitor
-  app.use('/api/visitor', visitorRoutes);
-  
-  // Feedback
-  app.use('/api/feedback', feedbackRoutes);
-  
-  // Notifications
-  app.use('/api/notification', notificationRoutes);
-  
-  // Certificates & DisCo
-  app.use('/api/certificate', certificateRoutes);
-  app.use('/api/disCo', disCoRoutes);
-  app.use('/api/undertaking', undertakingRoutes);
-  
-  // Inventory
-  app.use('/api/inventory', inventoryRoutes);
-  
-  // Attendance & Leave
-  app.use('/api/staff', staffAttendanceRoutes);
-  app.use('/api/leave', leaveRoutes);
-  app.use('/api/live-checkinout', liveCheckInOutRoutes);
-  
-  // Tasks
-  app.use('/api/tasks', taskRoutes);
-  
-  // Payment
-  app.use('/api/payment', paymentRoutes);
-  
-  // Configuration
-  app.use('/api/config', configRoutes);
-  
-  // Statistics & Reporting
-  app.use('/api/stats', statsRoutes);
-  app.use('/api/online-users', onlineUsersRoutes);
-  app.use('/api/sheet', sheetRoutes);
-  
-  // Face Scanner
-  app.use('/api/face-scanner', faceScannerRoutes);
-
   // ═══════════════════════════════════════════════════════════════════════════
-  // SUB-APPLICATIONS (Modular Apps)
+  // SUB-APPLICATIONS
   // ═══════════════════════════════════════════════════════════════════════════
   
-  // Student Affairs System - Grievances, Scholarships, Counseling, etc.
+  // Hostel Management System (main app)
+  app.use('/api', hostelApp);
+  
+  // Student Affairs System (new modular app)
   app.use('/api/student-affairs', studentAffairsApp);
   
   // Future sub-applications:

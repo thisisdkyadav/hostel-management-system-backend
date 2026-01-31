@@ -49,34 +49,46 @@
 ```
 backend/src/
 │
-├── apps/                           # 🆕 SUB-APPLICATIONS
-│   └── student-affairs/            # Example sub-app
-│       ├── index.js                # App router (exports Express router)
-│       ├── constants/              # App-specific constants
-│       │   └── index.js
+├── apps/                           # � ALL APPLICATIONS
+│   │
+│   ├── hostel/                     # Hostel Management System (main app)
+│   │   ├── index.js                # App router (exports Express router)
+│   │   ├── controllers/            # HTTP request handlers
+│   │   │   ├── authController.js
+│   │   │   ├── studentController.js
+│   │   │   ├── complaintController.js
+│   │   │   └── ...                 # 43 controllers
+│   │   ├── services/               # Business logic
+│   │   │   ├── auth.service.js
+│   │   │   ├── student.service.js
+│   │   │   └── ...                 # 43 services
+│   │   └── routes/                 # Route definitions
+│   │       ├── auth.routes.js
+│   │       ├── student.routes.js
+│   │       └── ...                 # 35 route files
+│   │
+│   └── student-affairs/            # Student Affairs System (new app)
+│       ├── index.js                # App router
+│       ├── constants/index.js      # App-specific constants
 │       ├── README.md               # App documentation
 │       └── modules/                # Feature modules
-│           ├── grievance/          # Each module is self-contained
+│           ├── grievance/          # Complete template module
 │           │   ├── grievance.controller.js
 │           │   ├── grievance.service.js
 │           │   ├── grievance.routes.js
 │           │   ├── grievance.validation.js
 │           │   ├── grievance.constants.js
 │           │   └── index.js
-│           ├── scholarship/
+│           ├── scholarship/        # Empty - ready to build
 │           ├── counseling/
-│           └── ...
+│           ├── disciplinary/
+│           ├── clubs/
+│           └── elections/
 │
 ├── config/                         # ⚙️ CONFIGURATION
 │   ├── env.config.js               # Environment variables
 │   ├── db.config.js                # Database configuration
 │   └── index.js                    # Config exports
-│
-├── controllers/                    # 🎮 HTTP REQUEST HANDLERS
-│   ├── authController.js           # Naming: {feature}Controller.js
-│   ├── studentController.js
-│   ├── complaintController.js
-│   └── ...                         # 43 controllers total
 │
 ├── core/                           # 🎯 CORE INFRASTRUCTURE
 │   ├── errors/
@@ -93,18 +105,18 @@ backend/src/
 │   └── index.js
 │
 ├── loaders/                        # 🚀 APP INITIALIZATION
-│   ├── express.loader.js           # Express config, routes, middleware
+│   ├── express.loader.js           # Express config, mounts apps
 │   ├── database.loader.js          # MongoDB connection
 │   ├── socket.loader.js            # Socket.io setup
 │   └── index.js
 │
-├── middlewares/                    # 🔒 EXPRESS MIDDLEWARES
+├── middlewares/                    # 🔒 EXPRESS MIDDLEWARES (shared)
 │   ├── auth.middleware.js          # JWT verification
 │   ├── authorize.middleware.js     # Role-based access control
 │   ├── validate.middleware.js      # Joi validation middleware
 │   └── index.js
 │
-├── models/                         # 📊 MONGOOSE MODELS
+├── models/                         # 📊 MONGOOSE MODELS (shared)
 │   ├── user/
 │   │   ├── User.js
 │   │   └── Session.js
@@ -117,35 +129,26 @@ backend/src/
 │   │   └── Complaint.js
 │   └── ...                         # 17 domain folders
 │
-├── routes/                         # 🛣️ ROUTE DEFINITIONS
-│   └── v1/
-│       ├── auth.routes.js          # Naming: {feature}.routes.js
-│       ├── student.routes.js
-│       ├── complaint.routes.js
-│       └── ...                     # 35 route files
-│
-├── services/                       # ⚙️ BUSINESS LOGIC
-│   ├── base/
+├── services/                       # ⚙️ SHARED SERVICES
+│   ├── base/                       # Base service infrastructure
 │   │   ├── BaseService.js          # Abstract CRUD service
 │   │   ├── ServiceResponse.js      # Response helpers
 │   │   ├── QueryBuilder.js         # Fluent query builder
 │   │   ├── TransactionHelper.js    # MongoDB transactions
 │   │   ├── Logger.js               # Logging utility
 │   │   └── index.js
-│   ├── auth.service.js             # Naming: {feature}.service.js
-│   ├── student.service.js
-│   └── ...                         # 43 services total
+│   └── index.js                    # Re-exports base/
 │
-├── utils/                          # 🛠️ UTILITY FUNCTIONS
+├── utils/                          # 🛠️ UTILITY FUNCTIONS (shared)
 │   ├── asyncHandler.js             # Async error wrapper
 │   ├── controllerHelpers.js        # sendRawResponse, createServiceHandler
 │   ├── permissions.js              # Permission checking utilities
 │   ├── qrUtils.js                  # QR code utilities
 │   └── index.js
 │
-├── validations/                    # ✅ JOI SCHEMAS
+├── validations/                    # ✅ JOI SCHEMAS (shared)
 │   ├── common.validation.js        # Shared schemas: objectId, email, etc.
-│   ├── auth.validation.js          # Naming: {feature}.validation.js
+│   ├── auth.validation.js          # Auth-specific schemas
 │   ├── student.validation.js
 │   └── ...
 │
@@ -299,30 +302,39 @@ router.post(
 export default router;
 ```
 
-### 3.4 Sub-App Pattern (for new apps)
+### 3.4 Sub-App Pattern
 
-Each sub-app in `src/apps/` is a self-contained Express router:
+Both hostel and student-affairs apps are in `src/apps/`. Each app exports an Express router:
 
 ```javascript
-// src/apps/student-affairs/index.js
+// src/apps/hostel/index.js (main app)
+import express from 'express';
+import authRoutes from './routes/auth.routes.js';
+import studentRoutes from './routes/student.routes.js';
+// ... more route imports
 
+const router = express.Router();
+
+router.use('/auth', authRoutes);
+router.use('/student', studentRoutes);
+// ... mount all routes
+
+export default router;
+```
+
+```javascript
+// src/apps/student-affairs/index.js (modular app)
 import express from 'express';
 import { protect } from '../../middlewares/auth.middleware.js';
-
-// Import module routes
 import grievanceRoutes from './modules/grievance/grievance.routes.js';
 
 const router = express.Router();
 
-// Health check (no auth)
 router.get('/health', (req, res) => {
   res.json({ app: 'student-affairs', status: 'ok' });
 });
 
-// All other routes require auth
 router.use(protect);
-
-// Mount module routes
 router.use('/grievances', grievanceRoutes);
 
 export default router;
@@ -330,8 +342,11 @@ export default router;
 
 Mounted in `express.loader.js`:
 ```javascript
+import hostelApp from '../apps/hostel/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
-app.use('/api/student-affairs', studentAffairsApp);
+
+app.use('/api', hostelApp);                    // /api/auth, /api/student, etc.
+app.use('/api/student-affairs', studentAffairsApp);  // /api/student-affairs/grievances
 ```
 
 ---
@@ -445,18 +460,26 @@ import { exampleService } from './example.service.js';
 
 ### 5.2 Import Paths from Different Locations
 
-**From `src/controllers/`:**
+**From `src/apps/hostel/controllers/`:**
 ```javascript
-import { asyncHandler } from '../utils/controllerHelpers.js';
+import { asyncHandler } from '../../../utils/controllerHelpers.js';
 import { exampleService } from '../services/example.service.js';
-import User from '../models/user/User.js';
+import User from '../../../models/user/User.js';
+import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
 ```
 
-**From `src/services/`:**
+**From `src/apps/hostel/services/`:**
 ```javascript
-import { BaseService } from './base/BaseService.js';
-import { success, notFound } from './base/ServiceResponse.js';
-import Example from '../models/example/Example.js';
+import { BaseService } from '../../../services/base/BaseService.js';
+import { success, notFound } from '../../../services/base/ServiceResponse.js';
+import Example from '../../../models/example/Example.js';
+```
+
+**From `src/apps/hostel/routes/`:**
+```javascript
+import { exampleController } from '../controllers/exampleController.js';
+import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+import { validate } from '../../../middlewares/validate.middleware.js';
 ```
 
 **From `src/apps/student-affairs/modules/grievance/`:**
