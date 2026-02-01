@@ -12,6 +12,7 @@ import {
   passwordResetTemplate,
   passwordResetSuccessTemplate,
   customEmailTemplate,
+  complaintResolvedTemplate,
 } from './email.templates.js';
 
 class EmailService {
@@ -224,6 +225,41 @@ class EmailService {
    */
   delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Send complaint resolved email with feedback link
+   * @param {Object} options - Email options
+   * @param {string} options.email - Recipient email
+   * @param {string} options.studentName - Student's name
+   * @param {string} options.complaintTitle - Complaint title
+   * @param {string} options.complaintCategory - Complaint category
+   * @param {string} options.resolutionNotes - Resolution notes
+   * @param {string} options.feedbackToken - Feedback token for URL
+   * @returns {Promise<{success: boolean, error?: string}>}
+   */
+  async sendComplaintResolvedEmail({
+    email,
+    studentName,
+    complaintTitle,
+    complaintCategory,
+    resolutionNotes,
+    feedbackToken,
+  }) {
+    const feedbackLink = `${env.FRONTEND_URL}/complaint-feedback/${feedbackToken}`;
+    const html = complaintResolvedTemplate({
+      studentName,
+      complaintTitle,
+      complaintCategory,
+      resolutionNotes,
+      feedbackLink,
+    });
+
+    return this.sendEmail({
+      to: email,
+      subject: 'Your Complaint Has Been Resolved - Please Share Your Feedback',
+      html,
+    });
   }
 }
 

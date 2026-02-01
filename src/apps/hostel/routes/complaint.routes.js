@@ -15,6 +15,8 @@ import {
   complaintStatusUpdate,
   updateComplaintResolutionNotes,
   updateComplaintFeedback,
+  getComplaintByToken,
+  submitFeedbackByToken,
 } from '../controllers/complaintController.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
@@ -22,7 +24,16 @@ import { requirePermission } from '../../../utils/permissions.js';
 
 const router = express.Router();
 
-// All routes require authentication
+// ========== PUBLIC ROUTES (no authentication) ==========
+
+// Get complaint by feedback token (for email link)
+router.get('/feedback/:token', getComplaintByToken);
+
+// Submit feedback using token (from email link)
+router.post('/feedback/:token', submitFeedbackByToken);
+
+// ========== PROTECTED ROUTES ==========
+// All routes below require authentication
 router.use(authenticate);
 
 // Create complaint

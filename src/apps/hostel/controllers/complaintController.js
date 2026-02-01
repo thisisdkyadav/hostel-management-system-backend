@@ -191,3 +191,41 @@ export const updateComplaintFeedback = asyncHandler(async (req, res) => {
 
   res.status(200).json({ message: 'Complaint feedback updated successfully', data: result.complaint });
 });
+
+/**
+ * Get complaint by feedback token (PUBLIC - no auth required)
+ * GET /api/complaint/feedback/:token
+ */
+export const getComplaintByToken = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+
+  const result = await complaintService.getComplaintByToken(token);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.error });
+  }
+
+  res.status(200).json({ message: 'Complaint fetched successfully', data: result.data });
+});
+
+/**
+ * Submit feedback using token (PUBLIC - no auth required)
+ * POST /api/complaint/feedback/:token
+ */
+export const submitFeedbackByToken = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+  const { feedback, feedbackRating, satisfactionStatus } = req.body;
+
+  const result = await complaintService.submitFeedbackByToken(token, {
+    feedback,
+    feedbackRating,
+    satisfactionStatus,
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.error });
+  }
+
+  res.status(200).json({ message: 'Feedback submitted successfully' });
+});
+

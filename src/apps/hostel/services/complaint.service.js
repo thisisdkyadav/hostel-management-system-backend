@@ -4,9 +4,10 @@
  * @module services/complaint.service
  */
 
-import { BaseService, success, notFound, forbidden, paginated } from '../../../services/base/index.js';
-import { Complaint } from '../../../models/index.js';
+import { BaseService, success, notFound, forbidden, paginated, badRequest } from '../../../services/base/index.js';
+import { Complaint, FeedbackToken } from '../../../models/index.js';
 import { RoomAllocation } from '../../../models/index.js';
+import { emailService } from '../../../services/email/email.service.js';
 
 /**
  * Helper function to format complaint for response
@@ -324,16 +325,42 @@ class ComplaintService extends BaseService {
 
   /**
    * Update complaint status (new method)
+   * Sends feedback request email when status changes to Resolved
    */
   async updateStatus(complaintId, status, userId) {
     const updateData = status === 'Resolved'
       ? { status, resolvedBy: userId, resolutionDate: new Date() }
       : { status };
 
-    const complaint = await this.model.findByIdAndUpdate(complaintId, updateData, { new: true });
+    const complaint = await this.model.findByIdAndUpdate(complaintId, updateData, { new: true })
+      .populate('userId', 'name email');
 
     if (!complaint) {
       return notFound('Complaint not found');
+    }
+
+    // Send feedback email when complaint is resolved
+    if (status === 'Resolved' && complaint.userId?.email) {
+      try {
+        // Create feedback token
+        const feedbackToken = await FeedbackToken.create({
+          complaintId: complaint._id,
+        });
+
+        // Send email asynchronously (don't block response)
+        emailService.sendComplaintResolvedEmail({
+          email: complaint.userId.email,
+          studentName: complaint.userId.name,
+          complaintTitle: complaint.title,
+          complaintCategory: complaint.category,
+          resolutionNotes: complaint.resolutionNotes,
+          feedbackToken: feedbackToken.token,
+        }).catch(err => {
+          console.error('Failed to send complaint resolved email:', err);
+        });
+      } catch (err) {
+        console.error('Failed to create feedback token:', err);
+      }
     }
 
     return success(complaint);
@@ -378,6 +405,98 @@ class ComplaintService extends BaseService {
     );
 
     return success(complaint);
+  }
+
+  /**
+   * Get complaint by feedback token (public access)
+   */
+  async getComplaintByToken(token) {
+    const feedbackToken = await FeedbackToken.findOne({ token });
+
+    if (!feedbackToken) {
+      return notFound('Invalid feedback link');
+    }
+
+    if (feedbackToken.expiresAt < new Date()) {
+      return badRequest('This feedback link has expired');
+    }
+
+    if (feedbackToken.used) {
+      return badRequest('Feedback has already been submitted for this complaint');
+    }
+
+    const complaint = await this.model.findById(feedbackToken.complaintId)
+      .populate('userId', 'name email')
+      .populate('hostelId', 'name')
+      .populate('unitId', 'unitNumber')
+      .populate('roomId', 'roomNumber')
+      .populate('resolvedBy', 'name');
+
+    if (!complaint) {
+      return notFound('Complaint not found');
+    }
+
+    // Format for public view
+    let roomNumber = '';
+    if (complaint.unitId && complaint.roomId) {
+      roomNumber = `${complaint.unitId.unitNumber}-${complaint.roomId.roomNumber}`;
+    } else if (complaint.roomId) {
+      roomNumber = complaint.roomId.roomNumber;
+    }
+
+    return success({
+      id: complaint._id,
+      title: complaint.title,
+      description: complaint.description,
+      status: complaint.status,
+      category: complaint.category,
+      hostel: complaint.hostelId?.name || null,
+      roomNumber,
+      location: complaint.location,
+      resolutionNotes: complaint.resolutionNotes || '',
+      resolutionDate: complaint.resolutionDate?.toISOString() || null,
+      resolvedBy: complaint.resolvedBy?.name || null,
+      createdDate: complaint.createdAt.toISOString(),
+      studentName: complaint.userId?.name || 'Student',
+    });
+  }
+
+  /**
+   * Submit feedback using token (public access)
+   */
+  async submitFeedbackByToken(token, feedbackData) {
+    const { feedback, feedbackRating, satisfactionStatus } = feedbackData;
+
+    const feedbackToken = await FeedbackToken.findOne({ token });
+
+    if (!feedbackToken) {
+      return notFound('Invalid feedback link');
+    }
+
+    if (feedbackToken.expiresAt < new Date()) {
+      return badRequest('This feedback link has expired');
+    }
+
+    if (feedbackToken.used) {
+      return badRequest('Feedback has already been submitted for this complaint');
+    }
+
+    // Update complaint with feedback
+    const complaint = await this.model.findByIdAndUpdate(
+      feedbackToken.complaintId,
+      { feedback, feedbackRating, satisfactionStatus },
+      { new: true }
+    );
+
+    if (!complaint) {
+      return notFound('Complaint not found');
+    }
+
+    // Mark token as used
+    feedbackToken.used = true;
+    await feedbackToken.save();
+
+    return success({ message: 'Feedback submitted successfully' });
   }
 }
 
