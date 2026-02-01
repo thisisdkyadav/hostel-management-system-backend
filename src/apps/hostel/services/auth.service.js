@@ -8,11 +8,14 @@
  * @module services/auth.service
  */
 
+import crypto from 'crypto';
 import { User } from '../../../models/index.js';
 import { Session } from '../../../models/index.js';
+import { PasswordResetToken } from '../../../models/index.js';
 import bcrypt from 'bcrypt';
 import axios from 'axios';
 import { generateKey } from '../../../utils/qrUtils.js';
+import { emailService } from '../../../services/email/index.js';
 
 /**
  * Helper function to extract device name from user agent
@@ -365,7 +368,138 @@ class AuthService {
   async deleteSession(sessionId) {
     await Session.deleteOne({ sessionId });
   }
+
+  // ==================== Password Reset Methods ====================
+
+  /**
+   * Request password reset - generates token and sends email
+   * @param {string} email - User email
+   * @returns {Promise<{success: boolean, message?: string, error?: string, statusCode?: number}>}
+   */
+  async requestPasswordReset(email) {
+    // Find user by email (case-insensitive)
+    const user = await User.findOne({
+      email: { $regex: new RegExp(`^${email}$`, 'i') },
+    });
+
+    // Always return success to prevent email enumeration attacks
+    if (!user) {
+      return { 
+        success: true, 
+        message: 'If an account with that email exists, a password reset link has been sent.' 
+      };
+    }
+
+    // Invalidate any existing tokens for this user
+    await PasswordResetToken.invalidateUserTokens(user._id);
+
+    // Generate secure random token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    
+    // Hash the token for storage (more secure)
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+    // Create token with 1 hour expiry
+    await PasswordResetToken.create({
+      userId: user._id,
+      token: hashedToken,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+    });
+
+    // Send password reset email
+    await emailService.sendPasswordResetEmail(user.email, resetToken, user.name);
+
+    return { 
+      success: true, 
+      message: 'If an account with that email exists, a password reset link has been sent.' 
+    };
+  }
+
+  /**
+   * Verify password reset token
+   * @param {string} token - Reset token from URL
+   * @returns {Promise<{success: boolean, user?: Object, error?: string, statusCode?: number}>}
+   */
+  async verifyResetToken(token) {
+    // Hash the token to match stored version
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find valid token
+    const resetToken = await PasswordResetToken.findValidToken(hashedToken);
+
+    if (!resetToken) {
+      return { 
+        success: false, 
+        error: 'Invalid or expired reset token', 
+        statusCode: 400 
+      };
+    }
+
+    return { 
+      success: true, 
+      user: {
+        _id: resetToken.userId._id,
+        name: resetToken.userId.name,
+        email: resetToken.userId.email,
+      }
+    };
+  }
+
+  /**
+   * Reset password with token
+   * @param {string} token - Reset token
+   * @param {string} newPassword - New password
+   * @returns {Promise<{success: boolean, message?: string, error?: string, statusCode?: number}>}
+   */
+  async resetPasswordWithToken(token, newPassword) {
+    // Hash the token to match stored version
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find valid token
+    const resetToken = await PasswordResetToken.findValidToken(hashedToken);
+
+    if (!resetToken) {
+      return { 
+        success: false, 
+        error: 'Invalid or expired reset token', 
+        statusCode: 400 
+      };
+    }
+
+    // Get user
+    const user = await User.findById(resetToken.userId._id);
+    if (!user) {
+      return { 
+        success: false, 
+        error: 'User not found', 
+        statusCode: 404 
+      };
+    }
+
+    // Hash new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+    // Update user password
+    user.password = hashedPassword;
+    await user.save();
+
+    // Mark token as used
+    await resetToken.markAsUsed();
+
+    // Invalidate all other tokens for this user
+    await PasswordResetToken.invalidateUserTokens(user._id);
+
+    // Send confirmation email
+    await emailService.sendPasswordResetSuccessEmail(user.email, user.name);
+
+    return { 
+      success: true, 
+      message: 'Password has been reset successfully' 
+    };
+  }
 }
 
 export const authService = new AuthService();
 export default AuthService;
+

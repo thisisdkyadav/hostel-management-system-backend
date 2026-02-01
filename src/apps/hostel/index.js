@@ -55,6 +55,7 @@ import configRoutes from './routes/config.routes.js';
 import studentProfileRoutes from './routes/studentProfile.routes.js';
 import ssoRoutes from './routes/sso.routes.js';
 import leaveRoutes from './routes/leave.routes.js';
+import emailRoutes from './routes/email.routes.js';
 
 const router = express.Router();
 
@@ -111,6 +112,9 @@ router.use('/feedback', feedbackRoutes);
 
 // Notifications
 router.use('/notification', notificationRoutes);
+
+// Email
+router.use('/email', emailRoutes);
 
 // Certificates & DisCo
 router.use('/certificate', certificateRoutes);

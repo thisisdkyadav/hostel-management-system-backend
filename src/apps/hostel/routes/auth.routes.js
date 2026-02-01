@@ -15,6 +15,9 @@ import {
   verifySSOToken,
   getUserDevices,
   logoutDevice,
+  forgotPassword,
+  verifyResetToken,
+  resetPassword,
 } from '../controllers/authController.js';
 import { authenticate, refreshUserData } from '../../../middlewares/auth.middleware.js';
 
@@ -33,8 +36,14 @@ router.post('/login', login);
 router.post('/update-password', authenticate, updatePassword);
 router.post('/verify-sso-token', verifySSOToken);
 
+// Password reset (public - no auth required)
+router.post('/forgot-password', forgotPassword);
+router.get('/reset-password/:token', verifyResetToken);
+router.post('/reset-password', resetPassword);
+
 // User device management
 router.get('/user/devices', authenticate, getUserDevices);
 router.post('/user/devices/logout/:sessionId', authenticate, logoutDevice);
 
 export default router;
+

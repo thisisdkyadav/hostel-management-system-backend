@@ -12,3 +12,5 @@ export { default as Security } from "./Security.model.js"
 export { default as HostelSupervisor } from "./HostelSupervisor.model.js"
 export { default as HostelGate } from "./HostelGate.model.js"
 export { default as MaintenanceStaff } from "./MaintenanceStaff.model.js"
+export { default as PasswordResetToken } from "./PasswordResetToken.model.js"
+

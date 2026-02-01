@@ -74,10 +74,55 @@ export const setPasswordSchema = Joi.object({
   }),
 });
 
+/**
+ * Forgot password validation
+ * POST /api/auth/forgot-password
+ */
+export const forgotPasswordSchema = Joi.object({
+  body: Joi.object({
+    email: email.required().messages({
+      'string.email': 'Please provide a valid email address',
+      'any.required': 'Email is required',
+    }),
+  }),
+});
+
+/**
+ * Reset password validation
+ * POST /api/auth/reset-password
+ */
+export const resetPasswordSchema = Joi.object({
+  body: Joi.object({
+    token: Joi.string().required().messages({
+      'any.required': 'Reset token is required',
+    }),
+    password: password.required().messages({
+      'any.required': 'Password is required',
+      'string.min': 'Password must be at least 6 characters',
+    }),
+  }),
+});
+
+/**
+ * Verify reset token validation
+ * GET /api/auth/reset-password/:token
+ */
+export const verifyResetTokenSchema = Joi.object({
+  params: Joi.object({
+    token: Joi.string().required().messages({
+      'any.required': 'Reset token is required',
+    }),
+  }),
+});
+
 export default {
   loginSchema,
   googleLoginSchema,
   updatePasswordSchema,
   logoutDeviceSchema,
   setPasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  verifyResetTokenSchema,
 };
+

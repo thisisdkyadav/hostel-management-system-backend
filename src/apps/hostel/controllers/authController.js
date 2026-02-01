@@ -258,3 +258,73 @@ export const verifySSOToken = asyncHandler(async (req, res) => {
     message: 'SSO authentication successful',
   });
 });
+
+// ==================== Password Reset ====================
+
+/**
+ * Request password reset
+ * POST /api/auth/forgot-password
+ */
+export const forgotPassword = asyncHandler(async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required' });
+  }
+
+  const result = await authService.requestPasswordReset(email);
+
+  // Always return success to prevent email enumeration
+  res.json({
+    success: true,
+    message: result.message,
+  });
+});
+
+/**
+ * Verify password reset token
+ * GET /api/auth/reset-password/:token
+ */
+export const verifyResetToken = asyncHandler(async (req, res) => {
+  const { token } = req.params;
+
+  if (!token) {
+    return res.status(400).json({ message: 'Reset token is required' });
+  }
+
+  const result = await authService.verifyResetToken(token);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.error });
+  }
+
+  res.json({
+    success: true,
+    message: 'Token is valid',
+    user: result.user,
+  });
+});
+
+/**
+ * Reset password with token
+ * POST /api/auth/reset-password
+ */
+export const resetPassword = asyncHandler(async (req, res) => {
+  const { token, password } = req.body;
+
+  if (!token || !password) {
+    return res.status(400).json({ message: 'Token and password are required' });
+  }
+
+  const result = await authService.resetPasswordWithToken(token, password);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.error });
+  }
+
+  res.json({
+    success: true,
+    message: result.message,
+  });
+});
+
