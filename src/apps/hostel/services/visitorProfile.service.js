@@ -31,10 +31,10 @@ class VisitorProfileService extends BaseService {
 
   /**
    * Create visitor profile
-   * @param {Object} data - Profile data
    * @param {string} userId - Student user ID
+   * @param {Object} data - Profile data
    */
-  async createVisitorProfile(data, userId) {
+  async createVisitorProfile(userId, data) {
     const result = await this.create({
       studentUserId: userId,
       ...data
