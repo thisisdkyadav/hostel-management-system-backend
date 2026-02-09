@@ -12,6 +12,22 @@ export const ROLES = {
   MAINTENANCE_STAFF: "Maintenance Staff",
   HOSTEL_SUPERVISOR: "Hostel Supervisor",
   HOSTEL_GATE: "Hostel Gate",
+  GYMKHANA: "Gymkhana",
+}
+
+/**
+ * Subroles for granular access control
+ * Used with Gymkhana and Admin roles
+ */
+export const SUBROLES = {
+  // Gymkhana subroles
+  GS_GYMKHANA: "GS Gymkhana",
+  PRESIDENT_GYMKHANA: "President Gymkhana",
+  // Admin SA subroles
+  STUDENT_AFFAIRS: "Student Affairs",
+  JOINT_REGISTRAR_SA: "Joint Registrar SA",
+  ASSOCIATE_DEAN_SA: "Associate Dean SA",
+  DEAN_SA: "Dean SA",
 }
 
 /**
@@ -23,10 +39,23 @@ export const ROLE_HIERARCHY = [
   ROLES.MAINTENANCE_STAFF,
   ROLES.HOSTEL_GATE,
   ROLES.HOSTEL_SUPERVISOR,
+  ROLES.GYMKHANA,
   ROLES.ASSOCIATE_WARDEN,
   ROLES.WARDEN,
   ROLES.ADMIN,
   ROLES.SUPER_ADMIN,
+]
+
+/**
+ * Approval stage order for events
+ */
+export const EVENT_APPROVAL_ORDER = [
+  SUBROLES.GS_GYMKHANA,
+  SUBROLES.PRESIDENT_GYMKHANA,
+  SUBROLES.STUDENT_AFFAIRS,
+  SUBROLES.JOINT_REGISTRAR_SA,
+  SUBROLES.ASSOCIATE_DEAN_SA,
+  SUBROLES.DEAN_SA,
 ]
 
 /**
@@ -39,6 +68,11 @@ export const ROLE_GROUPS = {
   ADMIN_LEVEL: [ROLES.ADMIN, ROLES.SUPER_ADMIN],
   CAN_MANAGE_COMPLAINTS: [ROLES.ADMIN, ROLES.WARDEN, ROLES.ASSOCIATE_WARDEN, ROLES.HOSTEL_SUPERVISOR, ROLES.MAINTENANCE_STAFF],
   CAN_VIEW_STUDENTS: [ROLES.ADMIN, ROLES.WARDEN, ROLES.ASSOCIATE_WARDEN, ROLES.HOSTEL_SUPERVISOR, ROLES.SECURITY],
+  // Events management groups
+  GYMKHANA_LEVEL: [ROLES.GYMKHANA],
+  SA_APPROVAL_CHAIN: [ROLES.ADMIN], // Admin with SA subroles
+  CAN_APPROVE_EVENTS: [ROLES.GYMKHANA, ROLES.ADMIN, ROLES.SUPER_ADMIN],
 }
 
 export default ROLES
+

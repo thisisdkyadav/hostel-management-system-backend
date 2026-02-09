@@ -11,6 +11,10 @@ import {
   uploadProfileImage,
   uploadStudentIdCard,
   h2FormPDF,
+  uploadEventProposalPDF,
+  uploadEventChiefGuestPDF,
+  uploadEventBillPDF,
+  uploadEventReportPDF,
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
@@ -45,6 +49,18 @@ router.post(
 
 // H2 form PDF upload
 router.post('/h2-form', authorizeRoles(['Student']), upload.any(), h2FormPDF);
+
+// Event proposal PDF upload
+router.post('/event-proposal-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventProposalPDF);
+
+// Event chief guest PDF upload
+router.post('/event-chief-guest-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventChiefGuestPDF);
+
+// Event bill PDF upload
+router.post('/event-bill-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventBillPDF);
+
+// Event report PDF upload
+router.post('/event-report-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventReportPDF);
 
 // Payment screenshot upload
 router.post(

@@ -19,11 +19,13 @@ import express from 'express';
 
 // Import module routes (uncomment as modules are built)
 import grievanceRoutes from './modules/grievance/grievance.routes.js';
+import eventsRoutes from './modules/events/events.routes.js';
 // import scholarshipRoutes from './modules/scholarship/scholarship.routes.js';
 // import counselingRoutes from './modules/counseling/counseling.routes.js';
 // import disciplinaryRoutes from './modules/disciplinary/disciplinary.routes.js';
 // import clubRoutes from './modules/clubs/club.routes.js';
 // import electionRoutes from './modules/elections/election.routes.js';
+
 
 const router = express.Router();
 
@@ -47,11 +49,13 @@ router.get('/health', (req, res) => {
 // Uncomment as modules are implemented:
 
 router.use('/grievances', grievanceRoutes);
+router.use('/events', eventsRoutes);
 // router.use('/scholarships', scholarshipRoutes);
 // router.use('/counseling', counselingRoutes);
 // router.use('/disciplinary', disciplinaryRoutes);
 // router.use('/clubs', clubRoutes);
 // router.use('/elections', electionRoutes);
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXPORTS

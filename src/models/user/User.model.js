@@ -14,9 +14,24 @@ const UserSchema = new mongoose.Schema(
     profileImage: { type: String },
     role: {
       type: String,
-      enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate"],
+      enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate", "Gymkhana"],
       required: true,
     },
+    subRole: {
+      type: String,
+      enum: [
+        // Gymkhana subroles
+        "GS Gymkhana",
+        "President Gymkhana",
+        // Admin SA subroles
+        "Student Affairs",
+        "Joint Registrar SA",
+        "Associate Dean SA",
+        "Dean SA",
+      ],
+      default: null,
+    },
+
     permissions: {
       type: Map,
       of: {

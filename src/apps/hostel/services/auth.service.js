@@ -123,6 +123,7 @@ class AuthService {
       _id: userResponse._id,
       email: userResponse.email,
       role: userResponse.role,
+      subRole: userResponse.subRole,
       permissions: Object.fromEntries(userResponse.permissions || new Map()),
       hostel: userResponse.hostel,
     };

@@ -31,11 +31,15 @@ const uploadsBasePath = path.join(__dirname, '..', '..', '..', '..', 'uploads');
 const profileImagesPath = path.join(uploadsBasePath, 'profile-images');
 const studentIdCardsPath = path.join(uploadsBasePath, 'student-id-cards');
 const h2FormsPath = path.join(uploadsBasePath, 'h2-forms');
+const eventProposalDocsPath = path.join(uploadsBasePath, 'event-proposal-docs');
+const eventChiefGuestDocsPath = path.join(uploadsBasePath, 'event-chief-guest-docs');
+const eventBillDocsPath = path.join(uploadsBasePath, 'event-bill-docs');
+const eventReportDocsPath = path.join(uploadsBasePath, 'event-report-docs');
 const certificatesPath = path.join(uploadsBasePath, 'certificates');
 
 // Ensure directories exist
 if (USE_LOCAL_STORAGE) {
-  [profileImagesPath, studentIdCardsPath, h2FormsPath, certificatesPath].forEach((dir) => {
+  [profileImagesPath, studentIdCardsPath, h2FormsPath, eventProposalDocsPath, eventChiefGuestDocsPath, eventBillDocsPath, eventReportDocsPath, certificatesPath].forEach((dir) => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -176,6 +180,190 @@ class UploadService {
       const filepath = path.join(h2FormsPath, filename);
       fs.writeFileSync(filepath, buffer);
       const url = `/uploads/h2-forms/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    } else {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: 'application/pdf' },
+      });
+      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+      return { success: true, statusCode: 200, data: { url: sasUrl } };
+    }
+  }
+
+  /**
+   * Upload event proposal PDF
+   * @param {Object} params - Upload params
+   * @returns {Object} Result object
+   */
+  async uploadEventProposalPDF({ userId, file }) {
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, buffer, mimetype } = file;
+
+    // Basic validation for PDF
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF files are allowed',
+      };
+    }
+
+    const timestamp = Date.now();
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
+    const blobName = `event-proposal-docs/${userId}-${timestamp}-${safeOriginal}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId}-${timestamp}-${safeOriginal}`;
+      const filepath = path.join(eventProposalDocsPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/event-proposal-docs/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    } else {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: 'application/pdf' },
+      });
+      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+      return { success: true, statusCode: 200, data: { url: sasUrl } };
+    }
+  }
+
+  /**
+   * Upload event chief guest PDF
+   * @param {Object} params - Upload params
+   * @returns {Object} Result object
+   */
+  async uploadEventChiefGuestPDF({ userId, file }) {
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, buffer, mimetype } = file;
+
+    // Basic validation for PDF
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF files are allowed',
+      };
+    }
+
+    const timestamp = Date.now();
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
+    const blobName = `event-chief-guest-docs/${userId}-${timestamp}-${safeOriginal}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId}-${timestamp}-${safeOriginal}`;
+      const filepath = path.join(eventChiefGuestDocsPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/event-chief-guest-docs/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    } else {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: 'application/pdf' },
+      });
+      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+      return { success: true, statusCode: 200, data: { url: sasUrl } };
+    }
+  }
+
+  /**
+   * Upload event bill PDF
+   * @param {Object} params - Upload params
+   * @returns {Object} Result object
+   */
+  async uploadEventBillPDF({ userId, file }) {
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, buffer, mimetype } = file;
+
+    // Basic validation for PDF
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF files are allowed',
+      };
+    }
+
+    const timestamp = Date.now();
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
+    const blobName = `event-bill-docs/${userId}-${timestamp}-${safeOriginal}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId}-${timestamp}-${safeOriginal}`;
+      const filepath = path.join(eventBillDocsPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/event-bill-docs/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    } else {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: 'application/pdf' },
+      });
+      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+      return { success: true, statusCode: 200, data: { url: sasUrl } };
+    }
+  }
+
+  /**
+   * Upload event report PDF
+   * @param {Object} params - Upload params
+   * @returns {Object} Result object
+   */
+  async uploadEventReportPDF({ userId, file }) {
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, buffer, mimetype } = file;
+
+    // Basic validation for PDF
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+    if (!isPdf) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF files are allowed',
+      };
+    }
+
+    const timestamp = Date.now();
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
+    const blobName = `event-report-docs/${userId}-${timestamp}-${safeOriginal}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId}-${timestamp}-${safeOriginal}`;
+      const filepath = path.join(eventReportDocsPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/event-report-docs/${filename}`;
       return { success: true, statusCode: 200, data: { url } };
     } else {
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);

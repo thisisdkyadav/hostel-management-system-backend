@@ -74,6 +74,12 @@ export const DEFAULT_PERMISSIONS = {
     feedback: { view: true, edit: false, create: true, delete: false, react: false },
     student_inventory: { view: true, edit: false, create: true, delete: false, react: false },
   },
+  Gymkhana: {
+    events: { view: true, edit: true, create: true, delete: false, react: true },
+    activity_calendar: { view: true, edit: true, create: true, delete: false, react: true },
+    event_proposals: { view: true, edit: true, create: true, delete: false, react: true },
+    event_expenses: { view: true, edit: true, create: true, delete: false, react: true },
+  },
 }
 
 /**

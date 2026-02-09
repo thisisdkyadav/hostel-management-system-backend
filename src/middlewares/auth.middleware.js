@@ -27,6 +27,7 @@ export const refreshUserData = async (req, res, next) => {
       _id: user._id,
       email: user.email,
       role: user.role,
+      subRole: user.subRole,
       permissions: Object.fromEntries(user.permissions || new Map()),
       hostel: user.hostel,
     }
@@ -65,6 +66,7 @@ export const authenticate = async (req, res, next) => {
         _id: user._id,
         email: user.email,
         role: user.role,
+        subRole: user.subRole,
         permissions: Object.fromEntries(user.permissions || new Map()),
         hostel: user.hostel,
       }

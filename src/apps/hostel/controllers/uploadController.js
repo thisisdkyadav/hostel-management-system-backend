@@ -71,6 +71,70 @@ export const h2FormPDF = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Upload event proposal PDF
+ */
+export const uploadEventProposalPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadEventProposalPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
+ * Upload event chief guest PDF
+ */
+export const uploadEventChiefGuestPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadEventChiefGuestPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
+ * Upload event bill PDF
+ */
+export const uploadEventBillPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadEventBillPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
+ * Upload event report PDF
+ */
+export const uploadEventReportPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadEventReportPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
  * Upload payment screenshot
  */
 export const uploadPaymentScreenshot = asyncHandler(async (req, res) => {
