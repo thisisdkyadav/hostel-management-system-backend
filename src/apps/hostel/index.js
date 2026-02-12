@@ -5,7 +5,6 @@
  *
  * This app contains all the existing hostel management functionality:
  * - Student management
- * - Complaint handling
  * - Visitor management
  * - Events & Lost and Found
  * - Hostel & Room management
@@ -47,7 +46,6 @@ import faceScannerRoutes from './routes/faceScanner.routes.js';
 import sheetRoutes from './routes/sheet.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import configRoutes from './routes/config.routes.js';
-import studentProfileRoutes from './routes/studentProfile.routes.js';
 import leaveRoutes from './routes/leave.routes.js';
 import emailRoutes from './routes/email.routes.js';
 
@@ -78,7 +76,6 @@ router.use('/super-admin', superAdminRoutes);
 
 // Student
 router.use('/student', studentRoutes);
-router.use('/student-profile', studentProfileRoutes);
 router.use('/family', familyMemberRoutes);
 
 // Hostel

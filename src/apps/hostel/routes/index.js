@@ -18,11 +18,7 @@ export { default as dashboardRoutes } from './dashboard.routes.js';
 
 // Student Management
 export { default as studentRoutes } from './student.routes.js';
-export { default as studentProfileRoutes } from './studentProfile.routes.js';
 export { default as familyMemberRoutes } from './familyMember.routes.js';
-
-// Complaints
-export { default as complaintRoutes } from './complaint.routes.js';
 
 // Visitors
 export { default as visitorRoutes } from './visitor.routes.js';

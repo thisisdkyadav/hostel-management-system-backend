@@ -6,7 +6,6 @@
 export * from './adminController.js';
 export * from './associateWardenController.js';
 export * from './certificateController.js';
-export * from './complaintController.js';
 export * from './configController.js';
 export * from './dashboardController.js';
 export * from './disCoController.js';
