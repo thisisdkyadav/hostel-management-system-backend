@@ -1,7 +1,7 @@
 /**
  * @fileoverview Calendar Service
  * @description Business logic for Activity Calendar management
- * Admin creates/locks calendars, GS edits (if unlocked) or requests amendments (if locked)
+ * Admin creates/locks calendars, Gymkhana users edit (if unlocked) or request amendments (if locked)
  */
 
 import { BaseService } from "../../../../services/base/BaseService.js"
@@ -117,7 +117,7 @@ class CalendarService extends BaseService {
   /**
    * Update calendar events
    * GS: can edit draft/rejected
-   * President: can edit pending president calendars
+   * President: can edit all pre-submission calendars
    */
   async updateCalendar(calendarId, data, user) {
     const calendar = await this.model.findById(calendarId)
@@ -143,15 +143,23 @@ class CalendarService extends BaseService {
       }
     }
 
-    if (isPresident && calendar.status !== CALENDAR_STATUS.PENDING_PRESIDENT) {
-      return badRequest("President can only update calendars pending President approval")
+    if (
+      isPresident &&
+      ![
+        CALENDAR_STATUS.DRAFT,
+        CALENDAR_STATUS.REJECTED,
+        // Backward compatibility for calendars already submitted in old flow.
+        CALENDAR_STATUS.PENDING_PRESIDENT,
+      ].includes(calendar.status)
+    ) {
+      return badRequest("President can only update calendars before Student Affairs review")
     }
 
     if (data.events) {
       calendar.events = data.events
     }
 
-    if (isGS && calendar.status === CALENDAR_STATUS.REJECTED) {
+    if ((isGS || isPresident) && calendar.status === CALENDAR_STATUS.REJECTED) {
       calendar.status = CALENDAR_STATUS.DRAFT
       calendar.rejectionReason = null
       calendar.rejectedBy = null
@@ -164,7 +172,7 @@ class CalendarService extends BaseService {
   }
 
   /**
-   * Submit calendar for approval (GS only)
+   * Submit calendar for approval (President only)
    */
   async submitCalendar(calendarId, user, options = {}) {
     const { allowOverlappingDates = false } = options
@@ -174,8 +182,8 @@ class CalendarService extends BaseService {
       return notFound("Activity calendar")
     }
 
-    if (user.subRole !== SUBROLES.GS_GYMKHANA) {
-      return forbidden("Only GS Gymkhana can submit calendars")
+    if (user.subRole !== SUBROLES.PRESIDENT_GYMKHANA) {
+      return forbidden("Only President Gymkhana can submit calendars")
     }
 
     if (calendar.isLocked) {
@@ -200,16 +208,16 @@ class CalendarService extends BaseService {
       })
     }
 
-    // Move to pending President approval
-    calendar.status = CALENDAR_STATUS.PENDING_PRESIDENT
-    calendar.currentApprovalStage = APPROVAL_STAGES.PRESIDENT_GYMKHANA
+    // President submits calendar directly to Student Affairs.
+    calendar.status = CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
+    calendar.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
     await calendar.save()
 
     // Log the submission
     await ApprovalLog.create({
       entityType: "ActivityCalendar",
       entityId: calendar._id,
-      stage: APPROVAL_STAGES.GS_GYMKHANA,
+      stage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
       action: APPROVAL_ACTIONS.SUBMITTED,
       performedBy: user._id,
     })

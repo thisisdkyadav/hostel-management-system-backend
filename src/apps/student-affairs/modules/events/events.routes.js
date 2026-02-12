@@ -57,7 +57,7 @@ router.get(
   eventsController.getCalendarById
 )
 
-// Update calendar (GS only, draft/rejected only)
+// Update calendar (Gymkhana role; GS/President restrictions enforced in service)
 router.put(
   "/calendar/:id",
   authorizeRoles([ROLES.GYMKHANA]),
@@ -65,7 +65,7 @@ router.put(
   eventsController.updateCalendar
 )
 
-// Submit calendar for approval (GS only)
+// Submit calendar for approval (President only; enforced in service)
 router.post(
   "/calendar/:id/submit",
   authorizeRoles([ROLES.GYMKHANA]),
