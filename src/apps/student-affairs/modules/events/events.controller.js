@@ -203,6 +203,11 @@ export const getAllExpenses = asyncHandler(async (req, res) => {
   sendRawResponse(res, result)
 })
 
+export const getExpenseHistory = asyncHandler(async (req, res) => {
+  const result = await expenseService.getApprovalHistory(req.params.id)
+  sendRawResponse(res, result)
+})
+
 export const approveExpense = asyncHandler(async (req, res) => {
   const result = await expenseService.approveExpense(
     req.params.id,

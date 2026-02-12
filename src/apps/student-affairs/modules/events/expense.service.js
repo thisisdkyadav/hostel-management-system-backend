@@ -390,6 +390,20 @@ class ExpenseService extends BaseService {
     })
   }
 
+  /**
+   * Get approval history for an expense
+   */
+  async getApprovalHistory(expenseId) {
+    const logs = await ApprovalLog.find({
+      entityType: "EventExpense",
+      entityId: expenseId,
+    })
+      .sort({ createdAt: 1 })
+      .populate("performedBy", "name email subRole")
+
+    return success({ history: logs })
+  }
+
   _validatePostStudentAffairsChain(nextApprovalStages = []) {
     if (!Array.isArray(nextApprovalStages) || nextApprovalStages.length === 0) {
       return {

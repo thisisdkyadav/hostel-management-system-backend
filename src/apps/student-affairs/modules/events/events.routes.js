@@ -268,6 +268,13 @@ router.put(
   eventsController.updateExpense
 )
 
+// Get expense history
+router.get(
+  "/expenses/:id/history",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  eventsController.getExpenseHistory
+)
+
 // Approve expense submission (Admin only)
 router.post(
   "/expenses/:id/approve",
