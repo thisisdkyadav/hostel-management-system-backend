@@ -31,7 +31,6 @@ export * from './securityController.js';
 export * from './sheetController.js';
 export * from './staffAttendanceController.js';
 export * from './statsController.js';
-export * from './studentController.js';
 export * from './studentInventoryController.js';
 export * from './superAdminControllers.js';
 export * from './taskController.js';

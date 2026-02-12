@@ -10,17 +10,19 @@ import {
   createStudentsProfiles,
   getStudents,
   getStudentDetails,
-  getStudentProfile,
   updateStudentProfile,
   updateStudentsProfiles,
   getMultipleStudentDetails,
-  getStudentDashboard,
-  getStudentIdCard,
-  uploadStudentIdCard,
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
   getStudentId,
-} from '../controllers/studentController.js';
+} from '../../students/modules/profiles-admin/profiles-admin.controller.js';
+import {
+  getStudentProfile,
+  getStudentDashboard,
+  getStudentIdCard,
+  uploadStudentIdCard,
+} from '../../students/modules/profiles-self/profiles-self.controller.js';
 import {
   getDepartmentsList,
   getDegreesList,
