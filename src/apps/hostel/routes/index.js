@@ -6,17 +6,11 @@
  * while maintaining the same API endpoints for backward compatibility.
  */
 
-// Authentication & SSO
-export { default as authRoutes } from './auth.routes.js';
-export { default as ssoRoutes } from './sso.routes.js';
-
 // User Management
-export { default as userRoutes } from './user.routes.js';
 export { default as adminRoutes } from './admin.routes.js';
 export { default as wardenRoutes } from './warden.routes.js';
 export { default as securityRoutes } from './security.routes.js';
 export { default as superAdminRoutes } from './superAdmin.routes.js';
-export { default as permissionRoutes } from './permission.routes.js';
 
 // Hostel Management
 export { default as hostelRoutes } from './hostel.routes.js';

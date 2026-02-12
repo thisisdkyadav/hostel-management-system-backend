@@ -5,7 +5,6 @@
 
 export * from './adminController.js';
 export * from './associateWardenController.js';
-export * from './authController.js';
 export * from './certificateController.js';
 export * from './complaintController.js';
 export * from './configController.js';
@@ -28,11 +27,9 @@ export * from './lostAndFoundController.js';
 export * from './notificationController.js';
 export * from './onlineUsersController.js';
 export * from './paymentController.js';
-export * from './permissionController.js';
 export * from './scannerActionController.js';
 export * from './securityController.js';
 export * from './sheetController.js';
-export * from './ssoController.js';
 export * from './staffAttendanceController.js';
 export * from './statsController.js';
 export * from './studentController.js';
@@ -42,7 +39,6 @@ export * from './superAdminControllers.js';
 export * from './taskController.js';
 export * from './undertakingController.js';
 export * from './uploadController.js';
-export * from './userController.js';
 export * from './visitorController.js';
 export * from './visitorProfileController.js';
 export * from './wardenController.js';
