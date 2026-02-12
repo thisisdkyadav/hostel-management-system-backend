@@ -20,7 +20,9 @@ import {
   APPROVAL_STAGES,
   STAGE_TO_STATUS,
   STATUS_TO_APPROVER,
+  APPROVER_TO_STATUS,
   APPROVAL_ACTIONS,
+  POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES } from "../../../../core/constants/roles.constants.js"
 
@@ -73,6 +75,8 @@ class ProposalService extends BaseService {
       ...proposalPayload,
       status: PROPOSAL_STATUS.PENDING_PRESIDENT,
       currentApprovalStage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
+      customApprovalChain: [],
+      currentChainIndex: null,
     })
 
     // Update event
@@ -135,6 +139,8 @@ class ProposalService extends BaseService {
     if (isGS) {
       proposal.status = PROPOSAL_STATUS.PENDING_PRESIDENT
       proposal.currentApprovalStage = APPROVAL_STAGES.PRESIDENT_GYMKHANA
+      proposal.customApprovalChain = []
+      proposal.currentChainIndex = null
       proposal.revisionCount += 1
       proposal.rejectionReason = null
       proposal.rejectedBy = null
@@ -142,6 +148,8 @@ class ProposalService extends BaseService {
     } else if (isPresident) {
       proposal.status = PROPOSAL_STATUS.PENDING_PRESIDENT
       proposal.currentApprovalStage = APPROVAL_STAGES.PRESIDENT_GYMKHANA
+      proposal.customApprovalChain = []
+      proposal.currentChainIndex = null
     }
 
     await proposal.save()
@@ -172,7 +180,7 @@ class ProposalService extends BaseService {
   /**
    * Approve proposal
    */
-  async approveProposal(proposalId, comments, user) {
+  async approveProposal(proposalId, comments, user, nextApprovalStages = []) {
     const proposal = await this.model.findById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
@@ -187,21 +195,68 @@ class ProposalService extends BaseService {
       return forbidden(`Only ${requiredSubRole} can approve at this stage`)
     }
 
-    const nextStatus = STAGE_TO_STATUS[user.subRole]
     const currentStage = user.subRole
+    const isStudentAffairsReview =
+      currentStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
+      proposal.status === PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS
 
-    proposal.status = nextStatus
+    if (isStudentAffairsReview) {
+      const chainValidation = this._validatePostStudentAffairsChain(nextApprovalStages)
+      if (!chainValidation.success) {
+        return badRequest(chainValidation.message)
+      }
+      const chain = chainValidation.chain
+      const firstStage = chain[0]
+      const nextStatus = APPROVER_TO_STATUS[firstStage]
 
-    if (nextStatus === PROPOSAL_STATUS.APPROVED) {
+      proposal.customApprovalChain = chain
+      proposal.currentChainIndex = 0
+      proposal.status = nextStatus
+      proposal.currentApprovalStage = firstStage
+    } else {
+      const chain = Array.isArray(proposal.customApprovalChain)
+        ? proposal.customApprovalChain
+        : []
+      const hasCustomChain = chain.length > 0
+
+      if (hasCustomChain) {
+        const currentIndex = chain.findIndex((stage) => stage === currentStage)
+        if (currentIndex === -1) {
+          return badRequest("Approval chain is misconfigured for this proposal")
+        }
+
+        const nextStage = chain[currentIndex + 1]
+        if (!nextStage) {
+          proposal.status = PROPOSAL_STATUS.APPROVED
+          proposal.currentApprovalStage = null
+          proposal.currentChainIndex = null
+        } else {
+          const nextStatus = APPROVER_TO_STATUS[nextStage]
+          proposal.status = nextStatus
+          proposal.currentApprovalStage = nextStage
+          proposal.currentChainIndex = currentIndex + 1
+        }
+      } else {
+        // Legacy/default flow fallback
+        const nextStatus = STAGE_TO_STATUS[user.subRole]
+        proposal.status = nextStatus
+        if (nextStatus === PROPOSAL_STATUS.APPROVED) {
+          proposal.currentApprovalStage = null
+        } else {
+          proposal.currentApprovalStage = STATUS_TO_APPROVER[nextStatus]
+        }
+      }
+    }
+
+    if (proposal.status === PROPOSAL_STATUS.APPROVED) {
       proposal.approvedAt = new Date()
       proposal.currentApprovalStage = null
+      proposal.currentChainIndex = null
 
       // Update event status
       await GymkhanaEvent.findByIdAndUpdate(proposal.eventId, {
         status: EVENT_STATUS.PROPOSAL_APPROVED,
       })
-    } else {
-      proposal.currentApprovalStage = STATUS_TO_APPROVER[nextStatus]
     }
 
     await proposal.save()
@@ -244,6 +299,8 @@ class ProposalService extends BaseService {
     proposal.rejectedBy = user._id
     proposal.rejectedAt = new Date()
     proposal.currentApprovalStage = null
+    proposal.customApprovalChain = []
+    proposal.currentChainIndex = null
     await proposal.save()
 
     // Log rejection
@@ -283,6 +340,8 @@ class ProposalService extends BaseService {
     proposal.rejectionReason = comments
     proposal.rejectedBy = user._id
     proposal.currentApprovalStage = APPROVAL_STAGES.GS_GYMKHANA
+    proposal.customApprovalChain = []
+    proposal.currentChainIndex = null
     await proposal.save()
 
     // Log revision request
@@ -497,6 +556,36 @@ class ProposalService extends BaseService {
     }
     date.setHours(0, 0, 0, 0)
     return date
+  }
+
+  _validatePostStudentAffairsChain(nextApprovalStages = []) {
+    if (!Array.isArray(nextApprovalStages) || nextApprovalStages.length === 0) {
+      return {
+        success: false,
+        message:
+          "Student Affairs must select at least one next approval stage (Joint Registrar SA / Associate Dean SA / Dean SA)",
+      }
+    }
+
+    const uniqueStages = [...new Set(nextApprovalStages)]
+    if (uniqueStages.length !== nextApprovalStages.length) {
+      return {
+        success: false,
+        message: "Next approval stages must be unique",
+      }
+    }
+
+    const invalidStage = uniqueStages.find(
+      (stage) => !POST_STUDENT_AFFAIRS_APPROVERS.includes(stage)
+    )
+    if (invalidStage) {
+      return {
+        success: false,
+        message: `Invalid approval stage selected: ${invalidStage}`,
+      }
+    }
+
+    return { success: true, chain: uniqueStages }
   }
 }
 

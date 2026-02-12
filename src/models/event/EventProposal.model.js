@@ -44,6 +44,13 @@ const EventProposalSchema = new mongoose.Schema(
       ],
       default: null,
     },
+    customApprovalChain: [
+      {
+        type: String,
+        enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      },
+    ],
+    currentChainIndex: { type: Number, default: null },
     // Proposal details
     proposalText: { type: String, trim: true, required: true },
     proposalDocumentUrl: { type: String, trim: true },

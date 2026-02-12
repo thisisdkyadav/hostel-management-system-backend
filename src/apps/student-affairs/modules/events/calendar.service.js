@@ -20,8 +20,10 @@ import {
   APPROVAL_STAGES,
   STAGE_TO_STATUS,
   STATUS_TO_APPROVER,
+  APPROVER_TO_STATUS,
   APPROVAL_ACTIONS,
   EVENT_CATEGORY,
+  POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
 
@@ -211,6 +213,8 @@ class CalendarService extends BaseService {
     // President submits calendar directly to Student Affairs.
     calendar.status = CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
     calendar.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
+    calendar.customApprovalChain = []
+    calendar.currentChainIndex = null
     await calendar.save()
 
     // Log the submission
@@ -235,7 +239,7 @@ class CalendarService extends BaseService {
   /**
    * Approve calendar (by appropriate stage approver)
    */
-  async approveCalendar(calendarId, comments, user) {
+  async approveCalendar(calendarId, comments, user, nextApprovalStages = []) {
     const calendar = await this.model.findById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
@@ -251,22 +255,68 @@ class CalendarService extends BaseService {
       return forbidden(`Only ${requiredSubRole} can approve at this stage`)
     }
 
-    // Get next status
-    const nextStatus = STAGE_TO_STATUS[user.subRole]
     const currentStage = user.subRole
+    const isStudentAffairsReview =
+      currentStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
+      calendar.status === CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
 
-    calendar.status = nextStatus
-    
-    if (nextStatus === CALENDAR_STATUS.APPROVED) {
+    if (isStudentAffairsReview) {
+      const chainValidation = this._validatePostStudentAffairsChain(nextApprovalStages)
+      if (!chainValidation.success) {
+        return badRequest(chainValidation.message)
+      }
+      const chain = chainValidation.chain
+      const firstStage = chain[0]
+      const nextStatus = APPROVER_TO_STATUS[firstStage]
+
+      calendar.customApprovalChain = chain
+      calendar.currentChainIndex = 0
+      calendar.status = nextStatus
+      calendar.currentApprovalStage = firstStage
+    } else {
+      const chain = Array.isArray(calendar.customApprovalChain)
+        ? calendar.customApprovalChain
+        : []
+      const hasCustomChain = chain.length > 0
+
+      if (hasCustomChain) {
+        const currentIndex = chain.findIndex((stage) => stage === currentStage)
+        if (currentIndex === -1) {
+          return badRequest("Approval chain is misconfigured for this calendar")
+        }
+
+        const nextStage = chain[currentIndex + 1]
+        if (!nextStage) {
+          calendar.status = CALENDAR_STATUS.APPROVED
+          calendar.currentApprovalStage = null
+          calendar.currentChainIndex = null
+        } else {
+          const nextStatus = APPROVER_TO_STATUS[nextStage]
+          calendar.status = nextStatus
+          calendar.currentApprovalStage = nextStage
+          calendar.currentChainIndex = currentIndex + 1
+        }
+      } else {
+        // Legacy/default flow fallback
+        const nextStatus = STAGE_TO_STATUS[user.subRole]
+        calendar.status = nextStatus
+
+        if (nextStatus === CALENDAR_STATUS.APPROVED) {
+          calendar.currentApprovalStage = null
+        } else {
+          const nextApprover = STATUS_TO_APPROVER[nextStatus]
+          calendar.currentApprovalStage = nextApprover
+        }
+      }
+    }
+
+    if (calendar.status === CALENDAR_STATUS.APPROVED) {
       calendar.approvedAt = new Date()
       calendar.currentApprovalStage = null
+      calendar.currentChainIndex = null
       
       // Create individual events from calendar
       await this._createEventsFromCalendar(calendar)
-    } else {
-      // Set next approval stage
-      const nextApprover = STATUS_TO_APPROVER[nextStatus]
-      calendar.currentApprovalStage = nextApprover
     }
 
     await calendar.save()
@@ -310,6 +360,8 @@ class CalendarService extends BaseService {
     calendar.rejectedBy = user._id
     calendar.rejectedAt = new Date()
     calendar.currentApprovalStage = null
+    calendar.customApprovalChain = []
+    calendar.currentChainIndex = null
     await calendar.save()
 
     // Log the rejection
@@ -530,6 +582,36 @@ class CalendarService extends BaseService {
       endDate: event?.endDate || event?.scheduledEndDate || event?.tentativeDate || event?.scheduledDate,
       estimatedBudget: event?.estimatedBudget || 0,
     }
+  }
+
+  _validatePostStudentAffairsChain(nextApprovalStages = []) {
+    if (!Array.isArray(nextApprovalStages) || nextApprovalStages.length === 0) {
+      return {
+        success: false,
+        message:
+          "Student Affairs must select at least one next approval stage (Joint Registrar SA / Associate Dean SA / Dean SA)",
+      }
+    }
+
+    const uniqueStages = [...new Set(nextApprovalStages)]
+    if (uniqueStages.length !== nextApprovalStages.length) {
+      return {
+        success: false,
+        message: "Next approval stages must be unique",
+      }
+    }
+
+    const invalidStage = uniqueStages.find(
+      (stage) => !POST_STUDENT_AFFAIRS_APPROVERS.includes(stage)
+    )
+    if (invalidStage) {
+      return {
+        success: false,
+        message: `Invalid approval stage selected: ${invalidStage}`,
+      }
+    }
+
+    return { success: true, chain: uniqueStages }
   }
 }
 

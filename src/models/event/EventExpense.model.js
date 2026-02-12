@@ -39,9 +39,41 @@ const EventExpenseSchema = new mongoose.Schema(
     notes: { type: String, trim: true },
     approvalStatus: {
       type: String,
-      enum: ["pending", "approved"],
-      default: "pending",
+      enum: [
+        "pending",
+        "pending_student_affairs",
+        "pending_joint_registrar",
+        "pending_associate_dean",
+        "pending_dean",
+        "approved",
+        "rejected",
+      ],
+      default: "pending_student_affairs",
     },
+    currentApprovalStage: {
+      type: String,
+      enum: [
+        "Student Affairs",
+        "Joint Registrar SA",
+        "Associate Dean SA",
+        "Dean SA",
+      ],
+      default: "Student Affairs",
+    },
+    customApprovalChain: [
+      {
+        type: String,
+        enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      },
+    ],
+    currentChainIndex: { type: Number, default: null },
+    rejectionReason: { type: String, trim: true, default: "" },
+    rejectedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    rejectedAt: { type: Date, default: null },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

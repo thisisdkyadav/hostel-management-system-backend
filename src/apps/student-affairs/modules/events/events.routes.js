@@ -276,6 +276,14 @@ router.post(
   eventsController.approveExpense
 )
 
+// Reject expense submission (Admin only)
+router.post(
+  "/expenses/:id/reject",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  validate(validation.rejectionSchema),
+  eventsController.rejectExpense
+)
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GENERAL EVENT ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════

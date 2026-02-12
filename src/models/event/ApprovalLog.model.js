@@ -9,7 +9,7 @@ const ApprovalLogSchema = new mongoose.Schema(
   {
     entityType: {
       type: String,
-      enum: ["ActivityCalendar", "EventProposal", "CalendarAmendment"],
+      enum: ["ActivityCalendar", "EventProposal", "CalendarAmendment", "EventExpense"],
       required: true,
     },
     entityId: {

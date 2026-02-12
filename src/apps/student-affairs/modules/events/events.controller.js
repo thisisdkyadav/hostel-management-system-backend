@@ -65,7 +65,12 @@ export const checkCalendarOverlap = asyncHandler(async (req, res) => {
 })
 
 export const approveCalendar = asyncHandler(async (req, res) => {
-  const result = await calendarService.approveCalendar(req.params.id, req.body.comments, req.user)
+  const result = await calendarService.approveCalendar(
+    req.params.id,
+    req.body.comments,
+    req.user,
+    req.body.nextApprovalStages
+  )
   sendRawResponse(res, result)
 })
 
@@ -124,7 +129,12 @@ export const updateProposal = asyncHandler(async (req, res) => {
 })
 
 export const approveProposal = asyncHandler(async (req, res) => {
-  const result = await proposalService.approveProposal(req.params.id, req.body.comments, req.user)
+  const result = await proposalService.approveProposal(
+    req.params.id,
+    req.body.comments,
+    req.user,
+    req.body.nextApprovalStages
+  )
   sendRawResponse(res, result)
 })
 
@@ -194,7 +204,17 @@ export const getAllExpenses = asyncHandler(async (req, res) => {
 })
 
 export const approveExpense = asyncHandler(async (req, res) => {
-  const result = await expenseService.approveExpense(req.params.id, req.body.comments, req.user)
+  const result = await expenseService.approveExpense(
+    req.params.id,
+    req.body.comments,
+    req.user,
+    req.body.nextApprovalStages
+  )
+  sendRawResponse(res, result)
+})
+
+export const rejectExpense = asyncHandler(async (req, res) => {
+  const result = await expenseService.rejectExpense(req.params.id, req.body.reason, req.user)
   sendRawResponse(res, result)
 })
 

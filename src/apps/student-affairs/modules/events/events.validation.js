@@ -5,7 +5,7 @@
 
 import Joi from "joi"
 import { objectId } from "../../../../validations/common.validation.js"
-import { EVENT_CATEGORY } from "./events.constants.js"
+import { EVENT_CATEGORY, POST_STUDENT_AFFAIRS_APPROVERS } from "./events.constants.js"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMMON SCHEMAS
@@ -66,6 +66,11 @@ export const calendarYearSchema = Joi.object({
 
 export const approvalActionSchema = Joi.object({
   comments: Joi.string().trim().max(1000),
+  nextApprovalStages: Joi.array()
+    .items(Joi.string().valid(...POST_STUDENT_AFFAIRS_APPROVERS))
+    .min(1)
+    .max(POST_STUDENT_AFFAIRS_APPROVERS.length)
+    .unique(),
 })
 
 export const submitCalendarSchema = Joi.object({
