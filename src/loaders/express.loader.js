@@ -18,11 +18,12 @@ import env from '../config/env.config.js';
 import { errorHandler, notFoundHandler } from '../core/errors/errorHandler.js';
 
 // Controllers for special routes (SSO verify needs special CORS handling)
-import { verifySSOToken } from '../apps/hostel/controllers/ssoController.js';
+import { verifySSOToken } from '../apps/auth/modules/sso/sso.controller.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUB-APPLICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
+import authApp from '../apps/auth/index.js';
 import hostelApp from '../apps/hostel/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
 
@@ -128,6 +129,9 @@ export const initializeExpress = (app) => {
   // SUB-APPLICATIONS (API v1)
   // ═══════════════════════════════════════════════════════════════════════════
   
+  // Auth and Identity
+  app.use('/api/v1', authApp);
+
   // Hostel Management System (main app)
   app.use('/api/v1', hostelApp);
   

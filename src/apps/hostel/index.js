@@ -4,7 +4,6 @@
  * @module apps/hostel
  *
  * This app contains all the existing hostel management functionality:
- * - Authentication & SSO
  * - Student management
  * - Complaint handling
  * - Visitor management
@@ -21,7 +20,6 @@ import express from 'express';
 // ROUTE IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import authRoutes from './routes/auth.routes.js';
 import wardenRoutes from './routes/warden.routes.js';
 import studentRoutes from './routes/student.routes.js';
 import adminRoutes from './routes/admin.routes.js';
@@ -53,7 +51,6 @@ import sheetRoutes from './routes/sheet.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import configRoutes from './routes/config.routes.js';
 import studentProfileRoutes from './routes/studentProfile.routes.js';
-import ssoRoutes from './routes/sso.routes.js';
 import leaveRoutes from './routes/leave.routes.js';
 import emailRoutes from './routes/email.routes.js';
 
@@ -75,10 +72,6 @@ router.get('/health', (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // ROUTE MOUNTING
 // ═══════════════════════════════════════════════════════════════════════════════
-
-// Authentication
-router.use('/auth', authRoutes);
-router.use('/sso', ssoRoutes);
 
 // User management
 router.use('/warden', wardenRoutes);
