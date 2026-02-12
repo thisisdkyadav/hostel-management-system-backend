@@ -787,62 +787,6 @@ class StudentService extends BaseService {
   }
 
   /**
-   * File a complaint
-   */
-  async fileComplaint(userId, complaintData) {
-    const { title, description, complaintType, priority, attachments, location, hostel, roomNumber } = complaintData;
-
-    const newComplaint = new Complaint({
-      userId, title, description, complaintType, priority, attachments, location, hostel, roomNumber
-    });
-    await newComplaint.save();
-
-    return success(newComplaint, 201);
-  }
-
-  /**
-   * Get all complaints for a user
-   */
-  async getAllComplaints(userId) {
-    const complaints = await Complaint.find({ userId })
-      .populate('userId', 'name email role')
-      .exec();
-    
-    return success(complaints);
-  }
-
-  /**
-   * Update a complaint
-   */
-  async updateComplaint(complaintId, updateData) {
-    const updatedComplaint = await Complaint.findOneAndUpdate(
-      { _id: complaintId },
-      { $set: { ...updateData } },
-      { new: true }
-    );
-    
-    if (!updatedComplaint) {
-      return notFound('Complaint not found');
-    }
-    
-    // Note: Message kept same as original for backward compatibility
-    return success(null, 200, 'Complaint deleted successfully');
-  }
-
-  /**
-   * Delete a complaint
-   */
-  async deleteComplaint(complaintId) {
-    const deletedComplaint = await Complaint.findOneAndDelete({ _id: complaintId });
-    
-    if (!deletedComplaint) {
-      return notFound('Complaint not found');
-    }
-    
-    return success(null, 200, 'Complaint deleted successfully');
-  }
-
-  /**
    * Get student ID card
    */
   async getStudentIdCard(userId, currentUser) {

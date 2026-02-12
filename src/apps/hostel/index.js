@@ -23,7 +23,6 @@ import express from 'express';
 import wardenRoutes from './routes/warden.routes.js';
 import studentRoutes from './routes/student.routes.js';
 import adminRoutes from './routes/admin.routes.js';
-import complaintRoutes from './routes/complaint.routes.js';
 import LostAndFoundRoutes from './routes/lostAndFound.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import eventRoutes from './routes/event.routes.js';
@@ -85,9 +84,6 @@ router.use('/family', familyMemberRoutes);
 // Hostel
 router.use('/hostel', hostelRoutes);
 router.use('/dashboard', dashboardRoutes);
-
-// Complaints
-router.use('/complaint', complaintRoutes);
 
 // Events & Lost and Found
 router.use('/event', eventRoutes);

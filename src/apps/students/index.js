@@ -8,6 +8,8 @@
  */
 
 import express from 'express';
+import profilesAdminRoutes from './modules/profiles-admin/profiles-admin.routes.js';
+import profilesSelfRoutes from './modules/profiles-self/profiles-self.routes.js';
 import studentProfileRoutes from './modules/student-profile/student-profile.routes.js';
 
 const router = express.Router();
@@ -22,5 +24,7 @@ router.get('/health', (req, res) => {
 });
 
 router.use('/profile', studentProfileRoutes);
+router.use('/profiles-admin', profilesAdminRoutes);
+router.use('/profiles-self', profilesSelfRoutes);
 
 export default router;

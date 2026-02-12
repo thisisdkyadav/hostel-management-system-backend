@@ -12,10 +12,6 @@ import {
   getStudentDetails,
   getStudentProfile,
   updateStudentProfile,
-  fileComplaint,
-  getAllComplaints,
-  updateComplaint,
-  deleteComplaint,
   updateStudentsProfiles,
   getMultipleStudentDetails,
   getStudentDashboard,
@@ -83,32 +79,6 @@ router.put(
 );
 router.post('/profiles/status', authorizeRoles(['Admin']), bulkUpdateStudentsStatus);
 router.put('/profiles/day-scholar', authorizeRoles(['Admin']), bulkUpdateDayScholarDetails);
-
-// Student complaint routes
-router.post(
-  '/:userId/complaints',
-  authorizeRoles(['Student']),
-  requirePermission('complaints', 'create'),
-  fileComplaint
-);
-router.get(
-  '/:userId/complaints',
-  authorizeRoles(['Student']),
-  requirePermission('complaints', 'view'),
-  getAllComplaints
-);
-router.put(
-  '/complaints/:complaintId',
-  authorizeRoles(['Student']),
-  requirePermission('complaints', 'edit'),
-  updateComplaint
-);
-router.delete(
-  '/complaints/:complaintId',
-  authorizeRoles(['Student']),
-  requirePermission('complaints', 'delete'),
-  deleteComplaint
-);
 
 // Student ID card routes
 router.get(
