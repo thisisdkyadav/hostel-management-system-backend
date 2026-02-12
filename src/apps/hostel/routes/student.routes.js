@@ -23,12 +23,6 @@ import {
   getStudentIdCard,
   uploadStudentIdCard,
 } from '../../students/modules/profiles-self/profiles-self.controller.js';
-import {
-  getDepartmentsList,
-  getDegreesList,
-  renameDepartment,
-  renameDegree,
-} from '../controllers/adminController.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
 import { requirePermission } from '../../../utils/permissions.js';
@@ -90,19 +84,5 @@ router.get(
   getStudentIdCard
 );
 router.post('/:userId/id-card', authorizeRoles(['Student']), uploadStudentIdCard);
-
-// Department & degree routes
-router.get(
-  '/departments/list',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
-  getDepartmentsList
-);
-router.put('/departments/rename', authorizeRoles(['Admin']), renameDepartment);
-router.get(
-  '/degrees/list',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
-  getDegreesList
-);
-router.put('/degrees/rename', authorizeRoles(['Admin']), renameDegree);
 
 export default router;

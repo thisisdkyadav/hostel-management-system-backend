@@ -139,50 +139,6 @@ export const getTaskStats = asyncHandler(async (req, res) => {
 });
 
 /**
- * Get list of departments
- */
-export const getDepartmentsList = asyncHandler(async (req, res) => {
-  const result = await adminService.getDepartmentsList();
-  return res.status(result.statusCode).json(result.data);
-});
-
-/**
- * Rename a department
- */
-export const renameDepartment = asyncHandler(async (req, res) => {
-  const { oldName, newName } = req.body;
-  const result = await adminService.renameDepartment(oldName, newName);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message });
-  }
-
-  return res.status(result.statusCode).json({ message: result.message });
-});
-
-/**
- * Get list of degrees
- */
-export const getDegreesList = asyncHandler(async (req, res) => {
-  const result = await adminService.getDegreesList();
-  return res.status(result.statusCode).json(result.data);
-});
-
-/**
- * Rename a degree
- */
-export const renameDegree = asyncHandler(async (req, res) => {
-  const { oldName, newName } = req.body;
-  const result = await adminService.renameDegree(oldName, newName);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message });
-  }
-
-  return res.status(result.statusCode).json({ message: result.message });
-});
-
-/**
  * Get maintenance staff statistics
  */
 export const getMaintenanceStaffStats = asyncHandler(async (req, res) => {

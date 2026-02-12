@@ -4,15 +4,13 @@
  * @module services/admin
  */
 
-import { BaseService, success, notFound, badRequest, withTransaction } from '../../../services/base/index.js';
+import { BaseService, success, notFound, badRequest } from '../../../services/base/index.js';
 import { Warden } from '../../../models/index.js';
 import { User } from '../../../models/index.js';
 import bcrypt from 'bcrypt';
 import { Security } from '../../../models/index.js';
 import { MaintenanceStaff } from '../../../models/index.js';
 import { Task } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { Configuration } from '../../../models/index.js';
 import { Complaint } from '../../../models/index.js';
 
 class AdminService extends BaseService {
@@ -241,68 +239,6 @@ class AdminService extends BaseService {
       categoryCounts: formatStats(categoryStats),
       priorityCounts: formatStats(priorityStats),
       overdueTasks
-    });
-  }
-
-  /**
-   * Get list of departments
-   */
-  async getDepartmentsList() {
-    const departments = await StudentProfile.distinct('department');
-    return success(departments);
-  }
-
-  /**
-   * Rename a department
-   */
-  async renameDepartment(oldName, newName) {
-    return withTransaction(async (session) => {
-      await StudentProfile.updateMany(
-        { department: oldName },
-        { $set: { department: newName } },
-        { session }
-      );
-
-      const departments = await Configuration.findOne({ key: 'departments' }).session(session);
-      if (!departments) {
-        return notFound('Departments configuration not found');
-      }
-
-      departments.value = departments.value.map((d) => d === oldName ? newName : d);
-      await departments.save({ session });
-
-      return success(null, 200, 'Department renamed successfully');
-    });
-  }
-
-  /**
-   * Get list of degrees
-   */
-  async getDegreesList() {
-    const degrees = await StudentProfile.distinct('degree');
-    return success(degrees);
-  }
-
-  /**
-   * Rename a degree
-   */
-  async renameDegree(oldName, newName) {
-    return withTransaction(async (session) => {
-      await StudentProfile.updateMany(
-        { degree: oldName },
-        { $set: { degree: newName } },
-        { session }
-      );
-
-      const degrees = await Configuration.findOne({ key: 'degrees' }).session(session);
-      if (!degrees) {
-        return notFound('Degrees configuration not found');
-      }
-
-      degrees.value = degrees.value.map((d) => d === oldName ? newName : d);
-      await degrees.save({ session });
-
-      return success(null, 200, 'Degree renamed successfully');
     });
   }
 

@@ -127,3 +127,35 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
     message: result.message,
   });
 });
+
+export const getDepartmentsList = asyncHandler(async (req, res) => {
+  const result = await profilesAdminService.getDepartmentsList();
+  return res.status(result.statusCode).json(result.data);
+});
+
+export const renameDepartment = asyncHandler(async (req, res) => {
+  const { oldName, newName } = req.body;
+  const result = await profilesAdminService.renameDepartment(oldName, newName);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
+
+export const getDegreesList = asyncHandler(async (req, res) => {
+  const result = await profilesAdminService.getDegreesList();
+  return res.status(result.statusCode).json(result.data);
+});
+
+export const renameDegree = asyncHandler(async (req, res) => {
+  const { oldName, newName } = req.body;
+  const result = await profilesAdminService.renameDegree(oldName, newName);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
+
+  return res.status(result.statusCode).json({ message: result.message });
+});

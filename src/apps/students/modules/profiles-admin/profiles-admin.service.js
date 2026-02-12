@@ -4,16 +4,19 @@
  */
 
 import BaseService from '../../../../services/base/BaseService.js';
-import { success, notFound, badRequest } from '../../../../services/base/index.js';
-import { StudentProfile } from '../../../../models/index.js';
-import { RoomAllocation } from '../../../../models/index.js';
-import { Room } from '../../../../models/index.js';
-import { Unit } from '../../../../models/index.js';
+import { success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import {
+  StudentProfile,
+  RoomAllocation,
+  Room,
+  Unit,
+  User,
+  Hostel,
+  Configuration,
+} from '../../../../models/index.js';
 import mongoose from 'mongoose';
-import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
 import { formatDate } from '../../../../utils/utils.js';
-import { Hostel } from '../../../../models/index.js';
 
 class ProfilesAdminService extends BaseService {
   constructor() {
@@ -716,6 +719,72 @@ class ProfilesAdminService extends BaseService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Get distinct departments from student profiles
+   */
+  async getDepartmentsList() {
+    const departments = await StudentProfile.distinct('department');
+    return success(departments);
+  }
+
+  /**
+   * Rename a department in student profiles and configuration
+   */
+  async renameDepartment(oldName, newName) {
+    return withTransaction(async (session) => {
+      await StudentProfile.updateMany(
+        { department: oldName },
+        { $set: { department: newName } },
+        { session }
+      );
+
+      const departments = await Configuration.findOne({ key: 'departments' }).session(session);
+      if (!departments) {
+        return notFound('Departments configuration not found');
+      }
+
+      departments.value = departments.value.map((department) => (
+        department === oldName ? newName : department
+      ));
+      await departments.save({ session });
+
+      return success(null, 200, 'Department renamed successfully');
+    });
+  }
+
+  /**
+   * Get distinct degrees from student profiles
+   */
+  async getDegreesList() {
+    const degrees = await StudentProfile.distinct('degree');
+    return success(degrees);
+  }
+
+  /**
+   * Rename a degree in student profiles and configuration
+   */
+  async renameDegree(oldName, newName) {
+    return withTransaction(async (session) => {
+      await StudentProfile.updateMany(
+        { degree: oldName },
+        { $set: { degree: newName } },
+        { session }
+      );
+
+      const degrees = await Configuration.findOne({ key: 'degrees' }).session(session);
+      if (!degrees) {
+        return notFound('Degrees configuration not found');
+      }
+
+      degrees.value = degrees.value.map((degree) => (
+        degree === oldName ? newName : degree
+      ));
+      await degrees.save({ session });
+
+      return success(null, 200, 'Degree renamed successfully');
+    });
   }
 }
 

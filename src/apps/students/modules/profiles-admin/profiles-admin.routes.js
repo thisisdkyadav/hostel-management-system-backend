@@ -17,6 +17,10 @@ import {
   updateStudentProfile,
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
+  getDepartmentsList,
+  renameDepartment,
+  getDegreesList,
+  renameDegree,
 } from './profiles-admin.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -65,5 +69,17 @@ router.get(
 router.post('/profiles/status', authorizeRoles(['Admin']), bulkUpdateStudentsStatus);
 router.put('/profiles/day-scholar', authorizeRoles(['Admin']), bulkUpdateDayScholarDetails);
 router.put('/hostels/:hostelId/room-allocations', authorizeRoles(['Admin']), updateRoomAllocations);
+router.get(
+  '/departments/list',
+  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
+  getDepartmentsList
+);
+router.put('/departments/rename', authorizeRoles(['Admin']), renameDepartment);
+router.get(
+  '/degrees/list',
+  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
+  getDegreesList
+);
+router.put('/degrees/rename', authorizeRoles(['Admin']), renameDegree);
 
 export default router;
