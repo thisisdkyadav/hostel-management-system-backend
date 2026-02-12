@@ -40,9 +40,7 @@ import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
 import staffAttendanceRoutes from './routes/staffAttendance.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
-import permissionRoutes from './routes/permission.routes.js';
 import taskRoutes from './routes/task.routes.js';
-import userRoutes from './routes/user.routes.js';
 import undertakingRoutes from './routes/undertaking.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
 import liveCheckInOutRoutes from './routes/liveCheckInOut.routes.js';
@@ -78,8 +76,6 @@ router.use('/warden', wardenRoutes);
 router.use('/admin', adminRoutes);
 router.use('/security', securityRoutes);
 router.use('/super-admin', superAdminRoutes);
-router.use('/users', userRoutes);
-router.use('/permissions', permissionRoutes);
 
 // Student
 router.use('/student', studentRoutes);

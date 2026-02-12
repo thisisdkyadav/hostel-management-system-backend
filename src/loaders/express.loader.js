@@ -24,6 +24,7 @@ import { verifySSOToken } from '../apps/auth/modules/sso/sso.controller.js';
 // SUB-APPLICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
 import authApp from '../apps/auth/index.js';
+import iamApp from '../apps/iam/index.js';
 import hostelApp from '../apps/hostel/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
 
@@ -131,6 +132,7 @@ export const initializeExpress = (app) => {
   
   // Auth and Identity
   app.use('/api/v1', authApp);
+  app.use('/api/v1', iamApp);
 
   // Hostel Management System (main app)
   app.use('/api/v1', hostelApp);
