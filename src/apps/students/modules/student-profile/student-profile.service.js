@@ -4,13 +4,13 @@
  * @module services/studentProfile
  */
 
-import BaseService from '../../../services/base/BaseService.js';
-import { success, notFound, badRequest, forbidden } from '../../../services/base/ServiceResponse.js';
-import { StudentProfile } from '../../../models/index.js';
-import { User } from '../../../models/index.js';
-import { FamilyMember } from '../../../models/index.js';
-import { getConfigWithDefault } from '../../../utils/configDefaults.js';
-import { Health } from '../../../models/index.js';
+import BaseService from '../../../../services/base/BaseService.js';
+import { success, notFound, badRequest, forbidden } from '../../../../services/base/ServiceResponse.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { User } from '../../../../models/index.js';
+import { FamilyMember } from '../../../../models/index.js';
+import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
+import { Health } from '../../../../models/index.js';
 
 class StudentProfileService extends BaseService {
   constructor() {

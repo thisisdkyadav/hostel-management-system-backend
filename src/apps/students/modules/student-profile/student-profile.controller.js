@@ -6,8 +6,8 @@
  * @module controllers/studentProfile
  */
 
-import { studentProfileService } from '../services/studentProfile.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { studentProfileService } from './student-profile.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get only editable profile fields

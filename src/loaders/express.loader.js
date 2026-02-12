@@ -26,6 +26,7 @@ import { verifySSOToken } from '../apps/auth/modules/sso/sso.controller.js';
 import authApp from '../apps/auth/index.js';
 import iamApp from '../apps/iam/index.js';
 import hostelApp from '../apps/hostel/index.js';
+import studentsApp from '../apps/students/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -136,6 +137,9 @@ export const initializeExpress = (app) => {
 
   // Hostel Management System (main app)
   app.use('/api/v1', hostelApp);
+
+  // Students domain app
+  app.use('/api/v1/students', studentsApp);
   
   // Student Affairs System (modular app)
   app.use('/api/v1/student-affairs', studentAffairsApp);
