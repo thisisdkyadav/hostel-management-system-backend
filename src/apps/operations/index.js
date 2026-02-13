@@ -16,6 +16,7 @@
  * - /security/* -> security gate workflows
  * - /face-scanner/* -> scanner device + management workflows
  * - /dashboard/* -> operational dashboard analytics
+ * - /stats/* -> cross-domain operational statistics
  */
 
 import express from 'express';
@@ -30,6 +31,7 @@ import onlineUsersRoutes from './modules/online-users/online-users.routes.js';
 import securityRoutes from './modules/security/security.routes.js';
 import faceScannerRoutes from './modules/face-scanner/face-scanner.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
+import statsRoutes from './modules/stats/stats.routes.js';
 
 const router = express.Router();
 
@@ -44,5 +46,6 @@ router.use('/online-users', onlineUsersRoutes);
 router.use('/security', securityRoutes);
 router.use('/face-scanner', faceScannerRoutes);
 router.use('/dashboard', dashboardRoutes);
+router.use('/stats', statsRoutes);
 
 export default router;

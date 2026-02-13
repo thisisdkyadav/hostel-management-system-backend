@@ -5,17 +5,17 @@
  * @module services/stats
  */
 
-import { Hostel } from '../../../models/index.js';
-import { Warden } from '../../../models/index.js';
-import { Complaint } from '../../../models/index.js';
-import { Event } from '../../../models/index.js';
-import { LostAndFound } from '../../../models/index.js';
-import { Security } from '../../../models/index.js';
-import { MaintenanceStaff } from '../../../models/index.js';
-import { Room } from '../../../models/index.js';
-import { RoomChangeRequest } from '../../../models/index.js';
-import { Visitors } from '../../../models/index.js';
-import { success } from '../../../services/base/index.js';
+import { Hostel } from '../../../../models/index.js';
+import { Warden } from '../../../../models/index.js';
+import { Complaint } from '../../../../models/index.js';
+import { Event } from '../../../../models/index.js';
+import { LostAndFound } from '../../../../models/index.js';
+import { Security } from '../../../../models/index.js';
+import { MaintenanceStaff } from '../../../../models/index.js';
+import { Room } from '../../../../models/index.js';
+import { RoomChangeRequest } from '../../../../models/index.js';
+import { Visitors } from '../../../../models/index.js';
+import { success } from '../../../../services/base/index.js';
 
 class StatsService {
   /**

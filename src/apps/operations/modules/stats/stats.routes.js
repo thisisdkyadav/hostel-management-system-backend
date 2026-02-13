@@ -2,7 +2,7 @@
  * Stats Routes
  * Handles various statistics endpoints
  * 
- * Base path: /api/stats
+ * Base path: /api/v1/stats
  */
 
 import express from 'express';
@@ -17,8 +17,8 @@ import {
   getVisitorStats,
   getEventStats,
   getWardenStats,
-} from '../controllers/statsController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
+} from './stats.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
 
 const router = express.Router();
 

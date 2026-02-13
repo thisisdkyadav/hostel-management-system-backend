@@ -6,8 +6,8 @@
  * @module controllers/stats
  */
 
-import { statsService } from '../services/stats.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { statsService } from './stats.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get hostel statistics
