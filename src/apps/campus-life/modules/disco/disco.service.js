@@ -5,9 +5,9 @@
  * @module services/disCo.service
  */
 
-import { DisCoAction } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, notFound, USER_BASIC } from '../../../services/base/index.js';
+import { DisCoAction } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, notFound } from '../../../../services/base/index.js';
 
 class DisCoService extends BaseService {
   constructor() {
@@ -32,7 +32,7 @@ class DisCoService extends BaseService {
       reason,
       actionTaken,
       date,
-      remarks
+      remarks,
     });
 
     if (result.success) {
@@ -55,7 +55,7 @@ class DisCoService extends BaseService {
       return success({
         success: true,
         message: 'Disciplinary actions fetched successfully',
-        actions: result.data
+        actions: result.data,
       });
     }
     return result;

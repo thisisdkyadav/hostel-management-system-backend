@@ -2,7 +2,7 @@
  * DisCo (Disciplinary Committee) Routes
  * Handles disciplinary actions for students
  * 
- * Base path: /api/disCo
+ * Base path: /api/v1/disCo
  */
 
 import express from 'express';
@@ -11,10 +11,10 @@ import {
   getDisCoActionsByStudent,
   updateDisCoAction,
   deleteDisCoAction,
-} from '../controllers/disCoController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './disco.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

@@ -10,6 +10,7 @@
  * - /feedback/* -> feedback operations
  * - /notification/* -> notifications
  * - /undertaking/* -> undertaking workflows
+ * - /disCo/* -> disciplinary committee actions
  */
 
 import express from 'express';
@@ -18,6 +19,7 @@ import lostAndFoundRoutes from './modules/lost-and-found/lost-and-found.routes.j
 import feedbackRoutes from './modules/feedback/feedback.routes.js';
 import notificationsRoutes from './modules/notifications/notifications.routes.js';
 import undertakingsRoutes from './modules/undertakings/undertakings.routes.js';
+import disCoRoutes from './modules/disco/disco.routes.js';
 
 const router = express.Router();
 
@@ -26,5 +28,6 @@ router.use('/lost-and-found', lostAndFoundRoutes);
 router.use('/feedback', feedbackRoutes);
 router.use('/notification', notificationsRoutes);
 router.use('/undertaking', undertakingsRoutes);
+router.use('/disCo', disCoRoutes);
 
 export default router;

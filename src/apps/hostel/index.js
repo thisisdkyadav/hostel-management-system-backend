@@ -18,7 +18,6 @@ import adminRoutes from './routes/admin.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
-import disCoRoutes from './routes/disco.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
 // Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
@@ -67,7 +66,6 @@ router.use('/email', emailRoutes);
 
 // Certificates & DisCo
 router.use('/certificate', certificateRoutes);
-router.use('/disCo', disCoRoutes);
 
 // Attendance & Leave
 router.use('/leave', leaveRoutes);
