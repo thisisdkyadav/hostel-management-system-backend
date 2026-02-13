@@ -6,7 +6,7 @@
 import { CheckInOut } from "../../../models/index.js"
 import { StudentProfile } from "../../../models/index.js"
 import { getIO } from "../../../loaders/socket.loader.js"
-import * as liveCheckInOutService from "./liveCheckInOut.service.js"
+import * as liveCheckInOutService from "../../operations/modules/live-checkinout/live-checkinout.service.js"
 
 /**
  * Process student entry via hostel gate scanner

@@ -29,7 +29,6 @@ export { default as inventoryRoutes } from './inventory.routes.js';
 // Attendance & Leave
 export { default as leaveRoutes } from './leave.routes.js';
 export { default as staffAttendanceRoutes } from './staffAttendance.routes.js';
-export { default as liveCheckInOutRoutes } from './liveCheckInOut.routes.js';
 
 // Face Scanner
 export { default as faceScannerRoutes } from './faceScanner.routes.js';

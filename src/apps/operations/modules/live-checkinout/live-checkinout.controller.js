@@ -1,7 +1,5 @@
-import { CheckInOut } from "../../../models/index.js"
-import { Hostel } from "../../../models/index.js"
-import * as liveCheckInOutService from "../services/liveCheckInOut.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import * as liveCheckInOutService from './live-checkinout.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get live check-in/out entries with advanced filters

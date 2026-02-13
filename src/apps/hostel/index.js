@@ -38,7 +38,6 @@ import staffAttendanceRoutes from './routes/staffAttendance.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
 import undertakingRoutes from './routes/undertaking.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
-import liveCheckInOutRoutes from './routes/liveCheckInOut.routes.js';
 import faceScannerRoutes from './routes/faceScanner.routes.js';
 import sheetRoutes from './routes/sheet.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
@@ -102,7 +101,6 @@ router.use('/inventory', inventoryRoutes);
 // Attendance & Leave
 router.use('/staff', staffAttendanceRoutes);
 router.use('/leave', leaveRoutes);
-router.use('/live-checkinout', liveCheckInOutRoutes);
 
 // Configuration
 router.use('/config', configRoutes);

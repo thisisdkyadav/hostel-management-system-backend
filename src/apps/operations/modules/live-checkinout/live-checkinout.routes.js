@@ -2,7 +2,7 @@
  * Live Check-In/Out Routes
  * Handles real-time check-in/out monitoring and analytics
  * 
- * Base path: /api/live-checkinout
+ * Base path: /api/v1/live-checkinout
  */
 
 import express from 'express';
@@ -11,9 +11,9 @@ import {
   getHostelWiseStats,
   getRecentActivity,
   getTimeBasedAnalytics,
-} from '../controllers/liveCheckInOutController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './live-checkinout.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

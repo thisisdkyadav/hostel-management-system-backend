@@ -21,7 +21,6 @@ export * from './hostelSupervisorController.js';
 export * from './insuranceProviderController.js';
 export * from './inventoryItemTypeController.js';
 export * from './leaveController.js';
-export * from './liveCheckInOutController.js';
 export * from './lostAndFoundController.js';
 export * from './notificationController.js';
 export * from './onlineUsersController.js';
