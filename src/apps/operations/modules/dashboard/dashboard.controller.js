@@ -6,8 +6,8 @@
  * @module controllers/dashboardController
  */
 
-import { dashboardService } from '../services/dashboard.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { dashboardService } from './dashboard.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get dashboard data for admin

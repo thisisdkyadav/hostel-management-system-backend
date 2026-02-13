@@ -20,7 +20,6 @@ import uploadRoutes from './routes/upload.routes.js';
 // Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
-import dashboardRoutes from './routes/dashboard.routes.js';
 import configRoutes from './routes/config.routes.js';
 import emailRoutes from './routes/email.routes.js';
 
@@ -50,9 +49,6 @@ router.use('/super-admin', superAdminRoutes);
 
 // Student
 router.use('/family', familyMemberRoutes);
-
-// Hostel
-router.use('/dashboard', dashboardRoutes);
 
 // Email
 router.use('/email', emailRoutes);

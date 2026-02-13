@@ -2,7 +2,7 @@
  * Dashboard Routes
  * Handles dashboard data and statistics
  * 
- * Base path: /api/dashboard
+ * Base path: /api/v1/dashboard
  */
 
 import express from 'express';
@@ -14,10 +14,10 @@ import {
   getComplaintsStatistics,
   getStudentCount,
   getWardenHostelStatistics,
-} from '../controllers/dashboardController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './dashboard.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 
