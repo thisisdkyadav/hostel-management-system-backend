@@ -19,7 +19,7 @@ export { default as dashboardRoutes } from './dashboard.routes.js';
 export { default as familyMemberRoutes } from './familyMember.routes.js';
 
 // Events & Lost and Found
-export { default as lostAndFoundRoutes } from './lostAndFound.routes.js';
+// Lost and found moved to apps/campus-life
 
 // Attendance & Leave
 export { default as leaveRoutes } from './leave.routes.js';

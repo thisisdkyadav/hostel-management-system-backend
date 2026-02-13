@@ -2,7 +2,7 @@
  * Lost and Found Routes
  * Handles lost and found item management
  * 
- * Base path: /api/lost-and-found
+ * Base path: /api/v1/lost-and-found
  */
 
 import express from 'express';
@@ -11,10 +11,10 @@ import {
   getLostAndFound,
   updateLostAndFound,
   deleteLostAndFound,
-} from '../controllers/lostAndFoundController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './lost-and-found.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

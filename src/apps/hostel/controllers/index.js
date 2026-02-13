@@ -18,7 +18,6 @@ export * from './hostelGateController.js';
 export * from './hostelSupervisorController.js';
 export * from './insuranceProviderController.js';
 export * from './leaveController.js';
-export * from './lostAndFoundController.js';
 export * from './notificationController.js';
 export * from './onlineUsersController.js';
 export * from './paymentController.js';

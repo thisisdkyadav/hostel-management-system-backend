@@ -15,7 +15,6 @@ import express from 'express';
 
 import wardenRoutes from './routes/warden.routes.js';
 import adminRoutes from './routes/admin.routes.js';
-import LostAndFoundRoutes from './routes/lostAndFound.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
@@ -65,9 +64,6 @@ router.use('/family', familyMemberRoutes);
 
 // Hostel
 router.use('/dashboard', dashboardRoutes);
-
-// Lost and Found
-router.use('/lost-and-found', LostAndFoundRoutes);
 
 // Feedback
 router.use('/feedback', feedbackRoutes);

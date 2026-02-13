@@ -5,8 +5,8 @@
  * @module services/lostAndFound.service
  */
 
-import { LostAndFound } from '../../../models/index.js';
-import { BaseService, success } from '../../../services/base/index.js';
+import { LostAndFound } from '../../../../models/index.js';
+import { BaseService, success } from '../../../../services/base/index.js';
 
 class LostAndFoundService extends BaseService {
   constructor() {
@@ -50,7 +50,7 @@ class LostAndFoundService extends BaseService {
       return success({
         message: 'Lost and found item updated successfully',
         success: true,
-        lostAndFoundItem: result.data
+        lostAndFoundItem: result.data,
       });
     }
     return result;
