@@ -2,15 +2,15 @@
  * Email Routes
  * Handles custom email sending operations
  *
- * Base path: /api/email
+ * Base path: /api/v1/email
  */
 
 import express from 'express';
-import { sendEmail, checkStatus } from '../controllers/emailController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { validate } from '../../../middlewares/validate.middleware.js';
-import { sendEmailSchema } from '../../../validations/email.validation.js';
+import { sendEmail, checkStatus } from './email.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { validate } from '../../../../middlewares/validate.middleware.js';
+import { sendEmailSchema } from '../../../../validations/email.validation.js';
 
 const router = express.Router();
 

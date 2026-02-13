@@ -18,7 +18,6 @@ import adminRoutes from './routes/admin.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 // Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
-import emailRoutes from './routes/email.routes.js';
 
 const router = express.Router();
 
@@ -43,9 +42,6 @@ router.get('/health', (req, res) => {
 router.use('/warden', wardenRoutes);
 router.use('/admin', adminRoutes);
 router.use('/super-admin', superAdminRoutes);
-
-// Email
-router.use('/email', emailRoutes);
 
 // Upload (needs special handling - see express.loader.js)
 router.use('/upload', uploadRoutes);

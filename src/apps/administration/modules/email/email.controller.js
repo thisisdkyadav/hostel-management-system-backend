@@ -5,8 +5,8 @@
  * @module controllers/emailController
  */
 
-import { asyncHandler, sendRawResponse } from '../../../utils/index.js';
-import { emailCustomService } from '../services/email.custom.service.js';
+import { asyncHandler, sendRawResponse } from '../../../../utils/index.js';
+import { emailCustomService } from './email.service.js';
 
 /**
  * Send custom email

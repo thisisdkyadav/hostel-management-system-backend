@@ -5,9 +5,9 @@
  * @module services/email.custom.service
  */
 
-import { emailService } from '../../../services/email/index.js';
-import { ServiceResponse } from '../../../services/base/ServiceResponse.js';
-import logger from '../../../services/base/Logger.js';
+import { emailService } from '../../../../services/email/index.js';
+import { ServiceResponse } from '../../../../services/base/ServiceResponse.js';
+import logger from '../../../../services/base/Logger.js';
 
 class EmailCustomService {
   /**
