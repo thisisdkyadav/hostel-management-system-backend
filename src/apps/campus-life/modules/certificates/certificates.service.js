@@ -5,9 +5,9 @@
  * @module services/certificate.service
  */
 
-import { Certificate } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, notFound, PRESETS } from '../../../services/base/index.js';
+import { Certificate } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, notFound, PRESETS } from '../../../../services/base/index.js';
 
 class CertificateService extends BaseService {
   constructor() {
@@ -32,7 +32,7 @@ class CertificateService extends BaseService {
       certificateType,
       certificateUrl,
       issueDate,
-      remarks
+      remarks,
     });
 
     if (result.success) {
@@ -58,7 +58,7 @@ class CertificateService extends BaseService {
       return success({
         success: true,
         message: 'Certificates fetched successfully',
-        certificates: result.data
+        certificates: result.data,
       });
     }
     return result;

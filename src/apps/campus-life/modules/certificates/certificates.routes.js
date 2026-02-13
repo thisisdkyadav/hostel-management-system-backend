@@ -2,7 +2,7 @@
  * Certificate Routes
  * Handles student certificate management
  * 
- * Base path: /api/certificate
+ * Base path: /api/v1/certificate
  */
 
 import express from 'express';
@@ -11,10 +11,10 @@ import {
   getCertificatesByStudent,
   updateCertificate,
   deleteCertificate,
-} from '../controllers/certificateController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './certificates.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

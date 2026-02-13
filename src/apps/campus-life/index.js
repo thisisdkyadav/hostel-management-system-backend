@@ -11,6 +11,7 @@
  * - /notification/* -> notifications
  * - /undertaking/* -> undertaking workflows
  * - /disCo/* -> disciplinary committee actions
+ * - /certificate/* -> certificate workflows
  */
 
 import express from 'express';
@@ -20,6 +21,7 @@ import feedbackRoutes from './modules/feedback/feedback.routes.js';
 import notificationsRoutes from './modules/notifications/notifications.routes.js';
 import undertakingsRoutes from './modules/undertakings/undertakings.routes.js';
 import disCoRoutes from './modules/disco/disco.routes.js';
+import certificatesRoutes from './modules/certificates/certificates.routes.js';
 
 const router = express.Router();
 
@@ -29,5 +31,6 @@ router.use('/feedback', feedbackRoutes);
 router.use('/notification', notificationsRoutes);
 router.use('/undertaking', undertakingsRoutes);
 router.use('/disCo', disCoRoutes);
+router.use('/certificate', certificatesRoutes);
 
 export default router;
