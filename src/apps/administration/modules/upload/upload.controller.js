@@ -6,8 +6,8 @@
  * @module controllers/upload
  */
 
-import { uploadService } from '../services/upload.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { uploadService } from './upload.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get file from request (supports both single file and files array)

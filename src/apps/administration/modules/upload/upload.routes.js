@@ -2,7 +2,7 @@
  * Upload Routes
  * Handles file uploads for various purposes
  * 
- * Base path: /api/upload
+ * Base path: /api/v1/upload
  */
 
 import express from 'express';
@@ -18,9 +18,9 @@ import {
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
-} from '../controllers/uploadController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './upload.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 
