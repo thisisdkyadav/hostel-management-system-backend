@@ -39,9 +39,6 @@ FeedbackTokenSchema.index(
   { expireAfterSeconds: 7 * 24 * 60 * 60 }
 );
 
-// Index for token lookups
-FeedbackTokenSchema.index({ token: 1 });
-
 // Index for finding tokens by complaint
 FeedbackTokenSchema.index({ complaintId: 1 });
 

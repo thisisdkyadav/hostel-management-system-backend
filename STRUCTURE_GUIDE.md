@@ -146,6 +146,13 @@ Rule: new features must go to the owning app module. Do not recreate a generic `
 - Keep business logic and data coordination in services.
 - Use `src/services/base/ServiceResponse.js` helpers (`success`, `badRequest`, `notFound`, etc.) for consistent contracts.
 
+### 5.4 Models
+
+- Define an index in one place only:
+  - use field-level options (for example `unique: true`) **or**
+  - use `Schema.index(...)`
+- Do not define the same index in both places, to avoid duplicate-index warnings at startup.
+
 ## 6. Add New Work
 
 ### 6.1 Add Module To Existing App

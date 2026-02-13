@@ -103,7 +103,6 @@ EventExpenseSchema.pre("save", function (next) {
 })
 
 // Indexes
-EventExpenseSchema.index({ eventId: 1 })
 EventExpenseSchema.index({ submittedBy: 1 })
 EventExpenseSchema.index({ approvalStatus: 1 })
 

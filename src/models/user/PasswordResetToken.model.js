@@ -40,7 +40,6 @@ PasswordResetTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Index for faster lookups
 PasswordResetTokenSchema.index({ userId: 1 });
-PasswordResetTokenSchema.index({ token: 1 });
 
 /**
  * Check if token is valid (not used and not expired)

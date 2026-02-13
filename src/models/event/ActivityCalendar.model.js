@@ -88,7 +88,6 @@ const ActivityCalendarSchema = new mongoose.Schema(
 )
 
 // Index for quick lookup
-ActivityCalendarSchema.index({ academicYear: 1 })
 ActivityCalendarSchema.index({ status: 1 })
 ActivityCalendarSchema.index({ createdBy: 1 })
 
