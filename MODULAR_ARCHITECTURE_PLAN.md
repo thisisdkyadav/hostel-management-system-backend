@@ -1,5 +1,8 @@
 # Modular Architecture Plan - Student Management System
 
+> **Archive Note (February 13, 2026)**: This document is historical context from the initial migration stage.
+> The current source of truth is `STRUCTURE_GUIDE.md`.
+>
 > **Created**: January 31, 2026  
 > **Updated**: January 31, 2026  
 > **Status**: IMPLEMENTED (Phase 1)
