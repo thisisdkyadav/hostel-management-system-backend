@@ -38,9 +38,7 @@ backend/
 │   │       └── *.routes.js       # Individual route files
 │   ├── services/                 # Business logic services
 │   │   ├── index.js              # Service exports
-│   │   ├── storage.service.js    # Azure/local file storage
-│   │   ├── notification.service.js
-│   │   └── payment.service.js
+│   │   └── base/                 # Shared base service infrastructure
 │   ├── external/                 # External API for third parties
 │   │   ├── index.js              # External API router
 │   │   ├── middleware/           # API key authentication
