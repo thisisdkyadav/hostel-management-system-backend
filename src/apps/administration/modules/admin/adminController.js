@@ -6,8 +6,8 @@
  * @module controllers/admin
  */
 
-import { adminService } from '../services/admin.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { adminService } from './admin.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Create a security user

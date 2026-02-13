@@ -1,5 +1,5 @@
-import { insuranceProviderService } from "../services/insuranceProvider.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import { insuranceProviderService } from "./insuranceProvider.service.js"
+import { asyncHandler } from "../../../../utils/index.js"
 
 // Helper: Error format { message, error }
 const sendResponse = (res, result) => {

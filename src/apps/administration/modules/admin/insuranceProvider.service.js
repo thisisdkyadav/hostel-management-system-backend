@@ -5,10 +5,10 @@
  * @module services/insuranceProvider.service
  */
 
-import { InsuranceProvider } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { Health } from '../../../models/index.js';
-import { BaseService, success, notFound, badRequest, withTransaction } from '../../../services/base/index.js';
+import { InsuranceProvider } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { Health } from '../../../../models/index.js';
+import { BaseService, success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
 
 class InsuranceProviderService extends BaseService {
   constructor() {

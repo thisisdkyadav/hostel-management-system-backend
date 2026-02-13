@@ -2,7 +2,7 @@
  * Admin Routes
  * Handles admin operations - staff management, hostels, health, insurance
  * 
- * Base path: /api/admin
+ * Base path: /api/v1/admin
  */
 
 import express from 'express';
@@ -11,7 +11,7 @@ import {
   getHostels,
   getHostelList,
   updateHostel,
-} from '../controllers/hostelController.js';
+} from './hostelController.js';
 import {
   createSecurity,
   getAllSecurities,
@@ -24,32 +24,32 @@ import {
   deleteMaintenanceStaff,
   getTaskStats,
   getMaintenanceStaffStats,
-} from '../controllers/adminController.js';
+} from './adminController.js';
 import {
   createWarden,
   getAllWardens,
   updateWarden,
   deleteWarden,
-} from '../../administration/modules/warden/warden.controller.js';
+} from '../warden/warden.controller.js';
 import {
   createAssociateWarden,
   getAllAssociateWardens,
   updateAssociateWarden,
   deleteAssociateWarden,
-} from '../../administration/modules/warden/associate-warden.controller.js';
+} from '../warden/associate-warden.controller.js';
 import {
   createHostelSupervisor,
   getAllHostelSupervisors,
   updateHostelSupervisor,
   deleteHostelSupervisor,
-} from '../../administration/modules/warden/hostel-supervisor.controller.js';
+} from '../warden/hostel-supervisor.controller.js';
 import {
   getInsuranceProviders,
   createInsuranceProvider,
   updateInsuranceProvider,
   deleteInsuranceProvider,
   updateBulkStudentInsurance,
-} from '../controllers/insuranceProviderController.js';
+} from './insuranceProviderController.js';
 import {
   getHealth,
   updateHealth,
@@ -58,15 +58,15 @@ import {
   updateInsuranceClaim,
   deleteInsuranceClaim,
   updateBulkStudentHealth,
-} from '../controllers/healthController.js';
+} from './healthController.js';
 import {
   createHostelGate,
   getAllHostelGates,
   updateHostelGate,
   deleteHostelGate,
-} from '../controllers/hostelGateController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './hostelGateController.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

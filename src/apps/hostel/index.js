@@ -13,7 +13,6 @@ import express from 'express';
 // ROUTE IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import adminRoutes from './routes/admin.routes.js';
 // Payment routes removed - unused feature
 
 const router = express.Router();
@@ -35,8 +34,7 @@ router.get('/health', (req, res) => {
 // ROUTE MOUNTING
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// User management
-router.use('/admin', adminRoutes);
+// No remaining domain routes in hostel app; kept for health checks during migration.
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXPORTS

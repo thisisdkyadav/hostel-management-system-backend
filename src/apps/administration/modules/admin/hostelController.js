@@ -5,8 +5,8 @@
  * @module controllers/hostelController
  */
 
-import { hostelService } from '../services/hostel.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { hostelService } from './hostel.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 export const addHostel = asyncHandler(async (req, res) => {
   const result = await hostelService.addHostel(req.body);

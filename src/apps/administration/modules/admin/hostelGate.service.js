@@ -5,11 +5,11 @@
  * @module services/hostelGate.service
  */
 
-import { HostelGate } from '../../../models/index.js';
-import { Hostel } from '../../../models/index.js';
-import { User } from '../../../models/index.js';
+import { HostelGate } from '../../../../models/index.js';
+import { Hostel } from '../../../../models/index.js';
+import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
-import { BaseService, success, notFound, conflict, error } from '../../../services/base/index.js';
+import { BaseService, success, notFound, conflict, error } from '../../../../services/base/index.js';
 
 class HostelGateService extends BaseService {
   constructor() {

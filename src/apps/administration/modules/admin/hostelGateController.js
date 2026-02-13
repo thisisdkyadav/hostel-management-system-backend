@@ -1,5 +1,5 @@
-import { hostelGateService } from "../services/hostelGate.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import { hostelGateService } from "./hostelGate.service.js"
+import { asyncHandler } from "../../../../utils/index.js"
 
 // Helper: Error format { message }
 const sendResponse = (res, result) => {

@@ -10,13 +10,13 @@ import {
   notFound,
   badRequest,
   withTransaction,
-} from '../../../services/base/index.js';
+} from '../../../../services/base/index.js';
 import {
   Hostel,
   Room,
   Unit,
   Complaint,
-} from '../../../models/index.js';
+} from '../../../../models/index.js';
 
 class HostelService extends BaseService {
   constructor() {

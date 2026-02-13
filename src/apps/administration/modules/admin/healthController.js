@@ -6,8 +6,8 @@
  * @module controllers/health
  */
 
-import { healthService } from '../services/health.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { healthService } from './health.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get health record for a user

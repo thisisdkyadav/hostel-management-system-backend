@@ -11,6 +11,7 @@
  * - /upload/* -> file upload operations
  * - /super-admin/* -> super admin operations
  * - /warden/* -> warden/associate/supervisor profile operations
+ * - /admin/* -> admin management operations
  */
 
 import express from 'express';
@@ -20,6 +21,7 @@ import emailRoutes from './modules/email/email.routes.js';
 import uploadRoutes from './modules/upload/upload.routes.js';
 import superAdminRoutes from './modules/super-admin/super-admin.routes.js';
 import wardenRoutes from './modules/warden/warden.routes.js';
+import adminRoutes from './modules/admin/admin.routes.js';
 
 const router = express.Router();
 
@@ -29,5 +31,6 @@ router.use('/email', emailRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/super-admin', superAdminRoutes);
 router.use('/warden', wardenRoutes);
+router.use('/admin', adminRoutes);
 
 export default router;

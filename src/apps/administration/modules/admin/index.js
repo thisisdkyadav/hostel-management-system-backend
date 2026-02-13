@@ -1,0 +1,11 @@
+export { default as adminRoutes } from './admin.routes.js';
+export * from './adminController.js';
+export { adminService } from './admin.service.js';
+export * from './hostelController.js';
+export { hostelService } from './hostel.service.js';
+export * from './insuranceProviderController.js';
+export { insuranceProviderService } from './insuranceProvider.service.js';
+export * from './healthController.js';
+export { healthService } from './health.service.js';
+export * from './hostelGateController.js';
+export { hostelGateService } from './hostelGate.service.js';
