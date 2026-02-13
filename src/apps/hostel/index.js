@@ -17,7 +17,6 @@ import wardenRoutes from './routes/warden.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import statsRoutes from './routes/stats.routes.js';
-import feedbackRoutes from './routes/feedback.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import disCoRoutes from './routes/disco.routes.js';
@@ -64,9 +63,6 @@ router.use('/family', familyMemberRoutes);
 
 // Hostel
 router.use('/dashboard', dashboardRoutes);
-
-// Feedback
-router.use('/feedback', feedbackRoutes);
 
 // Notifications
 router.use('/notification', notificationRoutes);

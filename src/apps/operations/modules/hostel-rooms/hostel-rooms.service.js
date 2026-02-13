@@ -493,7 +493,7 @@ class HostelRoomsService extends BaseService {
       if (allocationIds.length > 0) {
         await StudentProfile.updateMany(
           { currentRoomAllocation: { $in: allocationIds } },
-          { $unset: { currentRoomAllocation: undefined } },
+          { $unset: { currentRoomAllocation: '' } },
           { session },
         );
         await RoomAllocation.collection.deleteMany(

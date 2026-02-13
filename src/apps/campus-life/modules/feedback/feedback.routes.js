@@ -2,7 +2,7 @@
  * Feedback Routes
  * Handles student feedback management
  * 
- * Base path: /api/feedback
+ * Base path: /api/v1/feedback
  */
 
 import express from 'express';
@@ -14,10 +14,10 @@ import {
   replyToFeedback,
   updateFeedback,
   deleteFeedback,
-} from '../controllers/feedbackController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './feedback.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

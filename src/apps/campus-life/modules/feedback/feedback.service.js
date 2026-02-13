@@ -5,9 +5,9 @@
  * @module services/feedback.service
  */
 
-import { Feedback } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, badRequest, PRESETS } from '../../../services/base/index.js';
+import { Feedback } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, badRequest, PRESETS } from '../../../../services/base/index.js';
 
 class FeedbackService extends BaseService {
   constructor() {
@@ -32,7 +32,7 @@ class FeedbackService extends BaseService {
       userId,
       hostelId: studentProfile.currentRoomAllocation.hostelId,
       title: data.title,
-      description: data.description
+      description: data.description,
     });
 
     if (result.success) {
@@ -99,7 +99,7 @@ class FeedbackService extends BaseService {
   async updateFeedback(feedbackId, data) {
     const result = await this.updateById(feedbackId, {
       title: data.title,
-      description: data.description
+      description: data.description,
     });
     if (result.success) {
       return success({ message: 'Feedback updated successfully', feedback: result.data, success: true });

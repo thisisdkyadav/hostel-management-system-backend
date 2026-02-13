@@ -30,8 +30,7 @@ export { default as faceScannerRoutes } from './faceScanner.routes.js';
 // Notifications
 export { default as notificationRoutes } from './notification.routes.js';
 
-// Feedback
-export { default as feedbackRoutes } from './feedback.routes.js';
+// Feedback moved to apps/campus-life
 
 // Certificates & Undertakings
 export { default as certificateRoutes } from './certificate.routes.js';
