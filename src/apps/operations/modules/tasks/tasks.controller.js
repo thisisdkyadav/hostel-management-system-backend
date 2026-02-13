@@ -1,13 +1,13 @@
 /**
- * Task Controller
+ * Tasks Controller
  * Handles HTTP requests for task operations.
- * Business logic delegated to TaskService.
+ * Business logic delegated to tasksService.
  * 
- * @module controllers/task
+ * @module apps/operations/modules/tasks/controller
  */
 
-import { taskService } from '../services/task.service.js';
-import { asyncHandler } from '../../../utils/controllerHelpers.js';
+import { tasksService } from './tasks.service.js';
+import { asyncHandler } from '../../../../utils/controllerHelpers.js';
 
 /**
  * Helper: Send raw response (preserves existing format)
@@ -26,7 +26,7 @@ const sendResponse = (res, result) => {
  * @route POST /api/tasks
  */
 export const createTask = asyncHandler(async (req, res) => {
-  const result = await taskService.createTask(req.body, req.user._id);
+  const result = await tasksService.createTask(req.body, req.user._id);
   sendResponse(res, result);
 });
 
@@ -35,7 +35,7 @@ export const createTask = asyncHandler(async (req, res) => {
  * @route GET /api/tasks
  */
 export const getAllTasks = asyncHandler(async (req, res) => {
-  const result = await taskService.getAllTasks(req.query);
+  const result = await tasksService.getAllTasks(req.query);
   sendResponse(res, result);
 });
 
@@ -44,7 +44,7 @@ export const getAllTasks = asyncHandler(async (req, res) => {
  * @route GET /api/tasks/user
  */
 export const getUserTasks = asyncHandler(async (req, res) => {
-  const result = await taskService.getUserTasks(req.user._id, req.query);
+  const result = await tasksService.getUserTasks(req.user._id, req.query);
   sendResponse(res, result);
 });
 
@@ -53,7 +53,7 @@ export const getUserTasks = asyncHandler(async (req, res) => {
  * @route PATCH /api/tasks/:id/status
  */
 export const updateTaskStatus = asyncHandler(async (req, res) => {
-  const result = await taskService.updateTaskStatus(req.params.id, req.body.status, req.user);
+  const result = await tasksService.updateTaskStatus(req.params.id, req.body.status, req.user);
   sendResponse(res, result);
 });
 
@@ -62,7 +62,7 @@ export const updateTaskStatus = asyncHandler(async (req, res) => {
  * @route PUT /api/tasks/:id
  */
 export const updateTask = asyncHandler(async (req, res) => {
-  const result = await taskService.updateTask(req.params.id, req.body);
+  const result = await tasksService.updateTask(req.params.id, req.body);
   sendResponse(res, result);
 });
 
@@ -71,7 +71,7 @@ export const updateTask = asyncHandler(async (req, res) => {
  * @route DELETE /api/tasks/:id
  */
 export const deleteTask = asyncHandler(async (req, res) => {
-  const result = await taskService.deleteTask(req.params.id);
+  const result = await tasksService.deleteTask(req.params.id);
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
   }

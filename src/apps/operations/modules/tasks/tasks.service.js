@@ -1,15 +1,20 @@
 /**
- * Task Service
+ * Tasks Service
  * Contains all business logic for task operations.
  * 
- * @module services/task
+ * @module apps/operations/modules/tasks/service
  */
 
-import { Task } from '../../../models/index.js';
-import { User } from '../../../models/index.js';
-import { BaseService, success, notFound, badRequest, forbidden, PRESETS } from '../../../services/base/index.js';
+import { Task, User } from '../../../../models/index.js';
+import {
+  BaseService,
+  success,
+  notFound,
+  badRequest,
+  forbidden,
+} from '../../../../services/base/index.js';
 
-class TaskService extends BaseService {
+class TasksService extends BaseService {
   constructor() {
     super(Task, 'Task');
   }
@@ -225,5 +230,5 @@ class TaskService extends BaseService {
   }
 }
 
-export const taskService = new TaskService();
-export default taskService;
+export const tasksService = new TasksService();
+export default tasksService;

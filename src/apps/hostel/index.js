@@ -36,7 +36,6 @@ import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
 import staffAttendanceRoutes from './routes/staffAttendance.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
-import taskRoutes from './routes/task.routes.js';
 import undertakingRoutes from './routes/undertaking.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
 import liveCheckInOutRoutes from './routes/liveCheckInOut.routes.js';
@@ -104,9 +103,6 @@ router.use('/inventory', inventoryRoutes);
 router.use('/staff', staffAttendanceRoutes);
 router.use('/leave', leaveRoutes);
 router.use('/live-checkinout', liveCheckInOutRoutes);
-
-// Tasks
-router.use('/tasks', taskRoutes);
 
 // Configuration
 router.use('/config', configRoutes);

@@ -34,9 +34,6 @@ export { default as liveCheckInOutRoutes } from './liveCheckInOut.routes.js';
 // Face Scanner
 export { default as faceScannerRoutes } from './faceScanner.routes.js';
 
-// Tasks
-export { default as taskRoutes } from './task.routes.js';
-
 // Notifications
 export { default as notificationRoutes } from './notification.routes.js';
 

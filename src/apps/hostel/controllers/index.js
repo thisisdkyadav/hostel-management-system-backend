@@ -33,7 +33,6 @@ export * from './staffAttendanceController.js';
 export * from './statsController.js';
 export * from './studentInventoryController.js';
 export * from './superAdminControllers.js';
-export * from './taskController.js';
 export * from './undertakingController.js';
 export * from './uploadController.js';
 export * from './wardenController.js';

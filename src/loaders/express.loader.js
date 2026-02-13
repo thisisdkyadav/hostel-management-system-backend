@@ -30,6 +30,7 @@ import hostelApp from '../apps/hostel/index.js';
 import studentsApp from '../apps/students/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
 import visitorsApp from '../apps/visitors/index.js';
+import operationsApp from '../apps/operations/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,6 +139,7 @@ export const initializeExpress = (app) => {
   app.use('/api/v1', iamApp);
   app.use('/api/v1', complaintsApp);
   app.use('/api/v1', visitorsApp);
+  app.use('/api/v1', operationsApp);
 
   // Hostel Management System (main app)
   app.use('/api/v1', hostelApp);

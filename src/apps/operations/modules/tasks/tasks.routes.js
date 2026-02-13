@@ -1,8 +1,8 @@
 /**
- * Task Routes
+ * Tasks Routes
  * Handles task management for staff
  * 
- * Base path: /api/tasks
+ * Base path: /api/v1/tasks
  */
 
 import express from 'express';
@@ -13,9 +13,9 @@ import {
   updateTaskStatus,
   updateTask,
   deleteTask,
-} from '../controllers/taskController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './tasks.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 
