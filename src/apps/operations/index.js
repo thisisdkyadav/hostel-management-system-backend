@@ -12,6 +12,7 @@
  * - /hostel/* -> room/unit/allocation operations
  * - /leave/* -> leave management
  * - /sheet/* -> allocation reporting
+ * - /online-users/* -> online presence tracking
  */
 
 import express from 'express';
@@ -22,6 +23,7 @@ import staffAttendanceRoutes from './modules/staff-attendance/staff-attendance.r
 import hostelRoomsRoutes from './modules/hostel-rooms/hostel-rooms.routes.js';
 import leaveRoutes from './modules/leave/leave.routes.js';
 import sheetRoutes from './modules/sheet/sheet.routes.js';
+import onlineUsersRoutes from './modules/online-users/online-users.routes.js';
 
 const router = express.Router();
 
@@ -32,5 +34,6 @@ router.use('/staff', staffAttendanceRoutes);
 router.use('/hostel', hostelRoomsRoutes);
 router.use('/leave', leaveRoutes);
 router.use('/sheet', sheetRoutes);
+router.use('/online-users', onlineUsersRoutes);
 
 export default router;

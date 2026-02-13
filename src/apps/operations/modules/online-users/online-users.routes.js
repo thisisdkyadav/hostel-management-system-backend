@@ -2,7 +2,7 @@
  * Online Users Routes
  * Handles online user tracking and statistics
  * 
- * Base path: /api/online-users
+ * Base path: /api/v1/online-users
  */
 
 import express from 'express';
@@ -10,9 +10,9 @@ import {
   getOnlineUsers,
   getOnlineStats,
   getOnlineUserByUserId,
-} from '../controllers/onlineUsersController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './online-users.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

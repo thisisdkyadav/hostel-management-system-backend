@@ -5,9 +5,13 @@
  * @module services/onlineUsers.service
  */
 
-import { getOnlineUsers as getRedisOnlineUsers, getOnlineStats as getRedisOnlineStats, getUserOnlineData } from '../../../utils/redisOnlineUsers.js';
-import { Hostel } from '../../../models/index.js';
-import { success, notFound, error } from '../../../services/base/index.js';
+import {
+  getOnlineUsers as getRedisOnlineUsers,
+  getOnlineStats as getRedisOnlineStats,
+  getUserOnlineData,
+} from '../../../../utils/redisOnlineUsers.js';
+import { Hostel } from '../../../../models/index.js';
+import { success, notFound, error } from '../../../../services/base/index.js';
 
 class OnlineUsersService {
   /**
@@ -42,7 +46,7 @@ class OnlineUsersService {
 
           users = users.map((u) => ({
             ...u,
-            hostelName: u.hostelId ? hostelMap[u.hostelId.toString()] : null
+            hostelName: u.hostelId ? hostelMap[u.hostelId.toString()] : null,
           }));
         }
       }
@@ -53,8 +57,8 @@ class OnlineUsersService {
           total,
           page: parseInt(page),
           limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit))
-        }
+          totalPages: Math.ceil(total / parseInt(limit)),
+        },
       });
     } catch (err) {
       return error('Failed to fetch online users', 500, err.message);
