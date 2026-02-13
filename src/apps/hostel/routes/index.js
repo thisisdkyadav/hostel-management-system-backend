@@ -33,7 +33,7 @@ export { default as faceScannerRoutes } from './faceScanner.routes.js';
 
 // Certificates & Undertakings
 export { default as certificateRoutes } from './certificate.routes.js';
-export { default as undertakingRoutes } from './undertaking.routes.js';
+// Undertakings moved to apps/campus-life
 
 // Disciplinary Committee
 export { default as disCoRoutes } from './disco.routes.js';

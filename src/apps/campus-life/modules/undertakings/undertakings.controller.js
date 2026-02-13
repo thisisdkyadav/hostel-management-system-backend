@@ -6,8 +6,8 @@
  * @module controllers/undertakingController
  */
 
-import { undertakingService } from '../services/undertaking.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { undertakingService } from './undertakings.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 // Admin APIs
 

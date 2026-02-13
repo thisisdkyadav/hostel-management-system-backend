@@ -2,7 +2,7 @@
  * Undertaking Routes
  * Handles undertaking documents and student assignments
  * 
- * Base path: /api/undertaking
+ * Base path: /api/v1/undertaking
  */
 
 import express from 'express';
@@ -20,9 +20,9 @@ import {
   acceptUndertaking,
   getStudentAcceptedUndertakings,
   getStudentPendingUndertakingsCount,
-} from '../controllers/undertakingController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './undertakings.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

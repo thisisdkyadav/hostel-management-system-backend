@@ -23,7 +23,6 @@ import certificateRoutes from './routes/certificate.routes.js';
 // Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
-import undertakingRoutes from './routes/undertaking.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
 import faceScannerRoutes from './routes/faceScanner.routes.js';
 import sheetRoutes from './routes/sheet.routes.js';
@@ -69,7 +68,6 @@ router.use('/email', emailRoutes);
 // Certificates & DisCo
 router.use('/certificate', certificateRoutes);
 router.use('/disCo', disCoRoutes);
-router.use('/undertaking', undertakingRoutes);
 
 // Attendance & Leave
 router.use('/leave', leaveRoutes);

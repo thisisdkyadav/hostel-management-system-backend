@@ -5,10 +5,10 @@
  * @module services/undertaking
  */
 
-import { Undertaking } from '../../../models/index.js';
-import { UndertakingAssignment } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, notFound, badRequest } from '../../../services/base/index.js';
+import { Undertaking } from '../../../../models/index.js';
+import { UndertakingAssignment } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
 
 class UndertakingService extends BaseService {
   constructor() {

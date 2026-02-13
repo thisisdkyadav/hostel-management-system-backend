@@ -24,6 +24,5 @@ export * from './securityController.js';
 export * from './sheetController.js';
 export * from './statsController.js';
 export * from './superAdminControllers.js';
-export * from './undertakingController.js';
 export * from './uploadController.js';
 export * from './wardenController.js';
