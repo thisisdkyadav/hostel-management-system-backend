@@ -6,8 +6,8 @@
  * @module controllers/sheet
  */
 
-import { sheetService } from '../services/sheet.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { sheetService } from './sheet.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get hostel spreadsheet data for TanStack Table

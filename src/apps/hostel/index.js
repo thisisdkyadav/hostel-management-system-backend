@@ -23,7 +23,6 @@ import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
 import faceScannerRoutes from './routes/faceScanner.routes.js';
-import sheetRoutes from './routes/sheet.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import configRoutes from './routes/config.routes.js';
 import emailRoutes from './routes/email.routes.js';
@@ -68,7 +67,6 @@ router.use('/config', configRoutes);
 // Statistics & Reporting
 router.use('/stats', statsRoutes);
 router.use('/online-users', onlineUsersRoutes);
-router.use('/sheet', sheetRoutes);
 
 // Face Scanner
 router.use('/face-scanner', faceScannerRoutes);

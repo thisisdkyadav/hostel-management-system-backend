@@ -5,10 +5,10 @@
  * @module services/sheet
  */
 
-import { Hostel } from '../../../models/index.js';
-import { Unit } from '../../../models/index.js';
-import { Room } from '../../../models/index.js';
-import { RoomAllocation } from '../../../models/index.js';
+import { Hostel } from '../../../../models/index.js';
+import { Unit } from '../../../../models/index.js';
+import { Room } from '../../../../models/index.js';
+import { RoomAllocation } from '../../../../models/index.js';
 
 class SheetService {
   /**
