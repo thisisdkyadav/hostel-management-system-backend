@@ -135,6 +135,22 @@ export const uploadEventReportPDF = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Upload disciplinary process PDF
+ */
+export const uploadDisCoProcessPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadDisCoProcessPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
  * Upload payment screenshot
  */
 export const uploadPaymentScreenshot = asyncHandler(async (req, res) => {

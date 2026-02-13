@@ -6,6 +6,9 @@
  */
 
 import nodemailer from 'nodemailer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { env } from '../../config/env.config.js';
 import logger from '../base/Logger.js';
 import {
@@ -14,6 +17,10 @@ import {
   customEmailTemplate,
   complaintResolvedTemplate,
 } from './email.templates.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const uploadsRoot = path.join(__dirname, '..', '..', '..', 'uploads');
 
 class EmailService {
   constructor() {
@@ -77,19 +84,21 @@ class EmailService {
    * @param {string} [options.text] - Plain text fallback
    * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
    */
-  async sendEmail({ to, subject, html, text }) {
+  async sendEmail({ to, subject, html, text, attachments = [] }) {
     if (!this.isConfigured) {
       logger.warn('Email not sent - SMTP not configured', { to, subject });
       return { success: false, error: 'Email service not configured' };
     }
 
     try {
+      const normalizedAttachments = this.normalizeAttachments(attachments);
       const mailOptions = {
         from: env.smtp.from,
         to: Array.isArray(to) ? to.join(', ') : to,
         subject,
         html,
         text: text || this.stripHtml(html),
+        attachments: normalizedAttachments,
       };
 
       const result = await this.transporter.sendMail(mailOptions);
@@ -119,7 +128,7 @@ class EmailService {
    * @param {string} [text] - Plain text fallback
    * @returns {Promise<{success: boolean, sent: number, failed: number, errors: string[]}>}
    */
-  async sendBulkEmails(recipients, subject, html, text) {
+  async sendBulkEmails(recipients, subject, html, text, attachments = []) {
     if (!this.isConfigured) {
       return { success: false, sent: 0, failed: recipients.length, errors: ['Email service not configured'] };
     }
@@ -132,7 +141,7 @@ class EmailService {
 
     // Send emails individually for privacy
     for (const recipient of recipients) {
-      const result = await this.sendEmail({ to: recipient, subject, html, text });
+      const result = await this.sendEmail({ to: recipient, subject, html, text, attachments });
       
       if (result.success) {
         results.sent++;
@@ -194,15 +203,57 @@ class EmailService {
    * @param {boolean} [options.useTemplate=true] - Wrap in base template
    * @returns {Promise<{success: boolean, error?: string}>}
    */
-  async sendCustomEmail({ to, subject, body, useTemplate = true }) {
+  async sendCustomEmail({ to, subject, body, useTemplate = true, attachments = [] }) {
     const html = useTemplate ? customEmailTemplate(body, subject) : body;
 
     if (Array.isArray(to) && to.length > 1) {
       // Bulk send for multiple recipients
-      return this.sendBulkEmails(to, subject, html);
+      return this.sendBulkEmails(to, subject, html, undefined, attachments);
     }
 
-    return this.sendEmail({ to, subject, html });
+    return this.sendEmail({ to, subject, html, attachments });
+  }
+
+  /**
+   * Normalize attachment inputs to nodemailer attachment config.
+   * Supports:
+   * - { filename, path }
+   * - { filename, url }
+   * - { filename, fileUrl }
+   */
+  normalizeAttachments(rawAttachments = []) {
+    if (!Array.isArray(rawAttachments) || rawAttachments.length === 0) {
+      return [];
+    }
+
+    const normalized = [];
+
+    for (const attachment of rawAttachments) {
+      if (!attachment) continue;
+      const filename = attachment.filename || attachment.fileName || 'attachment.pdf';
+      const filePath = attachment.path || attachment.url || attachment.fileUrl;
+      if (!filePath || typeof filePath !== 'string') continue;
+
+      if (filePath.startsWith('/uploads/')) {
+        const relativePart = filePath.replace(/^\/uploads\//, '');
+        const absolutePath = path.join(uploadsRoot, relativePart);
+        if (fs.existsSync(absolutePath)) {
+          normalized.push({ filename, path: absolutePath });
+        }
+        continue;
+      }
+
+      if (/^https?:\/\//i.test(filePath)) {
+        normalized.push({ filename, path: filePath });
+        continue;
+      }
+
+      if (path.isAbsolute(filePath) && fs.existsSync(filePath)) {
+        normalized.push({ filename, path: filePath });
+      }
+    }
+
+    return normalized;
   }
 
   /**

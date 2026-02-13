@@ -45,6 +45,16 @@ export const sendEmailSchema = Joi.object({
       .messages({
         'any.only': 'Send type must be either "individual" or "group"',
       }),
+    attachments: Joi.array()
+      .items(
+        Joi.object({
+          filename: Joi.string().min(1).max(255).required(),
+          url: Joi.string().trim().min(1),
+          path: Joi.string().trim().min(1),
+        }).or('url', 'path')
+      )
+      .max(30)
+      .default([]),
   }),
 });
 

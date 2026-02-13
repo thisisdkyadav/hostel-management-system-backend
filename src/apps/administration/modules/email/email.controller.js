@@ -14,13 +14,14 @@ import { emailCustomService } from './email.service.js';
  * @access Private (Admin, Super Admin)
  */
 export const sendEmail = asyncHandler(async (req, res) => {
-  const { to, subject, body, sendType } = req.body;
+  const { to, subject, body, sendType, attachments } = req.body;
 
   const result = await emailCustomService.sendCustomEmail({
     to,
     subject,
     body,
     sendType,
+    attachments,
     sentBy: req.user,
   });
 

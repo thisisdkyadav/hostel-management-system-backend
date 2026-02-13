@@ -15,6 +15,7 @@ import {
   uploadEventChiefGuestPDF,
   uploadEventBillPDF,
   uploadEventReportPDF,
+  uploadDisCoProcessPDF,
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
@@ -61,6 +62,14 @@ router.post('/event-bill-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploa
 
 // Event report PDF upload
 router.post('/event-report-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventReportPDF);
+
+// Disciplinary process document PDF upload
+router.post(
+  '/disco-process-pdf',
+  authorizeRoles(['Student', 'Admin', 'Super Admin']),
+  upload.any(),
+  uploadDisCoProcessPDF
+);
 
 // Payment screenshot upload
 router.post(

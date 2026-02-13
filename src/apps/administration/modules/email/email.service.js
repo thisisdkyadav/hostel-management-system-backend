@@ -20,7 +20,7 @@ class EmailCustomService {
    * @param {Object} options.sentBy - User who sent the email
    * @returns {Promise<ServiceResponse>}
    */
-  async sendCustomEmail({ to, subject, body, sendType = 'individual', sentBy }) {
+  async sendCustomEmail({ to, subject, body, sendType = 'individual', sentBy, attachments = [] }) {
     try {
       // Normalize recipients to array
       const recipients = Array.isArray(to) ? to : [to];
@@ -41,6 +41,7 @@ class EmailCustomService {
           subject,
           body,
           useTemplate: true,
+          attachments,
         });
 
         if (result.success) {
@@ -72,6 +73,7 @@ class EmailCustomService {
           subject,
           body,
           useTemplate: true,
+          attachments,
         });
 
         if (result.success) {
