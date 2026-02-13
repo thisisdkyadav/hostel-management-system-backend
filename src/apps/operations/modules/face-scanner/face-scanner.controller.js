@@ -1,5 +1,5 @@
-import * as faceScannerService from "../services/faceScanner.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import * as faceScannerService from "./face-scanner.service.js"
+import { asyncHandler } from "../../../../utils/index.js"
 
 /**
  * Create a new face scanner

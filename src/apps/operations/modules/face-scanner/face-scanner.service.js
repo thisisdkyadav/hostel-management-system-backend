@@ -3,7 +3,7 @@
  * Handles all business logic for face scanner management
  */
 
-import { FaceScanner } from "../../../models/index.js"
+import { FaceScanner } from "../../../../models/index.js"
 import bcrypt from "bcrypt"
 import crypto from "crypto"
 

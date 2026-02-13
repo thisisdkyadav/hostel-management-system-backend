@@ -2,13 +2,13 @@
  * Face Scanner Routes
  * Handles face scanner management and scan processing
  * 
- * Base path: /api/face-scanner
+ * Base path: /api/v1/face-scanner
  */
 
 import express from 'express';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { authenticateScanner } from '../../../middlewares/faceScannerAuth.middleware.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { authenticateScanner } from '../../../../middlewares/faceScannerAuth.middleware.js';
 import {
   createFaceScanner,
   getAllFaceScanners,
@@ -17,8 +17,8 @@ import {
   deleteFaceScanner,
   regeneratePassword,
   testScannerAuth,
-} from '../controllers/faceScannerController.js';
-import { processScan, ping } from '../controllers/scannerActionController.js';
+} from './face-scanner.controller.js';
+import { processScan, ping } from './scanner-action.controller.js';
 
 const router = express.Router();
 

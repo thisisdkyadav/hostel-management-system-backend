@@ -20,7 +20,6 @@ import uploadRoutes from './routes/upload.routes.js';
 // Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
-import faceScannerRoutes from './routes/faceScanner.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import configRoutes from './routes/config.routes.js';
 import emailRoutes from './routes/email.routes.js';
@@ -63,9 +62,6 @@ router.use('/config', configRoutes);
 
 // Statistics & Reporting
 router.use('/stats', statsRoutes);
-
-// Face Scanner
-router.use('/face-scanner', faceScannerRoutes);
 
 // Upload (needs special handling - see express.loader.js)
 router.use('/upload', uploadRoutes);

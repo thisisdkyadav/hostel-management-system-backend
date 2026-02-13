@@ -14,6 +14,7 @@
  * - /sheet/* -> allocation reporting
  * - /online-users/* -> online presence tracking
  * - /security/* -> security gate workflows
+ * - /face-scanner/* -> scanner device + management workflows
  */
 
 import express from 'express';
@@ -26,6 +27,7 @@ import leaveRoutes from './modules/leave/leave.routes.js';
 import sheetRoutes from './modules/sheet/sheet.routes.js';
 import onlineUsersRoutes from './modules/online-users/online-users.routes.js';
 import securityRoutes from './modules/security/security.routes.js';
+import faceScannerRoutes from './modules/face-scanner/face-scanner.routes.js';
 
 const router = express.Router();
 
@@ -38,5 +40,6 @@ router.use('/leave', leaveRoutes);
 router.use('/sheet', sheetRoutes);
 router.use('/online-users', onlineUsersRoutes);
 router.use('/security', securityRoutes);
+router.use('/face-scanner', faceScannerRoutes);
 
 export default router;

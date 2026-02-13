@@ -1,5 +1,5 @@
-import * as scannerActionService from "../services/scannerAction.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import * as scannerActionService from "./scanner-action.service.js"
+import { asyncHandler } from "../../../../utils/index.js"
 
 /**
  * Scanner Action Controller
