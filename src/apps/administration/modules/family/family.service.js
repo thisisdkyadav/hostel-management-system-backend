@@ -5,10 +5,10 @@
  * @module services/familyMember.service
  */
 
-import { FamilyMember } from '../../../models/index.js';
-import { User } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, notFound, badRequest, withTransaction } from '../../../services/base/index.js';
+import { FamilyMember } from '../../../../models/index.js';
+import { User } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
 
 class FamilyMemberService extends BaseService {
   constructor() {

@@ -2,7 +2,7 @@
  * Family Member Routes
  * Handles student family member management
  * 
- * Base path: /api/family
+ * Base path: /api/v1/family
  */
 
 import express from 'express';
@@ -12,10 +12,10 @@ import {
   updateFamilyMember,
   deleteFamilyMember,
   updateBulkFamilyMembers,
-} from '../controllers/familyMemberController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './family.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

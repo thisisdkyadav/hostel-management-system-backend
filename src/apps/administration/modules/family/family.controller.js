@@ -1,5 +1,5 @@
-import { familyMemberService } from "../services/familyMember.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import { familyMemberService } from "./family.service.js"
+import { asyncHandler } from "../../../../utils/index.js"
 
 // Helper: Error format { message, error }
 const sendResponse = (res, result) => {
