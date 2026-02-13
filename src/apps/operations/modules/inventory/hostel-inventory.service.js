@@ -2,14 +2,12 @@
  * Hostel Inventory Service
  * Contains all business logic for hostel inventory operations.
  * 
- * @module services/hostelInventory
+ * @module apps/operations/modules/inventory/hostel-inventory.service
  */
 
-import { HostelInventory } from '../../../models/index.js';
-import { InventoryItemType } from '../../../models/index.js';
-import { Hostel } from '../../../models/index.js';
+import { HostelInventory, InventoryItemType, Hostel } from '../../../../models/index.js';
 import mongoose from 'mongoose';
-import { BaseService, success, notFound, badRequest } from '../../../services/base/index.js';
+import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
 
 class HostelInventoryService extends BaseService {
   constructor() {

@@ -3,11 +3,11 @@
  * Handles HTTP requests and responses for student inventory operations.
  * Business logic is delegated to studentInventoryService.
  * 
- * @module controllers/studentInventoryController
+ * @module apps/operations/modules/inventory/student-inventory.controller
  */
 
-import { studentInventoryService } from '../services/studentInventory.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { studentInventoryService } from './student-inventory.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 // @desc    Assign inventory items to a student
 // @route   POST /api/inventory/student

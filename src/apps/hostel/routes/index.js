@@ -23,9 +23,6 @@ export { default as familyMemberRoutes } from './familyMember.routes.js';
 export { default as eventRoutes } from './event.routes.js';
 export { default as lostAndFoundRoutes } from './lostAndFound.routes.js';
 
-// Inventory
-export { default as inventoryRoutes } from './inventory.routes.js';
-
 // Attendance & Leave
 export { default as leaveRoutes } from './leave.routes.js';
 export { default as staffAttendanceRoutes } from './staffAttendance.routes.js';

@@ -35,7 +35,6 @@ import certificateRoutes from './routes/certificate.routes.js';
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
 import staffAttendanceRoutes from './routes/staffAttendance.routes.js';
-import inventoryRoutes from './routes/inventory.routes.js';
 import undertakingRoutes from './routes/undertaking.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
 import faceScannerRoutes from './routes/faceScanner.routes.js';
@@ -94,9 +93,6 @@ router.use('/email', emailRoutes);
 router.use('/certificate', certificateRoutes);
 router.use('/disCo', disCoRoutes);
 router.use('/undertaking', undertakingRoutes);
-
-// Inventory
-router.use('/inventory', inventoryRoutes);
 
 // Attendance & Leave
 router.use('/staff', staffAttendanceRoutes);

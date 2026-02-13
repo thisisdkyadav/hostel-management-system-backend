@@ -3,11 +3,11 @@
  * Handles HTTP requests for hostel inventory operations.
  * Business logic delegated to HostelInventoryService.
  * 
- * @module controllers/hostelInventory
+ * @module apps/operations/modules/inventory/hostel-inventory.controller
  */
 
-import { hostelInventoryService } from '../services/hostelInventory.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { hostelInventoryService } from './hostel-inventory.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Assign inventory items to a hostel

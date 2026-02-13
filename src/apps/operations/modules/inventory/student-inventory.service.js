@@ -2,13 +2,11 @@
  * Student Inventory Service
  * Contains all business logic for student inventory operations.
  * 
- * @module services/studentInventory
+ * @module apps/operations/modules/inventory/student-inventory.service
  */
 
-import { StudentInventory } from '../../../models/index.js';
-import { HostelInventory } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, notFound, badRequest } from '../../../services/base/index.js';
+import { StudentInventory, HostelInventory, StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
 
 class StudentInventoryService extends BaseService {
   constructor() {

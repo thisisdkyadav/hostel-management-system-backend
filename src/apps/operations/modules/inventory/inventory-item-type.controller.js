@@ -1,5 +1,5 @@
-import { inventoryItemTypeService } from "../services/inventoryItemType.service.js"
-import { asyncHandler } from "../../../utils/controllerHelpers.js"
+import { inventoryItemTypeService } from './inventory-item-type.service.js';
+import { asyncHandler } from '../../../../utils/controllerHelpers.js';
 
 /**
  * Helper: Error format with error field

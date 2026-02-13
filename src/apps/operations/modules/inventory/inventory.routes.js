@@ -2,7 +2,7 @@
  * Inventory Routes
  * Handles inventory item types, hostel inventory, and student inventory
  * 
- * Base path: /api/inventory
+ * Base path: /api/v1/inventory
  */
 
 import express from 'express';
@@ -13,7 +13,7 @@ import {
   updateInventoryItemType,
   deleteInventoryItemType,
   updateInventoryItemTypeCount,
-} from '../controllers/inventoryItemTypeController.js';
+} from './inventory-item-type.controller.js';
 import {
   assignInventoryToHostel,
   getHostelInventory,
@@ -21,7 +21,7 @@ import {
   updateHostelInventory,
   deleteHostelInventory,
   getInventorySummaryByHostel,
-} from '../controllers/hostelInventoryController.js';
+} from './hostel-inventory.controller.js';
 import {
   assignInventoryToStudent,
   getStudentInventory,
@@ -30,10 +30,10 @@ import {
   updateInventoryStatus,
   getInventorySummaryByStudent,
   getInventorySummaryByItemType,
-} from '../controllers/studentInventoryController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './student-inventory.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

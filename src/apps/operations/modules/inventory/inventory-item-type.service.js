@@ -2,11 +2,22 @@
  * Inventory Item Type Service
  * Handles inventory item type operations
  * 
- * @module services/inventoryItemType.service
+ * @module apps/operations/modules/inventory/inventory-item-type.service
  */
 
-import { InventoryItemType } from '../../../models/index.js';
-import { BaseService, success, badRequest, notFound, conflict, error } from '../../../services/base/index.js';
+import {
+  InventoryItemType,
+  HostelInventory,
+  StudentInventory,
+} from '../../../../models/index.js';
+import {
+  BaseService,
+  success,
+  badRequest,
+  notFound,
+  conflict,
+  error,
+} from '../../../../services/base/index.js';
 
 class InventoryItemTypeService extends BaseService {
   constructor() {
@@ -123,14 +134,12 @@ class InventoryItemTypeService extends BaseService {
       }
 
       // Check usage in hostel inventory
-      const HostelInventory = (await import('../../models/HostelInventory.js')).default;
       const hostelCount = await HostelInventory.countDocuments({ itemTypeId: id });
       if (hostelCount > 0) {
         return badRequest('Cannot delete inventory item type that is assigned to hostels');
       }
 
       // Check usage in student inventory
-      const StudentInventory = (await import('../../models/StudentInventory.js')).default;
       const studentCount = await StudentInventory.countDocuments({ itemTypeId: id });
       if (studentCount > 0) {
         return badRequest('Cannot delete inventory item type that is assigned to students');
