@@ -36,6 +36,4 @@ export * from './superAdminControllers.js';
 export * from './taskController.js';
 export * from './undertakingController.js';
 export * from './uploadController.js';
-export * from './visitorController.js';
-export * from './visitorProfileController.js';
 export * from './wardenController.js';

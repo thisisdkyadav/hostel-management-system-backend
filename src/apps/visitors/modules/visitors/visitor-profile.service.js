@@ -2,11 +2,11 @@
  * Visitor Profile Service
  * Handles saved visitor profile operations
  * 
- * @module services/visitorProfile.service
+ * @module apps/visitors/modules/visitors/visitor-profile.service
  */
 
-import { VisitorProfile } from '../../../models/index.js';
-import { BaseService, success } from '../../../services/base/index.js';
+import { VisitorProfile } from '../../../../models/index.js';
+import { BaseService, success } from '../../../../services/base/index.js';
 
 class VisitorProfileService extends BaseService {
   constructor() {

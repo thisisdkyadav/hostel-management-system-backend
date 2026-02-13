@@ -28,7 +28,6 @@ import hostelRoutes from './routes/hostel.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
-import visitorRoutes from './routes/visitor.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import disCoRoutes from './routes/disco.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
@@ -83,9 +82,6 @@ router.use('/dashboard', dashboardRoutes);
 // Events & Lost and Found
 router.use('/event', eventRoutes);
 router.use('/lost-and-found', LostAndFoundRoutes);
-
-// Visitor
-router.use('/visitor', visitorRoutes);
 
 // Feedback
 router.use('/feedback', feedbackRoutes);

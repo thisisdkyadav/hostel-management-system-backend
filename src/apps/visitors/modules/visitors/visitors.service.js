@@ -1,19 +1,22 @@
 /**
- * Visitor Service
+ * Visitors Service
  * Contains all business logic for visitor request operations.
  * 
- * @module services/visitor
+ * @module apps/visitors/modules/visitors/service
  */
 
-import mongoose from 'mongoose';
-import { VisitorRequest } from '../../../models/index.js';
-import { Unit } from '../../../models/index.js';
-import { Room } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { getConfigWithDefault } from '../../../utils/configDefaults.js';
-import { BaseService, success, notFound, badRequest, forbidden, error, withTransaction } from '../../../services/base/index.js';
+import { VisitorRequest, Unit, Room, StudentProfile } from '../../../../models/index.js';
+import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
+import {
+  BaseService,
+  success,
+  notFound,
+  badRequest,
+  forbidden,
+  withTransaction,
+} from '../../../../services/base/index.js';
 
-class VisitorService extends BaseService {
+class VisitorsService extends BaseService {
   constructor() {
     super(VisitorRequest, 'Visitor request');
   }
@@ -375,5 +378,5 @@ class VisitorService extends BaseService {
   }
 }
 
-export const visitorService = new VisitorService();
-export default visitorService;
+export const visitorsService = new VisitorsService();
+export default visitorsService;

@@ -1,8 +1,8 @@
 /**
- * Visitor Routes
+ * Visitors Routes
  * Handles visitor requests, profiles, check-in/out
  * 
- * Base path: /api/visitor
+ * Base path: /api/v1/visitor
  */
 
 import express from 'express';
@@ -19,15 +19,15 @@ import {
   updateCheckTime,
   getStudentVisitorRequests,
   updatePaymentInfo,
-} from '../controllers/visitorController.js';
+} from './visitors.controller.js';
 import {
   getVisitorProfiles,
   createVisitorProfile,
   deleteVisitorProfile,
   updateVisitorProfile,
-} from '../controllers/visitorProfileController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './visitor-profile.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

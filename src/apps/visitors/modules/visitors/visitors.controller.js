@@ -1,16 +1,16 @@
 /**
- * Visitor Controller
+ * Visitors Controller
  * Handles HTTP requests and responses for visitor request operations.
- * Business logic is delegated to visitorService.
+ * Business logic is delegated to visitorsService.
  * 
- * @module controllers/visitorController
+ * @module apps/visitors/modules/visitors/controller
  */
 
-import { visitorService } from '../services/visitor.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { visitorsService } from './visitors.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 export const createVisitorRequest = asyncHandler(async (req, res) => {
-  const result = await visitorService.createVisitorRequest(req.body, req.user);
+  const result = await visitorsService.createVisitorRequest(req.body, req.user);
   
   res.status(result.statusCode).json({
     message: result.message,
@@ -20,7 +20,7 @@ export const createVisitorRequest = asyncHandler(async (req, res) => {
 });
 
 export const getVisitorRequests = asyncHandler(async (req, res) => {
-  const result = await visitorService.getVisitorRequests(req.user);
+  const result = await visitorsService.getVisitorRequests(req.user);
   
   res.status(result.statusCode).json({
     message: result.message,
@@ -30,7 +30,7 @@ export const getVisitorRequests = asyncHandler(async (req, res) => {
 });
 
 export const getVisitorRequestById = asyncHandler(async (req, res) => {
-  const result = await visitorService.getVisitorRequestById(req.params.requestId);
+  const result = await visitorsService.getVisitorRequestById(req.params.requestId);
   
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -47,7 +47,7 @@ export const getVisitorRequestById = asyncHandler(async (req, res) => {
 });
 
 export const updateVisitorRequest = asyncHandler(async (req, res) => {
-  const result = await visitorService.updateVisitorRequest(req.params.requestId, req.body);
+  const result = await visitorsService.updateVisitorRequest(req.params.requestId, req.body);
   
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -64,7 +64,7 @@ export const updateVisitorRequest = asyncHandler(async (req, res) => {
 });
 
 export const deleteVisitorRequest = asyncHandler(async (req, res) => {
-  const result = await visitorService.deleteVisitorRequest(req.params.requestId);
+  const result = await visitorsService.deleteVisitorRequest(req.params.requestId);
   
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -80,7 +80,7 @@ export const deleteVisitorRequest = asyncHandler(async (req, res) => {
 });
 
 export const updateVisitorRequestStatus = asyncHandler(async (req, res) => {
-  const result = await visitorService.updateVisitorRequestStatus(
+  const result = await visitorsService.updateVisitorRequestStatus(
     req.params.requestId,
     req.params.action,
     req.body
@@ -101,7 +101,7 @@ export const updateVisitorRequestStatus = asyncHandler(async (req, res) => {
 });
 
 export const allocateRoomsToVisitorRequest = asyncHandler(async (req, res) => {
-  const result = await visitorService.allocateRoomsToVisitorRequest(
+  const result = await visitorsService.allocateRoomsToVisitorRequest(
     req.params.requestId,
     req.body.allocationData,
     req.user
@@ -115,7 +115,7 @@ export const allocateRoomsToVisitorRequest = asyncHandler(async (req, res) => {
 });
 
 export const checkInVisitor = asyncHandler(async (req, res) => {
-  const result = await visitorService.checkInVisitor(req.params.requestId, req.body);
+  const result = await visitorsService.checkInVisitor(req.params.requestId, req.body);
   
   res.status(result.statusCode).json({
     message: result.message,
@@ -125,7 +125,7 @@ export const checkInVisitor = asyncHandler(async (req, res) => {
 });
 
 export const checkOutVisitor = asyncHandler(async (req, res) => {
-  const result = await visitorService.checkOutVisitor(req.params.requestId, req.body);
+  const result = await visitorsService.checkOutVisitor(req.params.requestId, req.body);
   
   res.status(result.statusCode).json({
     message: result.message,
@@ -135,7 +135,7 @@ export const checkOutVisitor = asyncHandler(async (req, res) => {
 });
 
 export const updateCheckTime = asyncHandler(async (req, res) => {
-  const result = await visitorService.updateCheckTime(req.params.requestId, req.body);
+  const result = await visitorsService.updateCheckTime(req.params.requestId, req.body);
   
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -152,7 +152,7 @@ export const updateCheckTime = asyncHandler(async (req, res) => {
 });
 
 export const getStudentVisitorRequests = asyncHandler(async (req, res) => {
-  const result = await visitorService.getStudentVisitorRequests(req.params.userId);
+  const result = await visitorsService.getStudentVisitorRequests(req.params.userId);
   
   res.status(result.statusCode).json({
     message: result.message,
@@ -162,7 +162,7 @@ export const getStudentVisitorRequests = asyncHandler(async (req, res) => {
 });
 
 export const updatePaymentInfo = asyncHandler(async (req, res) => {
-  const result = await visitorService.updatePaymentInfo(
+  const result = await visitorsService.updatePaymentInfo(
     req.params.requestId,
     req.body,
     req.user

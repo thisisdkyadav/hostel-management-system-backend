@@ -1,5 +1,5 @@
-import { visitorProfileService } from "../services/visitorProfile.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import { visitorProfileService } from './visitor-profile.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 export const getVisitorProfiles = asyncHandler(async (req, res) => {
   const result = await visitorProfileService.getVisitorProfiles(req.user._id)
