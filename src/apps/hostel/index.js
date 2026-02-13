@@ -18,7 +18,6 @@ import adminRoutes from './routes/admin.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
-import notificationRoutes from './routes/notification.routes.js';
 import disCoRoutes from './routes/disco.routes.js';
 import certificateRoutes from './routes/certificate.routes.js';
 // Payment routes removed - unused feature
@@ -63,9 +62,6 @@ router.use('/family', familyMemberRoutes);
 
 // Hostel
 router.use('/dashboard', dashboardRoutes);
-
-// Notifications
-router.use('/notification', notificationRoutes);
 
 // Email
 router.use('/email', emailRoutes);

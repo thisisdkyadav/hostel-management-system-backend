@@ -2,7 +2,7 @@
  * Notification Routes
  * Handles notification management
  * 
- * Base path: /api/notification
+ * Base path: /api/v1/notification
  */
 
 import express from 'express';
@@ -11,9 +11,9 @@ import {
   getNotificationStats,
   getNotifications,
   getActiveNotificationsCount,
-} from '../controllers/notificationController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './notifications.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

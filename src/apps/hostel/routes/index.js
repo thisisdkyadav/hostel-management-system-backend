@@ -27,8 +27,7 @@ export { default as leaveRoutes } from './leave.routes.js';
 // Face Scanner
 export { default as faceScannerRoutes } from './faceScanner.routes.js';
 
-// Notifications
-export { default as notificationRoutes } from './notification.routes.js';
+// Notifications moved to apps/campus-life
 
 // Feedback moved to apps/campus-life
 
