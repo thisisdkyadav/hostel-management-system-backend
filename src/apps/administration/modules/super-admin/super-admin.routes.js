@@ -2,7 +2,7 @@
  * Super Admin Routes
  * Handles super admin operations - admins, API clients, dashboard stats
  * 
- * Base path: /api/super-admin
+ * Base path: /api/v1/super-admin
  */
 
 import express from 'express';
@@ -16,9 +16,9 @@ import {
   deleteAdmin,
   updateApiClient,
   getDashboardStats,
-} from '../controllers/superAdminControllers.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './super-admin.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

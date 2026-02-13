@@ -16,7 +16,6 @@ import express from 'express';
 import wardenRoutes from './routes/warden.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 // Payment routes removed - unused feature
-import superAdminRoutes from './routes/superAdmin.routes.js';
 
 const router = express.Router();
 
@@ -40,7 +39,6 @@ router.get('/health', (req, res) => {
 // User management
 router.use('/warden', wardenRoutes);
 router.use('/admin', adminRoutes);
-router.use('/super-admin', superAdminRoutes);
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXPORTS

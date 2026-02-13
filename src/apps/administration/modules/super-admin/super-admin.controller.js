@@ -1,5 +1,5 @@
-import { superAdminService } from "../services/superAdmin.service.js"
-import { asyncHandler } from "../../../utils/index.js"
+import { superAdminService } from "./super-admin.service.js"
+import { asyncHandler } from "../../../../utils/index.js"
 
 // Helper for error format { message, error }
 const sendResponse = (res, result) => {
