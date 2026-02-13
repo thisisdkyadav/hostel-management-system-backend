@@ -4,21 +4,21 @@
  * @module services/security
  */
 
-import { BaseService, success, notFound, badRequest, forbidden, paginated } from '../../../services/base/index.js';
-import { Security } from '../../../models/index.js';
-import { Warden } from '../../../models/index.js';
-import { Visitors as Visitor } from '../../../models/index.js';
-import { CheckInOut } from '../../../models/index.js';
-import { RoomAllocation } from '../../../models/index.js';
-import { Unit } from '../../../models/index.js';
-import { Room } from '../../../models/index.js';
-import { AssociateWarden } from '../../../models/index.js';
-import { HostelSupervisor } from '../../../models/index.js';
-import { decryptData } from '../../../utils/qrUtils.js';
-import { User } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { getIO } from '../../../loaders/socket.loader.js';
-import * as liveCheckInOutService from '../../operations/modules/live-checkinout/live-checkinout.service.js';
+import { BaseService, success, notFound, badRequest, forbidden, paginated } from '../../../../services/base/index.js';
+import { Security } from '../../../../models/index.js';
+import { Warden } from '../../../../models/index.js';
+import { Visitors as Visitor } from '../../../../models/index.js';
+import { CheckInOut } from '../../../../models/index.js';
+import { RoomAllocation } from '../../../../models/index.js';
+import { Unit } from '../../../../models/index.js';
+import { Room } from '../../../../models/index.js';
+import { AssociateWarden } from '../../../../models/index.js';
+import { HostelSupervisor } from '../../../../models/index.js';
+import { decryptData } from '../../../../utils/qrUtils.js';
+import { User } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { getIO } from '../../../../loaders/socket.loader.js';
+import * as liveCheckInOutService from '../live-checkinout/live-checkinout.service.js';
 
 class SecurityService extends BaseService {
   constructor() {

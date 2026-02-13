@@ -6,8 +6,8 @@
  * @module controllers/security
  */
 
-import { securityService } from '../services/security.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { securityService } from './security.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get security details for current user

@@ -2,7 +2,7 @@
  * Security Routes
  * Handles security operations, student entries, and QR verification
  * 
- * Base path: /api/security
+ * Base path: /api/v1/security
  */
 
 import express from 'express';
@@ -21,10 +21,10 @@ import {
   deleteVisitor,
   updateStudentEntryCrossHostelReason,
   getFaceScannerEntries,
-} from '../controllers/securityController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../utils/permissions.js';
+} from './security.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requirePermission } from '../../../../utils/permissions.js';
 
 const router = express.Router();
 

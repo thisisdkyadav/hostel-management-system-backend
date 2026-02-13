@@ -15,7 +15,6 @@ import express from 'express';
 
 import wardenRoutes from './routes/warden.routes.js';
 import adminRoutes from './routes/admin.routes.js';
-import securityRoutes from './routes/security.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
 // Payment routes removed - unused feature
@@ -48,7 +47,6 @@ router.get('/health', (req, res) => {
 // User management
 router.use('/warden', wardenRoutes);
 router.use('/admin', adminRoutes);
-router.use('/security', securityRoutes);
 router.use('/super-admin', superAdminRoutes);
 
 // Student
