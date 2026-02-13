@@ -20,7 +20,6 @@ import express from 'express';
 // ═══════════════════════════════════════════════════════════════════════════════
 
 import wardenRoutes from './routes/warden.routes.js';
-import studentRoutes from './routes/student.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import LostAndFoundRoutes from './routes/lostAndFound.routes.js';
 import securityRoutes from './routes/security.routes.js';
@@ -75,7 +74,6 @@ router.use('/security', securityRoutes);
 router.use('/super-admin', superAdminRoutes);
 
 // Student
-router.use('/student', studentRoutes);
 router.use('/family', familyMemberRoutes);
 
 // Hostel

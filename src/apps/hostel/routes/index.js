@@ -17,7 +17,6 @@ export { default as hostelRoutes } from './hostel.routes.js';
 export { default as dashboardRoutes } from './dashboard.routes.js';
 
 // Student Management
-export { default as studentRoutes } from './student.routes.js';
 export { default as familyMemberRoutes } from './familyMember.routes.js';
 
 // Visitors
