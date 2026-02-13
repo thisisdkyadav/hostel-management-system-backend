@@ -10,9 +10,9 @@ import {
   verifyQR,
   recordAttendance,
   getAttendanceRecords,
-} from '../controllers/staffAttendanceController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './staff-attendance.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

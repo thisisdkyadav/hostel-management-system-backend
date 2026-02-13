@@ -2,7 +2,7 @@
  * Hostel Routes
  * Handles hostel rooms, units, and allocations
  * 
- * Base path: /api/hostel
+ * Base path: /api/v1/hostel
  */
 
 import express from 'express';
@@ -19,10 +19,10 @@ import {
   deleteAllocation,
   changeArchiveStatus,
   deleteAllAllocations,
-} from '../controllers/hostelController.js';
-import { updateRoomAllocations } from '../../students/modules/profiles-admin/profiles-admin.controller.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './hostel-rooms.controller.js';
+import { updateRoomAllocations } from '../../../students/modules/profiles-admin/profiles-admin.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

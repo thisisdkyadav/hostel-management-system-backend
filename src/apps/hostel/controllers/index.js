@@ -26,7 +26,6 @@ export * from './paymentController.js';
 export * from './scannerActionController.js';
 export * from './securityController.js';
 export * from './sheetController.js';
-export * from './staffAttendanceController.js';
 export * from './statsController.js';
 export * from './superAdminControllers.js';
 export * from './undertakingController.js';

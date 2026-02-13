@@ -24,7 +24,6 @@ import adminRoutes from './routes/admin.routes.js';
 import LostAndFoundRoutes from './routes/lostAndFound.routes.js';
 import securityRoutes from './routes/security.routes.js';
 import eventRoutes from './routes/event.routes.js';
-import hostelRoutes from './routes/hostel.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
@@ -34,7 +33,6 @@ import certificateRoutes from './routes/certificate.routes.js';
 // Payment routes removed - unused feature
 import superAdminRoutes from './routes/superAdmin.routes.js';
 import familyMemberRoutes from './routes/familyMember.routes.js';
-import staffAttendanceRoutes from './routes/staffAttendance.routes.js';
 import undertakingRoutes from './routes/undertaking.routes.js';
 import onlineUsersRoutes from './routes/onlineUsers.routes.js';
 import faceScannerRoutes from './routes/faceScanner.routes.js';
@@ -73,7 +71,6 @@ router.use('/super-admin', superAdminRoutes);
 router.use('/family', familyMemberRoutes);
 
 // Hostel
-router.use('/hostel', hostelRoutes);
 router.use('/dashboard', dashboardRoutes);
 
 // Events & Lost and Found
@@ -95,7 +92,6 @@ router.use('/disCo', disCoRoutes);
 router.use('/undertaking', undertakingRoutes);
 
 // Attendance & Leave
-router.use('/staff', staffAttendanceRoutes);
 router.use('/leave', leaveRoutes);
 
 // Configuration

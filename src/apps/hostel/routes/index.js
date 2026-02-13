@@ -13,7 +13,6 @@ export { default as securityRoutes } from './security.routes.js';
 export { default as superAdminRoutes } from './superAdmin.routes.js';
 
 // Hostel Management
-export { default as hostelRoutes } from './hostel.routes.js';
 export { default as dashboardRoutes } from './dashboard.routes.js';
 
 // Student Management
@@ -25,7 +24,6 @@ export { default as lostAndFoundRoutes } from './lostAndFound.routes.js';
 
 // Attendance & Leave
 export { default as leaveRoutes } from './leave.routes.js';
-export { default as staffAttendanceRoutes } from './staffAttendance.routes.js';
 
 // Face Scanner
 export { default as faceScannerRoutes } from './faceScanner.routes.js';
