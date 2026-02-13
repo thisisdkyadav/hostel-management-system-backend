@@ -2,7 +2,7 @@
  * Leave Routes
  * Handles staff leave requests and approvals
  * 
- * Base path: /api/leave
+ * Base path: /api/v1/leave
  */
 
 import express from 'express';
@@ -13,9 +13,9 @@ import {
   approveLeave,
   rejectLeave,
   joinLeave,
-} from '../controllers/leaveController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './leave.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

@@ -10,6 +10,7 @@
  * - /inventory/* -> inventory management
  * - /staff/* -> staff attendance operations
  * - /hostel/* -> room/unit/allocation operations
+ * - /leave/* -> leave management
  */
 
 import express from 'express';
@@ -18,6 +19,7 @@ import liveCheckInOutRoutes from './modules/live-checkinout/live-checkinout.rout
 import inventoryRoutes from './modules/inventory/inventory.routes.js';
 import staffAttendanceRoutes from './modules/staff-attendance/staff-attendance.routes.js';
 import hostelRoomsRoutes from './modules/hostel-rooms/hostel-rooms.routes.js';
+import leaveRoutes from './modules/leave/leave.routes.js';
 
 const router = express.Router();
 
@@ -26,5 +28,6 @@ router.use('/live-checkinout', liveCheckInOutRoutes);
 router.use('/inventory', inventoryRoutes);
 router.use('/staff', staffAttendanceRoutes);
 router.use('/hostel', hostelRoomsRoutes);
+router.use('/leave', leaveRoutes);
 
 export default router;

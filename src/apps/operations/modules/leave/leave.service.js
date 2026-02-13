@@ -5,8 +5,8 @@
  * @module services/leave
  */
 
-import { Leave } from '../../../models/index.js';
-import { BaseService, success, notFound, error } from '../../../services/base/index.js';
+import { Leave } from '../../../../models/index.js';
+import { BaseService, success, notFound, error } from '../../../../services/base/index.js';
 
 class LeaveService extends BaseService {
   constructor() {
@@ -67,7 +67,7 @@ class LeaveService extends BaseService {
         page: parseInt(page, 10),
         limit: parseInt(limit, 10),
         sort: { createdAt: -1 },
-        populate: [{ path: 'userId', select: 'name email' }]
+        populate: [{ path: 'userId', select: 'name email' }],
       });
 
       if (result.success) {
@@ -77,7 +77,7 @@ class LeaveService extends BaseService {
           totalCount: pagination.total,
           totalPages: pagination.totalPages,
           currentPage: pagination.page,
-          limit: pagination.limit
+          limit: pagination.limit,
         });
       }
       return result;

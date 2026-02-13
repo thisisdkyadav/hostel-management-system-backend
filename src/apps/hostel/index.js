@@ -26,7 +26,6 @@ import faceScannerRoutes from './routes/faceScanner.routes.js';
 import sheetRoutes from './routes/sheet.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import configRoutes from './routes/config.routes.js';
-import leaveRoutes from './routes/leave.routes.js';
 import emailRoutes from './routes/email.routes.js';
 
 const router = express.Router();
@@ -62,9 +61,6 @@ router.use('/dashboard', dashboardRoutes);
 
 // Email
 router.use('/email', emailRoutes);
-
-// Attendance & Leave
-router.use('/leave', leaveRoutes);
 
 // Configuration
 router.use('/config', configRoutes);
