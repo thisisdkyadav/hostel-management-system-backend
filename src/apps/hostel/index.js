@@ -3,14 +3,8 @@
  * @description Main router for the Hostel Management application
  * @module apps/hostel
  *
- * This app contains all the existing hostel management functionality:
- * - Student management
- * - Visitor management
- * - Events & Lost and Found
- * - Hostel & Room management
- * - Payment & Certificates
- * - Staff & Attendance
- * - And more...
+ * This app contains remaining hostel management functionality that has
+ * not yet been extracted to dedicated major apps.
  */
 
 import express from 'express';
@@ -23,7 +17,6 @@ import wardenRoutes from './routes/warden.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import LostAndFoundRoutes from './routes/lostAndFound.routes.js';
 import securityRoutes from './routes/security.routes.js';
-import eventRoutes from './routes/event.routes.js';
 import statsRoutes from './routes/stats.routes.js';
 import feedbackRoutes from './routes/feedback.routes.js';
 import uploadRoutes from './routes/upload.routes.js';
@@ -73,8 +66,7 @@ router.use('/family', familyMemberRoutes);
 // Hostel
 router.use('/dashboard', dashboardRoutes);
 
-// Events & Lost and Found
-router.use('/event', eventRoutes);
+// Lost and Found
 router.use('/lost-and-found', LostAndFoundRoutes);
 
 // Feedback

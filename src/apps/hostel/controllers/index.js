@@ -9,7 +9,6 @@ export * from './certificateController.js';
 export * from './configController.js';
 export * from './dashboardController.js';
 export * from './disCoController.js';
-export * from './eventController.js';
 export * from './faceScannerController.js';
 export * from './familyMemberController.js';
 export * from './feedbackController.js';

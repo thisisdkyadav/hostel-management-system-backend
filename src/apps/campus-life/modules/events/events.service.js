@@ -5,9 +5,9 @@
  * @module services/event.service
  */
 
-import { Event } from '../../../models/index.js';
-import { StudentProfile } from '../../../models/index.js';
-import { BaseService, success, notFound, error, PRESETS } from '../../../services/base/index.js';
+import { Event } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { BaseService, success, notFound, error, PRESETS } from '../../../../services/base/index.js';
 
 class EventService extends BaseService {
   constructor() {

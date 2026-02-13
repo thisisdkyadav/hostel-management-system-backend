@@ -19,7 +19,6 @@ export { default as dashboardRoutes } from './dashboard.routes.js';
 export { default as familyMemberRoutes } from './familyMember.routes.js';
 
 // Events & Lost and Found
-export { default as eventRoutes } from './event.routes.js';
 export { default as lostAndFoundRoutes } from './lostAndFound.routes.js';
 
 // Attendance & Leave
