@@ -2,7 +2,7 @@
  * Configuration Routes
  * Handles system configuration management
  * 
- * Base path: /api/config
+ * Base path: /api/v1/config
  */
 
 import express from 'express';
@@ -10,9 +10,9 @@ import {
   getConfigurationByKey,
   updateConfiguration,
   resetConfigurationToDefault,
-} from '../controllers/configController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './config.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

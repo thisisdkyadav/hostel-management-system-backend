@@ -1,5 +1,5 @@
-import { configService } from "../services/config.service.js"
-import { asyncHandler } from "../../../utils/controllerHelpers.js"
+import { configService } from "./config.service.js"
+import { asyncHandler } from "../../../../utils/controllerHelpers.js"
 
 /**
  * Helper: Error format with error field
