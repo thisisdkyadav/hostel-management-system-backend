@@ -2,8 +2,8 @@
  * Services Index
  * Re-exports base services infrastructure
  * 
- * Note: App-specific services are now in apps/hostel/services/
- * Import directly from there for hostel app services.
+ * Note: Domain services live inside app modules under src/apps/*/modules/*
+ * Import directly from those module paths where needed.
  */
 
 // Base services (shared infrastructure) - the only thing that should stay here

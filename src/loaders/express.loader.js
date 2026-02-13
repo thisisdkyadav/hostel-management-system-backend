@@ -27,7 +27,6 @@ import authApp from '../apps/auth/index.js';
 import iamApp from '../apps/iam/index.js';
 import complaintsApp from '../apps/complaints/index.js';
 import administrationApp from '../apps/administration/index.js';
-import hostelApp from '../apps/hostel/index.js';
 import studentsApp from '../apps/students/index.js';
 import studentAffairsApp from '../apps/student-affairs/index.js';
 import visitorsApp from '../apps/visitors/index.js';
@@ -144,9 +143,6 @@ export const initializeExpress = (app) => {
   app.use('/api/v1', operationsApp);
   app.use('/api/v1', campusLifeApp);
   app.use('/api/v1', administrationApp);
-
-  // Hostel Management System (main app)
-  app.use('/api/v1', hostelApp);
 
   // Students domain app
   app.use('/api/v1/students', studentsApp);

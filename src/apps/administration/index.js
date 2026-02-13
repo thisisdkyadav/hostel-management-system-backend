@@ -25,6 +25,16 @@ import adminRoutes from './modules/admin/admin.routes.js';
 
 const router = express.Router();
 
+// Backward-compatible app health endpoint previously served by hostel app
+router.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    app: 'hostel-management',
+    status: 'operational',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 router.use('/family', familyRoutes);
 router.use('/config', configRoutes);
 router.use('/email', emailRoutes);
