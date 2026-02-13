@@ -6,8 +6,8 @@
  * @module controllers/hostelSupervisor
  */
 
-import { hostelSupervisorService } from '../services/hostelSupervisor.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { hostelSupervisorService } from './hostel-supervisor.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get hostel supervisor profile

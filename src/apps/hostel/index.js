@@ -13,7 +13,6 @@ import express from 'express';
 // ROUTE IMPORTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-import wardenRoutes from './routes/warden.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 // Payment routes removed - unused feature
 
@@ -37,7 +36,6 @@ router.get('/health', (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // User management
-router.use('/warden', wardenRoutes);
 router.use('/admin', adminRoutes);
 
 // ═══════════════════════════════════════════════════════════════════════════════

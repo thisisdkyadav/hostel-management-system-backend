@@ -6,8 +6,8 @@
  * @module controllers/warden
  */
 
-import { wardenService } from '../services/warden.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { wardenService } from './warden.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get warden profile

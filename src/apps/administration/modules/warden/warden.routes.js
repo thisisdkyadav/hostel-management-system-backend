@@ -2,24 +2,24 @@
  * Warden Routes
  * Handles warden, associate warden, and hostel supervisor profiles
  * 
- * Base path: /api/warden
+ * Base path: /api/v1/warden
  */
 
 import express from 'express';
 import {
   getWardenProfile,
   setActiveHostel,
-} from '../controllers/wardenController.js';
+} from './warden.controller.js';
 import {
   getAssociateWardenProfile,
   setActiveHostelAW,
-} from '../controllers/associateWardenController.js';
+} from './associate-warden.controller.js';
 import {
   getHostelSupervisorProfile,
   setActiveHostelHS,
-} from '../controllers/hostelSupervisorController.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../middlewares/authorize.middleware.js';
+} from './hostel-supervisor.controller.js';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
+import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 
 const router = express.Router();
 

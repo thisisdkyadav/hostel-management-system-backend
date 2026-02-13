@@ -30,19 +30,19 @@ import {
   getAllWardens,
   updateWarden,
   deleteWarden,
-} from '../controllers/wardenController.js';
+} from '../../administration/modules/warden/warden.controller.js';
 import {
   createAssociateWarden,
   getAllAssociateWardens,
   updateAssociateWarden,
   deleteAssociateWarden,
-} from '../controllers/associateWardenController.js';
+} from '../../administration/modules/warden/associate-warden.controller.js';
 import {
   createHostelSupervisor,
   getAllHostelSupervisors,
   updateHostelSupervisor,
   deleteHostelSupervisor,
-} from '../controllers/hostelSupervisorController.js';
+} from '../../administration/modules/warden/hostel-supervisor.controller.js';
 import {
   getInsuranceProviders,
   createInsuranceProvider,

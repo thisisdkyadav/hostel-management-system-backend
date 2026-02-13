@@ -6,8 +6,8 @@
  * @module controllers/associateWarden
  */
 
-import { associateWardenService } from '../services/associateWarden.service.js';
-import { asyncHandler } from '../../../utils/index.js';
+import { associateWardenService } from './associate-warden.service.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Get associate warden profile
