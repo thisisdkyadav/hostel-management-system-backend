@@ -1,12 +1,22 @@
 /**
- * JR Appointment Model
- * Public visitor appointment requests for meeting Joint Registrar SA.
+ * Appointment Model
+ * Public visitor appointment requests for meeting designated Admin officials.
  */
 
 import mongoose from "mongoose";
 
-const JRAppointmentSchema = new mongoose.Schema(
+const AppointmentSchema = new mongoose.Schema(
   {
+    targetAdminUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    targetSubRole: {
+      type: String,
+      enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      required: true,
+    },
     visitorName: {
       type: String,
       required: true,
@@ -74,9 +84,11 @@ const JRAppointmentSchema = new mongoose.Schema(
   }
 );
 
-JRAppointmentSchema.index({ status: 1, preferredDate: 1, createdAt: -1 });
-JRAppointmentSchema.index({ "approvedMeeting.date": 1, status: 1 });
+AppointmentSchema.index({ status: 1, preferredDate: 1, createdAt: -1 });
+AppointmentSchema.index({ "approvedMeeting.date": 1, status: 1 });
+AppointmentSchema.index({ targetAdminUserId: 1, status: 1, createdAt: -1 });
+AppointmentSchema.index({ targetSubRole: 1, status: 1, createdAt: -1 });
 
-const JRAppointment = mongoose.model("JRAppointment", JRAppointmentSchema);
+const Appointment = mongoose.model("JRAppointment", AppointmentSchema);
 
-export default JRAppointment;
+export default Appointment;

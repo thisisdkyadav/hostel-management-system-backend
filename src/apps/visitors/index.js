@@ -10,11 +10,12 @@
 
 import express from 'express';
 import visitorsRoutes from './modules/visitors/visitors.routes.js';
-import jrAppointmentsRoutes from './modules/jr-appointments/jr-appointments.routes.js';
+import appointmentsRoutes from './modules/appointments/appointments.routes.js';
 
 const router = express.Router();
 
 router.use('/visitor', visitorsRoutes);
-router.use('/jr-appointments', jrAppointmentsRoutes);
+router.use('/appointments', appointmentsRoutes);
+router.use('/jr-appointments', appointmentsRoutes);
 
 export default router;

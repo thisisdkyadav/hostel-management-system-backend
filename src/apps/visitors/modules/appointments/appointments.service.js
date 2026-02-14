@@ -1,11 +1,11 @@
 /**
- * JR Appointments Service
- * Handles public appointment requests for meeting Joint Registrar SA,
- * admin review workflow, and hostel gate entry tracking.
+ * Appointments Service
+ * Handles public appointment requests, admin review workflow,
+ * per-user availability toggle, and hostel gate entry tracking.
  */
 
 import mongoose from "mongoose";
-import { JRAppointment } from "../../../../models/index.js";
+import { Appointment, User } from "../../../../models/index.js";
 import {
   BaseService,
   success,
@@ -22,6 +22,12 @@ const STATUS = {
   APPROVED: "Approved",
   REJECTED: "Rejected",
 };
+
+const APPOINTMENT_SUBROLES = [
+  SUBROLES.JOINT_REGISTRAR_SA,
+  SUBROLES.ASSOCIATE_DEAN_SA,
+  SUBROLES.DEAN_SA,
+];
 
 const parseDateOnly = (value) => {
   if (!value) return null;
@@ -70,11 +76,15 @@ const toUserView = (userDoc) => {
     id: userDoc._id || userDoc,
     name: userDoc.name || "",
     email: userDoc.email || "",
+    subRole: userDoc.subRole || "",
+    acceptingAppointments: Boolean(userDoc.acceptingAppointments),
   };
 };
 
 const toAppointmentView = (appointmentDoc) => ({
   id: appointmentDoc._id,
+  targetOfficial: toUserView(appointmentDoc.targetAdminUserId),
+  targetSubRole: appointmentDoc.targetSubRole,
   visitorName: appointmentDoc.visitorName,
   mobileNumber: appointmentDoc.mobileNumber,
   email: appointmentDoc.email,
@@ -105,6 +115,7 @@ const toAppointmentView = (appointmentDoc) => ({
 });
 
 const normalizePublicPayload = (payload = {}) => ({
+  targetAdminUserId: payload.targetAdminUserId,
   visitorName: payload.visitorName?.trim(),
   mobileNumber: payload.mobileNumber?.trim(),
   email: payload.email?.trim()?.toLowerCase(),
@@ -115,17 +126,20 @@ const normalizePublicPayload = (payload = {}) => ({
   preferredTime: payload.preferredTime?.trim(),
 });
 
-const isJRReviewer = (user) =>
-  user?.role === ROLES.ADMIN && user?.subRole === SUBROLES.JOINT_REGISTRAR_SA;
+const isAppointmentAdmin = (user) =>
+  user?.role === ROLES.ADMIN && APPOINTMENT_SUBROLES.includes(user?.subRole);
 
 const isGateUser = (user) => user?.role === ROLES.HOSTEL_GATE;
 
 const buildDecisionEmailBody = ({ appointment, action, description, approvedDate, approvedTime }) => {
   const friendlyAction = action === "approve" ? "approved" : "rejected";
+  const officialName = appointment?.targetOfficial?.name || "the selected official";
+  const officialRole = appointment?.targetSubRole || "Admin";
+
   const lines = [
     `Dear ${appointment.visitorName},`,
     "",
-    `Your appointment request to meet Joint Registrar has been ${friendlyAction}.`,
+    `Your appointment request to meet ${officialName} (${officialRole}) has been ${friendlyAction}.`,
   ];
 
   if (action === "approve") {
@@ -136,19 +150,39 @@ const buildDecisionEmailBody = ({ appointment, action, description, approvedDate
     lines.push("", "Remarks:", description);
   }
 
-  lines.push("", "Regards,", "Joint Registrar Office");
+  lines.push("", "Regards,", `${officialRole} Office`);
   return lines.join("\n");
 };
 
-class JRAppointmentsService extends BaseService {
+class AppointmentsService extends BaseService {
   constructor() {
-    super(JRAppointment, "JR appointment");
+    super(Appointment, "Appointment");
+  }
+
+  async getPublicTargets() {
+    const users = await User.find({
+      role: ROLES.ADMIN,
+      subRole: { $in: APPOINTMENT_SUBROLES },
+      acceptingAppointments: true,
+    })
+      .select("name subRole")
+      .sort({ subRole: 1, name: 1 });
+
+    const targets = users.map((user) => ({
+      id: user._id,
+      name: user.name,
+      subRole: user.subRole,
+      label: `${user.name} (${user.subRole})`,
+    }));
+
+    return success({ targets });
   }
 
   async submitPublicAppointment(payload = {}) {
     const normalized = normalizePublicPayload(payload);
 
     const requiredFields = [
+      "targetAdminUserId",
       "visitorName",
       "mobileNumber",
       "email",
@@ -162,6 +196,24 @@ class JRAppointmentsService extends BaseService {
     const missingField = requiredFields.find((field) => !normalized[field]);
     if (missingField) {
       return badRequest(`Missing required field: ${missingField}`);
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(normalized.targetAdminUserId)) {
+      return badRequest("Invalid appointment target");
+    }
+
+    const targetOfficial = await User.findOne({
+      _id: normalized.targetAdminUserId,
+      role: ROLES.ADMIN,
+      subRole: { $in: APPOINTMENT_SUBROLES },
+    }).select("name subRole acceptingAppointments");
+
+    if (!targetOfficial) {
+      return badRequest("Selected appointment target is invalid");
+    }
+
+    if (!targetOfficial.acceptingAppointments) {
+      return badRequest("Selected official is not accepting appointments currently");
     }
 
     if (!["Aadhaar", "PAN"].includes(normalized.idType)) {
@@ -183,26 +235,87 @@ class JRAppointmentsService extends BaseService {
       return badRequest("Preferred date must be at least day-after-tomorrow");
     }
 
-    const created = await JRAppointment.create(normalized);
+    const created = await Appointment.create({
+      ...normalized,
+      targetAdminUserId: targetOfficial._id,
+      targetSubRole: targetOfficial.subRole,
+    });
+
+    const createdWithTarget = await Appointment.findById(created._id).populate(
+      "targetAdminUserId",
+      "name email subRole"
+    );
 
     return success(
       {
         message: "Appointment request submitted successfully",
-        appointment: toAppointmentView(created),
+        appointment: toAppointmentView(createdWithTarget),
       },
       201
     );
   }
 
+  async getMyAvailability(user) {
+    if (!isAppointmentAdmin(user)) {
+      return forbidden("Only appointment-enabled admin roles can access availability settings");
+    }
+
+    const foundUser = await User.findById(user._id).select("name subRole acceptingAppointments");
+    if (!foundUser) {
+      return notFound("User");
+    }
+
+    return success({
+      availability: {
+        acceptingAppointments: Boolean(foundUser.acceptingAppointments),
+        name: foundUser.name,
+        subRole: foundUser.subRole,
+      },
+    });
+  }
+
+  async updateMyAvailability(user, payload = {}) {
+    if (!isAppointmentAdmin(user)) {
+      return forbidden("Only appointment-enabled admin roles can update availability");
+    }
+
+    if (typeof payload.acceptingAppointments !== "boolean") {
+      return badRequest("acceptingAppointments must be a boolean value");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      user._id,
+      { acceptingAppointments: payload.acceptingAppointments },
+      { new: true }
+    ).select("name subRole acceptingAppointments");
+
+    if (!updatedUser) {
+      return notFound("User");
+    }
+
+    return success({
+      message: payload.acceptingAppointments
+        ? "Appointments enabled for your account"
+        : "Appointments disabled for your account",
+      availability: {
+        acceptingAppointments: Boolean(updatedUser.acceptingAppointments),
+        name: updatedUser.name,
+        subRole: updatedUser.subRole,
+      },
+    });
+  }
+
   async getAdminAppointments(user, query = {}) {
-    if (!isJRReviewer(user)) {
-      return forbidden("Only Joint Registrar SA can access these appointments");
+    if (!isAppointmentAdmin(user)) {
+      return forbidden("Only appointment-enabled admin roles can access these appointments");
     }
 
     const page = Math.max(1, Number.parseInt(query.page, 10) || 1);
     const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit, 10) || 10));
 
-    const filter = {};
+    const filter = {
+      targetAdminUserId: user._id,
+    };
 
     if (query.status && [STATUS.PENDING, STATUS.APPROVED, STATUS.REJECTED].includes(query.status)) {
       filter.status = query.status;
@@ -219,41 +332,47 @@ class JRAppointmentsService extends BaseService {
     }
 
     const [items, total] = await Promise.all([
-      JRAppointment.find(filter)
-        .populate("review.reviewedBy", "name email")
+      Appointment.find(filter)
+        .populate("targetAdminUserId", "name email subRole")
+        .populate("review.reviewedBy", "name email subRole")
         .populate("gateEntry.markedBy", "name email")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
-      JRAppointment.countDocuments(filter),
+      Appointment.countDocuments(filter),
     ]);
 
     return paginated(items.map(toAppointmentView), { page, limit, total });
   }
 
   async getAdminAppointmentById(user, appointmentId) {
-    if (!isJRReviewer(user)) {
-      return forbidden("Only Joint Registrar SA can access these appointments");
+    if (!isAppointmentAdmin(user)) {
+      return forbidden("Only appointment-enabled admin roles can access these appointments");
     }
 
     if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
       return badRequest("Invalid appointment id");
     }
 
-    const appointment = await JRAppointment.findById(appointmentId)
-      .populate("review.reviewedBy", "name email")
+    const appointment = await Appointment.findById(appointmentId)
+      .populate("targetAdminUserId", "name email subRole")
+      .populate("review.reviewedBy", "name email subRole")
       .populate("gateEntry.markedBy", "name email");
 
     if (!appointment) {
-      return notFound("JR appointment");
+      return notFound("Appointment");
+    }
+
+    if (appointment.targetAdminUserId?._id?.toString() !== user._id.toString()) {
+      return forbidden("You can only view appointments assigned to you");
     }
 
     return success({ appointment: toAppointmentView(appointment) });
   }
 
   async reviewAppointment(user, appointmentId, payload = {}) {
-    if (!isJRReviewer(user)) {
-      return forbidden("Only Joint Registrar SA can review these appointments");
+    if (!isAppointmentAdmin(user)) {
+      return forbidden("Only appointment-enabled admin roles can review these appointments");
     }
 
     if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
@@ -270,9 +389,17 @@ class JRAppointmentsService extends BaseService {
       return badRequest("Rejection description is required");
     }
 
-    const appointment = await JRAppointment.findById(appointmentId);
+    const appointment = await Appointment.findById(appointmentId).populate(
+      "targetAdminUserId",
+      "name email subRole"
+    );
+
     if (!appointment) {
-      return notFound("JR appointment");
+      return notFound("Appointment");
+    }
+
+    if (appointment.targetAdminUserId?._id?.toString() !== user._id.toString()) {
+      return forbidden("You can only review appointments assigned to you");
     }
 
     if (appointment.status !== STATUS.PENDING) {
@@ -319,9 +446,12 @@ class JRAppointmentsService extends BaseService {
 
     await appointment.save();
 
-    const refreshed = await JRAppointment.findById(appointment._id)
-      .populate("review.reviewedBy", "name email")
+    const refreshed = await Appointment.findById(appointment._id)
+      .populate("targetAdminUserId", "name email subRole")
+      .populate("review.reviewedBy", "name email subRole")
       .populate("gateEntry.markedBy", "name email");
+
+    const mappedAppointment = toAppointmentView(refreshed);
 
     const approvedDateLabel = refreshed?.approvedMeeting?.date
       ? new Date(refreshed.approvedMeeting.date).toLocaleDateString("en-IN", {
@@ -332,7 +462,7 @@ class JRAppointmentsService extends BaseService {
       : "";
 
     const emailBody = buildDecisionEmailBody({
-      appointment: refreshed,
+      appointment: mappedAppointment,
       action,
       description,
       approvedDate: approvedDateLabel,
@@ -342,9 +472,7 @@ class JRAppointmentsService extends BaseService {
     const emailResult = await emailCustomService.sendCustomEmail({
       to: refreshed.email,
       subject:
-        action === "approve"
-          ? "JR Appointment Request Approved"
-          : "JR Appointment Request Rejected",
+        action === "approve" ? "Appointment Request Approved" : "Appointment Request Rejected",
       body: emailBody,
       sendType: "individual",
       sentBy: user,
@@ -355,7 +483,7 @@ class JRAppointmentsService extends BaseService {
         ? `Appointment request ${action}d and email sent`
         : `Appointment request ${action}d. Email delivery failed`,
       emailSent: Boolean(emailResult.success),
-      appointment: toAppointmentView(refreshed),
+      appointment: mappedAppointment,
     });
   }
 
@@ -389,13 +517,14 @@ class JRAppointmentsService extends BaseService {
     }
 
     const [items, total] = await Promise.all([
-      JRAppointment.find(filter)
-        .populate("review.reviewedBy", "name email")
+      Appointment.find(filter)
+        .populate("targetAdminUserId", "name email subRole")
+        .populate("review.reviewedBy", "name email subRole")
         .populate("gateEntry.markedBy", "name email")
         .sort({ "approvedMeeting.date": 1, "approvedMeeting.time": 1, createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit),
-      JRAppointment.countDocuments(filter),
+      Appointment.countDocuments(filter),
     ]);
 
     return paginated(items.map(toAppointmentView), { page, limit, total });
@@ -410,9 +539,9 @@ class JRAppointmentsService extends BaseService {
       return badRequest("Invalid appointment id");
     }
 
-    const appointment = await JRAppointment.findById(appointmentId);
+    const appointment = await Appointment.findById(appointmentId);
     if (!appointment) {
-      return notFound("JR appointment");
+      return notFound("Appointment");
     }
 
     if (appointment.status !== STATUS.APPROVED) {
@@ -432,8 +561,9 @@ class JRAppointmentsService extends BaseService {
 
     await appointment.save();
 
-    const refreshed = await JRAppointment.findById(appointment._id)
-      .populate("review.reviewedBy", "name email")
+    const refreshed = await Appointment.findById(appointment._id)
+      .populate("targetAdminUserId", "name email subRole")
+      .populate("review.reviewedBy", "name email subRole")
       .populate("gateEntry.markedBy", "name email");
 
     return success({
@@ -443,5 +573,5 @@ class JRAppointmentsService extends BaseService {
   }
 }
 
-export const jrAppointmentsService = new JRAppointmentsService();
-export default jrAppointmentsService;
+export const appointmentsService = new AppointmentsService();
+export default appointmentsService;
