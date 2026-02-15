@@ -46,7 +46,15 @@ export const verifySSOToken = asyncHandler(async (req, res) => {
 
   return res.json({
     success: true,
-    user: { email: decoded.email },
+    user: {
+      _id: decoded._id,
+      email: decoded.email,
+      role: decoded.role,
+      subRole: decoded.subRole,
+      permissions: decoded.permissions,
+      hostel: decoded.hostel,
+      pinnedTabs: decoded.pinnedTabs,
+    },
   });
 });
 
