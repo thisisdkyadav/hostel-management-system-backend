@@ -12,6 +12,18 @@ const USER_SOCKETS_PREFIX = "online:user:" // Set: userId -> [socketIds]
 const SOCKET_USER_PREFIX = "online:socket:" // String: socketId -> userData
 const USER_DATA_PREFIX = "online:userdata:" // String: userId -> full user data with TTL
 const ONLINE_TTL = 90 // 90 seconds TTL - auto-cleanup stale connections (3x heartbeat interval)
+const ALLOWED_USER_ROLES = new Set([
+  "Student",
+  "Maintenance Staff",
+  "Warden",
+  "Associate Warden",
+  "Admin",
+  "Security",
+  "Super Admin",
+  "Hostel Supervisor",
+  "Hostel Gate",
+  "Gymkhana",
+])
 
 /**
  * Get Redis client
@@ -22,6 +34,74 @@ const getRedis = () => {
     throw new Error("Redis client not initialized")
   }
   return pubClient
+}
+
+/**
+ * Normalize and validate online user payload from Redis.
+ * Rejects non-user/system noise keys so online user APIs stay clean.
+ * @param {Object} payload
+ * @returns {Object|null}
+ */
+const normalizeOnlineUserPayload = (payload) => {
+  if (!payload || typeof payload !== "object") return null
+
+  const userId = payload.userId?.toString?.() ?? payload.userId
+  const role = typeof payload.role === "string" ? payload.role.trim() : ""
+  const hostelId = payload.hostelId?.toString?.() ?? payload.hostelId ?? null
+  const userName = payload.userName?.toString?.() ?? payload.userName ?? ""
+  const userEmail = payload.userEmail?.toString?.() ?? payload.userEmail ?? ""
+
+  if (!userId || !role) return null
+  if (userId.toLowerCase() === "system" || role.toLowerCase() === "system") return null
+  if (!ALLOWED_USER_ROLES.has(role)) return null
+
+  return {
+    ...payload,
+    userId,
+    role,
+    hostelId,
+    userName,
+    userEmail,
+  }
+}
+
+/**
+ * Build normalized online users array directly from Redis.
+ * Returns invalid keys so callers can clean stale/bad cache entries.
+ * @param {Object} redis
+ * @returns {Promise<{users: Array, invalidKeys: Array}>}
+ */
+const getNormalizedUsersFromRedis = async (redis) => {
+  const keys = await redis.keys(`${USER_DATA_PREFIX}*`)
+
+  if (keys.length === 0) {
+    return { users: [], invalidKeys: [] }
+  }
+
+  const values = await redis.mget(keys)
+  const users = []
+  const invalidKeys = []
+
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i]) continue
+
+    try {
+      const parsed = JSON.parse(values[i])
+      const user = normalizeOnlineUserPayload(parsed)
+
+      if (!user) {
+        invalidKeys.push(keys[i])
+        continue
+      }
+
+      users.push(user)
+    } catch (err) {
+      console.error("Error parsing user data for normalized list:", err)
+      invalidKeys.push(keys[i])
+    }
+  }
+
+  return { users, invalidKeys }
 }
 
 /**
@@ -185,34 +265,18 @@ export const getOnlineUsers = async (filter = {}) => {
   const redis = getRedis()
 
   try {
-    // Scan for all user data keys
-    const keys = await redis.keys(`${USER_DATA_PREFIX}*`)
-    const users = []
+    const { users: normalizedUsers, invalidKeys } = await getNormalizedUsersFromRedis(redis)
 
-    if (keys.length === 0) {
-      return users
+    if (invalidKeys.length > 0) {
+      await redis.del(...invalidKeys)
+      console.warn(`Removed ${invalidKeys.length} invalid online user cache entries`)
     }
 
-    // Get all user data
-    const values = await redis.mget(keys)
-
-    for (let i = 0; i < values.length; i++) {
-      if (!values[i]) continue
-
-      try {
-        const user = JSON.parse(values[i])
-
-        // Apply filters
-        if (filter.role && user.role !== filter.role) continue
-        if (filter.hostelId && user.hostelId?.toString() !== filter.hostelId.toString()) continue
-
-        users.push(user)
-      } catch (err) {
-        console.error(`Error parsing user data:`, err)
-      }
-    }
-
-    return users
+    return normalizedUsers.filter((user) => {
+      if (filter.role && user.role !== filter.role) return false
+      if (filter.hostelId && user.hostelId?.toString() !== filter.hostelId.toString()) return false
+      return true
+    })
   } catch (error) {
     console.error("Error getting online users from Redis:", error)
     throw error
@@ -228,10 +292,14 @@ export const getOnlineStats = async () => {
   const redis = getRedis()
 
   try {
-    // Get all online users to recalculate accurate counts
-    const keys = await redis.keys(`${USER_DATA_PREFIX}*`)
+    const { users, invalidKeys } = await getNormalizedUsersFromRedis(redis)
 
-    if (keys.length === 0) {
+    if (invalidKeys.length > 0) {
+      await redis.del(...invalidKeys)
+      console.warn(`Removed ${invalidKeys.length} invalid online user cache entries while building stats`)
+    }
+
+    if (users.length === 0) {
       return {
         totalOnline: 0,
         byRole: {},
@@ -239,30 +307,20 @@ export const getOnlineStats = async () => {
       }
     }
 
-    // Get all user data
-    const values = await redis.mget(keys)
-
     const roleStats = {}
     const hostelStats = {}
     let totalOnline = 0
 
-    for (const value of values) {
-      if (!value) continue
+    for (const user of users) {
+      totalOnline++
 
-      try {
-        const user = JSON.parse(value)
-        totalOnline++
+      // Count by role
+      roleStats[user.role] = (roleStats[user.role] || 0) + 1
 
-        // Count by role
-        roleStats[user.role] = (roleStats[user.role] || 0) + 1
-
-        // Count by hostel
-        if (user.hostelId) {
-          const hostelIdStr = user.hostelId.toString()
-          hostelStats[hostelIdStr] = (hostelStats[hostelIdStr] || 0) + 1
-        }
-      } catch (err) {
-        console.error("Error parsing user data for stats:", err)
+      // Count by hostel
+      if (user.hostelId) {
+        const hostelIdStr = user.hostelId.toString()
+        hostelStats[hostelIdStr] = (hostelStats[hostelIdStr] || 0) + 1
       }
     }
 
@@ -351,7 +409,25 @@ export const clearAllOnlineUsers = async () => {
   const redis = getRedis()
 
   try {
-    await redis.del(ONLINE_USERS_KEY, ONLINE_BY_ROLE_KEY, ONLINE_BY_HOSTEL_KEY)
+    const [userDataKeys, socketKeys, userSocketKeys] = await Promise.all([
+      redis.keys(`${USER_DATA_PREFIX}*`),
+      redis.keys(`${SOCKET_USER_PREFIX}*`),
+      redis.keys(`${USER_SOCKETS_PREFIX}*`),
+    ])
+
+    const keysToDelete = [
+      ONLINE_USERS_KEY,
+      ONLINE_BY_ROLE_KEY,
+      ONLINE_BY_HOSTEL_KEY,
+      ...userDataKeys,
+      ...socketKeys,
+      ...userSocketKeys,
+    ]
+
+    if (keysToDelete.length > 0) {
+      await redis.del(...keysToDelete)
+    }
+
     console.log("✓ Redis: All online users cleared")
   } catch (error) {
     console.error("Error clearing online users:", error)

@@ -5,6 +5,7 @@
 
 import { createApp } from './app.js';
 import { initializeDatabase, initializeSocketIO, closeSocketIO } from './loaders/index.js';
+import { setupSocketHandlers } from './utils/socketHandlers.js';
 import env from './config/env.config.js';
 
 const PORT = env.PORT || 5000;
@@ -27,8 +28,9 @@ const startServer = async () => {
     });
 
     // 4. Initialize Socket.IO
-    initializeSocketIO(server, sessionMiddleware);
-    console.log('🔌 Socket.IO initialized');
+    const io = initializeSocketIO(server);
+    setupSocketHandlers(io, sessionMiddleware);
+    console.log('🔌 Socket.IO initialized and handlers attached');
 
     // 5. Setup graceful shutdown
     const gracefulShutdown = async (signal) => {
