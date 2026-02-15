@@ -100,6 +100,7 @@ class AuthService {
       subRole: userResponse.subRole,
       permissions: Object.fromEntries(userResponse.permissions || new Map()),
       hostel: userResponse.hostel,
+      pinnedTabs: Array.isArray(userResponse.pinnedTabs) ? userResponse.pinnedTabs : [],
     };
 
     const userResponseObj = userResponse.toObject();
@@ -167,6 +168,61 @@ class AuthService {
     }
 
     return { success: true, user };
+  }
+
+  async updatePinnedTabs(userId, pinnedTabs) {
+    if (!Array.isArray(pinnedTabs)) {
+      return {
+        success: false,
+        error: 'pinnedTabs must be an array',
+        statusCode: 400,
+      };
+    }
+
+    const normalizedPinnedTabs = [...new Set(
+      pinnedTabs
+        .filter((tab) => typeof tab === 'string')
+        .map((tab) => tab.trim())
+        .filter((tab) => tab.length > 0)
+    )];
+
+    if (normalizedPinnedTabs.length > 30) {
+      return {
+        success: false,
+        error: 'Too many pinned tabs',
+        statusCode: 400,
+      };
+    }
+
+    const hasInvalidPath = normalizedPinnedTabs.some((tabPath) => !tabPath.startsWith('/admin'));
+    if (hasInvalidPath) {
+      return {
+        success: false,
+        error: 'Invalid pinned tab path',
+        statusCode: 400,
+      };
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { pinnedTabs: normalizedPinnedTabs },
+      { new: true, runValidators: true }
+    )
+      .select('pinnedTabs')
+      .exec();
+
+    if (!user) {
+      return {
+        success: false,
+        error: 'User not found',
+        statusCode: 404,
+      };
+    }
+
+    return {
+      success: true,
+      pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
+    };
   }
 
   async updatePassword(userId, oldPassword, newPassword) {
@@ -383,4 +439,3 @@ class AuthService {
 
 export const authService = new AuthService();
 export default AuthService;
-

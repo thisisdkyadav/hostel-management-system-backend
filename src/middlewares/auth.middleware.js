@@ -30,6 +30,7 @@ export const refreshUserData = async (req, res, next) => {
       subRole: user.subRole,
       permissions: Object.fromEntries(user.permissions || new Map()),
       hostel: user.hostel,
+      pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
     }
 
     // Set req.user directly from session data
@@ -69,6 +70,7 @@ export const authenticate = async (req, res, next) => {
         subRole: user.subRole,
         permissions: Object.fromEntries(user.permissions || new Map()),
         hostel: user.hostel,
+        pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
       }
 
       req.user = req.session.userData

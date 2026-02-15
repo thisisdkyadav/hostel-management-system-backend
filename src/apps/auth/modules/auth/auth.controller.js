@@ -130,6 +130,29 @@ export const getUser = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Update pinned admin tabs for current user
+ * PATCH /api/v1/auth/user/pinned-tabs
+ */
+export const updatePinnedTabs = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { pinnedTabs } = req.body;
+
+  const result = await authService.updatePinnedTabs(userId, pinnedTabs);
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.error });
+  }
+
+  if (req.session?.userData) {
+    req.session.userData.pinnedTabs = result.pinnedTabs;
+  }
+
+  res.json({
+    success: true,
+    pinnedTabs: result.pinnedTabs,
+  });
+});
+
+/**
  * Update user password
  * POST /api/v1/auth/update-password
  */
@@ -289,4 +312,3 @@ export const resetPassword = asyncHandler(async (req, res) => {
     message: result.message,
   });
 });
-

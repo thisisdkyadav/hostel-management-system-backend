@@ -43,6 +43,10 @@ const UserSchema = new mongoose.Schema(
       },
       default: {},
     },
+    pinnedTabs: {
+      type: [String],
+      default: undefined,
+    },
     password: { type: String, default: null },
     aesKey: { type: String },
     acceptingAppointments: { type: Boolean, default: false },

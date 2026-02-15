@@ -12,6 +12,7 @@ import {
   getUser,
   login,
   updatePassword,
+  updatePinnedTabs,
   verifySSOToken,
   getUserDevices,
   logoutDevice,
@@ -25,6 +26,7 @@ const router = express.Router();
 
 // User session
 router.get('/user', authenticate, getUser);
+router.patch('/user/pinned-tabs', authenticate, updatePinnedTabs);
 router.get('/logout', authenticate, logout);
 router.get('/refresh', authenticate, refreshUserData, (req, res) => {
   res.json({ user: req.user, message: 'User data refreshed' });
@@ -46,4 +48,3 @@ router.get('/user/devices', authenticate, getUserDevices);
 router.post('/user/devices/logout/:sessionId', authenticate, logoutDevice);
 
 export default router;
-
