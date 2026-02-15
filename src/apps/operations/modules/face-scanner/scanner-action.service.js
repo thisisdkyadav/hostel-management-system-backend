@@ -7,6 +7,39 @@ import { CheckInOut } from "../../../../models/index.js"
 import { StudentProfile } from "../../../../models/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
 import * as liveCheckInOutService from "../live-checkinout/live-checkinout.service.js"
+import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const logDir = path.join(__dirname, "../../../../../logs")
+
+/**
+ * Helper to log student not found entries
+ */
+const logStudentNotFound = (rollNumber, scanData, scanner) => {
+  try {
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true })
+    }
+
+    const logFile = path.join(logDir, "student_not_found.log")
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      rollNumber,
+      scanData,
+      scanner: {
+        id: scanner?._id,
+        name: scanner?.name,
+        type: scanner?.type,
+      },
+    }
+
+    fs.appendFileSync(logFile, JSON.stringify(logEntry, null, 2) + "\n---\n")
+  } catch (error) {
+    console.error("Failed to log student not found:", error)
+  }
+}
 
 /**
  * Process student entry via hostel gate scanner
@@ -49,10 +82,14 @@ export const processHostelGateEntry = async (scanner, scanData) => {
     })
 
   if (!studentProfile) {
+    // Log student not found entry for debugging unknown roll numbers from scanner devices
+    logStudentNotFound(rollNumber, scanData, scanner)
+    console.log(`Student not found roll number: ${rollNumber}`)
+
     return {
-      success: false,
-      status: 404,
-      message: `Student not found: ${rollNumber}`,
+      success: true,
+      status: 201,
+      message: `Student not found roll number: ${rollNumber}`,
     }
   }
 
