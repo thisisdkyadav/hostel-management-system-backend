@@ -22,8 +22,12 @@ export const createComplaint = asyncHandler(async (req, res) => {
   const allocationResult = await complaintService.getAllocationDetails(user, userId);
   
   if (!allocationResult.success) {
-    return res.status(allocationResult.statusCode).json({ message: allocationResult.error });
+    return res.status(allocationResult.statusCode).json({ message: allocationResult.message ?? allocationResult.error });
   }
+
+  // Base service responses store payload under `data`.
+  // Keep legacy fallback for older callers that may still return `allocationDetails`.
+  const allocationDetails = allocationResult.data ?? allocationResult.allocationDetails ?? null;
 
   // Create complaint via service
   await complaintService.createComplaint({
@@ -33,7 +37,7 @@ export const createComplaint = asyncHandler(async (req, res) => {
     location,
     category,
     attachments,
-    allocationDetails: allocationResult.allocationDetails,
+    allocationDetails,
   });
 
   res.status(201).json({ message: 'Complaint created successfully' });
@@ -72,10 +76,10 @@ export const getComplaintById = asyncHandler(async (req, res) => {
   const result = await complaintService.getComplaintById(id, user);
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
-  res.status(200).json({ message: 'Complaint fetched successfully', data: result.complaint });
+  res.status(200).json({ message: 'Complaint fetched successfully', data: result.data ?? result.complaint });
 });
 
 /**
@@ -95,10 +99,10 @@ export const updateComplaintStatus = asyncHandler(async (req, res) => {
   });
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
-  res.status(200).json({ message: 'Complaint updated successfully', data: result.complaint });
+  res.status(200).json({ message: 'Complaint updated successfully', data: result.data ?? result.complaint });
 });
 
 /**
@@ -147,10 +151,10 @@ export const complaintStatusUpdate = asyncHandler(async (req, res) => {
   const result = await complaintService.updateStatus(complaintId, status, user._id);
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
-  res.status(200).json({ message: 'Complaint status updated successfully', data: result.complaint });
+  res.status(200).json({ message: 'Complaint status updated successfully', data: result.data ?? result.complaint });
 });
 
 /**
@@ -164,10 +168,10 @@ export const updateComplaintResolutionNotes = asyncHandler(async (req, res) => {
   const result = await complaintService.updateResolutionNotes(complaintId, resolutionNotes);
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
-  res.status(200).json({ message: 'Complaint resolution notes updated successfully', data: result.complaint });
+  res.status(200).json({ message: 'Complaint resolution notes updated successfully', data: result.data ?? result.complaint });
 });
 
 /**
@@ -186,10 +190,10 @@ export const updateComplaintFeedback = asyncHandler(async (req, res) => {
   });
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
-  res.status(200).json({ message: 'Complaint feedback updated successfully', data: result.complaint });
+  res.status(200).json({ message: 'Complaint feedback updated successfully', data: result.data ?? result.complaint });
 });
 
 /**
@@ -202,7 +206,7 @@ export const getComplaintByToken = asyncHandler(async (req, res) => {
   const result = await complaintService.getComplaintByToken(token);
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
   res.status(200).json({ message: 'Complaint fetched successfully', data: result.data });
@@ -223,9 +227,8 @@ export const submitFeedbackByToken = asyncHandler(async (req, res) => {
   });
 
   if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.error });
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
   }
 
   res.status(200).json({ message: 'Feedback submitted successfully' });
 });
-
