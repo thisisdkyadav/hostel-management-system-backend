@@ -10,4 +10,4 @@ export { default as EventProposal } from "./EventProposal.model.js"
 export { default as EventExpense } from "./EventExpense.model.js"
 export { default as ApprovalLog } from "./ApprovalLog.model.js"
 export { default as CalendarAmendment } from "./CalendarAmendment.model.js"
-
+export { default as MegaEventSeries } from "./MegaEventSeries.model.js"

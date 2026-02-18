@@ -8,6 +8,7 @@ import { calendarService } from "./calendar.service.js"
 import { proposalService } from "./proposal.service.js"
 import { expenseService } from "./expense.service.js"
 import { amendmentService } from "./amendment.service.js"
+import { megaEventsService } from "./mega-events.service.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import { success } from "../../../../services/base/ServiceResponse.js"
 import { getConfigWithDefault } from "../../../../utils/configDefaults.js"
@@ -323,19 +324,48 @@ export const getPendingAmendments = asyncHandler(async (req, res) => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// MEGA EVENTS CONTROLLERS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const getMegaSeries = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getSeries()
+  sendRawResponse(res, result)
+})
+
+export const createMegaSeries = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.createSeries(req.body, req.user)
+  sendRawResponse(res, result)
+})
+
+export const getMegaSeriesById = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getSeriesById(req.params.seriesId)
+  sendRawResponse(res, result)
+})
+
+export const createMegaOccurrence = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.createOccurrence(req.params.seriesId, req.body, req.user)
+  sendRawResponse(res, result)
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // EVENT CONTROLLERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export const getEvents = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 20, status, category, calendarId } = req.query
+  const { page = 1, limit = 20, status, category, calendarId, megaEventSeriesId, isMegaEvent } = req.query
   
   const filter = {}
   if (status) filter.status = status
   if (category) filter.category = category
   if (calendarId) filter.calendarId = calendarId
+  if (megaEventSeriesId) filter.megaEventSeriesId = megaEventSeriesId
+  if (isMegaEvent !== undefined) {
+    filter.isMegaEvent = String(isMegaEvent).toLowerCase() === "true"
+  }
   
   const events = await GymkhanaEvent.find(filter)
     .populate("calendarId", "academicYear")
+    .populate("megaEventSeriesId", "name")
     .sort({ scheduledStartDate: 1 })
     .skip((page - 1) * limit)
     .limit(parseInt(limit))
@@ -353,6 +383,7 @@ export const getEvents = asyncHandler(async (req, res) => {
 export const getEventById = asyncHandler(async (req, res) => {
   const event = await GymkhanaEvent.findById(req.params.id)
     .populate("calendarId", "academicYear")
+    .populate("megaEventSeriesId", "name description")
     .populate("proposalId")
     .populate("expenseId")
   
@@ -364,9 +395,14 @@ export const getEventById = asyncHandler(async (req, res) => {
 })
 
 export const getCalendarView = asyncHandler(async (req, res) => {
-  const { year, month, startDate, endDate } = req.query
+  const { year, month, startDate, endDate, isMegaEvent } = req.query
   
   const filter = {}
+  if (isMegaEvent !== undefined) {
+    filter.isMegaEvent = String(isMegaEvent).toLowerCase() === "true"
+  } else {
+    filter.isMegaEvent = false
+  }
   let rangeStart = null
   let rangeEnd = null
   

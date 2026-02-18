@@ -155,6 +155,38 @@ router.post(
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// MEGA EVENTS ROUTES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+router.get(
+  "/mega-series",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  eventsController.getMegaSeries
+)
+
+router.post(
+  "/mega-series",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  validate(validation.createMegaSeriesSchema),
+  eventsController.createMegaSeries
+)
+
+router.get(
+  "/mega-series/:seriesId",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  validate(validation.megaSeriesIdSchema, "params"),
+  eventsController.getMegaSeriesById
+)
+
+router.post(
+  "/mega-series/:seriesId/occurrences",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  validate(validation.megaSeriesIdSchema, "params"),
+  validate(validation.createMegaOccurrenceSchema),
+  eventsController.createMegaOccurrence
+)
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // PROPOSAL ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 

@@ -36,16 +36,28 @@ class ProposalService extends BaseService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Create/submit a proposal for an event (GS only)
+   * Create/submit a proposal for an event.
+   * - Standard events: GS submits -> President approval starts.
+   * - Mega events: President submits -> Student Affairs approval starts.
    */
   async createProposal(eventId, data, user) {
-    if (user.subRole !== SUBROLES.GS_GYMKHANA) {
-      return forbidden("Only GS Gymkhana can submit proposals")
+    const isGS = user.subRole === SUBROLES.GS_GYMKHANA
+    const isPresident = user.subRole === SUBROLES.PRESIDENT_GYMKHANA
+    if (!isGS && !isPresident) {
+      return forbidden("Only GS or President Gymkhana can submit proposals")
     }
 
     const event = await GymkhanaEvent.findById(eventId)
     if (!event) {
       return notFound("Event")
+    }
+
+    const isMegaEvent = Boolean(event.megaEventSeriesId)
+    if (!isMegaEvent && !isGS) {
+      return forbidden("Only GS Gymkhana can submit proposals for standard events")
+    }
+    if (isMegaEvent && !isPresident) {
+      return forbidden("Only President Gymkhana can submit proposals for mega events")
     }
 
     if (event.proposalSubmitted) {
@@ -67,14 +79,19 @@ class ProposalService extends BaseService {
     }
 
     const proposalPayload = this._prepareProposalPayload(data, event)
+    const startsAtStudentAffairs = isMegaEvent && isPresident
 
     // Create proposal
     const proposal = await this.model.create({
       eventId,
       submittedBy: user._id,
       ...proposalPayload,
-      status: PROPOSAL_STATUS.PENDING_PRESIDENT,
-      currentApprovalStage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
+      status: startsAtStudentAffairs
+        ? PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS
+        : PROPOSAL_STATUS.PENDING_PRESIDENT,
+      currentApprovalStage: startsAtStudentAffairs
+        ? APPROVAL_STAGES.STUDENT_AFFAIRS
+        : APPROVAL_STAGES.PRESIDENT_GYMKHANA,
       customApprovalChain: [],
       currentChainIndex: null,
     })
@@ -89,7 +106,7 @@ class ProposalService extends BaseService {
     await ApprovalLog.create({
       entityType: "EventProposal",
       entityId: proposal._id,
-      stage: APPROVAL_STAGES.GS_GYMKHANA,
+      stage: isPresident ? APPROVAL_STAGES.PRESIDENT_GYMKHANA : APPROVAL_STAGES.GS_GYMKHANA,
       action: APPROVAL_ACTIONS.SUBMITTED,
       performedBy: user._id,
     })
@@ -124,15 +141,28 @@ class ProposalService extends BaseService {
       return badRequest("GS can only update proposals after revision request or rejection")
     }
 
-    if (isPresident && proposal.status !== PROPOSAL_STATUS.PENDING_PRESIDENT) {
-      return badRequest("President can only update proposals pending President approval")
-    }
-
     const event = await GymkhanaEvent.findById(proposal.eventId)
     if (!event) {
       return notFound("Event")
     }
+    const isMegaEvent = Boolean(event.megaEventSeriesId)
 
+    if (isPresident) {
+      if (isMegaEvent) {
+        const presidentEditableStatuses = [
+          PROPOSAL_STATUS.PENDING_PRESIDENT,
+          PROPOSAL_STATUS.REVISION_REQUESTED,
+          PROPOSAL_STATUS.REJECTED,
+        ]
+        if (!presidentEditableStatuses.includes(proposal.status)) {
+          return badRequest("President can only update mega event proposals before/after review feedback")
+        }
+      } else if (proposal.status !== PROPOSAL_STATUS.PENDING_PRESIDENT) {
+        return badRequest("President can only update proposals pending President approval")
+      }
+    }
+
+    const previousStatus = proposal.status
     const proposalPayload = this._prepareProposalPayload(data, event, proposal)
     Object.assign(proposal, proposalPayload)
 
@@ -146,10 +176,20 @@ class ProposalService extends BaseService {
       proposal.rejectedBy = null
       proposal.rejectedAt = null
     } else if (isPresident) {
-      proposal.status = PROPOSAL_STATUS.PENDING_PRESIDENT
-      proposal.currentApprovalStage = APPROVAL_STAGES.PRESIDENT_GYMKHANA
+      proposal.status = isMegaEvent
+        ? PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS
+        : PROPOSAL_STATUS.PENDING_PRESIDENT
+      proposal.currentApprovalStage = isMegaEvent
+        ? APPROVAL_STAGES.STUDENT_AFFAIRS
+        : APPROVAL_STAGES.PRESIDENT_GYMKHANA
       proposal.customApprovalChain = []
       proposal.currentChainIndex = null
+      if (previousStatus === PROPOSAL_STATUS.REVISION_REQUESTED || previousStatus === PROPOSAL_STATUS.REJECTED) {
+        proposal.revisionCount += 1
+      }
+      proposal.rejectionReason = null
+      proposal.rejectedBy = null
+      proposal.rejectedAt = null
     }
 
     await proposal.save()
@@ -336,10 +376,15 @@ class ProposalService extends BaseService {
 
     const currentStage = user.subRole
 
+    const event = await GymkhanaEvent.findById(proposal.eventId).select("megaEventSeriesId")
+    const isMegaEvent = Boolean(event?.megaEventSeriesId)
+
     proposal.status = PROPOSAL_STATUS.REVISION_REQUESTED
     proposal.rejectionReason = comments
     proposal.rejectedBy = user._id
-    proposal.currentApprovalStage = APPROVAL_STAGES.GS_GYMKHANA
+    proposal.currentApprovalStage = isMegaEvent
+      ? APPROVAL_STAGES.PRESIDENT_GYMKHANA
+      : APPROVAL_STAGES.GS_GYMKHANA
     proposal.customApprovalChain = []
     proposal.currentChainIndex = null
     await proposal.save()
@@ -403,6 +448,7 @@ class ProposalService extends BaseService {
 
     const events = await GymkhanaEvent.find({
       proposalSubmitted: false,
+      isMegaEvent: false,
       scheduledStartDate: { $gte: today, $lte: cutoffDate },
       status: { $nin: [EVENT_STATUS.CANCELLED, EVENT_STATUS.COMPLETED] },
     }).sort({ proposalDueDate: 1 })

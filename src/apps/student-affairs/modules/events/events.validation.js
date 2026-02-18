@@ -176,7 +176,32 @@ export const eventsQuerySchema = Joi.object({
   status: Joi.string(),
   category: Joi.string().valid(...Object.values(EVENT_CATEGORY)),
   calendarId: objectId,
+  megaEventSeriesId: objectId,
+  isMegaEvent: Joi.boolean(),
   proposalSubmitted: Joi.boolean(),
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MEGA EVENTS SCHEMAS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export const megaSeriesIdSchema = Joi.object({
+  seriesId: objectId.required(),
+})
+
+export const createMegaSeriesSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(200).required(),
+  description: Joi.string().trim().allow("").max(3000).default(""),
+})
+
+export const createMegaOccurrenceSchema = Joi.object({
+  startDate: Joi.date().required(),
+  endDate: Joi.date().required(),
+}).custom((value, helpers) => {
+  if (new Date(value.endDate) < new Date(value.startDate)) {
+    return helpers.message("End date cannot be before start date")
+  }
+  return value
 })
 
 export const pendingProposalsQuerySchema = Joi.object({

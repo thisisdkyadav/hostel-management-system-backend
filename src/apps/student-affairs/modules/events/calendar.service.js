@@ -500,6 +500,8 @@ class CalendarService extends BaseService {
       description: event.description,
       status: "upcoming",
       proposalDueDate,
+      isMegaEvent: false,
+      megaEventSeriesId: null,
     }
     })
 

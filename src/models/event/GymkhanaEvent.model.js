@@ -11,7 +11,7 @@ const GymkhanaEventSchema = new mongoose.Schema(
     calendarId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ActivityCalendar",
-      required: true,
+      default: null,
     },
     title: { type: String, required: true, trim: true },
     category: {
@@ -45,6 +45,12 @@ const GymkhanaEventSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "EventExpense",
     },
+    isMegaEvent: { type: Boolean, default: false },
+    megaEventSeriesId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MegaEventSeries",
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -71,6 +77,8 @@ GymkhanaEventSchema.virtual("isProposalOverdue").get(function () {
 
 // Indexes
 GymkhanaEventSchema.index({ calendarId: 1 })
+GymkhanaEventSchema.index({ isMegaEvent: 1 })
+GymkhanaEventSchema.index({ megaEventSeriesId: 1 })
 GymkhanaEventSchema.index({ status: 1 })
 GymkhanaEventSchema.index({ scheduledStartDate: 1 })
 GymkhanaEventSchema.index({ scheduledEndDate: 1 })
