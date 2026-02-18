@@ -1,6 +1,6 @@
 /**
  * DisCo Service
- * Handles final disciplinary action CRUD and disciplinary process workflow logging.
+ * Handles final disciplinary action CRUD and admin-driven disciplinary process workflow.
  */
 
 import mongoose from "mongoose";
@@ -16,12 +16,24 @@ import {
 import { emailCustomService } from "../../../administration/modules/email/email.service.js";
 
 const CASE_STATUS = {
-  SUBMITTED: "submitted",
-  INITIAL_REJECTED: "initial_rejected",
   UNDER_PROCESS: "under_process",
   FINAL_REJECTED: "final_rejected",
   FINALIZED_WITH_ACTION: "finalized_with_action",
 };
+
+const FINAL_DECISION_STATUS = {
+  PENDING: "pending",
+  REJECTED: "rejected",
+  ACTION_TAKEN: "action_taken",
+};
+
+const ADMIN_DISCIPLINARY_ROLES = new Set([
+  "Admin",
+  "Super Admin",
+  "Warden",
+  "Associate Warden",
+  "Hostel Supervisor",
+]);
 
 const buildTimelineEntry = (action, performedBy, description = "", metadata = {}) => ({
   action,
@@ -38,68 +50,167 @@ const safeFileNameFromUrl = (url, fallback) => {
   return segments[segments.length - 1] || fallback;
 };
 
-const toStudentCaseView = (caseDoc) => ({
-  id: caseDoc._id,
-  complaintPdfUrl: caseDoc.complaintPdfUrl,
-  complaintPdfName: caseDoc.complaintPdfName,
-  initialReview: {
-    status: caseDoc.initialReview?.status || "pending",
-    decisionDescription: caseDoc.initialReview?.decisionDescription || "",
-    decidedAt: caseDoc.initialReview?.decidedAt || null,
-  },
-  finalDecision: {
-    status: caseDoc.finalDecision?.status || "pending",
-    decisionDescription: caseDoc.finalDecision?.decisionDescription || "",
-    decidedAt: caseDoc.finalDecision?.decidedAt || null,
-  },
-  createdAt: caseDoc.createdAt,
-  updatedAt: caseDoc.updatedAt,
-});
+const asIdString = (value) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (value._id) return String(value._id);
+  return String(value);
+};
+
+const toUserRef = (user) => {
+  if (!user) return null;
+  return {
+    id: user._id || user,
+    name: user.name || "",
+    email: user.email || "",
+  };
+};
+
+const normalizeStatementRole = (role) => {
+  if (role === "related") return "accusing";
+  if (role === "accused" || role === "accusing") return role;
+  return "";
+};
+
+const toUniqueIdArray = (items = []) => {
+  if (!Array.isArray(items)) return [];
+  return [...new Set(items.filter(Boolean).map((value) => String(value)))];
+};
+
+const ensureValidObjectIds = (items = [], label = "ids") => {
+  const invalid = items.find((id) => !mongoose.Types.ObjectId.isValid(id));
+  if (invalid) {
+    return badRequest(`Invalid ${label} provided`);
+  }
+  return null;
+};
+
+const normalizeReminderItems = (
+  reminderItems,
+  { label = "reminder items", includeCompletionMeta = false } = {}
+) => {
+  if (typeof reminderItems === "undefined") return { list: [] };
+  if (!Array.isArray(reminderItems)) {
+    return { error: badRequest(`Invalid ${label} provided`) };
+  }
+
+  const list = [];
+  for (const item of reminderItems) {
+    const action = item?.action?.trim();
+    if (!action) {
+      return { error: badRequest("Each reminder item must include action text") };
+    }
+
+    const dueDate = new Date(item?.dueDate);
+    if (!item?.dueDate || Number.isNaN(dueDate.getTime())) {
+      return { error: badRequest("Each reminder item must include a valid due date") };
+    }
+
+    const normalizedItem = {
+      action,
+      dueDate,
+    };
+
+    if (includeCompletionMeta) {
+      const isDone = Boolean(item?.isDone);
+      let doneAt = null;
+      const doneById = item?.doneBy?._id || item?.doneBy || null;
+      if (isDone && item?.doneAt) {
+        const parsedDoneAt = new Date(item.doneAt);
+        if (Number.isNaN(parsedDoneAt.getTime())) {
+          return { error: badRequest("Invalid reminder completion date provided") };
+        }
+        doneAt = parsedDoneAt;
+      } else if (isDone) {
+        doneAt = new Date();
+      }
+
+      normalizedItem.isDone = isDone;
+      normalizedItem.doneAt = doneAt;
+      normalizedItem.doneBy =
+        isDone && doneById && mongoose.Types.ObjectId.isValid(doneById)
+          ? doneById
+          : null;
+    }
+
+    list.push(normalizedItem);
+  }
+
+  return { list };
+};
+
+const getSelectedStudentIdSet = (caseDoc) => {
+  const accusing = toUniqueIdArray(caseDoc.accusingStudentIds || []);
+  const accused = toUniqueIdArray(caseDoc.accusedStudentIds || []);
+  return new Set([...accusing, ...accused]);
+};
+
+const isStageTwoComplete = (caseDoc) => {
+  const accusingIds = toUniqueIdArray(caseDoc.accusingStudentIds || []);
+  const accusedIds = toUniqueIdArray(caseDoc.accusedStudentIds || []);
+  const selectedSet = new Set([...accusingIds, ...accusedIds]);
+
+  if (selectedSet.size === 0) return false;
+  if (accusedIds.length === 0) return false;
+
+  const statementCountByStudent = new Map();
+  for (const statement of caseDoc.statements || []) {
+    const studentId = asIdString(statement.studentUserId);
+    if (!selectedSet.has(studentId)) continue;
+    if (!statement.statementPdfUrl) return false;
+
+    const existing = statementCountByStudent.get(studentId) || 0;
+    statementCountByStudent.set(studentId, existing + 1);
+  }
+
+  if (statementCountByStudent.size !== selectedSet.size) return false;
+  for (const count of statementCountByStudent.values()) {
+    if (count !== 1) return false;
+  }
+
+  return true;
+};
 
 const toAdminCaseView = (caseDoc) => ({
   id: caseDoc._id,
   complaintPdfUrl: caseDoc.complaintPdfUrl,
   complaintPdfName: caseDoc.complaintPdfName,
   caseStatus: caseDoc.caseStatus,
-  submittedBy: caseDoc.submittedBy
-    ? {
-        id: caseDoc.submittedBy._id || caseDoc.submittedBy,
-        name: caseDoc.submittedBy.name || "",
-        email: caseDoc.submittedBy.email || "",
-      }
-    : null,
-  initialReview: {
-    status: caseDoc.initialReview?.status || "pending",
-    decisionDescription: caseDoc.initialReview?.decisionDescription || "",
-    decidedBy: caseDoc.initialReview?.decidedBy
-      ? {
-          id: caseDoc.initialReview.decidedBy._id || caseDoc.initialReview.decidedBy,
-          name: caseDoc.initialReview.decidedBy.name || "",
-          email: caseDoc.initialReview.decidedBy.email || "",
-        }
-      : null,
-    decidedAt: caseDoc.initialReview?.decidedAt || null,
+  startedBy: toUserRef(caseDoc.submittedBy),
+  selectedStudents: {
+    accusing: (caseDoc.accusingStudentIds || []).map((student) => ({
+      id: student?._id || student,
+      name: student?.name || "",
+      email: student?.email || "",
+    })),
+    accused: (caseDoc.accusedStudentIds || []).map((student) => ({
+      id: student?._id || student,
+      name: student?.name || "",
+      email: student?.email || "",
+    })),
   },
   statements: (caseDoc.statements || []).map((statement) => ({
     id: statement._id,
-    statementType: statement.statementType,
+    studentRole: normalizeStatementRole(statement.studentRole || statement.statementType),
     statementPdfUrl: statement.statementPdfUrl,
     statementPdfName: statement.statementPdfName,
-    student: statement.studentUserId
-      ? {
-          id: statement.studentUserId._id || statement.studentUserId,
-          name: statement.studentUserId.name || "",
-          email: statement.studentUserId.email || "",
-        }
-      : null,
-    addedBy: statement.addedBy
-      ? {
-          id: statement.addedBy._id || statement.addedBy,
-          name: statement.addedBy.name || "",
-          email: statement.addedBy.email || "",
-        }
-      : null,
+    student: toUserRef(statement.studentUserId),
+    addedBy: toUserRef(statement.addedBy),
     addedAt: statement.addedAt,
+  })),
+  evidenceDocuments: (caseDoc.evidenceDocuments || []).map((document) => ({
+    id: document._id,
+    pdfUrl: document.pdfUrl,
+    pdfName: document.pdfName,
+    uploadedBy: toUserRef(document.uploadedBy),
+    uploadedAt: document.uploadedAt,
+  })),
+  extraDocuments: (caseDoc.extraDocuments || []).map((document) => ({
+    id: document._id,
+    pdfUrl: document.pdfUrl,
+    pdfName: document.pdfName,
+    uploadedBy: toUserRef(document.uploadedBy),
+    uploadedAt: document.uploadedAt,
   })),
   emailLogs: (caseDoc.emailLogs || []).map((entry) => ({
     id: entry._id,
@@ -107,13 +218,7 @@ const toAdminCaseView = (caseDoc) => ({
     subject: entry.subject,
     body: entry.body,
     attachments: entry.attachments || [],
-    sentBy: entry.sentBy
-      ? {
-          id: entry.sentBy._id || entry.sentBy,
-          name: entry.sentBy.name || "",
-          email: entry.sentBy.email || "",
-        }
-      : null,
+    sentBy: toUserRef(entry.sentBy),
     sentAt: entry.sentAt,
     result: entry.result || { sent: 0, failed: 0, total: 0, errors: [] },
   })),
@@ -124,7 +229,7 @@ const toAdminCaseView = (caseDoc) => ({
     uploadedAt: null,
   },
   finalDecision: {
-    status: caseDoc.finalDecision?.status || "pending",
+    status: caseDoc.finalDecision?.status || FINAL_DECISION_STATUS.PENDING,
     decisionDescription: caseDoc.finalDecision?.decisionDescription || "",
     disciplinedStudents: (caseDoc.finalDecision?.disciplinedStudentIds || []).map((student) => ({
       id: student?._id || student,
@@ -132,19 +237,26 @@ const toAdminCaseView = (caseDoc) => ({
       email: student?.email || "",
     })),
     createdDisCoActionIds: caseDoc.finalDecision?.createdDisCoActionIds || [],
+    disciplinaryActionMode: caseDoc.finalDecision?.disciplinaryActionMode || "common",
     disciplinaryActionTemplate: caseDoc.finalDecision?.disciplinaryActionTemplate || {
       reason: "",
       actionTaken: "",
       date: null,
       remarks: "",
+      reminderItems: [],
     },
-    decidedBy: caseDoc.finalDecision?.decidedBy
-      ? {
-          id: caseDoc.finalDecision.decidedBy._id || caseDoc.finalDecision.decidedBy,
-          name: caseDoc.finalDecision.decidedBy.name || "",
-          email: caseDoc.finalDecision.decidedBy.email || "",
-        }
-      : null,
+    studentDisciplinaryActions: (caseDoc.finalDecision?.studentDisciplinaryActions || []).map(
+      (item) => ({
+        id: item._id,
+        student: toUserRef(item.studentUserId),
+        reason: item.reason || "",
+        actionTaken: item.actionTaken || "",
+        date: item.date || null,
+        remarks: item.remarks || "",
+        reminderItems: item.reminderItems || [],
+      })
+    ),
+    decidedBy: toUserRef(caseDoc.finalDecision?.decidedBy),
     decidedAt: caseDoc.finalDecision?.decidedAt || null,
   },
   timeline: (caseDoc.timeline || []).map((entry) => ({
@@ -152,18 +264,36 @@ const toAdminCaseView = (caseDoc) => ({
     action: entry.action,
     description: entry.description,
     metadata: entry.metadata || {},
-    performedBy: entry.performedBy
-      ? {
-          id: entry.performedBy._id || entry.performedBy,
-          name: entry.performedBy.name || "",
-          email: entry.performedBy.email || "",
-        }
-      : null,
+    performedBy: toUserRef(entry.performedBy),
     createdAt: entry.createdAt,
   })),
   createdAt: caseDoc.createdAt,
   updatedAt: caseDoc.updatedAt,
 });
+
+const normalizeCaseDocumentList = ({ documents, uploadedBy, fallbackName }) => {
+  if (!documents) return { list: [] };
+  if (!Array.isArray(documents)) {
+    return { error: badRequest("Invalid document list") };
+  }
+
+  const list = [];
+  for (const item of documents) {
+    if (!item?.pdfUrl?.trim()) {
+      return { error: badRequest("Document URL is required") };
+    }
+
+    const pdfUrl = item.pdfUrl.trim();
+    list.push({
+      pdfUrl,
+      pdfName: item.pdfName?.trim() || safeFileNameFromUrl(pdfUrl, fallbackName),
+      uploadedBy,
+      uploadedAt: new Date(),
+    });
+  }
+
+  return { list };
+};
 
 class DisCoService extends BaseService {
   constructor() {
@@ -175,19 +305,33 @@ class DisCoService extends BaseService {
    * @param {Object} data - Action data with studentId
    */
   async addDisCoAction(data) {
-    const { studentId, reason, actionTaken, date, remarks } = data;
+    const { studentId, reason, actionTaken, date, remarks, reminderItems } = data;
 
     const studentProfile = await StudentProfile.findOne({ userId: studentId });
     if (!studentProfile) {
       return notFound("Student profile");
     }
 
+    const actionDate = date ? new Date(date) : new Date();
+    if (Number.isNaN(actionDate.getTime())) {
+      return badRequest("Invalid action date");
+    }
+
+    const normalizedReminderItems = normalizeReminderItems(reminderItems, {
+      label: "reminder items",
+      includeCompletionMeta: false,
+    });
+    if (normalizedReminderItems.error) {
+      return normalizedReminderItems.error;
+    }
+
     const result = await this.create({
       userId: studentId,
       reason,
       actionTaken,
-      date,
+      date: actionDate,
       remarks,
+      reminderItems: normalizedReminderItems.list,
     });
 
     if (result.success) {
@@ -203,7 +347,12 @@ class DisCoService extends BaseService {
   async getDisCoActionsByStudent(studentId) {
     const result = await this.findAll(
       { userId: studentId },
-      { populate: [{ path: "userId", select: "name email" }] }
+      {
+        populate: [
+          { path: "userId", select: "name email" },
+          { path: "reminderItems.doneBy", select: "name email" },
+        ],
+      }
     );
 
     if (result.success) {
@@ -222,11 +371,80 @@ class DisCoService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateDisCoAction(disCoId, data) {
-    const result = await this.updateById(disCoId, data);
+    const updates = { ...data };
+
+    if (Object.prototype.hasOwnProperty.call(data, "date")) {
+      if (!data.date) {
+        return badRequest("Action date is required");
+      }
+      const parsedDate = new Date(data.date);
+      if (Number.isNaN(parsedDate.getTime())) {
+        return badRequest("Invalid action date");
+      }
+      updates.date = parsedDate;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(data, "reminderItems")) {
+      const normalizedReminderItems = normalizeReminderItems(data.reminderItems, {
+        label: "reminder items",
+        includeCompletionMeta: true,
+      });
+      if (normalizedReminderItems.error) {
+        return normalizedReminderItems.error;
+      }
+      updates.reminderItems = normalizedReminderItems.list;
+    }
+
+    const result = await this.updateById(disCoId, updates);
     if (result.success) {
       return success({ message: "DisCo action updated successfully", action: result.data });
     }
     return result;
+  }
+
+  /**
+   * Mark a reminder item as completed.
+   */
+  async markReminderItemDone(disCoId, reminderItemId, currentUser) {
+    if (!mongoose.Types.ObjectId.isValid(disCoId)) {
+      return badRequest("Invalid DisCo action id");
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(reminderItemId)) {
+      return badRequest("Invalid reminder item id");
+    }
+
+    const actionDoc = await DisCoAction.findById(disCoId);
+    if (!actionDoc) return notFound("DisCo action");
+
+    const isOwner = String(actionDoc.userId) === String(currentUser?._id);
+    const canManage = ADMIN_DISCIPLINARY_ROLES.has(currentUser?.role);
+    if (!isOwner && !canManage) {
+      return forbidden("You are not allowed to update this reminder");
+    }
+
+    const reminderDoc = actionDoc.reminderItems.id(reminderItemId);
+    if (!reminderDoc) return notFound("Reminder item");
+
+    const wasAlreadyDone = Boolean(reminderDoc.isDone);
+
+    if (!wasAlreadyDone) {
+      reminderDoc.isDone = true;
+      reminderDoc.doneAt = new Date();
+      reminderDoc.doneBy = currentUser?._id || null;
+      await actionDoc.save();
+    }
+
+    const populatedAction = await DisCoAction.findById(disCoId)
+      .populate("userId", "name email")
+      .populate("reminderItems.doneBy", "name email");
+
+    return success({
+      message: wasAlreadyDone
+        ? "Reminder item already completed"
+        : "Reminder item marked as completed",
+      action: populatedAction,
+    });
   }
 
   /**
@@ -242,43 +460,40 @@ class DisCoService extends BaseService {
   }
 
   /**
-   * Student creates disciplinary process complaint (PDF only).
+   * Admin creates a disciplinary process case by uploading complaint PDF.
    */
-  async submitProcessCase({ complaintPdfUrl, complaintPdfName }, user) {
+  async submitProcessCase({ complaintPdfUrl, complaintPdfName }, adminUser) {
     if (!complaintPdfUrl?.trim()) {
       return badRequest("Complaint PDF is required");
     }
 
     const createdCase = await DisCoProcessCase.create({
-      submittedBy: user._id,
+      submittedBy: adminUser._id,
       complaintPdfUrl: complaintPdfUrl.trim(),
-      complaintPdfName: complaintPdfName?.trim() || safeFileNameFromUrl(complaintPdfUrl, "complaint.pdf"),
+      complaintPdfName:
+        complaintPdfName?.trim() || safeFileNameFromUrl(complaintPdfUrl, "complaint.pdf"),
+      caseStatus: CASE_STATUS.UNDER_PROCESS,
       timeline: [
         buildTimelineEntry(
-          "case_submitted",
-          user._id,
-          "Student submitted disciplinary complaint PDF"
+          "case_created",
+          adminUser._id,
+          "Admin created disciplinary process case"
         ),
       ],
     });
 
+    const caseWithUser = await DisCoProcessCase.findById(createdCase._id).populate(
+      "submittedBy",
+      "name email"
+    );
+
     return success(
       {
-        message: "Disciplinary process complaint submitted",
-        case: toStudentCaseView(createdCase),
+        message: "Disciplinary process case created",
+        case: toAdminCaseView(caseWithUser),
       },
       201
     );
-  }
-
-  /**
-   * Student can only see stage-wise statuses of own cases.
-   */
-  async getMyProcessCases(studentUserId) {
-    const cases = await DisCoProcessCase.find({ submittedBy: studentUserId }).sort({ createdAt: -1 });
-    return success({
-      cases: cases.map(toStudentCaseView),
-    });
   }
 
   /**
@@ -290,16 +505,13 @@ class DisCoService extends BaseService {
 
     const filter = {};
     if (query.caseStatus) filter.caseStatus = query.caseStatus;
-    if (query.initialStatus) filter["initialReview.status"] = query.initialStatus;
-    if (query.finalStatus) filter["finalDecision.status"] = query.finalStatus;
-    if (query.submittedBy && mongoose.Types.ObjectId.isValid(query.submittedBy)) {
-      filter.submittedBy = query.submittedBy;
+    if (query.startedBy && mongoose.Types.ObjectId.isValid(query.startedBy)) {
+      filter.submittedBy = query.startedBy;
     }
 
     const [items, total] = await Promise.all([
       DisCoProcessCase.find(filter)
         .populate("submittedBy", "name email")
-        .populate("initialReview.decidedBy", "name email")
         .populate("finalDecision.decidedBy", "name email")
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
@@ -313,19 +525,23 @@ class DisCoService extends BaseService {
   /**
    * Get case by ID.
    */
-  async getProcessCaseById(caseId, user) {
+  async getProcessCaseById(caseId) {
     if (!mongoose.Types.ObjectId.isValid(caseId)) {
       return badRequest("Invalid case id");
     }
 
     const caseDoc = await DisCoProcessCase.findById(caseId)
       .populate("submittedBy", "name email")
-      .populate("initialReview.decidedBy", "name email")
+      .populate("accusingStudentIds", "name email")
+      .populate("accusedStudentIds", "name email")
       .populate("statements.studentUserId", "name email")
       .populate("statements.addedBy", "name email")
+      .populate("evidenceDocuments.uploadedBy", "name email")
+      .populate("extraDocuments.uploadedBy", "name email")
       .populate("emailLogs.sentBy", "name email")
       .populate("committeeMeetingMinutes.uploadedBy", "name email")
       .populate("finalDecision.disciplinedStudentIds", "name email")
+      .populate("finalDecision.studentDisciplinaryActions.studentUserId", "name email")
       .populate("finalDecision.decidedBy", "name email")
       .populate("timeline.performedBy", "name email");
 
@@ -333,138 +549,167 @@ class DisCoService extends BaseService {
       return notFound("Disciplinary process case");
     }
 
-    if (user.role === "Student") {
-      if (caseDoc.submittedBy?._id?.toString() !== user._id.toString()) {
-        return forbidden("You can only view your own disciplinary cases");
-      }
-      return success({ case: toStudentCaseView(caseDoc) });
-    }
-
     return success({ case: toAdminCaseView(caseDoc) });
   }
 
   /**
-   * Admin initial review action: process or reject.
+   * Save stage 2: involved students and document sets.
    */
-  async reviewProcessCase(caseId, { decision, description }, adminUser) {
-    if (!["process", "reject"].includes(decision)) {
-      return badRequest("Decision must be either process or reject");
-    }
+  async saveCaseStageTwo(caseId, payload, adminUser) {
+    const {
+      accusingStudentIds = [],
+      accusedStudentIds = [],
+      statements = [],
+      evidenceDocuments = [],
+      extraDocuments = [],
+    } = payload;
 
     const caseDoc = await DisCoProcessCase.findById(caseId);
-    if (!caseDoc) {
-      return notFound("Disciplinary process case");
+    if (!caseDoc) return notFound("Disciplinary process case");
+
+    if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
+      return badRequest("Cannot edit stage 2 after final decision");
     }
 
-    if (caseDoc.initialReview?.status !== "pending") {
-      return badRequest("Initial review is already completed for this case");
+    const uniqueAccusingIds = toUniqueIdArray(accusingStudentIds);
+    const uniqueAccusedIds = toUniqueIdArray(accusedStudentIds);
+
+    const invalidAccusing = ensureValidObjectIds(uniqueAccusingIds, "accusing student ids");
+    if (invalidAccusing) return invalidAccusing;
+
+    const invalidAccused = ensureValidObjectIds(uniqueAccusedIds, "accused student ids");
+    if (invalidAccused) return invalidAccused;
+
+    if (uniqueAccusedIds.length === 0) {
+      return badRequest("Select at least one accused student");
     }
 
-    if (decision === "reject" && !description?.trim()) {
-      return badRequest("Rejection description is required");
+    const overlapSet = uniqueAccusingIds.filter((id) => uniqueAccusedIds.includes(id));
+    if (overlapSet.length > 0) {
+      return badRequest("A student cannot be in both accusing and accused groups");
     }
 
-    caseDoc.initialReview.status = decision === "process" ? "processed" : "rejected";
-    caseDoc.initialReview.decisionDescription = description?.trim() || "";
-    caseDoc.initialReview.decidedBy = adminUser._id;
-    caseDoc.initialReview.decidedAt = new Date();
-    caseDoc.caseStatus =
-      decision === "process" ? CASE_STATUS.UNDER_PROCESS : CASE_STATUS.INITIAL_REJECTED;
+    const selectedIds = [...new Set([...uniqueAccusingIds, ...uniqueAccusedIds])];
+    if (selectedIds.length === 0) {
+      return badRequest("Select at least one student");
+    }
+
+    const studentProfiles = await StudentProfile.find({ userId: { $in: selectedIds } }, "userId");
+    const foundUserIds = new Set(studentProfiles.map((profile) => String(profile.userId)));
+    const missingStudents = selectedIds.filter((id) => !foundUserIds.has(String(id)));
+    if (missingStudents.length > 0) {
+      return badRequest("Some selected students do not exist in student profiles");
+    }
+
+    if (!Array.isArray(statements) || statements.length !== selectedIds.length) {
+      return badRequest(
+        "Upload exactly one statement PDF for every selected student in both groups"
+      );
+    }
+
+    const accusedSet = new Set(uniqueAccusedIds);
+
+    const statementMap = new Map();
+    for (const statement of statements) {
+      const studentUserId = String(statement?.studentUserId || "");
+      if (!studentUserId || !selectedIds.includes(studentUserId)) {
+        return badRequest("Each statement must reference a selected student");
+      }
+
+      if (statementMap.has(studentUserId)) {
+        return badRequest("Only one statement per selected student is allowed");
+      }
+
+      if (!statement?.statementPdfUrl?.trim()) {
+        return badRequest("Statement PDF is required for each selected student");
+      }
+
+      const expectedRole = accusedSet.has(studentUserId) ? "accused" : "accusing";
+      const providedRole = normalizeStatementRole(statement.studentRole || statement.statementType);
+
+      if (providedRole && providedRole !== expectedRole) {
+        return badRequest("Statement student role does not match selected student group");
+      }
+
+      const statementPdfUrl = statement.statementPdfUrl.trim();
+      statementMap.set(studentUserId, {
+        studentUserId,
+        studentRole: expectedRole,
+        statementPdfUrl,
+        statementPdfName:
+          statement.statementPdfName?.trim() ||
+          safeFileNameFromUrl(statementPdfUrl, "statement.pdf"),
+        addedBy: adminUser._id,
+        addedAt: new Date(),
+      });
+    }
+
+    if (statementMap.size !== selectedIds.length) {
+      return badRequest("Statement is missing for one or more selected students");
+    }
+
+    const statementsPayload = selectedIds.map((studentId) => statementMap.get(studentId));
+
+    const normalizedEvidence = normalizeCaseDocumentList({
+      documents: evidenceDocuments,
+      uploadedBy: adminUser._id,
+      fallbackName: "evidence.pdf",
+    });
+    if (normalizedEvidence.error) return normalizedEvidence.error;
+
+    const normalizedExtra = normalizeCaseDocumentList({
+      documents: extraDocuments,
+      uploadedBy: adminUser._id,
+      fallbackName: "extra-document.pdf",
+    });
+    if (normalizedExtra.error) return normalizedExtra.error;
+
+    caseDoc.accusingStudentIds = uniqueAccusingIds;
+    caseDoc.accusedStudentIds = uniqueAccusedIds;
+    caseDoc.statements = statementsPayload;
+    caseDoc.evidenceDocuments = normalizedEvidence.list;
+    caseDoc.extraDocuments = normalizedExtra.list;
+    caseDoc.caseStatus = CASE_STATUS.UNDER_PROCESS;
     caseDoc.timeline.push(
       buildTimelineEntry(
-        decision === "process" ? "initial_review_processed" : "initial_review_rejected",
+        "stage2_documents_saved",
         adminUser._id,
-        description?.trim() || ""
+        "Stage 2 documents saved",
+        {
+          accusingStudentsCount: uniqueAccusingIds.length,
+          accusedStudentsCount: uniqueAccusedIds.length,
+          statementsCount: statementsPayload.length,
+          evidenceDocumentsCount: normalizedEvidence.list.length,
+          extraDocumentsCount: normalizedExtra.list.length,
+        }
       )
     );
+
     await caseDoc.save();
+
+    const populatedCaseDoc = await DisCoProcessCase.findById(caseDoc._id)
+      .populate("submittedBy", "name email")
+      .populate("accusingStudentIds", "name email")
+      .populate("accusedStudentIds", "name email")
+      .populate("statements.studentUserId", "name email")
+      .populate("statements.addedBy", "name email")
+      .populate("evidenceDocuments.uploadedBy", "name email")
+      .populate("extraDocuments.uploadedBy", "name email")
+      .populate("emailLogs.sentBy", "name email")
+      .populate("committeeMeetingMinutes.uploadedBy", "name email")
+      .populate("finalDecision.disciplinedStudentIds", "name email")
+      .populate("finalDecision.studentDisciplinaryActions.studentUserId", "name email")
+      .populate("finalDecision.decidedBy", "name email")
+      .populate("timeline.performedBy", "name email");
 
     return success({
-      message:
-        decision === "process"
-          ? "Case moved to processing stage"
-          : "Case rejected at initial review stage",
-      case: toAdminCaseView(caseDoc),
+      message: "Stage 2 saved successfully",
+      case: toAdminCaseView(populatedCaseDoc),
     });
   }
 
   /**
-   * Admin adds a statement document mapped to a student and category.
-   */
-  async addCaseStatement(caseId, payload, adminUser) {
-    const { studentUserId, statementType, statementPdfUrl, statementPdfName } = payload;
-    if (!studentUserId || !mongoose.Types.ObjectId.isValid(studentUserId)) {
-      return badRequest("Valid student user id is required");
-    }
-    if (!["accused", "related"].includes(statementType)) {
-      return badRequest("statementType must be accused or related");
-    }
-    if (!statementPdfUrl?.trim()) {
-      return badRequest("Statement PDF is required");
-    }
-
-    const [caseDoc, studentProfile] = await Promise.all([
-      DisCoProcessCase.findById(caseId),
-      StudentProfile.findOne({ userId: studentUserId }),
-    ]);
-    if (!caseDoc) return notFound("Disciplinary process case");
-    if (!studentProfile) return badRequest("Student not found for selected user id");
-
-    if (caseDoc.initialReview?.status !== "processed") {
-      return badRequest("Case must be in processed stage before adding statements");
-    }
-    if (caseDoc.finalDecision?.status !== "pending") {
-      return badRequest("Cannot edit statements after final decision");
-    }
-
-    caseDoc.statements.push({
-      studentUserId,
-      statementType,
-      statementPdfUrl: statementPdfUrl.trim(),
-      statementPdfName:
-        statementPdfName?.trim() || safeFileNameFromUrl(statementPdfUrl, "statement.pdf"),
-      addedBy: adminUser._id,
-      addedAt: new Date(),
-    });
-    caseDoc.timeline.push(
-      buildTimelineEntry(
-        "statement_added",
-        adminUser._id,
-        `Statement added for ${statementType} student`,
-        { studentUserId, statementType }
-      )
-    );
-    await caseDoc.save();
-
-    return success({ message: "Statement added successfully", case: toAdminCaseView(caseDoc) });
-  }
-
-  /**
-   * Admin removes statement entry.
-   */
-  async removeCaseStatement(caseId, statementId, adminUser) {
-    const caseDoc = await DisCoProcessCase.findById(caseId);
-    if (!caseDoc) return notFound("Disciplinary process case");
-    if (caseDoc.finalDecision?.status !== "pending") {
-      return badRequest("Cannot edit statements after final decision");
-    }
-
-    const statement = caseDoc.statements.id(statementId);
-    if (!statement) return notFound("Statement");
-
-    statement.deleteOne();
-    caseDoc.timeline.push(
-      buildTimelineEntry("statement_removed", adminUser._id, "Statement removed", {
-        statementId,
-      })
-    );
-    await caseDoc.save();
-
-    return success({ message: "Statement removed successfully", case: toAdminCaseView(caseDoc) });
-  }
-
-  /**
-   * Admin sends email with selected case documents and optional extra PDFs.
+   * Admin sends committee email with selected case documents and optional extra PDFs.
    */
   async sendCaseEmail(caseId, payload, adminUser) {
     const {
@@ -473,6 +718,8 @@ class DisCoService extends BaseService {
       body,
       includeInitialComplaint = true,
       statementIds = [],
+      evidenceIds = [],
+      extraDocumentIds = [],
       extraAttachments = [],
     } = payload;
 
@@ -483,28 +730,82 @@ class DisCoService extends BaseService {
 
     const caseDoc = await DisCoProcessCase.findById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
-    if (caseDoc.initialReview?.status !== "processed") {
-      return badRequest("Initial review must be processed before sending emails");
+
+    if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
+      return badRequest("Cannot send emails after final decision");
+    }
+
+    if (!isStageTwoComplete(caseDoc)) {
+      return badRequest("Complete stage 2 documents before sending committee email");
     }
 
     const attachments = [];
+
     if (includeInitialComplaint) {
       attachments.push({
         sourceType: "initial_complaint",
         sourceId: null,
-        fileName: caseDoc.complaintPdfName || safeFileNameFromUrl(caseDoc.complaintPdfUrl, "complaint.pdf"),
+        fileName:
+          caseDoc.complaintPdfName ||
+          safeFileNameFromUrl(caseDoc.complaintPdfUrl, "complaint.pdf"),
         fileUrl: caseDoc.complaintPdfUrl,
       });
     }
 
-    for (const statementId of statementIds) {
-      const statement = caseDoc.statements.id(statementId);
-      if (!statement) continue;
+    const selectedStatementIds = toUniqueIdArray(
+      statementIds.length > 0
+        ? statementIds
+        : (caseDoc.statements || []).map((statement) => statement._id)
+    );
+    const selectedEvidenceIds = toUniqueIdArray(
+      evidenceIds.length > 0
+        ? evidenceIds
+        : (caseDoc.evidenceDocuments || []).map((document) => document._id)
+    );
+    const selectedExtraDocumentIds = toUniqueIdArray(
+      extraDocumentIds.length > 0
+        ? extraDocumentIds
+        : (caseDoc.extraDocuments || []).map((document) => document._id)
+    );
+
+    for (const statement of caseDoc.statements || []) {
+      const statementId = asIdString(statement._id);
+      if (!selectedStatementIds.includes(statementId)) continue;
+
       attachments.push({
         sourceType: "statement",
         sourceId: statement._id,
-        fileName: statement.statementPdfName || safeFileNameFromUrl(statement.statementPdfUrl, "statement.pdf"),
+        fileName:
+          statement.statementPdfName ||
+          safeFileNameFromUrl(statement.statementPdfUrl, "statement.pdf"),
         fileUrl: statement.statementPdfUrl,
+      });
+    }
+
+    for (const document of caseDoc.evidenceDocuments || []) {
+      const documentId = asIdString(document._id);
+      if (!selectedEvidenceIds.includes(documentId)) continue;
+
+      attachments.push({
+        sourceType: "evidence",
+        sourceId: document._id,
+        fileName:
+          document.pdfName || safeFileNameFromUrl(document.pdfUrl, "evidence.pdf"),
+        fileUrl: document.pdfUrl,
+      });
+    }
+
+    for (const document of caseDoc.extraDocuments || []) {
+      const documentId = asIdString(document._id);
+      if (!selectedExtraDocumentIds.includes(documentId)) continue;
+
+      attachments.push({
+        sourceType: "extra_document",
+        sourceId: document._id,
+        fileName:
+          document.pdfName ||
+          safeFileNameFromUrl(document.pdfUrl, "extra-document.pdf"),
+        fileUrl: document.pdfUrl,
       });
     }
 
@@ -513,7 +814,8 @@ class DisCoService extends BaseService {
       attachments.push({
         sourceType: "extra",
         sourceId: null,
-        fileName: attachment.fileName || safeFileNameFromUrl(attachment.url, "attachment.pdf"),
+        fileName:
+          attachment.fileName || safeFileNameFromUrl(attachment.url, "attachment.pdf"),
         fileUrl: attachment.url,
       });
     }
@@ -550,7 +852,7 @@ class DisCoService extends BaseService {
       },
     });
     caseDoc.timeline.push(
-      buildTimelineEntry("case_email_sent", adminUser._id, "Case email sent", {
+      buildTimelineEntry("committee_email_sent", adminUser._id, "Committee email sent", {
         recipients,
         attachmentCount: attachments.length,
       })
@@ -572,11 +874,17 @@ class DisCoService extends BaseService {
 
     const caseDoc = await DisCoProcessCase.findById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
-    if (caseDoc.initialReview?.status !== "processed") {
-      return badRequest("Initial review must be processed before uploading meeting minutes");
-    }
-    if (caseDoc.finalDecision?.status !== "pending") {
+
+    if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
       return badRequest("Cannot update meeting minutes after final decision");
+    }
+
+    if (!isStageTwoComplete(caseDoc)) {
+      return badRequest("Complete stage 2 documents before uploading meeting minutes");
+    }
+
+    if ((caseDoc.emailLogs || []).length === 0) {
+      return badRequest("Send committee email before uploading meeting minutes");
     }
 
     caseDoc.committeeMeetingMinutes = {
@@ -604,7 +912,19 @@ class DisCoService extends BaseService {
    * Admin finalizes case by rejecting it or creating DisCo actions for selected students.
    */
   async finalizeCase(caseId, payload, adminUser) {
-    const { decision, decisionDescription, studentUserIds = [], reason, actionTaken, date, remarks } = payload;
+    const {
+      decision,
+      decisionDescription,
+      actionMode = "common",
+      studentUserIds = [],
+      studentActions = [],
+      reason,
+      actionTaken,
+      date,
+      remarks,
+      reminderItems = [],
+    } = payload;
+
     if (!["reject", "action"].includes(decision)) {
       return badRequest("decision must be reject or action");
     }
@@ -612,11 +932,20 @@ class DisCoService extends BaseService {
     const caseDoc = await DisCoProcessCase.findById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
 
-    if (caseDoc.initialReview?.status !== "processed") {
-      return badRequest("Case must be processed in initial review before final decision");
-    }
-    if (caseDoc.finalDecision?.status !== "pending") {
+    if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
       return badRequest("Final decision has already been recorded");
+    }
+
+    if (!isStageTwoComplete(caseDoc)) {
+      return badRequest("Complete stage 2 documents before final decision");
+    }
+
+    if ((caseDoc.emailLogs || []).length === 0) {
+      return badRequest("Send committee email before final decision");
+    }
+
+    if (!caseDoc.committeeMeetingMinutes?.pdfUrl) {
+      return badRequest("Upload committee meeting minutes before final decision");
     }
 
     if (decision === "reject") {
@@ -624,7 +953,7 @@ class DisCoService extends BaseService {
         return badRequest("Final rejection description is required");
       }
 
-      caseDoc.finalDecision.status = "rejected";
+      caseDoc.finalDecision.status = FINAL_DECISION_STATUS.REJECTED;
       caseDoc.finalDecision.decisionDescription = decisionDescription.trim();
       caseDoc.finalDecision.decidedBy = adminUser._id;
       caseDoc.finalDecision.decidedAt = new Date();
@@ -644,50 +973,153 @@ class DisCoService extends BaseService {
       });
     }
 
-    if (!reason?.trim()) return badRequest("Disciplinary reason is required");
-    if (!actionTaken?.trim()) return badRequest("Action taken is required");
-    if (!Array.isArray(studentUserIds) || studentUserIds.length === 0) {
-      return badRequest("At least one disciplined student must be selected");
+    if (!["common", "per_student"].includes(actionMode)) {
+      return badRequest("actionMode must be common or per_student");
     }
 
-    const uniqueStudentIds = [...new Set(studentUserIds.filter(Boolean))];
-    const invalidId = uniqueStudentIds.find((id) => !mongoose.Types.ObjectId.isValid(id));
-    if (invalidId) {
-      return badRequest("One or more selected student ids are invalid");
-    }
+    let uniqueStudentIds = [];
+    let actionDocuments = [];
+    let disciplinaryActionTemplate = {
+      reason: "",
+      actionTaken: "",
+      date: null,
+      remarks: "",
+      reminderItems: [],
+    };
+    let studentDisciplinaryActions = [];
 
-    const profiles = await StudentProfile.find({ userId: { $in: uniqueStudentIds } }, "userId");
-    const foundUserIds = new Set(profiles.map((profile) => profile.userId.toString()));
-    const missing = uniqueStudentIds.filter((id) => !foundUserIds.has(id.toString()));
-    if (missing.length > 0) {
-      return badRequest("Some selected students do not exist in student profiles");
-    }
+    if (actionMode === "common") {
+      if (!reason?.trim()) return badRequest("Disciplinary reason is required");
+      if (!actionTaken?.trim()) return badRequest("Action taken is required");
+      if (!Array.isArray(studentUserIds) || studentUserIds.length === 0) {
+        return badRequest("At least one disciplined student must be selected");
+      }
 
-    const actionDate = date ? new Date(date) : new Date();
-    if (Number.isNaN(actionDate.getTime())) {
-      return badRequest("Invalid action date");
-    }
+      uniqueStudentIds = toUniqueIdArray(studentUserIds);
+      const actionDate = date ? new Date(date) : new Date();
+      if (Number.isNaN(actionDate.getTime())) {
+        return badRequest("Invalid action date");
+      }
 
-    const createdActions = await DisCoAction.insertMany(
-      uniqueStudentIds.map((studentId) => ({
+      const normalizedReminderItems = normalizeReminderItems(reminderItems, {
+        label: "reminder items",
+        includeCompletionMeta: false,
+      });
+      if (normalizedReminderItems.error) {
+        return normalizedReminderItems.error;
+      }
+
+      actionDocuments = uniqueStudentIds.map((studentId) => ({
         userId: studentId,
         reason: reason.trim(),
         actionTaken: actionTaken.trim(),
         date: actionDate,
         remarks: remarks?.trim() || "",
-      }))
-    );
+        reminderItems: normalizedReminderItems.list,
+      }));
 
-    caseDoc.finalDecision.status = "action_taken";
+      disciplinaryActionTemplate = {
+        reason: reason.trim(),
+        actionTaken: actionTaken.trim(),
+        date: actionDate,
+        remarks: remarks?.trim() || "",
+        reminderItems: normalizedReminderItems.list,
+      };
+
+      studentDisciplinaryActions = uniqueStudentIds.map((studentId) => ({
+        studentUserId: studentId,
+        reason: reason.trim(),
+        actionTaken: actionTaken.trim(),
+        date: actionDate,
+        remarks: remarks?.trim() || "",
+        reminderItems: normalizedReminderItems.list,
+      }));
+    } else {
+      if (!Array.isArray(studentActions) || studentActions.length === 0) {
+        return badRequest("Provide at least one per-student action");
+      }
+
+      const studentActionMap = new Map();
+      for (const item of studentActions) {
+        const studentUserId = String(item?.studentUserId || "");
+        if (!studentUserId) {
+          return badRequest("Each per-student action must include studentUserId");
+        }
+
+        if (studentActionMap.has(studentUserId)) {
+          return badRequest("Duplicate per-student action provided");
+        }
+
+        if (!item?.reason?.trim()) {
+          return badRequest("Each per-student action must include reason");
+        }
+
+        if (!item?.actionTaken?.trim()) {
+          return badRequest("Each per-student action must include actionTaken");
+        }
+
+        const perStudentDate = item?.date ? new Date(item.date) : new Date();
+        if (Number.isNaN(perStudentDate.getTime())) {
+          return badRequest("Invalid action date in per-student action");
+        }
+
+        const normalizedReminderItems = normalizeReminderItems(item?.reminderItems, {
+          label: "per-student reminder items",
+          includeCompletionMeta: false,
+        });
+        if (normalizedReminderItems.error) {
+          return normalizedReminderItems.error;
+        }
+
+        studentActionMap.set(studentUserId, {
+          studentUserId,
+          reason: item.reason.trim(),
+          actionTaken: item.actionTaken.trim(),
+          date: perStudentDate,
+          remarks: item?.remarks?.trim() || "",
+          reminderItems: normalizedReminderItems.list,
+        });
+      }
+
+      uniqueStudentIds = Array.from(studentActionMap.keys());
+      actionDocuments = uniqueStudentIds.map((studentId) => ({
+        userId: studentId,
+        reason: studentActionMap.get(studentId).reason,
+        actionTaken: studentActionMap.get(studentId).actionTaken,
+        date: studentActionMap.get(studentId).date,
+        remarks: studentActionMap.get(studentId).remarks,
+        reminderItems: studentActionMap.get(studentId).reminderItems,
+      }));
+      studentDisciplinaryActions = uniqueStudentIds.map((studentId) => ({
+        ...studentActionMap.get(studentId),
+      }));
+    }
+
+    const invalidId = ensureValidObjectIds(uniqueStudentIds, "disciplined student ids");
+    if (invalidId) return invalidId;
+
+    const allowedStudentIds = getSelectedStudentIdSet(caseDoc);
+    const outsideSelectedStudents = uniqueStudentIds.filter((id) => !allowedStudentIds.has(id));
+    if (outsideSelectedStudents.length > 0) {
+      return badRequest("Disciplined students must be selected from stage 2 student groups");
+    }
+
+    const profiles = await StudentProfile.find({ userId: { $in: uniqueStudentIds } }, "userId");
+    const foundUserIds = new Set(profiles.map((profile) => String(profile.userId)));
+    const missing = uniqueStudentIds.filter((id) => !foundUserIds.has(id));
+    if (missing.length > 0) {
+      return badRequest("Some selected students do not exist in student profiles");
+    }
+
+    const createdActions = await DisCoAction.insertMany(actionDocuments);
+
+    caseDoc.finalDecision.status = FINAL_DECISION_STATUS.ACTION_TAKEN;
     caseDoc.finalDecision.decisionDescription = decisionDescription?.trim() || "";
     caseDoc.finalDecision.disciplinedStudentIds = uniqueStudentIds;
     caseDoc.finalDecision.createdDisCoActionIds = createdActions.map((item) => item._id);
-    caseDoc.finalDecision.disciplinaryActionTemplate = {
-      reason: reason.trim(),
-      actionTaken: actionTaken.trim(),
-      date: actionDate,
-      remarks: remarks?.trim() || "",
-    };
+    caseDoc.finalDecision.disciplinaryActionMode = actionMode;
+    caseDoc.finalDecision.disciplinaryActionTemplate = disciplinaryActionTemplate;
+    caseDoc.finalDecision.studentDisciplinaryActions = studentDisciplinaryActions;
     caseDoc.finalDecision.decidedBy = adminUser._id;
     caseDoc.finalDecision.decidedAt = new Date();
     caseDoc.caseStatus = CASE_STATUS.FINALIZED_WITH_ACTION;
@@ -698,6 +1130,7 @@ class DisCoService extends BaseService {
         decisionDescription?.trim() || "Disciplinary action recorded",
         {
           disciplinedStudentsCount: uniqueStudentIds.length,
+          disciplinaryActionMode: actionMode,
           createdDisCoActionIds: createdActions.map((item) => item._id),
         }
       )

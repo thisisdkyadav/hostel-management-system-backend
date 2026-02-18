@@ -10,14 +10,12 @@ import {
   addDisCoAction,
   getDisCoActionsByStudent,
   updateDisCoAction,
+  markDisCoReminderDone,
   deleteDisCoAction,
   submitProcessCase,
-  getMyProcessCases,
   getAdminProcessCases,
   getProcessCaseById,
-  reviewProcessCase,
-  addCaseStatement,
-  removeCaseStatement,
+  saveCaseStageTwo,
   sendCaseEmail,
   uploadCommitteeMinutes,
   finalizeProcessCase,
@@ -34,22 +32,14 @@ router.use(authenticate);
 // Admin-only DisCo management
 router.post('/add', authorizeRoles(['Admin']), addDisCoAction);
 router.put('/update/:disCoId', authorizeRoles(['Admin']), updateDisCoAction);
+router.patch('/update/:disCoId/reminders/:reminderItemId/done', markDisCoReminderDone);
 router.delete('/:disCoId', authorizeRoles(['Admin']), deleteDisCoAction);
 
-// Student disciplinary process case submission and view
-router.post('/process/cases', authorizeRoles(['Student']), submitProcessCase);
-router.get('/process/my-cases', authorizeRoles(['Student']), getMyProcessCases);
-
 // Admin disciplinary process workflows
+router.post('/process/cases', authorizeRoles(['Admin', 'Super Admin']), submitProcessCase);
 router.get('/process/cases', authorizeRoles(['Admin', 'Super Admin']), getAdminProcessCases);
-router.get('/process/cases/:caseId', authorizeRoles(['Admin', 'Super Admin', 'Student']), getProcessCaseById);
-router.patch('/process/cases/:caseId/review', authorizeRoles(['Admin', 'Super Admin']), reviewProcessCase);
-router.post('/process/cases/:caseId/statements', authorizeRoles(['Admin', 'Super Admin']), addCaseStatement);
-router.delete(
-  '/process/cases/:caseId/statements/:statementId',
-  authorizeRoles(['Admin', 'Super Admin']),
-  removeCaseStatement
-);
+router.get('/process/cases/:caseId', authorizeRoles(['Admin', 'Super Admin']), getProcessCaseById);
+router.patch('/process/cases/:caseId/stage2', authorizeRoles(['Admin', 'Super Admin']), saveCaseStageTwo);
 router.post('/process/cases/:caseId/send-email', authorizeRoles(['Admin', 'Super Admin']), sendCaseEmail);
 router.patch(
   '/process/cases/:caseId/committee-minutes',

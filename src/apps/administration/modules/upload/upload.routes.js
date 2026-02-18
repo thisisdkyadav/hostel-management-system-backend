@@ -66,7 +66,7 @@ router.post('/event-report-pdf', authorizeRoles(['Gymkhana']), upload.any(), upl
 // Disciplinary process document PDF upload
 router.post(
   '/disco-process-pdf',
-  authorizeRoles(['Student', 'Admin', 'Super Admin']),
+  authorizeRoles(['Admin', 'Super Admin']),
   upload.any(),
   uploadDisCoProcessPDF
 );

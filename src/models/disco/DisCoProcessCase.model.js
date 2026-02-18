@@ -1,6 +1,6 @@
 /**
  * DisCo Process Case Model
- * Tracks disciplinary complaint processing before final DisCo action creation.
+ * Tracks admin-initiated disciplinary processing before final DisCo action creation.
  */
 
 import mongoose from "mongoose";
@@ -12,9 +12,9 @@ const StatementSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    statementType: {
+    studentRole: {
       type: String,
-      enum: ["accused", "related"],
+      enum: ["accused", "accusing"],
       required: true,
     },
     statementPdfUrl: {
@@ -40,11 +40,42 @@ const StatementSchema = new mongoose.Schema(
   { _id: true }
 );
 
+const CaseDocumentSchema = new mongoose.Schema(
+  {
+    pdfUrl: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    pdfName: {
+      type: String,
+      default: "document.pdf",
+      trim: true,
+    },
+    uploadedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: true }
+);
+
 const EmailAttachmentSchema = new mongoose.Schema(
   {
     sourceType: {
       type: String,
-      enum: ["initial_complaint", "statement", "extra"],
+      enum: [
+        "initial_complaint",
+        "statement",
+        "evidence",
+        "extra_document",
+        "extra",
+      ],
       default: "extra",
     },
     sourceId: {
@@ -133,6 +164,55 @@ const TimelineEntrySchema = new mongoose.Schema(
   { _id: true }
 );
 
+const ActionReminderTemplateSchema = new mongoose.Schema(
+  {
+    action: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    dueDate: {
+      type: Date,
+      required: true,
+    },
+  },
+  { _id: true }
+);
+
+const StudentDisciplinaryActionTemplateSchema = new mongoose.Schema(
+  {
+    studentUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    reason: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    actionTaken: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    date: {
+      type: Date,
+      required: true,
+    },
+    remarks: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+    reminderItems: {
+      type: [ActionReminderTemplateSchema],
+      default: [],
+    },
+  },
+  { _id: true }
+);
+
 const DisCoProcessCaseSchema = new mongoose.Schema(
   {
     submittedBy: {
@@ -152,38 +232,27 @@ const DisCoProcessCaseSchema = new mongoose.Schema(
     },
     caseStatus: {
       type: String,
-      enum: [
-        "submitted",
-        "initial_rejected",
-        "under_process",
-        "final_rejected",
-        "finalized_with_action",
-      ],
-      default: "submitted",
+      enum: ["under_process", "final_rejected", "finalized_with_action"],
+      default: "under_process",
     },
-    initialReview: {
-      status: {
-        type: String,
-        enum: ["pending", "processed", "rejected"],
-        default: "pending",
-      },
-      decisionDescription: {
-        type: String,
-        default: "",
-        trim: true,
-      },
-      decidedBy: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "User",
-        default: null,
-      },
-      decidedAt: {
-        type: Date,
-        default: null,
-      },
+    accusingStudentIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
+    accusedStudentIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      default: [],
     },
     statements: {
       type: [StatementSchema],
+      default: [],
+    },
+    evidenceDocuments: {
+      type: [CaseDocumentSchema],
+      default: [],
+    },
+    extraDocuments: {
+      type: [CaseDocumentSchema],
       default: [],
     },
     emailLogs: {
@@ -220,6 +289,19 @@ const DisCoProcessCaseSchema = new mongoose.Schema(
         actionTaken: { type: String, default: "", trim: true },
         date: { type: Date, default: null },
         remarks: { type: String, default: "", trim: true },
+        reminderItems: {
+          type: [ActionReminderTemplateSchema],
+          default: [],
+        },
+      },
+      disciplinaryActionMode: {
+        type: String,
+        enum: ["common", "per_student"],
+        default: "common",
+      },
+      studentDisciplinaryActions: {
+        type: [StudentDisciplinaryActionTemplateSchema],
+        default: [],
       },
       decidedBy: {
         type: mongoose.Schema.Types.ObjectId,
