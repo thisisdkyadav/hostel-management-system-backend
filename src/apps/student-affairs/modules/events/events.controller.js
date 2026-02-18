@@ -10,6 +10,7 @@ import { expenseService } from "./expense.service.js"
 import { amendmentService } from "./amendment.service.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import { success } from "../../../../services/base/ServiceResponse.js"
+import { getConfigWithDefault } from "../../../../utils/configDefaults.js"
 
 const computeProposalDueDate = (event) => {
   const existingDueDate = event?.proposalDueDate ? new Date(event.proposalDueDate) : null
@@ -38,6 +39,80 @@ const enrichEventWithProposalDueDate = (eventDoc) => {
     ...serialized,
     proposalDueDate,
   }
+}
+
+const ACADEMIC_HOLIDAYS_KEY = "academicHolidays"
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/
+
+const parseDateOrNull = (value) => {
+  if (typeof value === "string" && DATE_ONLY_REGEX.test(value)) {
+    const [year, month, day] = value.split("-").map((part) => parseInt(part, 10))
+    return new Date(year, month - 1, day)
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+const dayStart = (value) => {
+  const date = parseDateOrNull(value)
+  if (!date) return null
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
+}
+
+const dayEnd = (value) => {
+  const date = parseDateOrNull(value)
+  if (!date) return null
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+}
+
+const formatDateOnly = (value) => {
+  const date = parseDateOrNull(value)
+  if (!date) return null
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${year}-${month}-${day}`
+}
+
+const getHolidaysInRange = async (rangeStart = null, rangeEnd = null) => {
+  const config = await getConfigWithDefault(ACADEMIC_HOLIDAYS_KEY)
+  const holidayMap = config?.value
+
+  if (!holidayMap || typeof holidayMap !== "object" || Array.isArray(holidayMap)) {
+    return []
+  }
+
+  const holidays = []
+  for (const [year, entries] of Object.entries(holidayMap)) {
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      const holidayDayStart = dayStart(entry?.date)
+      const holidayDayEnd = dayEnd(entry?.date)
+      if (!holidayDayStart || !holidayDayEnd) continue
+
+      if (rangeStart && rangeEnd) {
+        if (holidayDayEnd < rangeStart || holidayDayStart > rangeEnd) {
+          continue
+        }
+      }
+
+      const normalizedDate = formatDateOnly(entry?.date)
+      if (!normalizedDate) continue
+
+      holidays.push({
+        year,
+        title: String(entry?.title || "").trim(),
+        date: normalizedDate,
+      })
+    }
+  }
+
+  holidays.sort((a, b) => {
+    if (a.date === b.date) return a.title.localeCompare(b.title)
+    return a.date.localeCompare(b.date)
+  })
+
+  return holidays
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -315,6 +390,7 @@ export const getCalendarView = asyncHandler(async (req, res) => {
     .sort({ scheduledStartDate: 1 })
 
   const enrichedEvents = events.map(enrichEventWithProposalDueDate)
+  const holidays = await getHolidaysInRange(rangeStart, rangeEnd)
   
-  sendRawResponse(res, success({ events: enrichedEvents }))
+  sendRawResponse(res, success({ events: enrichedEvents, holidays }))
 })

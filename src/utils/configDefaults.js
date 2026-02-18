@@ -22,6 +22,10 @@ export const defaultConfigs = {
     value: { visitorPaymentLink: "" },
     description: "System-wide settings for the hostel management system",
   },
+  academicHolidays: {
+    value: {},
+    description: "Year-wise academic holidays map. Example: { \"2026\": [{ title, date }] }",
+  },
 }
 
 /**

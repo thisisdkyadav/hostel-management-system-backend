@@ -9,6 +9,70 @@ import { Configuration } from '../../../../models/index.js';
 import { defaultConfigs, getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { BaseService, success, notFound, badRequest, error } from '../../../../services/base/index.js';
 
+const ACADEMIC_HOLIDAYS_KEY = "academicHolidays"
+const YEAR_KEY_REGEX = /^\d{4}$/
+
+const normalizeHolidayDate = (value) => {
+  if (!value) return null
+
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+  return parsed.toISOString().slice(0, 10)
+}
+
+const normalizeAcademicHolidays = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { success: false, message: "academicHolidays must be an object keyed by year" }
+  }
+
+  const normalized = {}
+  for (const [year, holidays] of Object.entries(value)) {
+    if (!YEAR_KEY_REGEX.test(year)) {
+      return { success: false, message: `Invalid year key '${year}'. Use YYYY format.` }
+    }
+
+    if (!Array.isArray(holidays)) {
+      return { success: false, message: `Holiday list for year '${year}' must be an array` }
+    }
+
+    const dedupe = new Set()
+    const normalizedHolidays = []
+    for (let index = 0; index < holidays.length; index += 1) {
+      const holiday = holidays[index]
+      const title = String(holiday?.title || "").trim()
+      const date = normalizeHolidayDate(holiday?.date)
+
+      if (!title || !date) {
+        return {
+          success: false,
+          message: `Invalid holiday at ${year}[${index}]. Each holiday needs non-empty title and valid date.`,
+        }
+      }
+
+      const dedupeKey = `${date}|${title.toLowerCase()}`
+      if (dedupe.has(dedupeKey)) continue
+      dedupe.add(dedupeKey)
+
+      normalizedHolidays.push({ title, date })
+    }
+
+    normalizedHolidays.sort((a, b) => {
+      if (a.date === b.date) return a.title.localeCompare(b.title)
+      return a.date.localeCompare(b.date)
+    })
+
+    normalized[year] = normalizedHolidays
+  }
+
+  return { success: true, value: normalized }
+}
+
 class ConfigService extends BaseService {
   constructor() {
     super(Configuration, 'Configuration');
@@ -54,11 +118,20 @@ class ConfigService extends BaseService {
       return badRequest('Configuration value is required');
     }
 
+    let normalizedValue = value
+    if (key === ACADEMIC_HOLIDAYS_KEY) {
+      const normalizedHolidays = normalizeAcademicHolidays(value)
+      if (!normalizedHolidays.success) {
+        return badRequest(normalizedHolidays.message)
+      }
+      normalizedValue = normalizedHolidays.value
+    }
+
     const result = await this.upsert(
       { key },
       {
         key,
-        value,
+        value: normalizedValue,
         description: description || defaultConfigs[key]?.description || '',
         lastUpdated: Date.now()
       }
