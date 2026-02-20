@@ -17,6 +17,7 @@ import {
 import env from "../config/env.config.js"
 
 const normalizeKey = (value) => (typeof value === "string" ? value.trim() : "")
+const ACTIVE_CAPABILITY_KEYS = new Set(["cap.students.edit.personal"])
 
 const toKeySet = (values = []) => {
   if (!Array.isArray(values)) return new Set()
@@ -79,6 +80,13 @@ const shouldEnforceCapabilityKeys = (capabilityKeys = []) => {
   return normalizedKeys.some((key) => enforcedCapabilityKeySet.has(key))
 }
 
+const getActiveCapabilityKeys = (capabilityKeys = []) => {
+  if (!Array.isArray(capabilityKeys)) return []
+  return capabilityKeys
+    .map((key) => normalizeKey(key))
+    .filter((key) => key && ACTIVE_CAPABILITY_KEYS.has(key))
+}
+
 const logObserveDenyPreview = (req, kind, keys) => {
   if (!shouldLogObserveDeny()) return
   if (getAuthzMode() !== AUTHZ_MODES.OBSERVE) return
@@ -127,9 +135,14 @@ export const requireCapability = (capabilityKey) => {
       return res.status(401).json({ success: false, message: "Authentication required" })
     }
 
+    const activeCapabilityKeys = getActiveCapabilityKeys([capabilityKey])
+    if (activeCapabilityKeys.length === 0) {
+      return next()
+    }
+
     const effectiveAuthz = getEffectiveAuthzFromRequest(req)
-    const allowed = canCapability(effectiveAuthz, capabilityKey)
-    const shouldEnforce = shouldEnforceCapabilityKeys([capabilityKey])
+    const allowed = canCapability(effectiveAuthz, activeCapabilityKeys[0])
+    const shouldEnforce = shouldEnforceCapabilityKeys(activeCapabilityKeys)
 
     if (allowed) {
       return next()
@@ -150,9 +163,14 @@ export const requireAnyCapability = (capabilityKeys = []) => {
       return res.status(401).json({ success: false, message: "Authentication required" })
     }
 
+    const activeCapabilityKeys = getActiveCapabilityKeys(capabilityKeys)
+    if (activeCapabilityKeys.length === 0) {
+      return next()
+    }
+
     const effectiveAuthz = getEffectiveAuthzFromRequest(req)
-    const allowed = canAnyCapability(effectiveAuthz, capabilityKeys)
-    const shouldEnforce = shouldEnforceCapabilityKeys(capabilityKeys)
+    const allowed = canAnyCapability(effectiveAuthz, activeCapabilityKeys)
+    const shouldEnforce = shouldEnforceCapabilityKeys(activeCapabilityKeys)
 
     if (allowed) {
       return next()
@@ -173,9 +191,14 @@ export const requireAllCapabilities = (capabilityKeys = []) => {
       return res.status(401).json({ success: false, message: "Authentication required" })
     }
 
+    const activeCapabilityKeys = getActiveCapabilityKeys(capabilityKeys)
+    if (activeCapabilityKeys.length === 0) {
+      return next()
+    }
+
     const effectiveAuthz = getEffectiveAuthzFromRequest(req)
-    const allowed = canAllCapabilities(effectiveAuthz, capabilityKeys)
-    const shouldEnforce = shouldEnforceCapabilityKeys(capabilityKeys)
+    const allowed = canAllCapabilities(effectiveAuthz, activeCapabilityKeys)
+    const shouldEnforce = shouldEnforceCapabilityKeys(activeCapabilityKeys)
 
     if (allowed) {
       return next()

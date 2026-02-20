@@ -105,7 +105,9 @@ const applyCapabilityOverrides = (baseMap, override) => {
 
 const applyConstraintOverrides = (baseMap, override) => {
   for (const entry of override.constraints) {
-    baseMap[entry.key] = entry.value
+    if (Object.prototype.hasOwnProperty.call(baseMap, entry.key)) {
+      baseMap[entry.key] = entry.value
+    }
   }
 
   return baseMap

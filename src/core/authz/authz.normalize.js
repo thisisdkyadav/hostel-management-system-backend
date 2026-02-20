@@ -2,6 +2,12 @@
  * AuthZ normalization helpers
  */
 
+import { AUTHZ_CAPABILITY_KEYS, AUTHZ_CONSTRAINT_KEYS, AUTHZ_ROUTE_KEYS } from "./authz.catalog.js"
+
+const ROUTE_KEY_SET = new Set(AUTHZ_ROUTE_KEYS)
+const CAPABILITY_KEY_SET = new Set(AUTHZ_CAPABILITY_KEYS)
+const CONSTRAINT_KEY_SET = new Set(AUTHZ_CONSTRAINT_KEYS)
+
 const uniqueStringArray = (value) => {
   if (!Array.isArray(value)) return []
 
@@ -39,11 +45,15 @@ export const normalizeAuthzOverride = (input = {}) => {
   }
 
   return {
-    allowRoutes: uniqueStringArray(input.allowRoutes),
-    denyRoutes: uniqueStringArray(input.denyRoutes),
-    allowCapabilities: uniqueStringArray(input.allowCapabilities),
-    denyCapabilities: uniqueStringArray(input.denyCapabilities),
-    constraints: normalizeConstraintOverrides(input.constraints),
+    allowRoutes: uniqueStringArray(input.allowRoutes).filter((key) => ROUTE_KEY_SET.has(key)),
+    denyRoutes: uniqueStringArray(input.denyRoutes).filter((key) => ROUTE_KEY_SET.has(key)),
+    allowCapabilities: uniqueStringArray(input.allowCapabilities).filter(
+      (key) => key === "*" || CAPABILITY_KEY_SET.has(key)
+    ),
+    denyCapabilities: uniqueStringArray(input.denyCapabilities).filter(
+      (key) => key === "*" || CAPABILITY_KEY_SET.has(key)
+    ),
+    constraints: normalizeConstraintOverrides(input.constraints).filter((entry) => CONSTRAINT_KEY_SET.has(entry.key)),
   }
 }
 

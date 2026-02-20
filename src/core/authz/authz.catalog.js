@@ -150,132 +150,12 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
 ]
 
 export const AUTHZ_CAPABILITY_DEFINITIONS = [
-  // Students (pilot and shared)
-  capability("cap.students.list.view", "View Students List"),
-  capability("cap.students.detail.view", "View Student Details"),
-  capability("cap.students.import", "Import Students"),
-  capability("cap.students.bulk.update", "Bulk Update Students"),
-  capability("cap.students.allocations.update", "Update Student Allocations"),
-  capability("cap.students.export", "Export Students"),
-  capability("cap.students.view", "View Students"),
+  // Capability rollout is paused. Keep only one pilot capability.
   capability("cap.students.edit.personal", "Edit Student Personal Details"),
-  capability("cap.students.edit.family", "Edit Student Family Details"),
-  capability("cap.students.edit.health", "Edit Student Health Details"),
-  capability("cap.students.edit.academic", "Edit Student Academic Details"),
-  capability("cap.students.password.reset", "Reset Student Password"),
-  capability("cap.students.family.view", "View Student Family Details"),
-  capability("cap.students.family.edit", "Edit Student Family Details"),
-  capability("cap.students.disciplinary.view", "View Student Disciplinary Data"),
-  capability("cap.students.disciplinary.manage", "Manage Student Disciplinary Data"),
-  capability("cap.students.certificates.view", "View Student Certificates"),
-  capability("cap.students.certificates.manage", "Manage Student Certificates"),
-  capability("cap.students.idCard.view", "View Student ID Card"),
-  capability("cap.students.idCard.upload", "Upload Student ID Card"),
-
-  // Inventory
-  capability("cap.inventory.view", "View Inventory"),
-  capability("cap.inventory.assign", "Assign Inventory"),
-  capability("cap.inventory.edit", "Edit Inventory"),
-
-  // Lost and Found
-  capability("cap.lostAndFound.view", "View Lost and Found"),
-  capability("cap.lostAndFound.create", "Create Lost and Found Items"),
-  capability("cap.lostAndFound.edit", "Edit Lost and Found Items"),
-  capability("cap.lostAndFound.delete", "Delete Lost and Found Items"),
-
-  // Feedback
-  capability("cap.feedback.view", "View Feedback"),
-  capability("cap.feedback.create", "Create Feedback"),
-  capability("cap.feedback.react", "Reply/React to Feedback"),
-
-  // Complaints
-  capability("cap.complaints.view", "View Complaints"),
-  capability("cap.complaints.create", "Create Complaints"),
-  capability("cap.complaints.review", "Review Complaints"),
-  capability("cap.complaints.resolve", "Resolve Complaints"),
-
-  // Visitors
-  capability("cap.visitors.view", "View Visitors"),
-  capability("cap.visitors.create", "Create Visitor Requests"),
-  capability("cap.visitors.approve", "Approve Visitor Requests"),
-  capability("cap.visitors.allocate", "Allocate Visitor Accommodation"),
-
-  // Events
-  capability("cap.events.view", "View Events"),
-  capability("cap.events.create", "Create Events"),
-  capability("cap.events.approve", "Approve Events"),
-
-  // Notifications
-  capability("cap.notifications.view", "View Notifications"),
-  capability("cap.notifications.send", "Send Notifications"),
-
-  // Profile (self)
-  capability("cap.profile.self.view", "View Own Profile"),
-  capability("cap.profile.self.update", "Update Own Profile"),
-
-  // Undertakings
-  capability("cap.undertakings.view", "View Undertakings"),
-  capability("cap.undertakings.manage", "Manage Undertakings"),
-  capability("cap.undertakings.accept", "Accept Undertakings"),
-
-  // Hostel and allocation operations
-  capability("cap.hostels.view", "View Hostels and Rooms"),
-  capability("cap.hostels.manage", "Manage Hostels and Room Allocations"),
-
-  // Tasks
-  capability("cap.tasks.view", "View Tasks"),
-  capability("cap.tasks.manage", "Manage Tasks"),
-  capability("cap.tasks.status.update", "Update Task Status"),
-
-  // Attendance and leaves
-  capability("cap.attendance.record", "Record/Verify Attendance"),
-  capability("cap.attendance.view", "View Attendance Records"),
-  capability("cap.leaves.view", "View Leaves"),
-  capability("cap.leaves.create", "Create Leaves"),
-  capability("cap.leaves.review", "Review Leaves"),
-
-  // Admin operational observability
-  capability("cap.faceScanners.manage", "Manage Face Scanners"),
-  capability("cap.liveCheckInOut.view", "View Live Check-In/Out"),
-  capability("cap.onlineUsers.view", "View Online Users"),
-  capability("cap.sheet.view", "View Sheet Data"),
-
-  // User management
-  capability("cap.users.view", "View Users"),
-  capability("cap.users.create", "Create Users"),
-  capability("cap.users.edit", "Edit Users"),
-  capability("cap.users.delete", "Delete Users"),
-
-  // Settings (pilot)
-  capability("cap.settings.studentFields.view", "View Student Edit Permissions Settings"),
-  capability("cap.settings.studentFields.update", "Update Student Edit Permissions Settings"),
-  capability("cap.settings.degrees.view", "View Degrees Settings"),
-  capability("cap.settings.degrees.update", "Update Degrees Settings"),
-  capability("cap.settings.degrees.rename", "Rename Degree Values"),
-  capability("cap.settings.departments.view", "View Departments Settings"),
-  capability("cap.settings.departments.update", "Update Departments Settings"),
-  capability("cap.settings.departments.rename", "Rename Department Values"),
-  capability("cap.settings.registeredStudents.view", "View Registered Students Settings"),
-  capability("cap.settings.registeredStudents.update", "Update Registered Students Settings"),
-  capability("cap.settings.academicHolidays.view", "View Academic Holidays Settings"),
-  capability("cap.settings.academicHolidays.update", "Update Academic Holidays Settings"),
-  capability("cap.settings.system.view", "View System Settings"),
-  capability("cap.settings.system.update", "Update System Settings"),
-  capability("cap.settings.view", "View Settings"),
-  capability("cap.settings.update", "Update Settings"),
-
-  // AuthZ administration
-  capability("cap.authz.view", "View AuthZ"),
-  capability("cap.authz.update", "Update AuthZ"),
 ]
 
 export const AUTHZ_CONSTRAINT_DEFINITIONS = [
-  constraint("constraint.students.scope.hostelIds", "Allowed Hostels (Students Scope)", AUTHZ_CONSTRAINT_TYPES.STRING_ARRAY, []),
-  constraint("constraint.students.scope.onlyOwnHostel", "Only Own Hostel Data", AUTHZ_CONSTRAINT_TYPES.BOOLEAN, false),
-  constraint("constraint.students.edit.allowedSections", "Allowed Student Sections", AUTHZ_CONSTRAINT_TYPES.STRING_ARRAY, []),
   constraint("constraint.complaints.scope.hostelIds", "Allowed Hostels (Complaints Scope)", AUTHZ_CONSTRAINT_TYPES.STRING_ARRAY, []),
-  constraint("constraint.profile.edit.allowedFields", "Allowed Profile Editable Fields", AUTHZ_CONSTRAINT_TYPES.STRING_ARRAY, []),
-  constraint("constraint.events.maxApprovalAmount", "Max Event Approval Amount", AUTHZ_CONSTRAINT_TYPES.NUMBER, null),
 ]
 
 export const AUTHZ_ROUTE_KEYS = AUTHZ_ROUTE_DEFINITIONS.map((item) => item.key)
@@ -301,55 +181,9 @@ export const AUTHZ_CAPABILITY_DEFAULTS_BY_ROLE = Object.values(ROLES).reduce((ac
 }, {})
 
 export const AUTHZ_CAPABILITY_DENY_DEFAULTS_BY_ROLE = {
-  [ROLES.WARDEN]: [
-    "cap.students.import",
-    "cap.students.bulk.update",
-    "cap.students.allocations.update",
-    "cap.students.edit.personal",
-    "cap.students.edit.family",
-    "cap.students.edit.health",
-    "cap.students.edit.academic",
-    "cap.students.family.edit",
-    "cap.students.disciplinary.manage",
-    "cap.students.certificates.manage",
-    "cap.complaints.review",
-    "cap.complaints.resolve",
-    "cap.events.create",
-    "cap.events.approve",
-    "cap.lostAndFound.create",
-    "cap.lostAndFound.edit",
-    "cap.lostAndFound.delete",
-    "cap.visitors.allocate",
-    "cap.visitors.approve",
-  ],
-  [ROLES.ASSOCIATE_WARDEN]: [
-    "cap.students.import",
-    "cap.students.bulk.update",
-    "cap.students.allocations.update",
-    "cap.students.edit.personal",
-    "cap.students.edit.family",
-    "cap.students.edit.health",
-    "cap.students.edit.academic",
-    "cap.students.family.edit",
-    "cap.students.disciplinary.manage",
-    "cap.students.certificates.manage",
-    "cap.events.create",
-    "cap.events.approve",
-  ],
-  [ROLES.HOSTEL_SUPERVISOR]: [
-    "cap.students.import",
-    "cap.students.bulk.update",
-    "cap.students.allocations.update",
-    "cap.students.edit.personal",
-    "cap.students.edit.family",
-    "cap.students.edit.health",
-    "cap.students.edit.academic",
-    "cap.students.family.edit",
-    "cap.students.disciplinary.manage",
-    "cap.students.certificates.manage",
-    "cap.events.create",
-    "cap.events.approve",
-  ],
+  [ROLES.WARDEN]: ["cap.students.edit.personal"],
+  [ROLES.ASSOCIATE_WARDEN]: ["cap.students.edit.personal"],
+  [ROLES.HOSTEL_SUPERVISOR]: ["cap.students.edit.personal"],
 }
 
 export const AUTHZ_CATALOG = {
