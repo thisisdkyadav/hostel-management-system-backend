@@ -12,7 +12,7 @@ import {
 } from './sheet.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -33,7 +33,6 @@ const requireSheetRouteAccess = (req, res, next) => {
   }
   return requireRouteAccess(routeKey)(req, res, next);
 };
-router.use(requireAnyCapability(['cap.sheet.view']));
 
 // Get hostel sheet data for spreadsheet view
 router.get('/hostel/:hostelId', requireSheetRouteAccess, getHostelSheetData);

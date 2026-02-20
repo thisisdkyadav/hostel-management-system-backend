@@ -22,7 +22,7 @@ import {
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -71,7 +71,6 @@ router.post(
   '/event-proposal-pdf',
   authorizeRoles(['Gymkhana']),
   requireGymkhanaEventUploadRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   upload.any(),
   uploadEventProposalPDF
 );
@@ -81,7 +80,6 @@ router.post(
   '/event-chief-guest-pdf',
   authorizeRoles(['Gymkhana']),
   requireGymkhanaEventUploadRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   upload.any(),
   uploadEventChiefGuestPDF
 );
@@ -91,7 +89,6 @@ router.post(
   '/event-bill-pdf',
   authorizeRoles(['Gymkhana']),
   requireGymkhanaEventUploadRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   upload.any(),
   uploadEventBillPDF
 );
@@ -101,7 +98,6 @@ router.post(
   '/event-report-pdf',
   authorizeRoles(['Gymkhana']),
   requireGymkhanaEventUploadRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   upload.any(),
   uploadEventReportPDF
 );

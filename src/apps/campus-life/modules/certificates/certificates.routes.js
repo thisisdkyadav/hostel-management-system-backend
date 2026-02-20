@@ -14,7 +14,7 @@ import {
 } from './certificates.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -42,21 +42,18 @@ router.post(
   '/add',
   authorizeRoles(['Admin']),
   requireCertificatesRouteAccess,
-  requireAnyCapability(['cap.students.certificates.manage']),
   addCertificate
 );
 router.put(
   '/update/:certificateId',
   authorizeRoles(['Admin']),
   requireCertificatesRouteAccess,
-  requireAnyCapability(['cap.students.certificates.manage']),
   updateCertificate
 );
 router.delete(
   '/:certificateId',
   authorizeRoles(['Admin']),
   requireCertificatesRouteAccess,
-  requireAnyCapability(['cap.students.certificates.manage']),
   deleteCertificate
 );
 
@@ -65,7 +62,6 @@ router.get(
   '/:studentId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireCertificatesRouteAccess,
-  requireAnyCapability(['cap.students.certificates.view', 'cap.students.detail.view', 'cap.students.view']),
   getCertificatesByStudent
 );
 

@@ -14,7 +14,7 @@ import {
 } from './lost-and-found.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -53,7 +53,6 @@ router.get(
     'Student',
   ]),
   requireLostAndFoundRouteAccess,
-  requireAnyCapability(['cap.lostAndFound.view']),
   getLostAndFound
 );
 
@@ -69,7 +68,6 @@ router.post(
     'Hostel Gate',
   ]),
   requireLostAndFoundRouteAccess,
-  requireAnyCapability(['cap.lostAndFound.create']),
   createLostAndFound
 );
 router.put(
@@ -83,7 +81,6 @@ router.put(
     'Hostel Gate',
   ]),
   requireLostAndFoundRouteAccess,
-  requireAnyCapability(['cap.lostAndFound.edit']),
   updateLostAndFound
 );
 router.delete(
@@ -97,7 +94,6 @@ router.delete(
     'Hostel Gate',
   ]),
   requireLostAndFoundRouteAccess,
-  requireAnyCapability(['cap.lostAndFound.delete']),
   deleteLostAndFound
 );
 

@@ -56,6 +56,10 @@ const EventProposalSchema = new mongoose.Schema(
     proposalDocumentUrl: { type: String, trim: true },
     externalGuestsDetails: { type: String, trim: true },
     chiefGuestDocumentUrl: { type: String, trim: true },
+    proposalDetails: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     accommodationRequired: { type: Boolean, default: false },
     hasRegistrationFee: { type: Boolean, default: false },
     registrationFeeAmount: { type: Number, min: 0, default: 0 },

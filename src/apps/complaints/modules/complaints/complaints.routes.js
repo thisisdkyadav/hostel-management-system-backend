@@ -20,7 +20,7 @@ import {
 } from './complaints.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -66,7 +66,6 @@ router.post(
     'Student',
   ]),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.create']),
   createComplaint
 );
 
@@ -82,7 +81,6 @@ router.get(
     'Student',
   ]),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.view']),
   getAllComplaints
 );
 
@@ -91,7 +89,6 @@ router.get(
   '/student/complaints/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.view', 'cap.students.detail.view', 'cap.students.view']),
   getStudentComplaints
 );
 
@@ -100,14 +97,12 @@ router.put(
   '/update-status/:id',
   authorizeRoles(['Maintenance Staff']),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.resolve', 'cap.complaints.review']),
   updateComplaintStatus
 );
 router.put(
   '/:complaintId/status',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.resolve', 'cap.complaints.review']),
   complaintStatusUpdate
 );
 
@@ -116,7 +111,6 @@ router.put(
   '/:complaintId/resolution-notes',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.resolve']),
   updateComplaintResolutionNotes
 );
 
@@ -125,7 +119,6 @@ router.post(
   '/:complaintId/feedback',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.create', 'cap.complaints.view']),
   updateComplaintFeedback
 );
 
@@ -141,7 +134,6 @@ router.get(
     'Student',
   ]),
   requireComplaintsRouteAccess,
-  requireAnyCapability(['cap.complaints.view']),
   getStats
 );
 

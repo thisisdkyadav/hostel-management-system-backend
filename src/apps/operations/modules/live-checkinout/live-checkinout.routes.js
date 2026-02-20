@@ -14,7 +14,7 @@ import {
 } from './live-checkinout.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -35,7 +35,6 @@ const requireLiveCheckInOutRouteAccess = (req, res, next) => {
 };
 
 router.use(requireLiveCheckInOutRouteAccess);
-router.use(requireAnyCapability(['cap.liveCheckInOut.view']));
 
 // Get live check-in/out entries with filters
 router.get('/entries', getLiveCheckInOutEntries);

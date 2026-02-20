@@ -14,7 +14,7 @@ import {
 } from './notifications.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -42,14 +42,13 @@ router.post(
   '/',
   authorizeRoles(['Admin']),
   requireRouteAccess('route.admin.notifications'),
-  requireAnyCapability(['cap.notifications.send']),
   createNotification
 );
 
 // Accessible by multiple roles
 router.use(authorizeRoles(['Admin', 'Student', 'Warden', 'Associate Warden', 'Hostel Supervisor']));
-router.get('/', requireNotificationRouteAccess, requireAnyCapability(['cap.notifications.view']), getNotifications);
-router.get('/stats', requireNotificationRouteAccess, requireAnyCapability(['cap.notifications.view']), getNotificationStats);
-router.get('/active-count', requireNotificationRouteAccess, requireAnyCapability(['cap.notifications.view']), getActiveNotificationsCount);
+router.get('/', requireNotificationRouteAccess, getNotifications);
+router.get('/stats', requireNotificationRouteAccess, getNotificationStats);
+router.get('/active-count', requireNotificationRouteAccess, getActiveNotificationsCount);
 
 export default router;

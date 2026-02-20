@@ -17,7 +17,7 @@ import {
 } from './users.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -42,7 +42,6 @@ router.get(
   '/search',
   authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireUsersRouteAccess,
-  requireAnyCapability(['cap.users.view']),
   searchUsers
 );
 
@@ -50,20 +49,18 @@ router.get(
   '/by-role',
   authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireUsersRouteAccess,
-  requireAnyCapability(['cap.users.view']),
   getUsersByRole
 );
 
-router.post('/bulk-password-update', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, requireAnyCapability(['cap.users.edit']), bulkPasswordUpdate);
-router.post('/bulk-remove-passwords', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, requireAnyCapability(['cap.users.edit']), bulkRemovePasswords);
-router.post('/remove-passwords-by-role', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, requireAnyCapability(['cap.users.edit']), removePasswordsByRole);
+router.post('/bulk-password-update', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, bulkPasswordUpdate);
+router.post('/bulk-remove-passwords', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, bulkRemovePasswords);
+router.post('/remove-passwords-by-role', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, removePasswordsByRole);
 
-router.post('/:id/remove-password', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, requireAnyCapability(['cap.users.edit']), removeUserPassword);
+router.post('/:id/remove-password', authorizeRoles(['Super Admin', 'Admin']), requireUsersRouteAccess, removeUserPassword);
 router.get(
   '/:id',
   authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireUsersRouteAccess,
-  requireAnyCapability(['cap.users.view']),
   getUserById
 );
 

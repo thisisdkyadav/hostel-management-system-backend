@@ -17,7 +17,7 @@ import {
 } from './feedback.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -46,7 +46,6 @@ router.post(
   '/add',
   authorizeRoles(['Student']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.create']),
   createFeedback
 );
 
@@ -55,7 +54,6 @@ router.get(
   '/',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.view']),
   getFeedbacks
 );
 
@@ -64,7 +62,6 @@ router.get(
   '/student/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.view', 'cap.students.detail.view', 'cap.students.view']),
   getStudentFeedbacks
 );
 
@@ -73,14 +70,12 @@ router.put(
   '/:feedbackId',
   authorizeRoles(['Student']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.create']),
   updateFeedback
 );
 router.delete(
   '/:feedbackId',
   authorizeRoles(['Student']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.create']),
   deleteFeedback
 );
 
@@ -89,14 +84,12 @@ router.put(
   '/update-status/:feedbackId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.react']),
   updateFeedbackStatus
 );
 router.post(
   '/reply/:feedbackId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireFeedbackRouteAccess,
-  requireAnyCapability(['cap.feedback.react']),
   replyToFeedback
 );
 

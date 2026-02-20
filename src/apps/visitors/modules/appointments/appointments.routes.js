@@ -17,7 +17,7 @@ import {
 } from "./appointments.controller.js";
 import { authenticate } from "../../../../middlewares/auth.middleware.js";
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js";
-import { requireAnyCapability, requireRouteAccess } from "../../../../middlewares/authz.middleware.js";
+import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js";
 import { ROLES } from "../../../../core/constants/index.js";
 
 const router = express.Router();
@@ -43,19 +43,18 @@ const requireAppointmentRouteAccess = (req, res, next) => {
 };
 
 // Admin review endpoints (role + sub-role check in service)
-router.get("/admin", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, requireAnyCapability(["cap.visitors.view"]), getAdminAppointments);
-router.get("/admin/me/availability", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, requireAnyCapability(["cap.visitors.view"]), getMyAppointmentAvailability);
-router.patch("/admin/me/availability", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, requireAnyCapability(["cap.visitors.approve"]), updateMyAppointmentAvailability);
-router.get("/admin/:appointmentId", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, requireAnyCapability(["cap.visitors.view"]), getAdminAppointmentById);
-router.patch("/admin/:appointmentId/review", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, requireAnyCapability(["cap.visitors.approve"]), reviewAppointment);
+router.get("/admin", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, getAdminAppointments);
+router.get("/admin/me/availability", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, getMyAppointmentAvailability);
+router.patch("/admin/me/availability", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, updateMyAppointmentAvailability);
+router.get("/admin/:appointmentId", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, getAdminAppointmentById);
+router.patch("/admin/:appointmentId/review", authorizeRoles([ROLES.ADMIN]), requireAppointmentRouteAccess, reviewAppointment);
 
 // Hostel Gate operations
-router.get("/gate", authorizeRoles([ROLES.HOSTEL_GATE]), requireAppointmentRouteAccess, requireAnyCapability(["cap.visitors.view"]), getGateAppointments);
+router.get("/gate", authorizeRoles([ROLES.HOSTEL_GATE]), requireAppointmentRouteAccess, getGateAppointments);
 router.patch(
   "/gate/:appointmentId/entry",
   authorizeRoles([ROLES.HOSTEL_GATE]),
   requireAppointmentRouteAccess,
-  requireAnyCapability(["cap.visitors.approve"]),
   markGateAppointmentEntry
 );
 

@@ -67,7 +67,7 @@ import {
 } from './hostelGateController.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -81,7 +81,7 @@ router.get('/hostel/list', getHostelList);
 router.use(authorizeRoles(['Admin']));
 
 // Admin profile
-router.get('/profile', requireRouteAccess('route.admin.profile'), requireAnyCapability(['cap.profile.self.view']), (req, res) => {
+router.get('/profile', requireRouteAccess('route.admin.profile'), (req, res) => {
   res.json({
     success: true,
     data: {
@@ -91,69 +91,69 @@ router.get('/profile', requireRouteAccess('route.admin.profile'), requireAnyCapa
 });
 
 // Hostel management
-router.get('/hostels', requireRouteAccess('route.admin.hostels'), requireAnyCapability(['cap.hostels.view']), getHostels);
-router.post('/hostel', requireRouteAccess('route.admin.hostels'), requireAnyCapability(['cap.hostels.manage']), addHostel);
-router.put('/hostel/:id', requireRouteAccess('route.admin.hostels'), requireAnyCapability(['cap.hostels.manage']), updateHostel);
+router.get('/hostels', requireRouteAccess('route.admin.hostels'), getHostels);
+router.post('/hostel', requireRouteAccess('route.admin.hostels'), addHostel);
+router.put('/hostel/:id', requireRouteAccess('route.admin.hostels'), updateHostel);
 
 // Warden management
-router.get('/wardens', requireRouteAccess('route.admin.wardens'), requireAnyCapability(['cap.users.view']), getAllWardens);
-router.post('/warden', requireRouteAccess('route.admin.wardens'), requireAnyCapability(['cap.users.create']), createWarden);
-router.put('/warden/:id', requireRouteAccess('route.admin.wardens'), requireAnyCapability(['cap.users.edit']), updateWarden);
-router.delete('/warden/:id', requireRouteAccess('route.admin.wardens'), requireAnyCapability(['cap.users.delete']), deleteWarden);
+router.get('/wardens', requireRouteAccess('route.admin.wardens'), getAllWardens);
+router.post('/warden', requireRouteAccess('route.admin.wardens'), createWarden);
+router.put('/warden/:id', requireRouteAccess('route.admin.wardens'), updateWarden);
+router.delete('/warden/:id', requireRouteAccess('route.admin.wardens'), deleteWarden);
 
 // Associate Warden management
-router.get('/associate-wardens', requireRouteAccess('route.admin.associateWardens'), requireAnyCapability(['cap.users.view']), getAllAssociateWardens);
-router.post('/associate-warden', requireRouteAccess('route.admin.associateWardens'), requireAnyCapability(['cap.users.create']), createAssociateWarden);
-router.put('/associate-warden/:id', requireRouteAccess('route.admin.associateWardens'), requireAnyCapability(['cap.users.edit']), updateAssociateWarden);
-router.delete('/associate-warden/:id', requireRouteAccess('route.admin.associateWardens'), requireAnyCapability(['cap.users.delete']), deleteAssociateWarden);
+router.get('/associate-wardens', requireRouteAccess('route.admin.associateWardens'), getAllAssociateWardens);
+router.post('/associate-warden', requireRouteAccess('route.admin.associateWardens'), createAssociateWarden);
+router.put('/associate-warden/:id', requireRouteAccess('route.admin.associateWardens'), updateAssociateWarden);
+router.delete('/associate-warden/:id', requireRouteAccess('route.admin.associateWardens'), deleteAssociateWarden);
 
 // Hostel Supervisor management
-router.get('/hostel-supervisors', requireRouteAccess('route.admin.hostelSupervisors'), requireAnyCapability(['cap.users.view']), getAllHostelSupervisors);
-router.post('/hostel-supervisor', requireRouteAccess('route.admin.hostelSupervisors'), requireAnyCapability(['cap.users.create']), createHostelSupervisor);
-router.put('/hostel-supervisor/:id', requireRouteAccess('route.admin.hostelSupervisors'), requireAnyCapability(['cap.users.edit']), updateHostelSupervisor);
-router.delete('/hostel-supervisor/:id', requireRouteAccess('route.admin.hostelSupervisors'), requireAnyCapability(['cap.users.delete']), deleteHostelSupervisor);
+router.get('/hostel-supervisors', requireRouteAccess('route.admin.hostelSupervisors'), getAllHostelSupervisors);
+router.post('/hostel-supervisor', requireRouteAccess('route.admin.hostelSupervisors'), createHostelSupervisor);
+router.put('/hostel-supervisor/:id', requireRouteAccess('route.admin.hostelSupervisors'), updateHostelSupervisor);
+router.delete('/hostel-supervisor/:id', requireRouteAccess('route.admin.hostelSupervisors'), deleteHostelSupervisor);
 
 // Security staff management
-router.get('/security', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.view']), getAllSecurities);
-router.post('/security', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.create']), createSecurity);
-router.put('/security/:id', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.edit']), updateSecurity);
-router.delete('/security/:id', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.delete']), deleteSecurity);
+router.get('/security', requireRouteAccess('route.admin.security'), getAllSecurities);
+router.post('/security', requireRouteAccess('route.admin.security'), createSecurity);
+router.put('/security/:id', requireRouteAccess('route.admin.security'), updateSecurity);
+router.delete('/security/:id', requireRouteAccess('route.admin.security'), deleteSecurity);
 
 // Maintenance staff management
-router.get('/maintenance', requireRouteAccess('route.admin.maintenance'), requireAnyCapability(['cap.users.view']), getAllMaintenanceStaff);
-router.post('/maintenance', requireRouteAccess('route.admin.maintenance'), requireAnyCapability(['cap.users.create']), createMaintenanceStaff);
-router.put('/maintenance/:id', requireRouteAccess('route.admin.maintenance'), requireAnyCapability(['cap.users.edit']), updateMaintenanceStaff);
-router.delete('/maintenance/:id', requireRouteAccess('route.admin.maintenance'), requireAnyCapability(['cap.users.delete']), deleteMaintenanceStaff);
-router.get('/maintenance-staff-stats/:staffId', requireRouteAccess('route.admin.maintenance'), requireAnyCapability(['cap.users.view']), getMaintenanceStaffStats);
+router.get('/maintenance', requireRouteAccess('route.admin.maintenance'), getAllMaintenanceStaff);
+router.post('/maintenance', requireRouteAccess('route.admin.maintenance'), createMaintenanceStaff);
+router.put('/maintenance/:id', requireRouteAccess('route.admin.maintenance'), updateMaintenanceStaff);
+router.delete('/maintenance/:id', requireRouteAccess('route.admin.maintenance'), deleteMaintenanceStaff);
+router.get('/maintenance-staff-stats/:staffId', requireRouteAccess('route.admin.maintenance'), getMaintenanceStaffStats);
 
 // Insurance providers
-router.get('/insurance-providers', requireRouteAccess('route.admin.settings'), requireAnyCapability(['cap.settings.view']), getInsuranceProviders);
-router.post('/insurance-providers', requireRouteAccess('route.admin.settings'), requireAnyCapability(['cap.settings.update']), createInsuranceProvider);
-router.put('/insurance-providers/:id', requireRouteAccess('route.admin.settings'), requireAnyCapability(['cap.settings.update']), updateInsuranceProvider);
-router.delete('/insurance-providers/:id', requireRouteAccess('route.admin.settings'), requireAnyCapability(['cap.settings.update']), deleteInsuranceProvider);
-router.post('/insurance-providers/bulk-student-update', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.edit.health']), updateBulkStudentInsurance);
+router.get('/insurance-providers', requireRouteAccess('route.admin.settings'), getInsuranceProviders);
+router.post('/insurance-providers', requireRouteAccess('route.admin.settings'), createInsuranceProvider);
+router.put('/insurance-providers/:id', requireRouteAccess('route.admin.settings'), updateInsuranceProvider);
+router.delete('/insurance-providers/:id', requireRouteAccess('route.admin.settings'), deleteInsuranceProvider);
+router.post('/insurance-providers/bulk-student-update', requireRouteAccess('route.admin.students'), updateBulkStudentInsurance);
 
 // Student health management
-router.get('/student/health/:userId', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.detail.view']), getHealth);
-router.put('/student/health/:userId', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.edit.health']), updateHealth);
-router.post('/student/health/bulk-update', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.edit.health']), updateBulkStudentHealth);
+router.get('/student/health/:userId', requireRouteAccess('route.admin.students'), getHealth);
+router.put('/student/health/:userId', requireRouteAccess('route.admin.students'), updateHealth);
+router.post('/student/health/bulk-update', requireRouteAccess('route.admin.students'), updateBulkStudentHealth);
 
 // Insurance claims
-router.post('/insurance-claims', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.edit.health']), createInsuranceClaim);
-router.get('/insurance-claims/:userId', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.detail.view']), getInsuranceClaims);
-router.put('/insurance-claims/:id', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.edit.health']), updateInsuranceClaim);
-router.delete('/insurance-claims/:id', requireRouteAccess('route.admin.students'), requireAnyCapability(['cap.students.edit.health']), deleteInsuranceClaim);
+router.post('/insurance-claims', requireRouteAccess('route.admin.students'), createInsuranceClaim);
+router.get('/insurance-claims/:userId', requireRouteAccess('route.admin.students'), getInsuranceClaims);
+router.put('/insurance-claims/:id', requireRouteAccess('route.admin.students'), updateInsuranceClaim);
+router.delete('/insurance-claims/:id', requireRouteAccess('route.admin.students'), deleteInsuranceClaim);
 
 // Hostel gate management
-router.post('/hostel-gate', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.create']), createHostelGate);
-router.get('/hostel-gate/all', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.view']), getAllHostelGates);
-router.put('/hostel-gate/:hostelId', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.edit']), updateHostelGate);
-router.delete('/hostel-gate/:hostelId', requireRouteAccess('route.admin.security'), requireAnyCapability(['cap.users.delete']), deleteHostelGate);
+router.post('/hostel-gate', requireRouteAccess('route.admin.security'), createHostelGate);
+router.get('/hostel-gate/all', requireRouteAccess('route.admin.security'), getAllHostelGates);
+router.put('/hostel-gate/:hostelId', requireRouteAccess('route.admin.security'), updateHostelGate);
+router.delete('/hostel-gate/:hostelId', requireRouteAccess('route.admin.security'), deleteHostelGate);
 
 // User password management
-router.post('/user/update-password', requireRouteAccess('route.admin.updatePassword'), requireAnyCapability(['cap.users.edit']), updateUserPassword);
+router.post('/user/update-password', requireRouteAccess('route.admin.updatePassword'), updateUserPassword);
 
 // Task statistics
-router.get('/task-stats', requireRouteAccess('route.admin.taskManagement'), requireAnyCapability(['cap.tasks.view']), getTaskStats);
+router.get('/task-stats', requireRouteAccess('route.admin.taskManagement'), getTaskStats);
 
 export default router;

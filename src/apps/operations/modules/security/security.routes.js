@@ -24,7 +24,7 @@ import {
 } from './security.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -66,7 +66,6 @@ router.get(
     'Student',
   ]),
   requireSecurityEntriesRouteAccess,
-  requireAnyCapability(['cap.students.view', 'cap.students.detail.view']),
   getStudentEntries
 );
 router.get('/entries/recent', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.dashboard'), getRecentEntries);

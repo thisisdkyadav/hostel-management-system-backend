@@ -19,7 +19,7 @@ import {
 } from './super-admin.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -58,7 +58,6 @@ router.use(authorizeRoles(['Super Admin', 'Admin']));
 router.get(
   '/profile',
   requireRouteAccess('route.superAdmin.profile'),
-  requireAnyCapability(['cap.profile.self.view']),
   (req, res) => {
     res.json({
       success: true,
@@ -73,20 +72,19 @@ router.get(
 router.get(
   '/dashboard',
   requireSuperAdminDashboardRouteAccess,
-  requireAnyCapability(['cap.users.view', 'cap.settings.system.view']),
   getDashboardStats
 );
 
 // Admin management
-router.get('/admins', requireSuperAdminAdminsRouteAccess, requireAnyCapability(['cap.users.view']), getAdmins);
-router.post('/admins', requireSuperAdminAdminsRouteAccess, requireAnyCapability(['cap.users.create']), createAdmin);
-router.put('/admins/:adminId', requireSuperAdminAdminsRouteAccess, requireAnyCapability(['cap.users.edit']), updateAdmin);
-router.delete('/admins/:adminId', requireSuperAdminAdminsRouteAccess, requireAnyCapability(['cap.users.delete']), deleteAdmin);
+router.get('/admins', requireSuperAdminAdminsRouteAccess, getAdmins);
+router.post('/admins', requireSuperAdminAdminsRouteAccess, createAdmin);
+router.put('/admins/:adminId', requireSuperAdminAdminsRouteAccess, updateAdmin);
+router.delete('/admins/:adminId', requireSuperAdminAdminsRouteAccess, deleteAdmin);
 
 // API client management
-router.get('/api-clients', requireSuperAdminApiKeysRouteAccess, requireAnyCapability(['cap.settings.system.view']), getApiClients);
-router.post('/api-clients', requireSuperAdminApiKeysRouteAccess, requireAnyCapability(['cap.settings.system.update']), createApiClient);
-router.put('/api-clients/:clientId', requireSuperAdminApiKeysRouteAccess, requireAnyCapability(['cap.settings.system.update']), updateApiClient);
-router.delete('/api-clients/:clientId', requireSuperAdminApiKeysRouteAccess, requireAnyCapability(['cap.settings.system.update']), deleteApiClient);
+router.get('/api-clients', requireSuperAdminApiKeysRouteAccess, getApiClients);
+router.post('/api-clients', requireSuperAdminApiKeysRouteAccess, createApiClient);
+router.put('/api-clients/:clientId', requireSuperAdminApiKeysRouteAccess, updateApiClient);
+router.delete('/api-clients/:clientId', requireSuperAdminApiKeysRouteAccess, deleteApiClient);
 
 export default router;

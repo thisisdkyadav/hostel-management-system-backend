@@ -26,35 +26,6 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
-import env from "../../../../config/env.config.js"
-import { AUTHZ_MODES, getConstraintValue } from "../../../../core/authz/index.js"
-
-const EVENT_MAX_APPROVAL_AMOUNT_CONSTRAINT = "constraint.events.maxApprovalAmount"
-
-const isAuthzEnforceMode = () => {
-  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase()
-  return mode === AUTHZ_MODES.ENFORCE
-}
-
-const getMaxApprovalAmount = (user) => {
-  if (!isAuthzEnforceMode()) return null
-
-  const rawValue = getConstraintValue(
-    user?.authz?.effective,
-    EVENT_MAX_APPROVAL_AMOUNT_CONSTRAINT,
-    null
-  )
-  if (rawValue === null || rawValue === undefined || rawValue === "") {
-    return null
-  }
-
-  const parsed = Number(rawValue)
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null
-  }
-
-  return parsed
-}
 
 class ExpenseService extends BaseService {
   constructor() {
@@ -187,14 +158,6 @@ class ExpenseService extends BaseService {
     }
 
     const effectiveStage = isSuperAdmin ? requiredSubRole : user.subRole
-    const maxApprovalAmount = getMaxApprovalAmount(user)
-    const totalExpenditure = Number(expense.totalExpenditure || 0)
-    if (maxApprovalAmount !== null && totalExpenditure > maxApprovalAmount) {
-      return forbidden(
-        `This expense exceeds your approval limit of ${maxApprovalAmount}`
-      )
-    }
-
     const isStudentAffairsReview =
       effectiveStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
       (expense.approvalStatus === EXPENSE_APPROVAL_STATUS.PENDING_STUDENT_AFFAIRS ||

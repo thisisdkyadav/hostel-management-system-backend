@@ -22,7 +22,7 @@ import {
 } from './disco.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -63,28 +63,24 @@ router.post(
   '/add',
   authorizeRoles(['Admin']),
   requireDiscoStudentRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   addDisCoAction
 );
 router.put(
   '/update/:disCoId',
   authorizeRoles(['Admin']),
   requireDiscoStudentRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   updateDisCoAction
 );
 router.patch(
   '/update/:disCoId/reminders/:reminderItemId/done',
   authorizeRoles(['Admin']),
   requireDiscoStudentRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   markDisCoReminderDone
 );
 router.delete(
   '/:disCoId',
   authorizeRoles(['Admin']),
   requireDiscoStudentRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   deleteDisCoAction
 );
 
@@ -93,49 +89,42 @@ router.post(
   '/process/cases',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   submitProcessCase
 );
 router.get(
   '/process/cases',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   getAdminProcessCases
 );
 router.get(
   '/process/cases/:caseId',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   getProcessCaseById
 );
 router.patch(
   '/process/cases/:caseId/stage2',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   saveCaseStageTwo
 );
 router.post(
   '/process/cases/:caseId/send-email',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   sendCaseEmail
 );
 router.patch(
   '/process/cases/:caseId/committee-minutes',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   uploadCommitteeMinutes
 );
 router.patch(
   '/process/cases/:caseId/finalize',
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.manage']),
   finalizeProcessCase
 );
 
@@ -144,7 +133,6 @@ router.get(
   '/:studentId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireDiscoStudentRouteAccess,
-  requireAnyCapability(['cap.students.disciplinary.view', 'cap.students.detail.view', 'cap.students.view']),
   getDisCoActionsByStudent
 );
 

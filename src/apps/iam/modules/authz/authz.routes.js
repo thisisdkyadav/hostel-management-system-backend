@@ -14,7 +14,7 @@ import {
 } from "./authz.controller.js"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
-import { requireAnyCapability, requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
+import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
 
 const router = express.Router()
 
@@ -37,9 +37,9 @@ const requireAuthzAdminRouteAccess = (req, res, next) => {
   return requireRouteAccess(routeKey)(req, res, next)
 }
 
-router.get("/users/:role?", requireAuthzAdminRouteAccess, requireAnyCapability(["cap.authz.view"]), getUsersByRole)
-router.get("/user/:userId", requireAuthzAdminRouteAccess, requireAnyCapability(["cap.authz.view"]), getUserAuthz)
-router.put("/user/:userId", requireAuthzAdminRouteAccess, requireAnyCapability(["cap.authz.update"]), updateUserAuthz)
-router.post("/user/:userId/reset", requireAuthzAdminRouteAccess, requireAnyCapability(["cap.authz.update"]), resetUserAuthz)
+router.get("/users/:role?", requireAuthzAdminRouteAccess, getUsersByRole)
+router.get("/user/:userId", requireAuthzAdminRouteAccess, getUserAuthz)
+router.put("/user/:userId", requireAuthzAdminRouteAccess, updateUserAuthz)
+router.post("/user/:userId/reset", requireAuthzAdminRouteAccess, resetUserAuthz)
 
 export default router

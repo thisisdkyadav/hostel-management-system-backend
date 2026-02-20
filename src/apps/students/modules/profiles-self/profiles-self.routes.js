@@ -14,7 +14,7 @@ import {
 } from './profiles-self.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -41,7 +41,6 @@ router.get(
   '/dashboard',
   authorizeRoles(['Student']),
   requireRouteAccess('route.student.dashboard'),
-  requireAnyCapability(['cap.profile.self.view']),
   getStudentDashboard
 );
 router.get('/profile', authorizeRoles(['Student']), getStudentProfile);
@@ -49,14 +48,12 @@ router.get(
   '/:userId/id-card',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
   requireIdCardRouteAccess,
-  requireAnyCapability(['cap.students.idCard.view', 'cap.students.detail.view', 'cap.students.view']),
   getStudentIdCard
 );
 router.post(
   '/:userId/id-card',
   authorizeRoles(['Student']),
   requireIdCardRouteAccess,
-  requireAnyCapability(['cap.students.idCard.upload']),
   uploadStudentIdCard
 );
 

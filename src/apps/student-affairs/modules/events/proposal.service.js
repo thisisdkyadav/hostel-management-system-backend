@@ -25,40 +25,13 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES } from "../../../../core/constants/roles.constants.js"
-import env from "../../../../config/env.config.js"
-import { AUTHZ_MODES, getConstraintValue } from "../../../../core/authz/index.js"
-
-const EVENT_MAX_APPROVAL_AMOUNT_CONSTRAINT = "constraint.events.maxApprovalAmount"
-
-const isAuthzEnforceMode = () => {
-  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase()
-  return mode === AUTHZ_MODES.ENFORCE
-}
-
-const getMaxApprovalAmount = (user) => {
-  if (!isAuthzEnforceMode()) return null
-
-  const rawValue = getConstraintValue(
-    user?.authz?.effective,
-    EVENT_MAX_APPROVAL_AMOUNT_CONSTRAINT,
-    null
-  )
-  if (rawValue === null || rawValue === undefined || rawValue === "") {
-    return null
-  }
-
-  const parsed = Number(rawValue)
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return null
-  }
-
-  return parsed
-}
 
 class ProposalService extends BaseService {
   constructor() {
     super(EventProposal, "EventProposal")
   }
+
+  static LEGACY_PENDING_STATUS = "pending"
 
   // ═══════════════════════════════════════════════════════════════════════════
   // CREATE & UPDATE OPERATIONS
@@ -264,18 +237,11 @@ class ProposalService extends BaseService {
       return forbidden(`Only ${requiredSubRole} can approve at this stage`)
     }
 
-    const maxApprovalAmount = getMaxApprovalAmount(user)
-    const totalExpenditure = Number(proposal.totalExpenditure || 0)
-    if (maxApprovalAmount !== null && totalExpenditure > maxApprovalAmount) {
-      return forbidden(
-        `This proposal exceeds your approval limit of ${maxApprovalAmount}`
-      )
-    }
-
     const currentStage = user.subRole
     const isStudentAffairsReview =
       currentStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
-      proposal.status === PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS
+      (proposal.status === PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS ||
+        proposal.status === ProposalService.LEGACY_PENDING_STATUS)
 
     if (isStudentAffairsReview) {
       const chainValidation = this._validatePostStudentAffairsChain(nextApprovalStages)
@@ -521,12 +487,17 @@ class ProposalService extends BaseService {
       [SUBROLES.DEAN_SA]: PROPOSAL_STATUS.PENDING_DEAN,
     }
 
-    const status = statusMap[user.subRole]
-    if (!status) {
+    const assignedStatus = statusMap[user.subRole]
+    if (!assignedStatus) {
       return success({ proposals: [] })
     }
 
-    const proposals = await this.model.find({ status })
+    const filter =
+      assignedStatus === PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS
+        ? { status: { $in: [ProposalService.LEGACY_PENDING_STATUS, assignedStatus] } }
+        : { status: assignedStatus }
+
+    const proposals = await this.model.find(filter)
       .populate("eventId")
       .populate("submittedBy", "name email")
       .sort({ createdAt: -1 })
@@ -562,6 +533,9 @@ class ProposalService extends BaseService {
     const chiefGuestDocumentUrl = hasValue("chiefGuestDocumentUrl")
       ? data.chiefGuestDocumentUrl
       : existingProposal?.chiefGuestDocumentUrl
+    const proposalDetails = hasValue("proposalDetails")
+      ? data.proposalDetails
+      : existingProposal?.proposalDetails
     const accommodationRequired = hasValue("accommodationRequired")
       ? Boolean(data.accommodationRequired)
       : Boolean(existingProposal?.accommodationRequired)
@@ -589,6 +563,7 @@ class ProposalService extends BaseService {
       proposalDocumentUrl: proposalDocumentUrl?.trim() || "",
       externalGuestsDetails: externalGuestsDetails?.trim() || "",
       chiefGuestDocumentUrl: chiefGuestDocumentUrl?.trim() || "",
+      proposalDetails: proposalDetails || null,
       accommodationRequired,
       hasRegistrationFee,
       registrationFeeAmount,

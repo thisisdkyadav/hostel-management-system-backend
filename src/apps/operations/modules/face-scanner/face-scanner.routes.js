@@ -8,7 +8,7 @@
 import express from 'express';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { authenticateScanner } from '../../../../middlewares/faceScannerAuth.middleware.js';
 import {
   createFaceScanner,
@@ -53,7 +53,6 @@ const requireFaceScannerRouteAccess = (req, res, next) => {
 };
 
 router.use(requireFaceScannerRouteAccess);
-router.use(requireAnyCapability(['cap.faceScanners.manage']));
 
 // CRUD operations for face scanners
 router.post('/', createFaceScanner);

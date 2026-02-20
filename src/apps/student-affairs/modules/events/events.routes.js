@@ -6,13 +6,14 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
-import { requireAnyCapability, requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
+import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
 import { validate } from "../../../../middlewares/validate.middleware.js"
 import * as eventsController from "./events.controller.js"
 import * as validation from "./events.validation.js"
 import { ROLES, ROLE_GROUPS } from "../../../../core/constants/roles.constants.js"
 
 const router = express.Router()
+router.use(authenticate)
 
 const EVENTS_ROUTE_KEY_BY_ROLE = {
   [ROLES.ADMIN]: "route.admin.gymkhanaEvents",
@@ -36,27 +37,11 @@ const requireEventsRouteAccess = requireRoleMappedRouteAccess(EVENTS_ROUTE_KEY_B
 const requireMegaEventsRouteAccess = requireRoleMappedRouteAccess(MEGA_EVENTS_ROUTE_KEY_BY_ROLE)
 const requireGymkhanaDashboardRouteAccess = requireRouteAccess("route.gymkhana.dashboard")
 
-const eventsViewAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.view"])]
-const eventsCreateAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.create"])]
-const eventsApproveAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.approve"])]
-const megaEventsViewAccess = [requireMegaEventsRouteAccess, requireAnyCapability(["cap.events.view"])]
-const megaEventsCreateAccess = [requireMegaEventsRouteAccess, requireAnyCapability(["cap.events.create"])]
-
-// Apply authentication to all routes
-router.use(authenticate)
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// CALENDAR ROUTES
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// Create calendar (Admin only)
-router.post(
-  "/calendar",
-  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
-  ...eventsCreateAccess,
-  validate(validation.createCalendarSchema),
-  eventsController.createCalendar
-)
+const eventsViewAccess = [requireEventsRouteAccess]
+const eventsCreateAccess = [requireEventsRouteAccess]
+const eventsApproveAccess = [requireEventsRouteAccess]
+const megaEventsViewAccess = [requireMegaEventsRouteAccess]
+const megaEventsCreateAccess = [requireMegaEventsRouteAccess]
 
 // Get all calendars
 router.get(
@@ -399,7 +384,6 @@ router.get(
   "/dashboard/summary",
   authorizeRoles([ROLES.GYMKHANA]),
   requireGymkhanaDashboardRouteAccess,
-  requireAnyCapability(["cap.events.view"]),
   eventsController.getGymkhanaDashboardSummary
 )
 
@@ -408,7 +392,6 @@ router.get(
   "/profile",
   authorizeRoles([ROLES.GYMKHANA]),
   requireRouteAccess("route.gymkhana.profile"),
-  requireAnyCapability(["cap.profile.self.view"]),
   eventsController.getGymkhanaProfile
 )
 

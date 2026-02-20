@@ -16,7 +16,7 @@ import {
 } from './tasks.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -54,13 +54,13 @@ const requireTaskMyRouteAccessIfMapped = (req, res, next) => {
 };
 
 // Admin-only routes
-router.post('/', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, requireAnyCapability(['cap.tasks.manage']), createTask);
-router.get('/all', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, requireAnyCapability(['cap.tasks.view']), getAllTasks);
-router.put('/:id', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, requireAnyCapability(['cap.tasks.manage']), updateTask);
-router.delete('/:id', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, requireAnyCapability(['cap.tasks.manage']), deleteTask);
+router.post('/', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, createTask);
+router.get('/all', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, getAllTasks);
+router.put('/:id', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, updateTask);
+router.delete('/:id', authorizeRoles(['Admin', 'Super Admin']), requireTaskManagementRouteAccess, deleteTask);
 
 // Routes for assigned users
-router.get('/my-tasks', requireTaskMyRouteAccessIfMapped, requireAnyCapability(['cap.tasks.view']), getUserTasks);
-router.put('/:id/status', requireTaskMyRouteAccessIfMapped, requireAnyCapability(['cap.tasks.status.update']), updateTaskStatus);
+router.get('/my-tasks', requireTaskMyRouteAccessIfMapped, getUserTasks);
+router.put('/:id/status', requireTaskMyRouteAccessIfMapped, updateTaskStatus);
 
 export default router;

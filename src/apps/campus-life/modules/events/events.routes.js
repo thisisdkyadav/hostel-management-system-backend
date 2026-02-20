@@ -14,7 +14,7 @@ import {
 } from './events.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -43,7 +43,6 @@ router.get(
   '/',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
   requireEventsRouteAccess,
-  requireAnyCapability(['cap.events.view']),
   getEvents
 );
 
@@ -52,21 +51,18 @@ router.post(
   '/',
   authorizeRoles(['Admin']),
   requireEventsRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   createEvent
 );
 router.put(
   '/:id',
   authorizeRoles(['Admin']),
   requireEventsRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   updateEvent
 );
 router.delete(
   '/:id',
   authorizeRoles(['Admin']),
   requireEventsRouteAccess,
-  requireAnyCapability(['cap.events.create']),
   deleteEvent
 );
 

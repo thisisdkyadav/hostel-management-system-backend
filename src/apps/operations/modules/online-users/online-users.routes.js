@@ -13,7 +13,7 @@ import {
 } from './online-users.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -34,10 +34,10 @@ const requireOnlineUsersRouteAccess = (req, res, next) => {
 };
 
 // Get currently online users (Admin and Super Admin only)
-router.get('/', authorizeRoles(['Admin', 'Super Admin']), requireOnlineUsersRouteAccess, requireAnyCapability(['cap.onlineUsers.view']), getOnlineUsers);
+router.get('/', authorizeRoles(['Admin', 'Super Admin']), requireOnlineUsersRouteAccess, getOnlineUsers);
 
 // Get online users statistics (Admin and Super Admin only)
-router.get('/stats', authorizeRoles(['Admin', 'Super Admin']), requireOnlineUsersRouteAccess, requireAnyCapability(['cap.onlineUsers.view']), getOnlineStats);
+router.get('/stats', authorizeRoles(['Admin', 'Super Admin']), requireOnlineUsersRouteAccess, getOnlineStats);
 
 // Get online status of specific user (any authenticated user)
 router.get('/:userId', getOnlineUserByUserId);

@@ -52,42 +52,38 @@ router.get(
   '/profiles',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.list.view', 'cap.students.view']),
   getStudents
 );
 router.post(
   '/profiles',
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.import', 'cap.students.bulk.update']),
   createStudentsProfiles
 );
 router.put(
   '/profiles',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.bulk.update', 'cap.students.edit.personal']),
+  requireAnyCapability(['cap.students.edit.personal']),
   updateStudentsProfiles
 );
 router.post(
   '/profiles/ids',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.export', 'cap.students.detail.view', 'cap.students.view']),
   getMultipleStudentDetails
 );
 router.get(
   '/profile/details/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.detail.view', 'cap.students.view']),
   getStudentDetails
 );
 router.put(
   '/profile/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.edit.personal', 'cap.students.bulk.update']),
+  requireAnyCapability(['cap.students.edit.personal']),
   updateStudentProfile
 );
 router.get(
@@ -100,21 +96,18 @@ router.post(
   '/profiles/status',
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.bulk.update']),
   bulkUpdateStudentsStatus
 );
 router.put(
   '/profiles/day-scholar',
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.bulk.update']),
   bulkUpdateDayScholarDetails
 );
 router.put(
   '/hostels/:hostelId/room-allocations',
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
-  requireAnyCapability(['cap.students.allocations.update']),
   updateRoomAllocations
 );
 router.get(
@@ -126,7 +119,6 @@ router.put(
   '/departments/rename',
   authorizeRoles(['Admin']),
   requireAdminSettingsRouteAccess,
-  requireAnyCapability(['cap.settings.departments.rename', 'cap.settings.departments.update', 'cap.settings.update']),
   renameDepartment
 );
 router.get(
@@ -138,7 +130,6 @@ router.put(
   '/degrees/rename',
   authorizeRoles(['Admin']),
   requireAdminSettingsRouteAccess,
-  requireAnyCapability(['cap.settings.degrees.rename', 'cap.settings.degrees.update', 'cap.settings.update']),
   renameDegree
 );
 

@@ -28,7 +28,7 @@ import {
 } from './visitor-profile.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -67,7 +67,6 @@ router.get(
     'Student',
   ]),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.view']),
   getVisitorRequests
 );
 
@@ -76,7 +75,6 @@ router.get(
   '/requests/student/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.view']),
   getStudentVisitorRequests
 );
 
@@ -93,28 +91,24 @@ router.get(
     'Student',
   ]),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.view']),
   getVisitorRequestById
 );
 router.post(
   '/requests',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   createVisitorRequest
 );
 router.put(
   '/requests/:requestId',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   updateVisitorRequest
 );
 router.delete(
   '/requests/:requestId',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   deleteVisitorRequest
 );
 
@@ -123,28 +117,24 @@ router.get(
   '/profiles',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.view']),
   getVisitorProfiles
 );
 router.post(
   '/profiles',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   createVisitorProfile
 );
 router.put(
   '/profiles/:visitorId',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   updateVisitorProfile
 );
 router.delete(
   '/profiles/:visitorId',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   deleteVisitorProfile
 );
 
@@ -153,7 +143,6 @@ router.post(
   '/requests/:requestId/allocate',
   authorizeRoles(['Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.allocate']),
   allocateRoomsToVisitorRequest
 );
 
@@ -182,7 +171,6 @@ router.post(
   '/requests/:requestId/:action',
   authorizeRoles(['Admin']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.approve']),
   updateVisitorRequestStatus
 );
 
@@ -191,7 +179,6 @@ router.put(
   '/requests/:requestId/payment-info',
   authorizeRoles(['Student']),
   requireVisitorsRouteAccess,
-  requireAnyCapability(['cap.visitors.create']),
   updatePaymentInfo
 );
 

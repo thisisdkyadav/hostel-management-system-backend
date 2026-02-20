@@ -17,12 +17,6 @@ import {
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import { formatDate } from '../../../../utils/utils.js';
-import env from '../../../../config/env.config.js';
-import { AUTHZ_MODES, getConstraintValue } from '../../../../core/authz/index.js';
-
-const STUDENT_SCOPE_HOSTELS_CONSTRAINT = 'constraint.students.scope.hostelIds';
-const STUDENT_SCOPE_ONLY_OWN_HOSTEL_CONSTRAINT = 'constraint.students.scope.onlyOwnHostel';
-const STUDENT_ALLOWED_SECTIONS_CONSTRAINT = 'constraint.students.edit.allowedSections';
 
 const toObjectIdString = (value) => {
   if (!value) return null;
@@ -31,67 +25,17 @@ const toObjectIdString = (value) => {
   return null;
 };
 
-const toStringArray = (value) => {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
-    .filter(Boolean);
-};
-
-const isAuthzEnforceMode = () => {
-  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase();
-  return mode === AUTHZ_MODES.ENFORCE;
-};
-
 class ProfilesAdminService extends BaseService {
   constructor() {
     super(StudentProfile);
   }
 
   getConstraintContext(user) {
-    const effectiveAuthz = user?.authz?.effective || null;
-    const enforceConstraints = isAuthzEnforceMode() && Boolean(effectiveAuthz);
-
     const ownHostelId = toObjectIdString(user?.hostel?._id || user?.hostel);
-    const configuredHostelIds = toStringArray(
-      getConstraintValue(effectiveAuthz, STUDENT_SCOPE_HOSTELS_CONSTRAINT, [])
-    )
-      .map(toObjectIdString)
-      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
-
-    const onlyOwnHostel = Boolean(
-      getConstraintValue(effectiveAuthz, STUDENT_SCOPE_ONLY_OWN_HOSTEL_CONSTRAINT, false)
-    );
-
-    const allowedSections = new Set(
-      toStringArray(getConstraintValue(effectiveAuthz, STUDENT_ALLOWED_SECTIONS_CONSTRAINT, [])).map(
-        (section) => section.toLowerCase()
-      )
-    );
-
-    let scopedHostelIds = null;
-    if (ownHostelId) {
-      scopedHostelIds = new Set([ownHostelId]);
-    }
-
-    if (enforceConstraints) {
-      if (onlyOwnHostel) {
-        scopedHostelIds = ownHostelId ? new Set([ownHostelId]) : new Set();
-      } else if (configuredHostelIds.length > 0) {
-        if (scopedHostelIds) {
-          scopedHostelIds = new Set(
-            [...scopedHostelIds].filter((hostelId) => configuredHostelIds.includes(hostelId))
-          );
-        } else {
-          scopedHostelIds = new Set(configuredHostelIds);
-        }
-      }
-    }
+    const scopedHostelIds = ownHostelId ? new Set([ownHostelId]) : null;
 
     return {
-      enforceConstraints,
       scopedHostelIds,
-      allowedSections,
     };
   }
 
@@ -100,16 +44,6 @@ class ProfilesAdminService extends BaseService {
     if (!scopedHostelIds) return true;
     if (!hostelId) return false;
     return scopedHostelIds.has(toObjectIdString(hostelId));
-  }
-
-  isDepartmentAllowed(inputDepartment, fallbackDepartment, context) {
-    if (!context?.enforceConstraints) return true;
-    const allowedSections = context?.allowedSections;
-    if (!allowedSections || allowedSections.size === 0) return true;
-
-    const candidate = String(inputDepartment || fallbackDepartment || '').trim().toLowerCase();
-    if (!candidate) return true;
-    return allowedSections.has(candidate);
   }
 
   buildEmptyStudentsResult(searchQuery = {}) {
@@ -335,18 +269,10 @@ class ProfilesAdminService extends BaseService {
         }
 
         const currentProfile = profileDetailsByRollNumber.get(roll.toUpperCase());
-        if (constraintContext.enforceConstraints && !this.isHostelAllowed(currentProfile?.hostelId, constraintContext)) {
+        if (!this.isHostelAllowed(currentProfile?.hostelId, constraintContext)) {
           errors.push({
             student: roll,
-            message: 'Not allowed to modify this student due to hostel scope constraint',
-          });
-          continue;
-        }
-
-        if (!this.isDepartmentAllowed(student.department, existingProfile.department, constraintContext)) {
-          errors.push({
-            student: roll,
-            message: 'Not allowed to modify this student due to section constraint',
+            message: 'Not allowed to modify this student due to hostel scope',
           });
           continue;
         }
@@ -672,7 +598,7 @@ class ProfilesAdminService extends BaseService {
       return notFound('Student profile not found');
     }
 
-    if (constraintContext.enforceConstraints && !this.isHostelAllowed(studentProfile.hostelId, constraintContext)) {
+    if (!this.isHostelAllowed(studentProfile.hostelId, constraintContext)) {
       return forbidden('You are not allowed to view this student profile');
     }
 
@@ -698,7 +624,7 @@ class ProfilesAdminService extends BaseService {
       return notFound('No student profiles found');
     }
 
-    const filteredStudentsData = constraintContext.enforceConstraints
+    const filteredStudentsData = constraintContext.scopedHostelIds
       ? studentsData.filter((student) => this.isHostelAllowed(student.hostelId, constraintContext))
       : studentsData;
 
@@ -757,12 +683,8 @@ class ProfilesAdminService extends BaseService {
       return notFound('Student profile not found or update failed');
     }
 
-    if (constraintContext.enforceConstraints && !this.isHostelAllowed(currentProfile.hostelId, constraintContext)) {
+    if (!this.isHostelAllowed(currentProfile.hostelId, constraintContext)) {
       return forbidden('You are not allowed to update this student profile');
-    }
-
-    if (!this.isDepartmentAllowed(department, currentProfile.department, constraintContext)) {
-      return forbidden('You are not allowed to update this student section');
     }
 
     const updatedUser = await User.findByIdAndUpdate(

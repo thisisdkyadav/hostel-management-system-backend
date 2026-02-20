@@ -33,7 +33,7 @@ import {
 } from './student-inventory.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -84,7 +84,6 @@ router
   .get(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.view']),
     getAllHostelInventory
   );
 
@@ -105,13 +104,11 @@ router
   .post(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.assign']),
     assignInventoryToStudent
   )
   .get(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.view']),
     getAllStudentInventory
   );
 
@@ -120,7 +117,6 @@ router
   .get(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.view']),
     getInventorySummaryByStudent
   );
 
@@ -129,7 +125,6 @@ router
   .get(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.view']),
     getInventorySummaryByItemType
   );
 
@@ -138,7 +133,6 @@ router
   .get(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.view']),
     getStudentInventory
   );
 
@@ -147,7 +141,6 @@ router
   .put(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.edit']),
     returnStudentInventory
   );
 
@@ -156,7 +149,6 @@ router
   .put(
     authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
     requireInventoryRouteAccess,
-    requireAnyCapability(['cap.inventory.edit']),
     updateInventoryStatus
   );
 

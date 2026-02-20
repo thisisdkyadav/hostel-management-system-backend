@@ -15,7 +15,7 @@ import {
 } from './family.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -41,12 +41,12 @@ router.use(authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Superv
 router.use(requireFamilyRouteAccess);
 
 // Bulk update family members
-router.post('/bulk-update', requireAnyCapability(['cap.students.family.edit']), updateBulkFamilyMembers);
+router.post('/bulk-update', updateBulkFamilyMembers);
 
 // Individual family member operations
-router.post('/:userId', requireAnyCapability(['cap.students.family.edit']), createFamilyMember);
-router.get('/:userId', requireAnyCapability(['cap.students.family.view', 'cap.students.detail.view', 'cap.students.view']), getFamilyMembers);
-router.put('/:id', requireAnyCapability(['cap.students.family.edit']), updateFamilyMember);
-router.delete('/:id', requireAnyCapability(['cap.students.family.edit']), deleteFamilyMember);
+router.post('/:userId', createFamilyMember);
+router.get('/:userId', getFamilyMembers);
+router.put('/:id', updateFamilyMember);
+router.delete('/:id', deleteFamilyMember);
 
 export default router;

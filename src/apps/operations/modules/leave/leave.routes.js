@@ -16,7 +16,7 @@ import {
 } from './leave.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -40,14 +40,14 @@ const requireLeaveRouteAccess = (req, res, next) => {
 
 // Staff leave routes (Admin, Hostel Supervisor, Maintenance Staff)
 router.use(authorizeRoles(['Admin', 'Hostel Supervisor', 'Maintenance Staff']));
-router.get('/my-leaves', requireLeaveRouteAccess, requireAnyCapability(['cap.leaves.view']), getMyLeaves);
-router.post('/', requireLeaveRouteAccess, requireAnyCapability(['cap.leaves.create']), createLeave);
+router.get('/my-leaves', requireLeaveRouteAccess, getMyLeaves);
+router.post('/', requireLeaveRouteAccess, createLeave);
 
 // Admin-only leave management
 router.use(authorizeRoles(['Admin']));
-router.get('/all', requireRouteAccess('route.admin.leaves'), requireAnyCapability(['cap.leaves.view']), getLeaves);
-router.put('/:id/approve', requireRouteAccess('route.admin.leaves'), requireAnyCapability(['cap.leaves.review']), approveLeave);
-router.put('/:id/reject', requireRouteAccess('route.admin.leaves'), requireAnyCapability(['cap.leaves.review']), rejectLeave);
-router.put('/:id/join', requireRouteAccess('route.admin.leaves'), requireAnyCapability(['cap.leaves.review']), joinLeave);
+router.get('/all', requireRouteAccess('route.admin.leaves'), getLeaves);
+router.put('/:id/approve', requireRouteAccess('route.admin.leaves'), approveLeave);
+router.put('/:id/reject', requireRouteAccess('route.admin.leaves'), rejectLeave);
+router.put('/:id/join', requireRouteAccess('route.admin.leaves'), joinLeave);
 
 export default router;
