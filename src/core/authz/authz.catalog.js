@@ -60,6 +60,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.superAdmin.dashboard", "Super Admin Dashboard", ["/super-admin"]),
   route("route.superAdmin.admins", "Super Admin Admins", ["/super-admin/admins"]),
   route("route.superAdmin.apiKeys", "Super Admin API Keys", ["/super-admin/api-keys"]),
+  route("route.superAdmin.authz", "Super Admin AuthZ", ["/super-admin/authz", "/super-admin/authz/help"]),
   route("route.superAdmin.profile", "Super Admin Profile", ["/super-admin/profile"]),
 
   // Warden family

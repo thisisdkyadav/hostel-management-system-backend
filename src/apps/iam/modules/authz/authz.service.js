@@ -15,6 +15,22 @@ import {
 import { success, badRequest, notFound } from "../../../../services/base/index.js"
 
 const VALID_ROLES = Object.values(ROLES)
+const normalizeRoleList = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean)
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  return []
+}
 
 class AuthzService {
   async getCatalog() {
@@ -75,15 +91,39 @@ class AuthzService {
     })
   }
 
-  async getUsersByRole(role, { page = 1, limit = 20 } = {}) {
+  async getUsersByRole(role, { page = 1, limit = 20, excludeRoles = [] } = {}) {
     if (role && !VALID_ROLES.includes(role)) {
       return badRequest("Invalid role specified")
+    }
+
+    const normalizedExcludedRoles = [...new Set(normalizeRoleList(excludeRoles))]
+    const invalidExcludedRoles = normalizedExcludedRoles.filter((item) => !VALID_ROLES.includes(item))
+
+    if (invalidExcludedRoles.length > 0) {
+      return badRequest(`Invalid excludeRoles specified: ${invalidExcludedRoles.join(", ")}`)
     }
 
     const parsedPage = Math.max(parseInt(page, 10) || 1, 1)
     const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100)
 
-    const query = role ? { role } : {}
+    const query = {}
+    if (role) {
+      if (normalizedExcludedRoles.includes(role)) {
+        return success({
+          data: [],
+          pagination: {
+            total: 0,
+            page: parsedPage,
+            limit: parsedLimit,
+            pages: 0,
+          },
+        })
+      }
+      query.role = role
+    } else if (normalizedExcludedRoles.length > 0) {
+      query.role = { $nin: normalizedExcludedRoles }
+    }
+
     const users = await User.find(query)
       .skip((parsedPage - 1) * parsedLimit)
       .limit(parsedLimit)

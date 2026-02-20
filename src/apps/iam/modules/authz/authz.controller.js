@@ -65,9 +65,9 @@ export const getUserAuthz = asyncHandler(async (req, res) => {
 
 export const getUsersByRole = asyncHandler(async (req, res) => {
   const { role } = req.params
-  const { page, limit } = req.query
+  const { page, limit, excludeRoles } = req.query
 
-  const result = await authzService.getUsersByRole(role, { page, limit })
+  const result = await authzService.getUsersByRole(role, { page, limit, excludeRoles })
   return sendResult(res, result)
 })
 

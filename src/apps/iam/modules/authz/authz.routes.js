@@ -26,7 +26,7 @@ router.get("/me", getMyAuthz)
 router.use(authorizeRoles(["Admin", "Super Admin"]))
 const AUTHZ_ROUTE_KEY_BY_ROLE = {
   Admin: "route.admin.authz",
-  "Super Admin": "route.superAdmin.dashboard",
+  "Super Admin": "route.superAdmin.authz",
 }
 
 const requireAuthzAdminRouteAccess = (req, res, next) => {
