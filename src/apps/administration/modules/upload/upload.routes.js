@@ -22,8 +22,23 @@ import {
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
+
+const GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE = {
+  [ROLES.GYMKHANA]: 'route.gymkhana.events',
+  [ROLES.ADMIN]: 'route.admin.events',
+};
+
+const requireGymkhanaEventUploadRouteAccess = (req, res, next) => {
+  const routeKey = GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return next();
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
 
 // All routes require authentication
 router.use(authenticate);
@@ -52,16 +67,44 @@ router.post(
 router.post('/h2-form', authorizeRoles(['Student']), upload.any(), h2FormPDF);
 
 // Event proposal PDF upload
-router.post('/event-proposal-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventProposalPDF);
+router.post(
+  '/event-proposal-pdf',
+  authorizeRoles(['Gymkhana']),
+  requireGymkhanaEventUploadRouteAccess,
+  requireAnyCapability(['cap.events.create']),
+  upload.any(),
+  uploadEventProposalPDF
+);
 
 // Event chief guest PDF upload
-router.post('/event-chief-guest-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventChiefGuestPDF);
+router.post(
+  '/event-chief-guest-pdf',
+  authorizeRoles(['Gymkhana']),
+  requireGymkhanaEventUploadRouteAccess,
+  requireAnyCapability(['cap.events.create']),
+  upload.any(),
+  uploadEventChiefGuestPDF
+);
 
 // Event bill PDF upload
-router.post('/event-bill-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventBillPDF);
+router.post(
+  '/event-bill-pdf',
+  authorizeRoles(['Gymkhana']),
+  requireGymkhanaEventUploadRouteAccess,
+  requireAnyCapability(['cap.events.create']),
+  upload.any(),
+  uploadEventBillPDF
+);
 
 // Event report PDF upload
-router.post('/event-report-pdf', authorizeRoles(['Gymkhana']), upload.any(), uploadEventReportPDF);
+router.post(
+  '/event-report-pdf',
+  authorizeRoles(['Gymkhana']),
+  requireGymkhanaEventUploadRouteAccess,
+  requireAnyCapability(['cap.events.create']),
+  upload.any(),
+  uploadEventReportPDF
+);
 
 // Disciplinary process document PDF upload
 router.post(

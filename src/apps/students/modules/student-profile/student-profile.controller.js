@@ -14,7 +14,7 @@ import { asyncHandler } from '../../../../utils/index.js';
  */
 export const getEditableProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const result = await studentProfileService.getEditableProfile(userId);
+  const result = await studentProfileService.getEditableProfile(userId, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -35,7 +35,7 @@ export const getEditableProfile = asyncHandler(async (req, res) => {
  */
 export const updateStudentProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const result = await studentProfileService.updateStudentProfile(userId, req.body);
+  const result = await studentProfileService.updateStudentProfile(userId, req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -58,7 +58,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
  */
 export const getStudentProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const result = await studentProfileService.getStudentProfile(userId);
+  const result = await studentProfileService.getStudentProfile(userId, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({

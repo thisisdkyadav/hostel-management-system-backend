@@ -40,10 +40,6 @@ export const updateUserSchema = Joi.object({
     phone: phone,
     hostel: objectId,
     isActive: Joi.boolean(),
-    permissions: Joi.object().pattern(
-      Joi.string(),
-      Joi.boolean()
-    ),
   }),
 });
 
@@ -67,22 +63,6 @@ export const updateUserRoleSchema = Joi.object({
   }),
   body: Joi.object({
     role: Joi.string().valid(...userRoles).required(),
-  }),
-});
-
-/**
- * Update user permissions
- * PATCH /api/users/:id/permissions
- */
-export const updateUserPermissionsSchema = Joi.object({
-  params: Joi.object({
-    id: objectId.required(),
-  }),
-  body: Joi.object({
-    permissions: Joi.object().pattern(
-      Joi.string(),
-      Joi.boolean()
-    ).required(),
   }),
 });
 
@@ -118,7 +98,6 @@ export default {
   updateUserSchema,
   getUserByIdSchema,
   updateUserRoleSchema,
-  updateUserPermissionsSchema,
   getUsersSchema,
   deleteUserSchema,
 };

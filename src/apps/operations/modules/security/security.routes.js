@@ -24,9 +24,28 @@ import {
 } from './security.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requirePermission } from '../../../../utils/permissions.js';
+import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
+
+const SECURITY_ENTRIES_ROUTE_KEY_BY_ROLE = {
+  [ROLES.ADMIN]: 'route.admin.security',
+  [ROLES.WARDEN]: 'route.warden.students',
+  [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.students',
+  [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.students',
+  [ROLES.SECURITY]: 'route.security.attendance',
+  [ROLES.HOSTEL_GATE]: 'route.hostelGate.entries',
+  [ROLES.STUDENT]: 'route.student.security',
+};
+
+const requireSecurityEntriesRouteAccess = (req, res, next) => {
+  const routeKey = SECURITY_ENTRIES_ROUTE_KEY_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
 
 // All routes require authentication
 router.use(authenticate);
@@ -46,22 +65,24 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
-  requirePermission('students_info', 'view'),
+  requireSecurityEntriesRouteAccess,
+  requireAnyCapability(['cap.students.view', 'cap.students.detail.view']),
   getStudentEntries
 );
-router.get('/entries/recent', authorizeRoles(['Hostel Gate']), getRecentEntries);
-router.get('/entries/face-scanner', authorizeRoles(['Hostel Gate']), getFaceScannerEntries);
-router.post('/entries', authorizeRoles(['Hostel Gate']), addStudentEntry);
-router.post('/entries/email', authorizeRoles(['Hostel Gate']), addStudentEntryWithEmail);
-router.put('/entries/:entryId', authorizeRoles(['Hostel Gate']), updateStudentEntry);
+router.get('/entries/recent', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), getRecentEntries);
+router.get('/entries/face-scanner', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.faceScannerEntries'), getFaceScannerEntries);
+router.post('/entries', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), addStudentEntry);
+router.post('/entries/email', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), addStudentEntryWithEmail);
+router.put('/entries/:entryId', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), updateStudentEntry);
 router.patch(
   '/entries/:entryId/cross-hostel-reason',
   authorizeRoles(['Hostel Gate']),
+  requireRouteAccess('route.hostelGate.entries'),
   updateStudentEntryCrossHostelReason
 );
-router.delete('/entries/:entryId', authorizeRoles(['Hostel Gate']), deleteStudentEntry);
+router.delete('/entries/:entryId', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), deleteStudentEntry);
 
 // QR verification
-router.post('/verify-qr', authorizeRoles(['Hostel Gate']), verifyQR);
+router.post('/verify-qr', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.scannerEntries'), verifyQR);
 
 export default router;

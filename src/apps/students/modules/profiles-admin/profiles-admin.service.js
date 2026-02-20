@@ -4,7 +4,7 @@
  */
 
 import BaseService from '../../../../services/base/BaseService.js';
-import { success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, forbidden, withTransaction } from '../../../../services/base/index.js';
 import {
   StudentProfile,
   RoomAllocation,
@@ -17,10 +17,117 @@ import {
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
 import { formatDate } from '../../../../utils/utils.js';
+import env from '../../../../config/env.config.js';
+import { AUTHZ_MODES, getConstraintValue } from '../../../../core/authz/index.js';
+
+const STUDENT_SCOPE_HOSTELS_CONSTRAINT = 'constraint.students.scope.hostelIds';
+const STUDENT_SCOPE_ONLY_OWN_HOSTEL_CONSTRAINT = 'constraint.students.scope.onlyOwnHostel';
+const STUDENT_ALLOWED_SECTIONS_CONSTRAINT = 'constraint.students.edit.allowedSections';
+
+const toObjectIdString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (value?.toString) return value.toString();
+  return null;
+};
+
+const toStringArray = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+};
+
+const isAuthzEnforceMode = () => {
+  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase();
+  return mode === AUTHZ_MODES.ENFORCE;
+};
 
 class ProfilesAdminService extends BaseService {
   constructor() {
     super(StudentProfile);
+  }
+
+  getConstraintContext(user) {
+    const effectiveAuthz = user?.authz?.effective || null;
+    const enforceConstraints = isAuthzEnforceMode() && Boolean(effectiveAuthz);
+
+    const ownHostelId = toObjectIdString(user?.hostel?._id || user?.hostel);
+    const configuredHostelIds = toStringArray(
+      getConstraintValue(effectiveAuthz, STUDENT_SCOPE_HOSTELS_CONSTRAINT, [])
+    )
+      .map(toObjectIdString)
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+
+    const onlyOwnHostel = Boolean(
+      getConstraintValue(effectiveAuthz, STUDENT_SCOPE_ONLY_OWN_HOSTEL_CONSTRAINT, false)
+    );
+
+    const allowedSections = new Set(
+      toStringArray(getConstraintValue(effectiveAuthz, STUDENT_ALLOWED_SECTIONS_CONSTRAINT, [])).map(
+        (section) => section.toLowerCase()
+      )
+    );
+
+    let scopedHostelIds = null;
+    if (ownHostelId) {
+      scopedHostelIds = new Set([ownHostelId]);
+    }
+
+    if (enforceConstraints) {
+      if (onlyOwnHostel) {
+        scopedHostelIds = ownHostelId ? new Set([ownHostelId]) : new Set();
+      } else if (configuredHostelIds.length > 0) {
+        if (scopedHostelIds) {
+          scopedHostelIds = new Set(
+            [...scopedHostelIds].filter((hostelId) => configuredHostelIds.includes(hostelId))
+          );
+        } else {
+          scopedHostelIds = new Set(configuredHostelIds);
+        }
+      }
+    }
+
+    return {
+      enforceConstraints,
+      scopedHostelIds,
+      allowedSections,
+    };
+  }
+
+  isHostelAllowed(hostelId, context) {
+    const scopedHostelIds = context?.scopedHostelIds;
+    if (!scopedHostelIds) return true;
+    if (!hostelId) return false;
+    return scopedHostelIds.has(toObjectIdString(hostelId));
+  }
+
+  isDepartmentAllowed(inputDepartment, fallbackDepartment, context) {
+    if (!context?.enforceConstraints) return true;
+    const allowedSections = context?.allowedSections;
+    if (!allowedSections || allowedSections.size === 0) return true;
+
+    const candidate = String(inputDepartment || fallbackDepartment || '').trim().toLowerCase();
+    if (!candidate) return true;
+    return allowedSections.has(candidate);
+  }
+
+  buildEmptyStudentsResult(searchQuery = {}) {
+    const page = parseInt(searchQuery.page, 10) || 1;
+    const limit = parseInt(searchQuery.limit, 10) || 10;
+    const missingOptions = this.model.getMissingFieldOptions();
+    return {
+      success: true,
+      statusCode: 200,
+      data: [],
+      pagination: {
+        total: 0,
+        page,
+        limit,
+        pages: 0,
+      },
+      meta: { missingOptions },
+    };
   }
 
   /**
@@ -178,6 +285,7 @@ class ProfilesAdminService extends BaseService {
     const session = await mongoose.startSession();
     await session.startTransaction();
     try {
+      const constraintContext = this.getConstraintContext(currentUser);
       const studentsArray = Array.isArray(studentsData) ? studentsData : [studentsData];
       const errors = [];
       const results = [];
@@ -200,6 +308,15 @@ class ProfilesAdminService extends BaseService {
         .populate('userId')
         .session(session);
 
+      const existingProfileUserIds = existingProfiles.map((profile) => profile.userId?._id).filter(Boolean);
+      const existingProfileDetails = await this.model.getFullStudentData(existingProfileUserIds);
+      const profileDetailsByRollNumber = new Map();
+      for (const profile of existingProfileDetails) {
+        if (profile?.rollNumber) {
+          profileDetailsByRollNumber.set(profile.rollNumber.toUpperCase(), profile);
+        }
+      }
+
       const profileMap = {};
       existingProfiles.forEach((profile) => {
         profileMap[profile.rollNumber] = profile;
@@ -214,6 +331,23 @@ class ProfilesAdminService extends BaseService {
         const existingProfile = profileMap[roll.toUpperCase()];
         if (!existingProfile) {
           errors.push({ student: roll, message: `Student with roll number ${roll} not found` });
+          continue;
+        }
+
+        const currentProfile = profileDetailsByRollNumber.get(roll.toUpperCase());
+        if (constraintContext.enforceConstraints && !this.isHostelAllowed(currentProfile?.hostelId, constraintContext)) {
+          errors.push({
+            student: roll,
+            message: 'Not allowed to modify this student due to hostel scope constraint',
+          });
+          continue;
+        }
+
+        if (!this.isDepartmentAllowed(student.department, existingProfile.department, constraintContext)) {
+          errors.push({
+            student: roll,
+            message: 'Not allowed to modify this student due to section constraint',
+          });
           continue;
         }
 
@@ -482,8 +616,29 @@ class ProfilesAdminService extends BaseService {
    */
   async getStudents(query, user) {
     const searchQuery = { ...query };
+    const constraintContext = this.getConstraintContext(user);
+    const requestedHostelId = toObjectIdString(searchQuery.hostelId);
 
-    if (user.hostel) {
+    if (constraintContext.scopedHostelIds && constraintContext.scopedHostelIds.size === 0) {
+      return this.buildEmptyStudentsResult(searchQuery);
+    }
+
+    if (constraintContext.scopedHostelIds) {
+      if (requestedHostelId) {
+        if (!constraintContext.scopedHostelIds.has(requestedHostelId)) {
+          return this.buildEmptyStudentsResult(searchQuery);
+        }
+        searchQuery.hostelId = requestedHostelId;
+      } else {
+        const allowedHostelIds = [...constraintContext.scopedHostelIds];
+        if (allowedHostelIds.length === 1) {
+          searchQuery.hostelId = allowedHostelIds[0];
+        } else {
+          searchQuery.hostelIds = allowedHostelIds;
+          delete searchQuery.hostelId;
+        }
+      }
+    } else if (user.hostel) {
       searchQuery.hostelId = user.hostel._id.toString();
     }
 
@@ -509,11 +664,16 @@ class ProfilesAdminService extends BaseService {
   /**
    * Get student details by user ID
    */
-  async getStudentDetails(userId) {
+  async getStudentDetails(userId, currentUser) {
+    const constraintContext = this.getConstraintContext(currentUser);
     const studentProfile = await this.model.getFullStudentData(userId);
 
     if (!studentProfile) {
       return notFound('Student profile not found');
+    }
+
+    if (constraintContext.enforceConstraints && !this.isHostelAllowed(studentProfile.hostelId, constraintContext)) {
+      return forbidden('You are not allowed to view this student profile');
     }
 
     return success(studentProfile);
@@ -522,7 +682,8 @@ class ProfilesAdminService extends BaseService {
   /**
    * Get multiple student details by user IDs
    */
-  async getMultipleStudentDetails(userIds) {
+  async getMultipleStudentDetails(userIds, currentUser) {
+    const constraintContext = this.getConstraintContext(currentUser);
     if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
       return badRequest('Please provide an array of user IDs');
     }
@@ -537,18 +698,25 @@ class ProfilesAdminService extends BaseService {
       return notFound('No student profiles found');
     }
 
-    const foundUserIds = studentsData.map((student) => student.userId.toString());
+    const filteredStudentsData = constraintContext.enforceConstraints
+      ? studentsData.filter((student) => this.isHostelAllowed(student.hostelId, constraintContext))
+      : studentsData;
+
+    const foundUserIds = filteredStudentsData.map((student) => student.userId.toString());
     const missingUserIds = userIds.filter((id) => !foundUserIds.includes(id));
 
-    const errors = missingUserIds.map((userId) => ({ userId, message: 'Student profile not found' }));
+    const errors = missingUserIds.map((userId) => ({
+      userId,
+      message: 'Student profile not found or not allowed by hostel scope',
+    }));
     const responseStatus = errors.length > 0 ? 207 : 200;
 
     return {
       success: true,
       statusCode: responseStatus,
-      data: studentsData,
+      data: filteredStudentsData,
       errors: errors.length > 0 ? errors : undefined,
-      message: `Retrieved ${studentsData.length} out of ${userIds.length} student profiles`,
+      message: `Retrieved ${filteredStudentsData.length} out of ${userIds.length} student profiles`,
     };
   }
 
@@ -563,7 +731,8 @@ class ProfilesAdminService extends BaseService {
   /**
    * Update student profile
    */
-  async updateStudentProfile(userId, updateData) {
+  async updateStudentProfile(userId, updateData, currentUser) {
+    const constraintContext = this.getConstraintContext(currentUser);
     const {
       name,
       email,
@@ -582,6 +751,19 @@ class ProfilesAdminService extends BaseService {
     } = updateData;
 
     const trimmedEmail = email ? email.trim() : email;
+    const currentProfile = await this.model.getFullStudentData(userId);
+
+    if (!currentProfile) {
+      return notFound('Student profile not found or update failed');
+    }
+
+    if (constraintContext.enforceConstraints && !this.isHostelAllowed(currentProfile.hostelId, constraintContext)) {
+      return forbidden('You are not allowed to update this student profile');
+    }
+
+    if (!this.isDepartmentAllowed(department, currentProfile.department, constraintContext)) {
+      return forbidden('You are not allowed to update this student section');
+    }
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,

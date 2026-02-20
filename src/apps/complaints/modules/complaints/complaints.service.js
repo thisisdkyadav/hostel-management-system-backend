@@ -8,6 +8,30 @@ import { BaseService, success, notFound, forbidden, paginated, badRequest } from
 import { Complaint, FeedbackToken } from '../../../../models/index.js';
 import { RoomAllocation } from '../../../../models/index.js';
 import { emailService } from '../../../../services/email/email.service.js';
+import mongoose from 'mongoose';
+import env from '../../../../config/env.config.js';
+import { AUTHZ_MODES, getConstraintValue } from '../../../../core/authz/index.js';
+
+const COMPLAINT_SCOPE_HOSTELS_CONSTRAINT = 'constraint.complaints.scope.hostelIds';
+
+const toObjectIdString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (value?.toString) return value.toString();
+  return null;
+};
+
+const toStringArray = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+};
+
+const isAuthzEnforceMode = () => {
+  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase();
+  return mode === AUTHZ_MODES.ENFORCE;
+};
 
 /**
  * Helper function to format complaint for response
@@ -121,6 +145,44 @@ class ComplaintService extends BaseService {
     super(Complaint, 'Complaint');
   }
 
+  getComplaintScopeContext(user) {
+    const effectiveAuthz = user?.authz?.effective || null;
+    const enforceConstraints = isAuthzEnforceMode() && Boolean(effectiveAuthz);
+
+    const ownHostelId = toObjectIdString(user?.hostel?._id || user?.hostel);
+    const configuredHostelIds = toStringArray(
+      getConstraintValue(effectiveAuthz, COMPLAINT_SCOPE_HOSTELS_CONSTRAINT, [])
+    )
+      .map(toObjectIdString)
+      .filter((id) => id && mongoose.Types.ObjectId.isValid(id));
+
+    let scopedHostelIds = ownHostelId ? new Set([ownHostelId]) : null;
+    if (enforceConstraints && configuredHostelIds.length > 0) {
+      if (scopedHostelIds) {
+        scopedHostelIds = new Set(
+          [...scopedHostelIds].filter((hostelId) => configuredHostelIds.includes(hostelId))
+        );
+      } else {
+        scopedHostelIds = new Set(configuredHostelIds);
+      }
+    }
+
+    return { enforceConstraints, scopedHostelIds };
+  }
+
+  isHostelAllowed(hostelId, scopeContext) {
+    const scopedHostelIds = scopeContext?.scopedHostelIds;
+    if (!scopedHostelIds) return true;
+    if (!hostelId) return false;
+    return scopedHostelIds.has(toObjectIdString(hostelId));
+  }
+
+  buildNoResultPagination(page, limit) {
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 10;
+    return paginated([], { page: pageNum, limit: limitNum, total: 0 });
+  }
+
   /**
    * Get room allocation details for a user
    */
@@ -140,7 +202,22 @@ class ComplaintService extends BaseService {
   /**
    * Create a new complaint
    */
-  async createComplaint({ userId, title, description, location, category, attachments, allocationDetails }) {
+  async createComplaint({
+    userId,
+    title,
+    description,
+    location,
+    category,
+    attachments,
+    allocationDetails,
+    requesterUser,
+  }) {
+    const scopeContext = this.getComplaintScopeContext(requesterUser);
+    const complaintHostelId = toObjectIdString(allocationDetails?.hostelId);
+    if (scopeContext.enforceConstraints && !this.isHostelAllowed(complaintHostelId, scopeContext)) {
+      return forbidden('You are not authorized to create complaints for this hostel');
+    }
+
     const complaint = await this.model.create({
       userId,
       title,
@@ -161,6 +238,7 @@ class ComplaintService extends BaseService {
   buildComplaintsQuery(user, filters) {
     const { category, status, hostelId, startDate, endDate, feedbackRating, satisfactionStatus } = filters;
     const query = {};
+    const scopeContext = this.getComplaintScopeContext(user);
 
     if (['Student'].includes(user.role)) {
       query.userId = user._id;
@@ -187,7 +265,25 @@ class ComplaintService extends BaseService {
       }
     }
 
-    return query;
+    if (scopeContext.scopedHostelIds) {
+      if (scopeContext.scopedHostelIds.size === 0) {
+        return { query, blockedByScope: true };
+      }
+
+      if (query.hostelId) {
+        const requestedHostelId = toObjectIdString(query.hostelId);
+        if (!scopeContext.scopedHostelIds.has(requestedHostelId)) {
+          return { query, blockedByScope: true };
+        }
+        query.hostelId = new mongoose.Types.ObjectId(requestedHostelId);
+      } else {
+        query.hostelId = {
+          $in: [...scopeContext.scopedHostelIds].map((id) => new mongoose.Types.ObjectId(id)),
+        };
+      }
+    }
+
+    return { query, blockedByScope: false };
   }
 
   /**
@@ -195,7 +291,10 @@ class ComplaintService extends BaseService {
    */
   async getAllComplaints(user, filters) {
     const { page = 1, limit = 10 } = filters;
-    const query = this.buildComplaintsQuery(user, filters);
+    const { query, blockedByScope } = this.buildComplaintsQuery(user, filters);
+    if (blockedByScope) {
+      return this.buildNoResultPagination(page, limit);
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
@@ -221,6 +320,7 @@ class ComplaintService extends BaseService {
    * Get complaint by ID
    */
   async getComplaintById(complaintId, user) {
+    const scopeContext = this.getComplaintScopeContext(user);
     const complaint = await this.model.findById(complaintId)
       .populate('userId', 'name email phone profileImage role')
       .populate('hostelId', 'name')
@@ -243,31 +343,37 @@ class ComplaintService extends BaseService {
       return forbidden('You are not authorized to access this complaint');
     }
 
+    if (scopeContext.enforceConstraints && !this.isHostelAllowed(complaint.hostelId?._id, scopeContext)) {
+      return forbidden('You are not authorized to access this complaint');
+    }
+
     return success(complaint);
   }
 
   /**
    * Update complaint status (legacy method)
    */
-  async updateComplaintStatus(complaintId, updateData) {
+  async updateComplaintStatus(complaintId, updateData, user) {
     const { status, assignedTo, resolutionNotes, feedback, feedbackRating } = updateData;
 
-    const complaint = await this.model.findByIdAndUpdate(
-      complaintId,
-      {
-        status,
-        assignedTo,
-        resolutionNotes,
-        feedback,
-        feedbackRating,
-        resolutionDate: status === 'Resolved' ? new Date() : null
-      },
-      { new: true }
-    );
+    const complaint = await this.model.findById(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
     }
+
+    const scopeContext = this.getComplaintScopeContext(user);
+    if (scopeContext.enforceConstraints && !this.isHostelAllowed(complaint.hostelId, scopeContext)) {
+      return forbidden('You are not authorized to update this complaint');
+    }
+
+    complaint.status = status;
+    complaint.assignedTo = assignedTo;
+    complaint.resolutionNotes = resolutionNotes;
+    complaint.feedback = feedback;
+    complaint.feedbackRating = feedbackRating;
+    complaint.resolutionDate = status === 'Resolved' ? new Date() : null;
+    await complaint.save();
 
     return success(complaint);
   }
@@ -277,6 +383,7 @@ class ComplaintService extends BaseService {
    */
   async getStats(user, hostelId) {
     const query = {};
+    const scopeContext = this.getComplaintScopeContext(user);
 
     if (['Student'].includes(user.role)) {
       query.userId = user._id;
@@ -286,6 +393,24 @@ class ComplaintService extends BaseService {
       query.hostelId = user.hostel._id;
     } else if (hostelId && ['Admin', 'Maintenance Staff'].includes(user.role)) {
       query.hostelId = hostelId;
+    }
+
+    if (scopeContext.scopedHostelIds) {
+      if (scopeContext.scopedHostelIds.size === 0) {
+        return success({ total: 0, pending: 0, inProgress: 0, resolved: 0, forwardedToIDO: 0 });
+      }
+
+      if (query.hostelId) {
+        const requestedHostelId = toObjectIdString(query.hostelId);
+        if (!scopeContext.scopedHostelIds.has(requestedHostelId)) {
+          return success({ total: 0, pending: 0, inProgress: 0, resolved: 0, forwardedToIDO: 0 });
+        }
+        query.hostelId = new mongoose.Types.ObjectId(requestedHostelId);
+      } else {
+        query.hostelId = {
+          $in: [...scopeContext.scopedHostelIds].map((id) => new mongoose.Types.ObjectId(id)),
+        };
+      }
     }
 
     const [total, pending, inProgress, resolved, forwardedToIDO] = await Promise.all([
@@ -302,13 +427,25 @@ class ComplaintService extends BaseService {
   /**
    * Get complaints for a specific student
    */
-  async getStudentComplaints(userId, { page = 1, limit = 10 }) {
+  async getStudentComplaints(userId, { page = 1, limit = 10 }, requesterUser) {
+    const scopeContext = this.getComplaintScopeContext(requesterUser);
+    const query = { userId };
+    if (scopeContext.scopedHostelIds) {
+      if (scopeContext.scopedHostelIds.size === 0) {
+        return this.buildNoResultPagination(page, limit);
+      }
+
+      query.hostelId = {
+        $in: [...scopeContext.scopedHostelIds].map((id) => new mongoose.Types.ObjectId(id)),
+      };
+    }
+
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
     const [totalCount, complaints] = await Promise.all([
-      this.model.countDocuments({ userId }),
-      this.model.find({ userId })
+      this.model.countDocuments(query),
+      this.model.find(query)
         .populate('userId', 'name email phone profileImage role')
         .populate('hostelId', 'name')
         .populate('unitId', 'unitNumber')
@@ -327,17 +464,26 @@ class ComplaintService extends BaseService {
    * Update complaint status (new method)
    * Sends feedback request email when status changes to Resolved
    */
-  async updateStatus(complaintId, status, userId) {
+  async updateStatus(complaintId, status, user) {
     const updateData = status === 'Resolved'
-      ? { status, resolvedBy: userId, resolutionDate: new Date() }
+      ? { status, resolvedBy: user._id, resolutionDate: new Date() }
       : { status };
 
-    const complaint = await this.model.findByIdAndUpdate(complaintId, updateData, { new: true })
-      .populate('userId', 'name email');
+    const complaint = await this.model.findById(complaintId).populate('userId', 'name email');
 
     if (!complaint) {
       return notFound('Complaint not found');
     }
+
+    const scopeContext = this.getComplaintScopeContext(user);
+    if (scopeContext.enforceConstraints && !this.isHostelAllowed(complaint.hostelId, scopeContext)) {
+      return forbidden('You are not authorized to update this complaint');
+    }
+
+    complaint.status = updateData.status;
+    complaint.resolvedBy = updateData.resolvedBy || null;
+    complaint.resolutionDate = updateData.resolutionDate || null;
+    await complaint.save();
 
     // Send feedback email when complaint is resolved
     if (status === 'Resolved' && complaint.userId?.email) {
@@ -369,16 +515,20 @@ class ComplaintService extends BaseService {
   /**
    * Update resolution notes
    */
-  async updateResolutionNotes(complaintId, resolutionNotes) {
-    const complaint = await this.model.findByIdAndUpdate(
-      complaintId,
-      { resolutionNotes },
-      { new: true }
-    );
+  async updateResolutionNotes(complaintId, resolutionNotes, user) {
+    const complaint = await this.model.findById(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
     }
+
+    const scopeContext = this.getComplaintScopeContext(user);
+    if (scopeContext.enforceConstraints && !this.isHostelAllowed(complaint.hostelId, scopeContext)) {
+      return forbidden('You are not authorized to update this complaint');
+    }
+
+    complaint.resolutionNotes = resolutionNotes;
+    await complaint.save();
 
     return success(complaint);
   }

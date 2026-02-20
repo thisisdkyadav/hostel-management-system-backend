@@ -6,12 +6,40 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
+import { requireAnyCapability, requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
 import { validate } from "../../../../middlewares/validate.middleware.js"
 import * as eventsController from "./events.controller.js"
 import * as validation from "./events.validation.js"
 import { ROLES, ROLE_GROUPS } from "../../../../core/constants/roles.constants.js"
 
 const router = express.Router()
+
+const EVENTS_ROUTE_KEY_BY_ROLE = {
+  [ROLES.ADMIN]: "route.admin.events",
+  [ROLES.GYMKHANA]: "route.gymkhana.events",
+}
+
+const MEGA_EVENTS_ROUTE_KEY_BY_ROLE = {
+  [ROLES.ADMIN]: "route.admin.megaEvents",
+  [ROLES.GYMKHANA]: "route.gymkhana.megaEvents",
+}
+
+const requireRoleMappedRouteAccess = (routeKeyByRole) => (req, res, next) => {
+  const routeKey = routeKeyByRole[req?.user?.role]
+  if (!routeKey) {
+    return next()
+  }
+  return requireRouteAccess(routeKey)(req, res, next)
+}
+
+const requireEventsRouteAccess = requireRoleMappedRouteAccess(EVENTS_ROUTE_KEY_BY_ROLE)
+const requireMegaEventsRouteAccess = requireRoleMappedRouteAccess(MEGA_EVENTS_ROUTE_KEY_BY_ROLE)
+
+const eventsViewAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.view"])]
+const eventsCreateAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.create"])]
+const eventsApproveAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.approve"])]
+const megaEventsViewAccess = [requireMegaEventsRouteAccess, requireAnyCapability(["cap.events.view"])]
+const megaEventsCreateAccess = [requireMegaEventsRouteAccess, requireAnyCapability(["cap.events.create"])]
 
 // Apply authentication to all routes
 router.use(authenticate)
@@ -24,6 +52,7 @@ router.use(authenticate)
 router.post(
   "/calendar",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsCreateAccess,
   validate(validation.createCalendarSchema),
   eventsController.createCalendar
 )
@@ -32,6 +61,7 @@ router.post(
 router.get(
   "/calendar",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   validate(validation.calendarQuerySchema, "query"),
   eventsController.getCalendars
 )
@@ -40,6 +70,7 @@ router.get(
 router.get(
   "/calendar/year/:year",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getCalendarByYear
 )
 
@@ -47,6 +78,7 @@ router.get(
 router.get(
   "/calendar/years",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getAcademicYears
 )
 
@@ -54,6 +86,7 @@ router.get(
 router.get(
   "/calendar/:id",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getCalendarById
 )
 
@@ -61,6 +94,7 @@ router.get(
 router.put(
   "/calendar/:id",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.updateCalendarSchema),
   eventsController.updateCalendar
 )
@@ -69,6 +103,7 @@ router.put(
 router.post(
   "/calendar/:id/submit",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.submitCalendarSchema),
   eventsController.submitCalendar
 )
@@ -77,6 +112,7 @@ router.post(
 router.post(
   "/calendar/:id/check-overlap",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsCreateAccess,
   validate(validation.checkOverlapSchema),
   eventsController.checkCalendarOverlap
 )
@@ -85,6 +121,7 @@ router.post(
 router.post(
   "/calendar/:id/approve",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsApproveAccess,
   validate(validation.approvalActionSchema),
   eventsController.approveCalendar
 )
@@ -93,6 +130,7 @@ router.post(
 router.post(
   "/calendar/:id/reject",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsApproveAccess,
   validate(validation.rejectionSchema),
   eventsController.rejectCalendar
 )
@@ -101,6 +139,7 @@ router.post(
 router.get(
   "/calendar/:id/history",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getCalendarHistory
 )
 
@@ -108,6 +147,7 @@ router.get(
 router.post(
   "/calendar/:id/lock",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   eventsController.lockCalendar
 )
 
@@ -115,6 +155,7 @@ router.post(
 router.post(
   "/calendar/:id/unlock",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   eventsController.unlockCalendar
 )
 
@@ -127,6 +168,7 @@ router.post(
 router.post(
   "/amendments",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.createAmendmentSchema),
   eventsController.createAmendment
 )
@@ -135,6 +177,7 @@ router.post(
 router.get(
   "/amendments",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   eventsController.getPendingAmendments
 )
 
@@ -142,6 +185,7 @@ router.get(
 router.post(
   "/amendments/:id/approve",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   validate(validation.reviewAmendmentSchema),
   eventsController.approveAmendment
 )
@@ -150,6 +194,7 @@ router.post(
 router.post(
   "/amendments/:id/reject",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   validate(validation.reviewAmendmentSchema),
   eventsController.rejectAmendment
 )
@@ -161,12 +206,14 @@ router.post(
 router.get(
   "/mega-series",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
   eventsController.getMegaSeries
 )
 
 router.post(
   "/mega-series",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsCreateAccess,
   validate(validation.createMegaSeriesSchema),
   eventsController.createMegaSeries
 )
@@ -174,6 +221,7 @@ router.post(
 router.get(
   "/mega-series/:seriesId",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
   validate(validation.megaSeriesIdSchema, "params"),
   eventsController.getMegaSeriesById
 )
@@ -181,6 +229,7 @@ router.get(
 router.post(
   "/mega-series/:seriesId/occurrences",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsCreateAccess,
   validate(validation.megaSeriesIdSchema, "params"),
   validate(validation.createMegaOccurrenceSchema),
   eventsController.createMegaOccurrence
@@ -194,6 +243,7 @@ router.post(
 router.get(
   "/pending-proposals",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.pendingProposalsQuerySchema, "query"),
   eventsController.getPendingProposals
 )
@@ -202,6 +252,7 @@ router.get(
 router.get(
   "/proposals/pending",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsApproveAccess,
   eventsController.getProposalsForApproval
 )
 
@@ -209,6 +260,7 @@ router.get(
 router.post(
   "/events/:eventId/proposal",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.createProposalSchema),
   eventsController.createProposal
 )
@@ -217,6 +269,7 @@ router.post(
 router.get(
   "/events/:eventId/proposal",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getProposalByEvent
 )
 
@@ -224,6 +277,7 @@ router.get(
 router.get(
   "/proposals/:id",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getProposalById
 )
 
@@ -231,6 +285,7 @@ router.get(
 router.put(
   "/proposals/:id",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.updateProposalSchema),
   eventsController.updateProposal
 )
@@ -239,6 +294,7 @@ router.put(
 router.post(
   "/proposals/:id/approve",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsApproveAccess,
   validate(validation.approvalActionSchema),
   eventsController.approveProposal
 )
@@ -247,6 +303,7 @@ router.post(
 router.post(
   "/proposals/:id/reject",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsApproveAccess,
   validate(validation.rejectionSchema),
   eventsController.rejectProposal
 )
@@ -255,6 +312,7 @@ router.post(
 router.post(
   "/proposals/:id/revision",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsApproveAccess,
   validate(validation.approvalActionSchema),
   eventsController.requestProposalRevision
 )
@@ -263,6 +321,7 @@ router.post(
 router.get(
   "/proposals/:id/history",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getProposalHistory
 )
 
@@ -274,6 +333,7 @@ router.get(
 router.get(
   "/expenses",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getAllExpenses
 )
 
@@ -281,6 +341,7 @@ router.get(
 router.post(
   "/events/:eventId/expenses",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.createExpenseSchema),
   eventsController.submitExpense
 )
@@ -289,6 +350,7 @@ router.post(
 router.get(
   "/events/:eventId/expenses",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getExpenseByEvent
 )
 
@@ -296,6 +358,7 @@ router.get(
 router.put(
   "/expenses/:id",
   authorizeRoles([ROLES.GYMKHANA]),
+  ...eventsCreateAccess,
   validate(validation.updateExpenseSchema),
   eventsController.updateExpense
 )
@@ -304,6 +367,7 @@ router.put(
 router.get(
   "/expenses/:id/history",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getExpenseHistory
 )
 
@@ -311,6 +375,7 @@ router.get(
 router.post(
   "/expenses/:id/approve",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   validate(validation.approvalActionSchema),
   eventsController.approveExpense
 )
@@ -319,6 +384,7 @@ router.post(
 router.post(
   "/expenses/:id/reject",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
   validate(validation.rejectionSchema),
   eventsController.rejectExpense
 )
@@ -331,6 +397,7 @@ router.post(
 router.get(
   "/calendar-view",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getCalendarView
 )
 
@@ -338,6 +405,7 @@ router.get(
 router.get(
   "/",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   validate(validation.eventsQuerySchema, "query"),
   eventsController.getEvents
 )
@@ -346,6 +414,7 @@ router.get(
 router.get(
   "/:id",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
   eventsController.getEventById
 )
 

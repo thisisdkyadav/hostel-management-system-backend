@@ -4,7 +4,32 @@
  */
 
 import mongoose from "mongoose"
-import { getDefaultPermissions } from "../../utils/permissions.js"
+
+const AuthzConstraintOverrideSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    value: { type: mongoose.Schema.Types.Mixed, default: null },
+  },
+  { _id: false }
+)
+
+const UserAuthzSchema = new mongoose.Schema(
+  {
+    override: {
+      allowRoutes: { type: [String], default: [] },
+      denyRoutes: { type: [String], default: [] },
+      allowCapabilities: { type: [String], default: [] },
+      denyCapabilities: { type: [String], default: [] },
+      constraints: { type: [AuthzConstraintOverrideSchema], default: [] },
+    },
+    meta: {
+      version: { type: Number, default: 1 },
+      updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      updatedAt: { type: Date, default: null },
+    },
+  },
+  { _id: false }
+)
 
 const UserSchema = new mongoose.Schema(
   {
@@ -31,17 +56,9 @@ const UserSchema = new mongoose.Schema(
       ],
       default: null,
     },
-
-    permissions: {
-      type: Map,
-      of: {
-        view: { type: Boolean, default: false },
-        edit: { type: Boolean, default: false },
-        create: { type: Boolean, default: false },
-        delete: { type: Boolean, default: false },
-        react: { type: Boolean, default: false },
-      },
-      default: {},
+    authz: {
+      type: UserAuthzSchema,
+      default: undefined,
     },
     pinnedTabs: {
       type: [String],
@@ -145,20 +162,6 @@ UserSchema.post(/^find/, function (docs, next) {
 })
 
 UserSchema.pre("save", function (next) {
-  if (this.isNew) {
-    const defaultPermissions = getDefaultPermissions(this.role)
-
-    for (const [resource, actions] of Object.entries(defaultPermissions)) {
-      this.permissions.set(resource, {
-        view: Boolean(actions.view),
-        edit: Boolean(actions.edit),
-        create: Boolean(actions.create),
-        delete: Boolean(actions.delete),
-        react: Boolean(actions.react),
-      })
-    }
-  }
-
   this.updatedAt = Date.now()
   next()
 })

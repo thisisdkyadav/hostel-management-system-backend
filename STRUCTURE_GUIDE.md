@@ -93,7 +93,7 @@ Defined in `src/loaders/express.loader.js`:
 | App | Mounted At | Owns |
 |---|---|---|
 | `auth` | `/api/v1` | `/auth/*`, `/sso/*` |
-| `iam` | `/api/v1` | `/users/*`, `/permissions/*` |
+| `iam` | `/api/v1` | `/users/*`, `/authz/*` |
 | `complaints` | `/api/v1` | `/complaint/*` |
 | `visitors` | `/api/v1` | `/visitor/*` |
 | `operations` | `/api/v1` | `/tasks/*`, `/live-checkinout/*`, `/inventory/*`, `/staff/*`, `/hostel/*`, `/leave/*`, `/sheet/*`, `/online-users/*`, `/security/*`, `/face-scanner/*`, `/dashboard/*`, `/stats/*` |
@@ -117,7 +117,7 @@ Global root health endpoints:
 ## 4. Domain Ownership Rules
 
 - `apps/auth`: authentication/session/SSO flows.
-- `apps/iam`: users and permissions (identity and access management).
+- `apps/iam`: users and authz (identity and access management).
 - `apps/complaints`: complaint lifecycle.
 - `apps/students`: student profile/admin/self flows.
 - `apps/visitors`: visitor request/profile workflows.

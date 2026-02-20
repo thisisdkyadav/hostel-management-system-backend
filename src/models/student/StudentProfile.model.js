@@ -255,7 +255,28 @@ StudentProfileSchema.statics.getBasicStudentData = async function (userId) {
 }
 
 StudentProfileSchema.statics.searchStudents = async function (params) {
-  const { page = 1, limit = 10, name, email, rollNumber, department, degree, gender, hostelId, unitNumber, roomNumber, admissionDateFrom, admissionDateTo, hasAllocation, sortBy = "rollNumber", sortOrder = "asc", status, isDayScholar = "all", missing } = params
+  const {
+    page = 1,
+    limit = 10,
+    name,
+    email,
+    rollNumber,
+    department,
+    degree,
+    gender,
+    hostelId,
+    hostelIds = [],
+    unitNumber,
+    roomNumber,
+    admissionDateFrom,
+    admissionDateTo,
+    hasAllocation,
+    sortBy = "rollNumber",
+    sortOrder = "asc",
+    status,
+    isDayScholar = "all",
+    missing,
+  } = params
 
   const pipeline = []
 
@@ -402,21 +423,18 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   }
 
   const matchAllocation = {}
-  if (hostelId) {
-    const matchAllocation = {}
-    if (hostelId) {
-      matchAllocation["hostel._id"] = new mongoose.Types.ObjectId(hostelId)
-    }
-    if (unitNumber) {
-      matchAllocation["unit.unitNumber"] = unitNumber
-    }
-    if (roomNumber) {
-      matchAllocation["room.roomNumber"] = { $regex: roomNumber, $options: "i" }
-    }
-    if (Object.keys(matchAllocation).length) {
-      pipeline.push({ $match: matchAllocation })
+  const normalizedHostelIds = Array.isArray(hostelIds)
+    ? hostelIds.filter((id) => mongoose.Types.ObjectId.isValid(id))
+    : []
+
+  if (hostelId && mongoose.Types.ObjectId.isValid(hostelId)) {
+    matchAllocation["hostel._id"] = new mongoose.Types.ObjectId(hostelId)
+  } else if (normalizedHostelIds.length > 0) {
+    matchAllocation["hostel._id"] = {
+      $in: normalizedHostelIds.map((id) => new mongoose.Types.ObjectId(id)),
     }
   }
+
   if (unitNumber) {
     matchAllocation["unit.unitNumber"] = unitNumber
   }

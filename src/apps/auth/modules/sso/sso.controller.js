@@ -51,10 +51,8 @@ export const verifySSOToken = asyncHandler(async (req, res) => {
       email: decoded.email,
       role: decoded.role,
       subRole: decoded.subRole,
-      permissions: decoded.permissions,
       hostel: decoded.hostel,
       pinnedTabs: decoded.pinnedTabs,
     },
   });
 });
-

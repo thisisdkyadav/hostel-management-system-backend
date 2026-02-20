@@ -7,6 +7,21 @@ import dotenv from "dotenv"
 // Load .env file
 dotenv.config()
 
+const parseCsv = (value) => {
+  if (!value) return []
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+const parseBoolean = (value, defaultValue = false) => {
+  if (value === undefined || value === null || value === "") {
+    return defaultValue
+  }
+  return String(value).trim().toLowerCase() === "true"
+}
+
 /**
  * Validate required environment variables
  * @param {string[]} required - List of required env vars
@@ -75,6 +90,17 @@ export const env = {
 
   // Frontend URL (for password reset links)
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:3000",
+
+  // Layer-3 AuthZ mode
+  // off     -> middleware no-op
+  // observe -> compute only, do not block
+  // enforce -> block when rule fails
+  AUTHZ_MODE: process.env.AUTHZ_MODE || "observe",
+  // Comma-separated route/capability keys that should enforce even in observe mode.
+  AUTHZ_ENFORCE_ROUTE_KEYS: parseCsv(process.env.AUTHZ_ENFORCE_ROUTE_KEYS),
+  AUTHZ_ENFORCE_CAPABILITY_KEYS: parseCsv(process.env.AUTHZ_ENFORCE_CAPABILITY_KEYS),
+  // When true, prints observe-mode deny previews for monitoring rollout risk.
+  AUTHZ_OBSERVE_LOG_DENIES: parseBoolean(process.env.AUTHZ_OBSERVE_LOG_DENIES, false),
 }
 
 // ============================================

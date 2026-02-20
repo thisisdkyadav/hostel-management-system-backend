@@ -56,3 +56,6 @@ export * from './config/index.js'
 
 // Student Models
 export * from './student/index.js'
+
+// AuthZ audit models
+export * from './authz/index.js'

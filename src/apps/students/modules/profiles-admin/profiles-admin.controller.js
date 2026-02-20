@@ -51,7 +51,7 @@ export const getStudents = asyncHandler(async (req, res) => {
 });
 
 export const getStudentDetails = asyncHandler(async (req, res) => {
-  const result = await profilesAdminService.getStudentDetails(req.params.userId);
+  const result = await profilesAdminService.getStudentDetails(req.params.userId, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({
@@ -67,7 +67,7 @@ export const getStudentDetails = asyncHandler(async (req, res) => {
 });
 
 export const getMultipleStudentDetails = asyncHandler(async (req, res) => {
-  const result = await profilesAdminService.getMultipleStudentDetails(req.body.userIds);
+  const result = await profilesAdminService.getMultipleStudentDetails(req.body.userIds, req.user);
 
   return res.status(result.statusCode).json({
     success: result.success,
@@ -83,7 +83,7 @@ export const getStudentId = asyncHandler(async (req, res) => {
 });
 
 export const updateStudentProfile = asyncHandler(async (req, res) => {
-  const result = await profilesAdminService.updateStudentProfile(req.params.userId, req.body);
+  const result = await profilesAdminService.updateStudentProfile(req.params.userId, req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({

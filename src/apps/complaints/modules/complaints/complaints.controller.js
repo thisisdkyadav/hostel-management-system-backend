@@ -30,7 +30,7 @@ export const createComplaint = asyncHandler(async (req, res) => {
   const allocationDetails = allocationResult.data ?? allocationResult.allocationDetails ?? null;
 
   // Create complaint via service
-  await complaintService.createComplaint({
+  const result = await complaintService.createComplaint({
     userId,
     title,
     description,
@@ -38,7 +38,12 @@ export const createComplaint = asyncHandler(async (req, res) => {
     category,
     attachments,
     allocationDetails,
+    requesterUser: user,
   });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message ?? result.error });
+  }
 
   res.status(201).json({ message: 'Complaint created successfully' });
 });
@@ -96,7 +101,7 @@ export const updateComplaintStatus = asyncHandler(async (req, res) => {
     resolutionNotes,
     feedback,
     feedbackRating,
-  });
+  }, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message ?? result.error });
@@ -126,7 +131,7 @@ export const getStudentComplaints = asyncHandler(async (req, res) => {
   const { userId } = req.params;
   const { page = 1, limit = 10 } = req.query;
 
-  const result = await complaintService.getStudentComplaints(userId, { page, limit });
+  const result = await complaintService.getStudentComplaints(userId, { page, limit }, req.user);
 
   res.status(200).json({
     data: result.data?.items || [],
@@ -148,7 +153,7 @@ export const complaintStatusUpdate = asyncHandler(async (req, res) => {
   const { status } = req.body;
   const user = req.user;
 
-  const result = await complaintService.updateStatus(complaintId, status, user._id);
+  const result = await complaintService.updateStatus(complaintId, status, user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message ?? result.error });
@@ -165,7 +170,7 @@ export const updateComplaintResolutionNotes = asyncHandler(async (req, res) => {
   const { complaintId } = req.params;
   const { resolutionNotes } = req.body;
 
-  const result = await complaintService.updateResolutionNotes(complaintId, resolutionNotes);
+  const result = await complaintService.updateResolutionNotes(complaintId, resolutionNotes, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message ?? result.error });

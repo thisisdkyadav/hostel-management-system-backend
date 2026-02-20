@@ -2,7 +2,13 @@
 export { authenticate, refreshUserData, ensureSession } from "./auth.middleware.js"
 
 // Authorization middlewares
-export { authorizeRoles, isStudentManager, requirePermission } from "./authorize.middleware.js"
+export { authorizeRoles, isStudentManager } from "./authorize.middleware.js"
+export {
+  requireRouteAccess,
+  requireCapability,
+  requireAnyCapability,
+  requireAllCapabilities,
+} from "./authz.middleware.js"
 
 // Face scanner auth
 export { authenticateScanner } from "./faceScannerAuth.middleware.js"

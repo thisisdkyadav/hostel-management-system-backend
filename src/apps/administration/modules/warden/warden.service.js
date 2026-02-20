@@ -9,6 +9,7 @@ import { Warden } from '../../../../models/index.js';
 import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
 
 class WardenService extends BaseService {
   constructor() {
@@ -227,12 +228,20 @@ class WardenService extends BaseService {
     // Refresh user data in session after changing active hostel
     const user = await User.findById(userId);
     if (user && session) {
+      const authzOverride = extractUserAuthzOverride(user);
+      const authzEffective = buildEffectiveAuthzForUser({ role: user.role, authz: { override: authzOverride } });
+
       session.userData = {
         _id: user._id,
         email: user.email,
         role: user.role,
-        permissions: Object.fromEntries(user.permissions || new Map()),
-        hostel: user.hostel
+        subRole: user.subRole,
+        authz: {
+          override: authzOverride,
+          effective: authzEffective,
+        },
+        hostel: user.hostel,
+        pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
       };
       await session.save();
     }

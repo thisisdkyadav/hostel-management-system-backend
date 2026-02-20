@@ -9,6 +9,7 @@ import express from 'express';
 import { sendEmail, checkStatus } from './email.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { validate } from '../../../../middlewares/validate.middleware.js';
 import { sendEmailSchema } from '../../../../validations/email.validation.js';
 
@@ -16,6 +17,19 @@ const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+const EMAIL_ROUTE_KEY_BY_ROLE = {
+  Admin: 'route.admin.settings',
+  'Super Admin': 'route.superAdmin.dashboard',
+};
+
+const requireEmailRouteAccess = (req, res, next) => {
+  const routeKey = EMAIL_ROUTE_KEY_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
 
 /**
  * @route   GET /api/email/status
@@ -25,6 +39,8 @@ router.use(authenticate);
 router.get(
   '/status',
   authorizeRoles(['Admin', 'Super Admin']),
+  requireEmailRouteAccess,
+  requireAnyCapability(['cap.settings.view']),
   checkStatus
 );
 
@@ -36,6 +52,8 @@ router.get(
 router.post(
   '/send',
   authorizeRoles(['Admin', 'Super Admin']),
+  requireEmailRouteAccess,
+  requireAnyCapability(['cap.notifications.send']),
   validate(sendEmailSchema),
   sendEmail
 );

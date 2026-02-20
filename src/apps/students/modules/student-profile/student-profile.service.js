@@ -11,18 +11,57 @@ import { User } from '../../../../models/index.js';
 import { FamilyMember } from '../../../../models/index.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { Health } from '../../../../models/index.js';
+import env from '../../../../config/env.config.js';
+import { AUTHZ_MODES, getConstraintValue } from '../../../../core/authz/index.js';
+
+const PROFILE_ALLOWED_FIELDS_CONSTRAINT = 'constraint.profile.edit.allowedFields';
+
+const isAuthzEnforceMode = () => {
+  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase();
+  return mode === AUTHZ_MODES.ENFORCE;
+};
+
+const toStringArray = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean);
+};
 
 class StudentProfileService extends BaseService {
   constructor() {
     super(StudentProfile);
   }
 
+  resolveEditableFields(currentUser, defaultEditableFields) {
+    const baseFields = toStringArray(defaultEditableFields);
+    if (!isAuthzEnforceMode()) {
+      return baseFields;
+    }
+
+    const constraintValue = getConstraintValue(
+      currentUser?.authz?.effective,
+      PROFILE_ALLOWED_FIELDS_CONSTRAINT,
+      null
+    );
+
+    if (!Array.isArray(constraintValue)) {
+      return baseFields;
+    }
+
+    const constrainedFields = new Set(toStringArray(constraintValue));
+    return baseFields.filter((field) => constrainedFields.has(field));
+  }
+
   /**
    * Get editable profile fields for a student
    */
-  async getEditableProfile(userId) {
+  async getEditableProfile(userId, currentUser) {
     const config = await getConfigWithDefault('studentEditableFields');
-    const editableFields = config?.value || ['profileImage', 'dateOfBirth'];
+    const editableFields = this.resolveEditableFields(
+      currentUser,
+      config?.value || ['profileImage', 'dateOfBirth']
+    );
 
     const studentProfile = await this.model.findOne({ userId }).populate(
       'userId',
@@ -83,9 +122,12 @@ class StudentProfileService extends BaseService {
   /**
    * Update student profile
    */
-  async updateStudentProfile(userId, body) {
+  async updateStudentProfile(userId, body, currentUser) {
     const config = await getConfigWithDefault('studentEditableFields');
-    const editableFields = config?.value || ['profileImage', 'dateOfBirth'];
+    const editableFields = this.resolveEditableFields(
+      currentUser,
+      config?.value || ['profileImage', 'dateOfBirth']
+    );
 
     const studentProfile = await this.model.findOne({ userId });
     if (!studentProfile) {
@@ -171,7 +213,7 @@ class StudentProfileService extends BaseService {
   /**
    * Get student profile
    */
-  async getStudentProfile(userId) {
+  async getStudentProfile(userId, currentUser) {
     const profile = await this.model.getFullStudentData(userId);
 
     if (!profile) {
@@ -179,7 +221,10 @@ class StudentProfileService extends BaseService {
     }
 
     const config = await getConfigWithDefault('studentEditableFields');
-    const editableFields = config?.value || ['profileImage', 'dateOfBirth'];
+    const editableFields = this.resolveEditableFields(
+      currentUser,
+      config?.value || ['profileImage', 'dateOfBirth']
+    );
 
     return success({ profile, editableFields });
   }

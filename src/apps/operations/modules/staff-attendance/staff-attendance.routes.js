@@ -13,6 +13,7 @@ import {
 } from './staff-attendance.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 
 const router = express.Router();
 
@@ -20,8 +21,8 @@ const router = express.Router();
 router.use(authenticate);
 
 // QR verification and attendance recording (Hostel Gate only)
-router.post('/verify-qr', authorizeRoles(['Hostel Gate']), verifyQR);
-router.post('/attendance/record', authorizeRoles(['Hostel Gate']), recordAttendance);
+router.post('/verify-qr', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.attendance'), requireAnyCapability(['cap.attendance.record']), verifyQR);
+router.post('/attendance/record', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.attendance'), requireAnyCapability(['cap.attendance.record']), recordAttendance);
 
 // Get attendance records
 router.get(
@@ -34,6 +35,7 @@ router.get(
     'Security',
     'Hostel Gate',
   ]),
+  requireAnyCapability(['cap.attendance.view']),
   getAttendanceRecords
 );
 

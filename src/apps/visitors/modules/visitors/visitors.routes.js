@@ -28,8 +28,28 @@ import {
 } from './visitor-profile.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
+import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
+
+const VISITORS_ROUTE_KEY_BY_ROLE = {
+  [ROLES.ADMIN]: 'route.admin.visitors',
+  [ROLES.WARDEN]: 'route.warden.visitors',
+  [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.visitors',
+  [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.visitors',
+  [ROLES.STUDENT]: 'route.student.visitors',
+  [ROLES.HOSTEL_GATE]: 'route.hostelGate.visitors',
+  [ROLES.SECURITY]: 'route.security.attendance',
+};
+
+const requireVisitorsRouteAccess = (req, res, next) => {
+  const routeKey = VISITORS_ROUTE_KEY_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
 
 // All routes require authentication
 router.use(authenticate);
@@ -46,6 +66,8 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.view']),
   getVisitorRequests
 );
 
@@ -53,6 +75,8 @@ router.get(
 router.get(
   '/requests/student/:userId',
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.view']),
   getStudentVisitorRequests
 );
 
@@ -68,31 +92,88 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.view']),
   getVisitorRequestById
 );
-router.post('/requests', authorizeRoles(['Student']), createVisitorRequest);
-router.put('/requests/:requestId', authorizeRoles(['Student']), updateVisitorRequest);
-router.delete('/requests/:requestId', authorizeRoles(['Student']), deleteVisitorRequest);
+router.post(
+  '/requests',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  createVisitorRequest
+);
+router.put(
+  '/requests/:requestId',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  updateVisitorRequest
+);
+router.delete(
+  '/requests/:requestId',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  deleteVisitorRequest
+);
 
 // Visitor profiles (Student only)
-router.get('/profiles', authorizeRoles(['Student']), getVisitorProfiles);
-router.post('/profiles', authorizeRoles(['Student']), createVisitorProfile);
-router.put('/profiles/:visitorId', authorizeRoles(['Student']), updateVisitorProfile);
-router.delete('/profiles/:visitorId', authorizeRoles(['Student']), deleteVisitorProfile);
+router.get(
+  '/profiles',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.view']),
+  getVisitorProfiles
+);
+router.post(
+  '/profiles',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  createVisitorProfile
+);
+router.put(
+  '/profiles/:visitorId',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  updateVisitorProfile
+);
+router.delete(
+  '/profiles/:visitorId',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  deleteVisitorProfile
+);
 
 // Room allocation for visitor requests
 router.post(
   '/requests/:requestId/allocate',
   authorizeRoles(['Warden', 'Associate Warden', 'Hostel Supervisor']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.allocate']),
   allocateRoomsToVisitorRequest
 );
 
 // Check-in/out operations
-router.post('/requests/:requestId/checkin', authorizeRoles(['Hostel Gate']), checkInVisitor);
-router.post('/requests/:requestId/checkout', authorizeRoles(['Hostel Gate']), checkOutVisitor);
+router.post(
+  '/requests/:requestId/checkin',
+  authorizeRoles(['Hostel Gate']),
+  requireVisitorsRouteAccess,
+  checkInVisitor
+);
+router.post(
+  '/requests/:requestId/checkout',
+  authorizeRoles(['Hostel Gate']),
+  requireVisitorsRouteAccess,
+  checkOutVisitor
+);
 router.put(
   '/requests/:requestId/update-check-times',
   authorizeRoles(['Hostel Gate']),
+  requireVisitorsRouteAccess,
   updateCheckTime
 );
 
@@ -100,10 +181,18 @@ router.put(
 router.post(
   '/requests/:requestId/:action',
   authorizeRoles(['Admin']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.approve']),
   updateVisitorRequestStatus
 );
 
 // Payment info update
-router.put('/requests/:requestId/payment-info', authorizeRoles(['Student']), updatePaymentInfo);
+router.put(
+  '/requests/:requestId/payment-info',
+  authorizeRoles(['Student']),
+  requireVisitorsRouteAccess,
+  requireAnyCapability(['cap.visitors.create']),
+  updatePaymentInfo
+);
 
 export default router;

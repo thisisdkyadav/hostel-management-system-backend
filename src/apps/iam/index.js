@@ -6,17 +6,16 @@
  * @routes
  * All routes are mounted at /api/v1
  * - /users/*       -> User management routes
- * - /permissions/* -> Permission management routes
+ * - /authz/*       -> Layer-3 authz routes
  */
 
 import express from 'express';
 import usersRoutes from './modules/users/users.routes.js';
-import permissionsRoutes from './modules/permissions/permissions.routes.js';
+import authzRoutes from './modules/authz/authz.routes.js';
 
 const router = express.Router();
 
 router.use('/users', usersRoutes);
-router.use('/permissions', permissionsRoutes);
+router.use('/authz', authzRoutes);
 
 export default router;
-

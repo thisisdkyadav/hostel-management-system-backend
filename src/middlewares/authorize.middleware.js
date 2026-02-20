@@ -1,8 +1,7 @@
 /**
  * Authorization Middleware
- * Handles role-based and permission-based access control
+ * Handles role-based access control
  */
-import { hasPermission } from "../utils/permissions.js"
 
 /**
  * Middleware to check if user has required role
@@ -56,30 +55,5 @@ export const isStudentManager = async (req, res, next) => {
     next()
   } catch (error) {
     return res.status(500).json({ success: false, message: "Server error", error: error.message })
-  }
-}
-
-/**
- * Middleware to check if user has permission for a resource action
- * @param {string} resource - Resource name (e.g., 'complaints', 'students')
- * @param {string} action - Action name (e.g., 'view', 'edit', 'create', 'delete')
- */
-export const requirePermission = (resource, action) => {
-  return (req, res, next) => {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication required",
-      })
-    }
-
-    if (hasPermission(req.user, resource, action)) {
-      return next()
-    }
-
-    return res.status(403).json({
-      success: false,
-      message: "You don't have permission to perform this action",
-    })
   }
 }

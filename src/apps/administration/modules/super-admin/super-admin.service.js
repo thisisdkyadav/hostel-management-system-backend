@@ -117,7 +117,7 @@ class SuperAdminService {
    */
   async getAdmins() {
     try {
-      const admins = await Admin.find().populate('userId', 'name email phone profileImage role permissions');
+      const admins = await Admin.find().populate('userId', 'name email phone profileImage role');
       const response = admins.map((admin) => ({
         _id: admin.userId._id,
         id: admin.userId._id,

@@ -5,6 +5,38 @@
 // Using old model paths until Phase 3 (Models Migration)
 import { User } from "../models/index.js"
 import { Session } from "../models/index.js"
+import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from "../core/authz/index.js"
+
+const buildSessionAuthz = (userLike) => {
+  const override = extractUserAuthzOverride(userLike)
+  const effective = buildEffectiveAuthzForUser({
+    role: userLike.role,
+    authz: { override },
+  })
+
+  return { override, effective }
+}
+
+const withAuthzSessionData = (sessionUserData = {}) => {
+  const { permissions: _legacyPermissions, ...sanitizedUserData } = sessionUserData
+
+  if (sanitizedUserData?.authz?.effective) {
+    return sanitizedUserData
+  }
+
+  const fallbackOverride = sanitizedUserData?.authz?.override || {}
+  const fallbackAuthz = buildEffectiveAuthzForUser({
+    role: sanitizedUserData.role,
+    authz: { override: fallbackOverride },
+  })
+  return {
+    ...sanitizedUserData,
+    authz: {
+      override: sanitizedUserData?.authz?.override || {},
+      effective: fallbackAuthz,
+    },
+  }
+}
 
 /**
  * Helper function to refresh user data in session
@@ -28,7 +60,7 @@ export const refreshUserData = async (req, res, next) => {
       email: user.email,
       role: user.role,
       subRole: user.subRole,
-      permissions: Object.fromEntries(user.permissions || new Map()),
+      authz: buildSessionAuthz(user),
       hostel: user.hostel,
       pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
     }
@@ -53,7 +85,8 @@ export const authenticate = async (req, res, next) => {
 
     // If we have essential user data in session, use it directly
     if (req.session.userData) {
-      req.user = req.session.userData
+      req.user = withAuthzSessionData(req.session.userData)
+      req.session.userData = req.user
     } else {
       // Otherwise query the database and cache essential data in session
       const user = await User.findById(req.session.userId).select("-password").exec()
@@ -68,7 +101,7 @@ export const authenticate = async (req, res, next) => {
         email: user.email,
         role: user.role,
         subRole: user.subRole,
-        permissions: Object.fromEntries(user.permissions || new Map()),
+        authz: buildSessionAuthz(user),
         hostel: user.hostel,
         pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
       }

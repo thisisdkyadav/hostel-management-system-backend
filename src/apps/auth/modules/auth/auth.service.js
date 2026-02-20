@@ -9,6 +9,7 @@ import axios from 'axios';
 import { User, Session, PasswordResetToken } from '../../../../models/index.js';
 import { generateKey } from '../../../../utils/qrUtils.js';
 import { emailService } from '../../../../services/email/index.js';
+import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
 
 /**
  * Helper function to extract device name from user agent.
@@ -93,21 +94,34 @@ class AuthService {
     const aesKey = user.aesKey ? user.aesKey : await generateKey(user.email);
     const userResponse = await User.findByIdAndUpdate(user._id, { aesKey }, { new: true });
 
+    const authzOverride = extractUserAuthzOverride(userResponse);
+    const authzEffective = buildEffectiveAuthzForUser({
+      role: userResponse.role,
+      authz: { override: authzOverride },
+    });
+
     const essentialData = {
       _id: userResponse._id,
       email: userResponse.email,
       role: userResponse.role,
       subRole: userResponse.subRole,
-      permissions: Object.fromEntries(userResponse.permissions || new Map()),
+      authz: {
+        override: authzOverride,
+        effective: authzEffective,
+      },
       hostel: userResponse.hostel,
       pinnedTabs: Array.isArray(userResponse.pinnedTabs) ? userResponse.pinnedTabs : [],
     };
 
     const userResponseObj = userResponse.toObject();
     delete userResponseObj.password;
-    if (userResponseObj.permissions instanceof Map) {
-      userResponseObj.permissions = Object.fromEntries(userResponseObj.permissions);
-    }
+    delete userResponseObj.permissions;
+
+    userResponseObj.authz = {
+      override: authzOverride,
+      effective: authzEffective,
+      meta: userResponse.authz?.meta || null,
+    };
 
     return { userResponse: userResponseObj, essentialData };
   }
