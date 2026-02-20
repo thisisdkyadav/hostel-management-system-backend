@@ -190,6 +190,51 @@ export const getAcademicYears = asyncHandler(async (req, res) => {
   sendRawResponse(res, result)
 })
 
+export const getGymkhanaDashboardSummary = asyncHandler(async (req, res) => {
+  const parsedDaysUntilDue = Number.parseInt(req.query?.daysUntilDue, 10)
+  const daysUntilDue = Number.isFinite(parsedDaysUntilDue) && parsedDaysUntilDue > 0
+    ? parsedDaysUntilDue
+    : 21
+
+  const [yearsResult, pendingResult] = await Promise.all([
+    calendarService.getAcademicYears(),
+    proposalService.getPendingProposals(daysUntilDue),
+  ])
+
+  if (!yearsResult.success) {
+    return sendRawResponse(res, yearsResult)
+  }
+
+  if (!pendingResult.success) {
+    return sendRawResponse(res, pendingResult)
+  }
+
+  const years = yearsResult?.data?.years || []
+  const pendingProposals = pendingResult?.data?.events || []
+  const latestAcademicYear = years[0]?.academicYear
+  let currentCalendar = null
+
+  if (latestAcademicYear) {
+    const calendarResult = await calendarService.getCalendarByYear(latestAcademicYear)
+    if (calendarResult.success) {
+      currentCalendar = calendarResult?.data?.calendar || null
+    } else if (calendarResult.statusCode !== 404) {
+      return sendRawResponse(res, calendarResult)
+    }
+  }
+
+  return sendRawResponse(
+    res,
+    success({
+      years,
+      pendingProposals,
+      pendingProposalsCount: pendingProposals.length,
+      currentCalendar,
+      totalEvents: Array.isArray(currentCalendar?.events) ? currentCalendar.events.length : 0,
+    })
+  )
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROPOSAL CONTROLLERS
 // ═══════════════════════════════════════════════════════════════════════════════

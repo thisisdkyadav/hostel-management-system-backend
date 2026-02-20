@@ -15,7 +15,7 @@ import { ROLES, ROLE_GROUPS } from "../../../../core/constants/roles.constants.j
 const router = express.Router()
 
 const EVENTS_ROUTE_KEY_BY_ROLE = {
-  [ROLES.ADMIN]: "route.admin.events",
+  [ROLES.ADMIN]: "route.admin.gymkhanaEvents",
   [ROLES.GYMKHANA]: "route.gymkhana.events",
 }
 
@@ -34,6 +34,7 @@ const requireRoleMappedRouteAccess = (routeKeyByRole) => (req, res, next) => {
 
 const requireEventsRouteAccess = requireRoleMappedRouteAccess(EVENTS_ROUTE_KEY_BY_ROLE)
 const requireMegaEventsRouteAccess = requireRoleMappedRouteAccess(MEGA_EVENTS_ROUTE_KEY_BY_ROLE)
+const requireGymkhanaDashboardRouteAccess = requireRouteAccess("route.gymkhana.dashboard")
 
 const eventsViewAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.view"])]
 const eventsCreateAccess = [requireEventsRouteAccess, requireAnyCapability(["cap.events.create"])]
@@ -392,6 +393,15 @@ router.post(
 // ═══════════════════════════════════════════════════════════════════════════════
 // GENERAL EVENT ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
+
+// Get gymkhana dashboard summary
+router.get(
+  "/dashboard/summary",
+  authorizeRoles([ROLES.GYMKHANA]),
+  requireGymkhanaDashboardRouteAccess,
+  requireAnyCapability(["cap.events.view"]),
+  eventsController.getGymkhanaDashboardSummary
+)
 
 // Get calendar view (for calendar display)
 router.get(
