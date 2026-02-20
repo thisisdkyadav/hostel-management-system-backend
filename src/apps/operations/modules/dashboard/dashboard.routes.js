@@ -17,7 +17,7 @@ import {
 } from './dashboard.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -42,12 +42,18 @@ const requireDashboardRouteAccess = (req, res, next) => {
 router.use(authenticate);
 
 // Main dashboard - admin level access
-router.get('/', authorizeRoles(['Admin', 'Super Admin']), getDashboardData);
+router.get(
+  '/',
+  authorizeRoles(['Admin', 'Super Admin']),
+  requireDashboardRouteAccess,
+  getDashboardData
+);
 
 // Warden hostel statistics
 router.get(
   '/warden/hostel-statistics',
   authorizeRoles(['Warden', 'Associate Warden', 'Hostel Supervisor']),
+  requireDashboardRouteAccess,
   getWardenHostelStatistics
 );
 
@@ -56,14 +62,12 @@ router.get(
   '/student-count',
   authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireDashboardRouteAccess,
-  requireAnyCapability(['cap.students.list.view', 'cap.students.view']),
   getStudentCount
 );
 router.get(
   '/student-statistics',
   authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireDashboardRouteAccess,
-  requireAnyCapability(['cap.students.list.view', 'cap.students.view']),
   getStudentStatistics
 );
 
