@@ -276,6 +276,52 @@ export const createMegaOccurrenceSchema = Joi.object({
   return value
 })
 
+export const megaOccurrenceIdSchema = Joi.object({
+  occurrenceId: objectId.required(),
+})
+
+export const createMegaProposalSchema = Joi.object({
+  proposalText: Joi.string().trim().min(10).max(5000).required(),
+  proposalDocumentUrl: Joi.string().trim().allow("").max(4000),
+  externalGuestsDetails: Joi.string().trim().allow("").max(3000),
+  chiefGuestDocumentUrl: Joi.string().trim().allow("").max(4000),
+  proposalDetails: proposalDetailsSchema.required(),
+  accommodationRequired: Joi.boolean().default(false),
+  hasRegistrationFee: Joi.boolean().default(false),
+  registrationFeeAmount: Joi.when("hasRegistrationFee", {
+    is: true,
+    then: Joi.number().min(0).required(),
+    otherwise: Joi.number().min(0).default(0),
+  }),
+  totalExpectedIncome: Joi.number().min(0).required(),
+  totalExpenditure: Joi.number().min(0).required(),
+})
+
+export const updateMegaProposalSchema = Joi.object({
+  proposalText: Joi.string().trim().min(10).max(5000),
+  proposalDocumentUrl: Joi.string().trim().allow("").max(4000),
+  externalGuestsDetails: Joi.string().trim().allow("").max(3000),
+  chiefGuestDocumentUrl: Joi.string().trim().allow("").max(4000),
+  proposalDetails: proposalDetailsSchema,
+  accommodationRequired: Joi.boolean(),
+  hasRegistrationFee: Joi.boolean(),
+  registrationFeeAmount: Joi.number().min(0),
+  totalExpectedIncome: Joi.number().min(0),
+  totalExpenditure: Joi.number().min(0),
+}).min(1)
+
+export const createMegaExpenseSchema = Joi.object({
+  bills: Joi.array().items(billSchema).min(1).required(),
+  eventReportDocumentUrl: Joi.string().trim().max(4000).required(),
+  notes: Joi.string().trim().max(1000),
+})
+
+export const updateMegaExpenseSchema = Joi.object({
+  bills: Joi.array().items(billSchema).min(1),
+  eventReportDocumentUrl: Joi.string().trim().allow("").max(4000),
+  notes: Joi.string().trim().max(1000),
+}).min(1)
+
 export const pendingProposalsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),

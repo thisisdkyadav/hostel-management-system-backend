@@ -42,6 +42,7 @@ const eventsCreateAccess = [requireEventsRouteAccess]
 const eventsApproveAccess = [requireEventsRouteAccess]
 const megaEventsViewAccess = [requireMegaEventsRouteAccess]
 const megaEventsCreateAccess = [requireMegaEventsRouteAccess]
+const megaEventsApproveAccess = [requireMegaEventsRouteAccess]
 
 // Get all calendars
 router.get(
@@ -219,6 +220,119 @@ router.post(
   validate(validation.megaSeriesIdSchema, "params"),
   validate(validation.createMegaOccurrenceSchema),
   eventsController.createMegaOccurrence
+)
+
+router.get(
+  "/mega-occurrences/:occurrenceId/proposal",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  eventsController.getMegaOccurrenceProposal
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/proposal",
+  authorizeRoles([ROLES.GYMKHANA]),
+  ...megaEventsCreateAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.createMegaProposalSchema),
+  eventsController.createMegaOccurrenceProposal
+)
+
+router.put(
+  "/mega-occurrences/:occurrenceId/proposal",
+  authorizeRoles([ROLES.GYMKHANA]),
+  ...megaEventsCreateAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.updateMegaProposalSchema),
+  eventsController.updateMegaOccurrenceProposal
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/proposal/approve",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsApproveAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.approvalActionSchema),
+  eventsController.approveMegaOccurrenceProposal
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/proposal/reject",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsApproveAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.rejectionSchema),
+  eventsController.rejectMegaOccurrenceProposal
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/proposal/revision",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsApproveAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.approvalActionSchema),
+  eventsController.requestMegaOccurrenceProposalRevision
+)
+
+router.get(
+  "/mega-occurrences/:occurrenceId/proposal/history",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  eventsController.getMegaOccurrenceProposalHistory
+)
+
+router.get(
+  "/mega-occurrences/:occurrenceId/expenses",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  eventsController.getMegaOccurrenceExpense
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/expenses",
+  authorizeRoles([ROLES.GYMKHANA]),
+  ...megaEventsCreateAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.createMegaExpenseSchema),
+  eventsController.submitMegaOccurrenceExpense
+)
+
+router.put(
+  "/mega-occurrences/:occurrenceId/expenses",
+  authorizeRoles([ROLES.GYMKHANA]),
+  ...megaEventsCreateAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.updateMegaExpenseSchema),
+  eventsController.updateMegaOccurrenceExpense
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/expenses/approve",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsApproveAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.approvalActionSchema),
+  eventsController.approveMegaOccurrenceExpense
+)
+
+router.post(
+  "/mega-occurrences/:occurrenceId/expenses/reject",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...megaEventsApproveAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  validate(validation.rejectionSchema),
+  eventsController.rejectMegaOccurrenceExpense
+)
+
+router.get(
+  "/mega-occurrences/:occurrenceId/expenses/history",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
+  validate(validation.megaOccurrenceIdSchema, "params"),
+  eventsController.getMegaOccurrenceExpenseHistory
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════

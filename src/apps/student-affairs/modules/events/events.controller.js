@@ -401,6 +401,109 @@ export const createMegaOccurrence = asyncHandler(async (req, res) => {
   sendRawResponse(res, result)
 })
 
+export const getMegaOccurrenceProposal = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getProposalByOccurrence(req.params.occurrenceId)
+  sendRawResponse(res, result)
+})
+
+export const createMegaOccurrenceProposal = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.createProposalForOccurrence(
+    req.params.occurrenceId,
+    req.body,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const updateMegaOccurrenceProposal = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.updateProposalForOccurrence(
+    req.params.occurrenceId,
+    req.body,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const approveMegaOccurrenceProposal = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.approveProposalForOccurrence(
+    req.params.occurrenceId,
+    req.body.comments,
+    req.user,
+    req.body.nextApprovalStages
+  )
+  sendRawResponse(res, result)
+})
+
+export const rejectMegaOccurrenceProposal = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.rejectProposalForOccurrence(
+    req.params.occurrenceId,
+    req.body.reason,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const requestMegaOccurrenceProposalRevision = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.requestProposalRevisionForOccurrence(
+    req.params.occurrenceId,
+    req.body.comments,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const getMegaOccurrenceProposalHistory = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getProposalHistoryForOccurrence(req.params.occurrenceId)
+  sendRawResponse(res, result)
+})
+
+export const getMegaOccurrenceExpense = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getExpenseByOccurrence(req.params.occurrenceId)
+  sendRawResponse(res, result)
+})
+
+export const submitMegaOccurrenceExpense = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.submitExpenseForOccurrence(
+    req.params.occurrenceId,
+    req.body,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const updateMegaOccurrenceExpense = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.updateExpenseForOccurrence(
+    req.params.occurrenceId,
+    req.body,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const approveMegaOccurrenceExpense = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.approveExpenseForOccurrence(
+    req.params.occurrenceId,
+    req.body.comments,
+    req.user,
+    req.body.nextApprovalStages
+  )
+  sendRawResponse(res, result)
+})
+
+export const rejectMegaOccurrenceExpense = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.rejectExpenseForOccurrence(
+    req.params.occurrenceId,
+    req.body.reason,
+    req.user
+  )
+  sendRawResponse(res, result)
+})
+
+export const getMegaOccurrenceExpenseHistory = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getExpenseHistoryForOccurrence(req.params.occurrenceId)
+  sendRawResponse(res, result)
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // EVENT CONTROLLERS
 // ═══════════════════════════════════════════════════════════════════════════════
