@@ -403,6 +403,15 @@ router.get(
   eventsController.getGymkhanaDashboardSummary
 )
 
+// Get gymkhana profile
+router.get(
+  "/profile",
+  authorizeRoles([ROLES.GYMKHANA]),
+  requireRouteAccess("route.gymkhana.profile"),
+  requireAnyCapability(["cap.profile.self.view"]),
+  eventsController.getGymkhanaProfile
+)
+
 // Get calendar view (for calendar display)
 router.get(
   "/calendar-view",

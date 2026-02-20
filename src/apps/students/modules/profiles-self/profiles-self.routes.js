@@ -37,7 +37,13 @@ const requireIdCardRouteAccess = (req, res, next) => {
 
 router.use(authenticate);
 
-router.get('/dashboard', authorizeRoles(['Student']), getStudentDashboard);
+router.get(
+  '/dashboard',
+  authorizeRoles(['Student']),
+  requireRouteAccess('route.student.dashboard'),
+  requireAnyCapability(['cap.profile.self.view']),
+  getStudentDashboard
+);
 router.get('/profile', authorizeRoles(['Student']), getStudentProfile);
 router.get(
   '/:userId/id-card',

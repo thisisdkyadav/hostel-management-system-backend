@@ -54,6 +54,21 @@ const requireSuperAdminApiKeysRouteAccess = requireRoleMappedRouteAccess('apiKey
 router.use(authenticate);
 router.use(authorizeRoles(['Super Admin', 'Admin']));
 
+// Profile
+router.get(
+  '/profile',
+  requireRouteAccess('route.superAdmin.profile'),
+  requireAnyCapability(['cap.profile.self.view']),
+  (req, res) => {
+    res.json({
+      success: true,
+      data: {
+        profile: req.user,
+      },
+    });
+  }
+);
+
 // Dashboard
 router.get(
   '/dashboard',

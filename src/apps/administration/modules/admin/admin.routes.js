@@ -80,6 +80,16 @@ router.get('/hostel/list', getHostelList);
 // Admin-only routes
 router.use(authorizeRoles(['Admin']));
 
+// Admin profile
+router.get('/profile', requireRouteAccess('route.admin.profile'), requireAnyCapability(['cap.profile.self.view']), (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      profile: req.user,
+    },
+  });
+});
+
 // Hostel management
 router.get('/hostels', requireRouteAccess('route.admin.hostels'), requireAnyCapability(['cap.hostels.view']), getHostels);
 router.post('/hostel', requireRouteAccess('route.admin.hostels'), requireAnyCapability(['cap.hostels.manage']), addHostel);

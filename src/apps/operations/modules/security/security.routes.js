@@ -69,7 +69,7 @@ router.get(
   requireAnyCapability(['cap.students.view', 'cap.students.detail.view']),
   getStudentEntries
 );
-router.get('/entries/recent', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), getRecentEntries);
+router.get('/entries/recent', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.dashboard'), getRecentEntries);
 router.get('/entries/face-scanner', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.faceScannerEntries'), getFaceScannerEntries);
 router.post('/entries', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), addStudentEntry);
 router.post('/entries/email', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.entries'), addStudentEntryWithEmail);

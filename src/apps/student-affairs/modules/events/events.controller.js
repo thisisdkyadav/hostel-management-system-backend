@@ -235,6 +235,15 @@ export const getGymkhanaDashboardSummary = asyncHandler(async (req, res) => {
   )
 })
 
+export const getGymkhanaProfile = asyncHandler(async (req, res) => {
+  return sendRawResponse(
+    res,
+    success({
+      profile: req.user,
+    })
+  )
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROPOSAL CONTROLLERS
 // ═══════════════════════════════════════════════════════════════════════════════
