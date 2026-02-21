@@ -10,6 +10,7 @@ import { Complaint } from '../../../../models/index.js';
 import { Event as Events } from '../../../../models/index.js';
 import { RoomAllocation } from '../../../../models/index.js';
 import { LostAndFound } from '../../../../models/index.js';
+import { getStudentDashboardCache, setStudentDashboardCache } from '../../../../utils/redisCache.js';
 
 class ProfilesSelfService extends BaseService {
   constructor() {
@@ -33,6 +34,11 @@ class ProfilesSelfService extends BaseService {
    * Get student dashboard data
    */
   async getStudentDashboard(userId) {
+    const cachedDashboard = await getStudentDashboardCache(userId);
+    if (cachedDashboard) {
+      return success(cachedDashboard);
+    }
+
     const studentProfile = await this.model.getFullStudentData(userId);
 
     if (!studentProfile) {
@@ -206,6 +212,7 @@ class ProfilesSelfService extends BaseService {
         }));
     }
 
+    await setStudentDashboardCache(userId, dashboardData);
     return success(dashboardData);
   }
 

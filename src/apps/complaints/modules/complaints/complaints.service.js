@@ -11,6 +11,7 @@ import { emailService } from '../../../../services/email/email.service.js';
 import mongoose from 'mongoose';
 import env from '../../../../config/env.config.js';
 import { AUTHZ_MODES, getConstraintValue } from '../../../../core/authz/index.js';
+import { invalidateStudentDashboardCache } from '../../../../utils/redisCache.js';
 
 const COMPLAINT_SCOPE_HOSTELS_CONSTRAINT = 'constraint.complaints.scope.hostelIds';
 
@@ -229,6 +230,9 @@ class ComplaintService extends BaseService {
       roomId: allocationDetails?.roomId,
       attachments
     });
+
+    await invalidateStudentDashboardCache(complaint.userId || userId);
+
     return success(complaint);
   }
 
