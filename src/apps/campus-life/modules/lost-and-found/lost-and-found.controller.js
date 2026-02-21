@@ -17,7 +17,7 @@ export const createLostAndFound = asyncHandler(async (req, res) => {
 });
 
 export const getLostAndFound = asyncHandler(async (req, res) => {
-  const result = await lostAndFoundService.getLostAndFound();
+  const result = await lostAndFoundService.getLostAndFound(req.query);
   sendResponse(res, result);
 });
 

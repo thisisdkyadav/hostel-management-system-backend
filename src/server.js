@@ -8,6 +8,12 @@ import { initializeDatabase, initializeSocketIO, closeSocketIO } from './loaders
 import { setupSocketHandlers } from './utils/socketHandlers.js';
 import env from './config/env.config.js';
 import { closeSessionRedisClient } from './services/session/redisSessionClient.js';
+import { closeDataCacheClient } from './services/cache/redisDataCache.client.js';
+import {
+  startCommonCacheScheduler,
+  stopCommonCacheScheduler,
+  warmCommonCaches,
+} from './services/cache/commonData.cache.js';
 
 const PORT = env.PORT || 5000;
 
@@ -18,6 +24,10 @@ const startServer = async () => {
   try {
     // 1. Connect to database
     await initializeDatabase();
+    await warmCommonCaches().catch((cacheError) => {
+      console.error('⚠️ Initial common cache warm-up failed:', cacheError?.message || cacheError);
+    });
+    startCommonCacheScheduler();
 
     // 2. Create Express app
     const { app, sessionMiddleware } = createApp();
@@ -39,7 +49,9 @@ const startServer = async () => {
       
       // Close Socket.IO connections
       await closeSocketIO();
+      stopCommonCacheScheduler();
       await closeSessionRedisClient();
+      await closeDataCacheClient();
       
       // Close HTTP server
       server.close(() => {

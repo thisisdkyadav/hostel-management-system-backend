@@ -15,7 +15,7 @@ export const createEvent = asyncHandler(async (req, res) => {
 });
 
 export const getEvents = asyncHandler(async (req, res) => {
-  const result = await eventService.getEvents(req.user);
+  const result = await eventService.getEvents(req.user, req.query);
   sendResponse(res, result);
 });
 

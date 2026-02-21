@@ -7,10 +7,41 @@ import BaseService from '../../../../services/base/BaseService.js';
 import { success, notFound, forbidden } from '../../../../services/base/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
-import { Event as Events } from '../../../../models/index.js';
 import { RoomAllocation } from '../../../../models/index.js';
-import { LostAndFound } from '../../../../models/index.js';
 import { getStudentDashboardCache, setStudentDashboardCache } from '../../../../utils/redisCache.js';
+import {
+  getCachedEvents,
+  getCachedLostAndFoundItems,
+} from '../../../../services/cache/commonData.cache.js';
+
+const toObjectIdString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'object') {
+    if (typeof value.toHexString === 'function') {
+      return value.toHexString();
+    }
+    if (value._id && value._id !== value) return toObjectIdString(value._id);
+    if (value.id && value.id !== value) return toObjectIdString(value.id);
+  }
+  if (typeof value?.toString === 'function') {
+    const asString = value.toString();
+    if (asString && asString !== '[object Object]') return asString;
+  }
+  return null;
+};
+
+const isEventVisibleToStudent = (event, studentHostelId, studentGender) => {
+  const eventHostelId = toObjectIdString(event?.hostelId);
+  const eventGender = typeof event?.gender === 'string' ? event.gender.toLowerCase() : null;
+  const normalizedStudentGender =
+    typeof studentGender === 'string' ? studentGender.toLowerCase() : null;
+
+  const matchesHostel = !eventHostelId || (studentHostelId && eventHostelId === studentHostelId);
+  const matchesGender = !eventGender || (normalizedStudentGender && eventGender === normalizedStudentGender);
+
+  return matchesHostel && matchesGender;
+};
 
 class ProfilesSelfService extends BaseService {
   constructor() {
@@ -170,7 +201,7 @@ class ProfilesSelfService extends BaseService {
         }));
     }
 
-    const lostAndFoundItems = await LostAndFound.find();
+    const lostAndFoundItems = await getCachedLostAndFoundItems();
 
     if (lostAndFoundItems.length > 0) {
       dashboardData.stats.lostAndFound = {
@@ -181,16 +212,10 @@ class ProfilesSelfService extends BaseService {
     }
 
     const now = new Date();
-
-    const eventsQuery = {
-      $or: [
-        { hostelId: studentProfile.hostelId.toString() },
-        { hostelId: null },
-        { gender: studentProfile.gender },
-        { gender: null },
-      ],
-    };
-    const events = await Events.find(eventsQuery);
+    const studentHostelId = toObjectIdString(studentProfile.hostelId);
+    const events = (await getCachedEvents()).filter((event) =>
+      isEventVisibleToStudent(event, studentHostelId, studentProfile.gender)
+    );
 
     if (events.length > 0) {
       const upcomingEvents = events.filter((e) => new Date(e.dateAndTime) > now);
