@@ -44,5 +44,16 @@ ComplaintSchema.pre("save", function (next) {
   next()
 })
 
+// Optimize complaint list and stats queries that filter and sort by recency.
+ComplaintSchema.index({ userId: 1, createdAt: -1 })
+ComplaintSchema.index({ hostelId: 1, createdAt: -1 })
+ComplaintSchema.index({ hostelId: 1, status: 1, createdAt: -1 })
+ComplaintSchema.index({ roomId: 1, createdAt: -1 })
+ComplaintSchema.index({ hostelId: 1, category: 1, createdAt: -1 })
+ComplaintSchema.index(
+  { hostelId: 1, feedbackRating: 1, createdAt: -1 },
+  { partialFilterExpression: { feedbackRating: { $exists: true } } }
+)
+
 const Complaint = mongoose.model("Complaint", ComplaintSchema)
 export default Complaint
