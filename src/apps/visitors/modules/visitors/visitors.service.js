@@ -52,9 +52,21 @@ class VisitorsService extends BaseService {
   /**
    * Get visitor requests based on user role
    * @param {Object} user - Requesting user
+   * @param {Object} queryParams - Query params ({ page, limit, status, allocation })
    */
-  async getVisitorRequests(user) {
+  async getVisitorRequests(user, queryParams = {}) {
     const query = {};
+    const page = Math.max(1, Number.parseInt(queryParams.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(queryParams.limit, 10) || 10));
+
+    const normalizedStatus = String(queryParams.status || 'all').trim().toLowerCase();
+    const statusMap = {
+      pending: 'Pending',
+      approved: 'Approved',
+      rejected: 'Rejected',
+    };
+
+    const normalizedAllocation = String(queryParams.allocation || 'all').trim().toLowerCase();
 
     if (user.role === 'Student') {
       query.userId = user._id;
@@ -62,13 +74,30 @@ class VisitorsService extends BaseService {
       query.hostelId = user.hostel._id;
     }
 
+    if (statusMap[normalizedStatus]) {
+      query.status = statusMap[normalizedStatus];
+    }
+
+    if (normalizedAllocation === 'allocated') {
+      query['allocatedRooms.0'] = { $exists: true };
+    } else if (normalizedAllocation === 'unallocated') {
+      query['allocatedRooms.0'] = { $exists: false };
+    }
+
     const systemSettings = await getConfigWithDefault('systemSettings');
     const visitorPaymentLink = systemSettings?.value?.visitorPaymentLink;
 
-    const visitorRequests = await this.model.find(query)
-      .sort({ createdAt: -1 })
-      .populate('userId', 'name email profileImage')
-      .populate('visitors');
+    const skip = (page - 1) * limit;
+
+    const [visitorRequests, total] = await Promise.all([
+      this.model.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('userId', 'name email profileImage')
+        .populate('visitors'),
+      this.model.countDocuments(query),
+    ]);
 
     const formattedRequests = visitorRequests.map((request) => {
       const visitorCount = request.visitors.length;
@@ -89,10 +118,21 @@ class VisitorsService extends BaseService {
       };
     });
 
-    return success({
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return {
+      success: true,
+      statusCode: 200,
       message: 'Visitor requests fetched successfully',
-      data: formattedRequests || []
-    });
+      data: formattedRequests || [],
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasMore: page * limit < total,
+      },
+    };
   }
 
   /**

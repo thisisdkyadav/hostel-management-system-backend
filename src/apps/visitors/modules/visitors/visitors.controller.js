@@ -20,12 +20,13 @@ export const createVisitorRequest = asyncHandler(async (req, res) => {
 });
 
 export const getVisitorRequests = asyncHandler(async (req, res) => {
-  const result = await visitorsService.getVisitorRequests(req.user);
+  const result = await visitorsService.getVisitorRequests(req.user, req.query);
   
   res.status(result.statusCode).json({
     message: result.message,
     success: result.success,
     data: result.data,
+    pagination: result.pagination,
   });
 });
 

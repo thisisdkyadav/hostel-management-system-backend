@@ -7,7 +7,22 @@
 
 import { Feedback } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, badRequest, PRESETS } from '../../../../services/base/index.js';
+import { BaseService, success, badRequest, error, PRESETS } from '../../../../services/base/index.js';
+
+const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const parsePositiveInt = (value, fallback, min = 1, max = 100) => {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const normalizeFeedbackStatus = (status = 'all') => {
+  const normalized = String(status).trim().toLowerCase();
+  if (normalized === 'pending') return 'Pending';
+  if (normalized === 'seen') return 'Seen';
+  return null;
+};
 
 class FeedbackService extends BaseService {
   constructor() {
@@ -51,18 +66,65 @@ class FeedbackService extends BaseService {
    */
   async getFeedbacks(query, user) {
     const queryObj = query || {};
+    const page = parsePositiveInt(queryObj.page, 1);
+    const limit = parsePositiveInt(queryObj.limit, 10);
+    const status = normalizeFeedbackStatus(queryObj.status);
+    const searchTerm = typeof queryObj.search === 'string' ? queryObj.search.trim() : '';
 
+    const scopedQuery = {};
     if (user.hostel) {
-      queryObj.hostelId = user.hostel._id;
+      scopedQuery.hostelId = user.hostel._id || user.hostel;
     } else if (user.role === 'Student') {
-      queryObj.userId = user._id;
+      scopedQuery.userId = user._id;
     }
 
-    const result = await this.findAll(queryObj, { populate: PRESETS.FEEDBACK });
-    if (result.success) {
-      return success({ feedbacks: result.data, success: true });
+    const filteredQuery = { ...scopedQuery };
+    if (status) {
+      filteredQuery.status = status;
     }
-    return result;
+    if (searchTerm) {
+      const regex = new RegExp(escapeRegex(searchTerm), 'i');
+      filteredQuery.$or = [{ title: regex }, { description: regex }];
+    }
+
+    const skip = (page - 1) * limit;
+
+    try {
+      const [feedbacks, total, totalAll, totalPending, totalSeen, latestFeedback] = await Promise.all([
+        this.model.find(filteredQuery)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate(PRESETS.FEEDBACK),
+        this.model.countDocuments(filteredQuery),
+        this.model.countDocuments(scopedQuery),
+        this.model.countDocuments({ ...scopedQuery, status: 'Pending' }),
+        this.model.countDocuments({ ...scopedQuery, status: 'Seen' }),
+        this.model.findOne(scopedQuery).sort({ createdAt: -1 }).select('createdAt').lean(),
+      ]);
+
+      const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+      return success({
+        feedbacks,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages,
+          hasMore: page * limit < total,
+        },
+        stats: {
+          total: totalAll,
+          pending: totalPending,
+          seen: totalSeen,
+          latestFeedbackDate: latestFeedback?.createdAt || null,
+        },
+        success: true,
+      });
+    } catch (err) {
+      return error('Failed to fetch feedbacks', 500, err?.message || err);
+    }
   }
 
   /**
