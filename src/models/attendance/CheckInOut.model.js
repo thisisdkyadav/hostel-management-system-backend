@@ -56,5 +56,13 @@ const checkInOutSchema = new mongoose.Schema({
   },
 })
 
+// Query patterns: latest user entry, hostel feeds, live status/date filters, and cross-hostel stats.
+checkInOutSchema.index({ userId: 1, dateAndTime: -1 })
+checkInOutSchema.index({ hostelId: 1, dateAndTime: -1 })
+checkInOutSchema.index({ hostelId: 1, status: 1, dateAndTime: -1 })
+checkInOutSchema.index({ status: 1, dateAndTime: -1 })
+checkInOutSchema.index({ isSameHostel: 1, dateAndTime: -1 })
+checkInOutSchema.index({ dateAndTime: -1 })
+
 const CheckInOut = mongoose.model("CheckInOut", checkInOutSchema)
 export default CheckInOut

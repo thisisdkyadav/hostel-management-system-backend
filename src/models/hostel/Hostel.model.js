@@ -25,5 +25,7 @@ HostelSchema.pre("save", function (next) {
   next()
 })
 
+HostelSchema.index({ isArchived: 1, name: 1 })
+
 const Hostel = mongoose.model("Hostel", HostelSchema)
 export default Hostel

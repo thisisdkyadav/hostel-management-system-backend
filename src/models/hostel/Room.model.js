@@ -32,6 +32,9 @@ const RoomSchema = new mongoose.Schema(
 )
 
 RoomSchema.index({ hostelId: 1, unitId: 1, roomNumber: 1 }, { unique: true })
+RoomSchema.index({ hostelId: 1, roomNumber: 1 })
+RoomSchema.index({ hostelId: 1, status: 1 })
+RoomSchema.index({ unitId: 1, roomNumber: 1 })
 
 RoomSchema.virtual("allocations", {
   ref: "RoomAllocation",

@@ -37,5 +37,7 @@ const lostAndFoundSchema = new mongoose.Schema({
   ],
 })
 
+lostAndFoundSchema.index({ status: 1, dateFound: -1 })
+
 const LostAndFound = mongoose.model("LostAndFound", lostAndFoundSchema)
 export default LostAndFound

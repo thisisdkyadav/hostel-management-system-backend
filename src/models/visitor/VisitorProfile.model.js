@@ -20,6 +20,8 @@ const VisitorProfileSchema = new mongoose.Schema({
   ],
 })
 
+VisitorProfileSchema.index({ studentUserId: 1 })
+
 VisitorProfileSchema.pre(["findOneAndDelete", "findOneAndUpdate"], async function (next) {
   const docToModify = await this.model.findOne(this.getQuery())
   if (docToModify && docToModify.requests && docToModify.requests.length > 0) {

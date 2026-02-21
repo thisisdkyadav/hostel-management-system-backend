@@ -39,5 +39,8 @@ const feedbackSchema = new mongoose.Schema({
   },
 })
 
+feedbackSchema.index({ hostelId: 1, status: 1, createdAt: -1 })
+feedbackSchema.index({ userId: 1, createdAt: -1 })
+
 const Feedback = mongoose.model("Feedback", feedbackSchema)
 export default Feedback

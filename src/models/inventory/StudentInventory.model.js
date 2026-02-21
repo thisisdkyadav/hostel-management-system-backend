@@ -67,6 +67,11 @@ StudentInventorySchema.pre("save", function (next) {
   next()
 })
 
+StudentInventorySchema.index({ studentProfileId: 1, status: 1, issueDate: -1 })
+StudentInventorySchema.index({ hostelInventoryId: 1, status: 1 })
+StudentInventorySchema.index({ itemTypeId: 1, status: 1 })
+StudentInventorySchema.index({ status: 1 })
+
 // Update hostel inventory counts when a student inventory is created
 StudentInventorySchema.post("save", async function () {
   try {

@@ -16,5 +16,7 @@ const MaintenanceStaffSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
+MaintenanceStaffSchema.index({ category: 1 })
+
 const MaintenanceStaff = mongoose.model("MaintenanceStaff", MaintenanceStaffSchema)
 export default MaintenanceStaff

@@ -88,6 +88,8 @@ AppointmentSchema.index({ status: 1, preferredDate: 1, createdAt: -1 });
 AppointmentSchema.index({ "approvedMeeting.date": 1, status: 1 });
 AppointmentSchema.index({ targetAdminUserId: 1, status: 1, createdAt: -1 });
 AppointmentSchema.index({ targetSubRole: 1, status: 1, createdAt: -1 });
+AppointmentSchema.index({ status: 1, "approvedMeeting.date": 1, "approvedMeeting.time": 1, createdAt: -1 });
+AppointmentSchema.index({ status: 1, "gateEntry.entered": 1, "approvedMeeting.date": 1 });
 
 const Appointment = mongoose.model("JRAppointment", AppointmentSchema);
 

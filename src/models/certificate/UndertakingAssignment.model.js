@@ -40,6 +40,8 @@ const undertakingAssignmentSchema = new mongoose.Schema(
 
 // Create a compound index to ensure a student can only be assigned to an undertaking once
 undertakingAssignmentSchema.index({ undertakingId: 1, studentId: 1 }, { unique: true })
+undertakingAssignmentSchema.index({ studentId: 1, status: 1, assignedAt: -1 })
+undertakingAssignmentSchema.index({ undertakingId: 1, status: 1 })
 
 const UndertakingAssignment = mongoose.model("UndertakingAssignment", undertakingAssignmentSchema)
 export default UndertakingAssignment

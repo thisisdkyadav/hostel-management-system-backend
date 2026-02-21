@@ -27,4 +27,9 @@ leaveSchema.pre("save", function (next) {
   next()
 })
 
+leaveSchema.index({ userId: 1, createdAt: -1 })
+leaveSchema.index({ status: 1, createdAt: -1 })
+leaveSchema.index({ status: 1, startDate: 1, endDate: 1 })
+leaveSchema.index({ createdAt: -1 })
+
 export default mongoose.model("Leave", leaveSchema)

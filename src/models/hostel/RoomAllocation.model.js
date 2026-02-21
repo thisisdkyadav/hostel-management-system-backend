@@ -21,6 +21,11 @@ const RoomAllocationSchema = new mongoose.Schema(
   }
 )
 
+RoomAllocationSchema.index({ roomId: 1, bedNumber: 1 })
+RoomAllocationSchema.index({ studentProfileId: 1 })
+RoomAllocationSchema.index({ userId: 1 })
+RoomAllocationSchema.index({ hostelId: 1 })
+
 RoomAllocationSchema.virtual("room", {
   ref: "Room",
   localField: "roomId",

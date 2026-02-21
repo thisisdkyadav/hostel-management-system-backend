@@ -18,5 +18,8 @@ const VisitorSchema = new mongoose.Schema({
   },
 })
 
+VisitorSchema.index({ hostelId: 1 })
+VisitorSchema.index({ hostelId: 1, status: 1 })
+
 const Visitor = mongoose.model("Visitor", VisitorSchema)
 export default Visitor

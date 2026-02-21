@@ -112,5 +112,8 @@ visitorRequestSchema.post("findOneAndDelete", async function (doc, next) {
   next()
 })
 
+visitorRequestSchema.index({ userId: 1, createdAt: -1 })
+visitorRequestSchema.index({ hostelId: 1, status: 1, createdAt: -1 })
+
 const VisitorRequest = mongoose.model("VisitorRequest", visitorRequestSchema)
 export default VisitorRequest

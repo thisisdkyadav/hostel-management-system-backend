@@ -58,5 +58,8 @@ pollSchema.pre("save", function (next) {
   next()
 })
 
+pollSchema.index({ createdBy: 1, createdAt: -1 })
+pollSchema.index({ isActive: 1, createdAt: -1 })
+
 const Poll = mongoose.model("Poll", pollSchema)
 export default Poll

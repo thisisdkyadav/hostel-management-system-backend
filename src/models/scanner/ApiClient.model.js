@@ -13,5 +13,7 @@ const apiClientSchema = new mongoose.Schema({
   isActive: { type: Boolean, default: true },
 })
 
+apiClientSchema.index({ isActive: 1 })
+
 const ApiClient = mongoose.model("ApiClient", apiClientSchema)
 export default ApiClient

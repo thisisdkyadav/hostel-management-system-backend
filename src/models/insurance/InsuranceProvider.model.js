@@ -16,6 +16,9 @@ const InsuranceProviderSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
+InsuranceProviderSchema.index({ name: 1 })
+InsuranceProviderSchema.index({ endDate: 1 })
+
 InsuranceProviderSchema.virtual("id").get(function () {
   return this._id
 })

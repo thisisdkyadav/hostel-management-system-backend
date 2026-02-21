@@ -166,6 +166,9 @@ UserSchema.pre("save", function (next) {
   next()
 })
 
+UserSchema.index({ role: 1, name: 1 })
+UserSchema.index({ role: 1, subRole: 1, acceptingAppointments: 1, name: 1 })
+
 const User = mongoose.model("User", UserSchema)
 
 export default User

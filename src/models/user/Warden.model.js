@@ -20,5 +20,7 @@ const wardenSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
+wardenSchema.index({ status: 1 })
+
 const Warden = mongoose.model("Warden", wardenSchema)
 export default Warden

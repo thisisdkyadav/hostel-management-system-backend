@@ -69,5 +69,8 @@ undertakingSchema.virtual("acceptedCount", {
   match: { status: "accepted" },
 })
 
+undertakingSchema.index({ status: 1, createdAt: -1 })
+undertakingSchema.index({ deadline: 1, status: 1 })
+
 const Undertaking = mongoose.model("Undertaking", undertakingSchema)
 export default Undertaking

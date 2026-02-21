@@ -30,4 +30,6 @@ const CertificateSchema = new mongoose.Schema(
   }
 )
 
+CertificateSchema.index({ userId: 1, issueDate: -1 })
+
 export default mongoose.model("Certificate", CertificateSchema)

@@ -49,6 +49,10 @@ const AuthzAuditSchema = new mongoose.Schema(
   }
 )
 
+AuthzAuditSchema.index({ targetUserId: 1, createdAt: -1 })
+AuthzAuditSchema.index({ changedBy: 1, createdAt: -1 })
+AuthzAuditSchema.index({ action: 1, createdAt: -1 })
+
 const AuthzAudit = mongoose.model("AuthzAudit", AuthzAuditSchema)
 
 export default AuthzAudit

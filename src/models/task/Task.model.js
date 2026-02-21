@@ -54,6 +54,10 @@ const TaskSchema = new mongoose.Schema({
   },
 })
 
+TaskSchema.index({ status: 1, category: 1, priority: 1, createdAt: -1 })
+TaskSchema.index({ assignedUsers: 1, status: 1, dueDate: 1 })
+TaskSchema.index({ status: 1, dueDate: 1 })
+
 TaskSchema.pre("save", function (next) {
   this.updatedAt = Date.now()
 

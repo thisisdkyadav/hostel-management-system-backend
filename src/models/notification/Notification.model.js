@@ -61,6 +61,11 @@ const NotificationSchema = new mongoose.Schema({
 
 NotificationSchema.index({ createdAt: -1 })
 NotificationSchema.index({ expiryDate: 1 })
+NotificationSchema.index({ expiryDate: 1, createdAt: -1 })
+NotificationSchema.index({ hostelId: 1, expiryDate: 1, createdAt: -1 })
+NotificationSchema.index({ degree: 1, expiryDate: 1, createdAt: -1 })
+NotificationSchema.index({ department: 1, expiryDate: 1, createdAt: -1 })
+NotificationSchema.index({ gender: 1, expiryDate: 1, createdAt: -1 })
 
 const Notification = mongoose.model("Notification", NotificationSchema)
 export default Notification

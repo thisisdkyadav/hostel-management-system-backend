@@ -43,6 +43,7 @@ FamilyMemberSchema.virtual("id").get(function () {
 })
 
 FamilyMemberSchema.set("toJSON", { virtuals: true })
+FamilyMemberSchema.index({ userId: 1 })
 
 const FamilyMember = mongoose.model("FamilyMember", FamilyMemberSchema)
 

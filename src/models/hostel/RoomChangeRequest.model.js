@@ -148,5 +148,8 @@ RoomChangeRequestSchema.pre("save", function (next) {
   next()
 })
 
+RoomChangeRequestSchema.index({ hostelId: 1, status: 1, createdAt: -1 })
+RoomChangeRequestSchema.index({ userId: 1, createdAt: -1 })
+
 const RoomChangeRequest = mongoose.model("RoomChangeRequest", RoomChangeRequestSchema)
 export default RoomChangeRequest

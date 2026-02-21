@@ -15,6 +15,8 @@ const InsuranceClaimSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
+InsuranceClaimSchema.index({ userId: 1 })
+
 InsuranceClaimSchema.virtual("id").get(function () {
   return this._id
 })

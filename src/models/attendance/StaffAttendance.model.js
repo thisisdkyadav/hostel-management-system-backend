@@ -17,6 +17,10 @@ const staffAttendanceSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
+staffAttendanceSchema.index({ userId: 1, createdAt: -1 })
+staffAttendanceSchema.index({ hostelId: 1, createdAt: -1 })
+staffAttendanceSchema.index({ createdAt: -1 })
+
 const StaffAttendance = mongoose.model("StaffAttendance", staffAttendanceSchema)
 
 export default StaffAttendance

@@ -52,5 +52,8 @@ eventSchema.pre(/^find/, function (next) {
   next()
 })
 
+eventSchema.index({ hostelId: 1, gender: 1, dateAndTime: 1 })
+eventSchema.index({ dateAndTime: 1 })
+
 const Event = mongoose.model("Event", eventSchema)
 export default Event

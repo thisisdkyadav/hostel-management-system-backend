@@ -12,5 +12,8 @@ const SecuritySchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
+SecuritySchema.index({ userId: 1 })
+SecuritySchema.index({ hostelId: 1 })
+
 const Security = mongoose.model("Security", SecuritySchema)
 export default Security

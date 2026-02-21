@@ -494,6 +494,11 @@ StudentProfileSchema.statics.getMissingFieldOptions = function () {
 }
 
 StudentProfileSchema.index({ userId: 1, rollNumber: 1 })
+StudentProfileSchema.index({ status: 1, gender: 1, isDayScholar: 1 })
+StudentProfileSchema.index({ status: 1, degree: 1, gender: 1 })
+StudentProfileSchema.index({ department: 1, degree: 1 })
+StudentProfileSchema.index({ admissionDate: 1 })
+StudentProfileSchema.index({ currentRoomAllocation: 1 })
 
 const StudentProfile = mongoose.model("StudentProfile", StudentProfileSchema)
 
