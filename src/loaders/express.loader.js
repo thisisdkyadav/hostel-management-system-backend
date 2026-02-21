@@ -7,7 +7,6 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import session from 'express-session';
-import MongoStore from 'connect-mongo';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -32,6 +31,7 @@ import studentAffairsApp from '../apps/student-affairs/index.js';
 import visitorsApp from '../apps/visitors/index.js';
 import operationsApp from '../apps/operations/index.js';
 import campusLifeApp from '../apps/campus-life/index.js';
+import { createRedisSessionStore } from '../services/session/redisSession.store.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -62,25 +62,21 @@ const regularCorsOptions = {
  */
 export const createSessionMiddleware = () => {
   const isDevelopment = env.NODE_ENV === 'development';
+  const sessionTtlSeconds = env.SESSION_TTL_SECONDS;
   
   return session({
     secret: env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    store: MongoStore.create({
-      mongoUrl: env.MONGO_URI,
-      ttl: 7 * 24 * 60 * 60, // 7 days
-      autoRemove: 'native',
-      touchAfter: 24 * 3600, // 24 hours
-      crypto: {
-        secret: env.SESSION_SECRET,
-      },
+    store: createRedisSessionStore({
+      prefix: env.REDIS_SESSION_PREFIX,
+      ttlSeconds: sessionTtlSeconds,
     }),
     cookie: {
       httpOnly: true,
       secure: !isDevelopment,
       sameSite: !isDevelopment ? 'None' : 'Strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: sessionTtlSeconds * 1000,
     },
   });
 };

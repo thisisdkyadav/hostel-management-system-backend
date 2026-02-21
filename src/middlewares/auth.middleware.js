@@ -4,7 +4,6 @@
  */
 // Using old model paths until Phase 3 (Models Migration)
 import { User } from "../models/index.js"
-import { Session } from "../models/index.js"
 import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from "../core/authz/index.js"
 
 const buildSessionAuthz = (userLike) => {
@@ -18,10 +17,11 @@ const buildSessionAuthz = (userLike) => {
 }
 
 const withAuthzSessionData = (sessionUserData = {}) => {
+  const hasLegacyPermissions = Object.prototype.hasOwnProperty.call(sessionUserData, "permissions")
   const { permissions: _legacyPermissions, ...sanitizedUserData } = sessionUserData
 
   if (sanitizedUserData?.authz?.effective) {
-    return sanitizedUserData
+    return { userData: sanitizedUserData, shouldPersist: hasLegacyPermissions && sanitizedUserData.role !== "Student" }
   }
 
   const fallbackOverride = sanitizedUserData?.authz?.override || {}
@@ -29,13 +29,17 @@ const withAuthzSessionData = (sessionUserData = {}) => {
     role: sanitizedUserData.role,
     authz: { override: fallbackOverride },
   })
-  return {
+  const nextUserData = {
     ...sanitizedUserData,
     authz: {
-      override: sanitizedUserData?.authz?.override || {},
+      override: fallbackOverride,
       effective: fallbackAuthz,
     },
   }
+
+  // Student traffic is dominant and does not need session rewrites for authz hydration.
+  const shouldPersist = sanitizedUserData.role !== "Student"
+  return { userData: nextUserData, shouldPersist }
 }
 
 /**
@@ -85,8 +89,11 @@ export const authenticate = async (req, res, next) => {
 
     // If we have essential user data in session, use it directly
     if (req.session.userData) {
-      req.user = withAuthzSessionData(req.session.userData)
-      req.session.userData = req.user
+      const { userData, shouldPersist } = withAuthzSessionData(req.session.userData)
+      req.user = userData
+      if (shouldPersist) {
+        req.session.userData = userData
+      }
     } else {
       // Otherwise query the database and cache essential data in session
       const user = await User.findById(req.session.userId).select("-password").exec()
@@ -108,11 +115,6 @@ export const authenticate = async (req, res, next) => {
 
       req.user = req.session.userData
     }
-
-    // Update the session's last active time in our tracking table
-    await Session.findOneAndUpdate({ sessionId: req.sessionID }, { lastActive: new Date() }).catch((err) =>
-      console.error("Error updating session last active time:", err)
-    )
 
     next()
   } catch (error) {

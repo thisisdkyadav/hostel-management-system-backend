@@ -7,6 +7,7 @@ import { createApp } from './app.js';
 import { initializeDatabase, initializeSocketIO, closeSocketIO } from './loaders/index.js';
 import { setupSocketHandlers } from './utils/socketHandlers.js';
 import env from './config/env.config.js';
+import { closeSessionRedisClient } from './services/session/redisSessionClient.js';
 
 const PORT = env.PORT || 5000;
 
@@ -38,6 +39,7 @@ const startServer = async () => {
       
       // Close Socket.IO connections
       await closeSocketIO();
+      await closeSessionRedisClient();
       
       // Close HTTP server
       server.close(() => {

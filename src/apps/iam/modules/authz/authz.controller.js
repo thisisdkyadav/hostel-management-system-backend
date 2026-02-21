@@ -4,7 +4,7 @@
 
 import { authzService } from "./authz.service.js"
 import { asyncHandler } from "../../../../utils/index.js"
-import { Session } from "../../../../models/index.js"
+import { listUserSessionIds } from "../../../../services/session/redisSessionMeta.service.js"
 
 const sendResult = (res, result) => {
   return res.status(result.statusCode || 200).json({
@@ -18,11 +18,10 @@ const sendResult = (res, result) => {
 const syncUserAuthzAcrossActiveSessions = async ({ sessionStore, targetUserId, authz }) => {
   if (!sessionStore || !targetUserId || !authz) return
 
-  const activeSessions = await Session.find({ userId: targetUserId }).select("sessionId")
+  const activeSessionIds = await listUserSessionIds(targetUserId)
 
   await Promise.all(
-    activeSessions.map((record) => {
-      const sessionId = record?.sessionId
+    activeSessionIds.map((sessionId) => {
       if (!sessionId) return Promise.resolve()
 
       return new Promise((resolve) => {

@@ -1,8 +1,8 @@
 /**
  * Session Configuration
- * Express session and MongoDB store settings
+ * Express session and Redis store settings
  */
-import MongoStore from "connect-mongo"
+import { createRedisSessionStore } from "../services/session/redisSession.store.js"
 import { env } from "./env.config.js"
 
 /**
@@ -13,20 +13,15 @@ export const createSessionConfig = () => ({
   secret: env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
-  store: MongoStore.create({
-    mongoUrl: env.MONGO_URI,
-    ttl: 7 * 24 * 60 * 60, // 7 days in seconds
-    autoRemove: "native",
-    touchAfter: 24 * 3600, // Update session once per 24 hours
-    crypto: {
-      secret: env.SESSION_SECRET,
-    },
+  store: createRedisSessionStore({
+    prefix: env.REDIS_SESSION_PREFIX,
+    ttlSeconds: env.SESSION_TTL_SECONDS,
   }),
   cookie: {
     httpOnly: true,
     secure: !env.isDevelopment,
     sameSite: env.isDevelopment ? "Strict" : "None",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days in milliseconds
+    maxAge: env.SESSION_TTL_SECONDS * 1000,
   },
 })
 

@@ -6,10 +6,17 @@
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import axios from 'axios';
-import { User, Session, PasswordResetToken } from '../../../../models/index.js';
+import { User, PasswordResetToken } from '../../../../models/index.js';
 import { generateKey } from '../../../../utils/qrUtils.js';
 import { emailService } from '../../../../services/email/index.js';
 import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
+import {
+  createSessionMeta,
+  deleteSessionMeta,
+  getSessionMeta,
+  listUserSessions,
+  touchSessionMeta,
+} from '../../../../services/session/redisSessionMeta.service.js';
 
 /**
  * Helper function to extract device name from user agent.
@@ -129,7 +136,7 @@ class AuthService {
   async createDeviceSession({ userId, sessionId, userAgent, ip }) {
     const deviceName = getDeviceNameFromUserAgent(userAgent);
 
-    return Session.create({
+    return createSessionMeta({
       userId,
       sessionId,
       userAgent,
@@ -276,19 +283,24 @@ class AuthService {
   }
 
   async getUserDevices(userId, currentSessionId, sessionStore) {
-    const sessions = await Session.find({ userId }).sort({ lastActive: -1 });
+    const sessions = await listUserSessions(userId);
     const validSessions = [];
 
-    for (const session of sessions) {
-      const isCurrent = session.sessionId === currentSessionId;
+    for (const deviceSession of sessions) {
+      const isCurrent = deviceSession.sessionId === currentSessionId;
 
-      if (isCurrent || (await sessionExistsInStore(sessionStore, session.sessionId))) {
+      if (isCurrent || (await sessionExistsInStore(sessionStore, deviceSession.sessionId))) {
+        if (isCurrent) {
+          await touchSessionMeta(deviceSession.sessionId, new Date());
+          deviceSession.lastActive = new Date().toISOString();
+        }
+
         validSessions.push({
-          ...session.toObject(),
+          ...deviceSession,
           isCurrent,
         });
       } else {
-        await Session.deleteOne({ _id: session._id });
+        await deleteSessionMeta(deviceSession.sessionId, userId);
       }
     }
 
@@ -296,12 +308,9 @@ class AuthService {
   }
 
   async logoutDevice(userId, sessionId, currentSessionId) {
-    const session = await Session.findOne({
-      sessionId,
-      userId,
-    });
+    const sessionMeta = await getSessionMeta(sessionId);
 
-    if (!session) {
+    if (!sessionMeta || String(sessionMeta.userId) !== String(userId)) {
       return {
         success: false,
         error: 'Session not found or unauthorized',
@@ -313,7 +322,7 @@ class AuthService {
       return { success: true, isCurrentSession: true };
     }
 
-    await Session.deleteOne({ sessionId });
+    await deleteSessionMeta(sessionId, userId);
 
     return { success: true, isCurrentSession: false };
   }
@@ -357,7 +366,7 @@ class AuthService {
   }
 
   async deleteSession(sessionId) {
-    await Session.deleteOne({ sessionId });
+    await deleteSessionMeta(sessionId);
   }
 
   async requestPasswordReset(email) {

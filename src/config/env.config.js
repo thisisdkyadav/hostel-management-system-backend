@@ -55,6 +55,8 @@ export const env = {
 
   // Redis
   REDIS_URL: process.env.REDIS_URL || "redis://localhost:6379",
+  REDIS_SESSION_PREFIX: process.env.REDIS_SESSION_PREFIX || "sess:",
+  SESSION_TTL_SECONDS: parseInt(process.env.SESSION_TTL_SECONDS, 10) || 7 * 24 * 60 * 60,
 
   // Auth
   JWT_SECRET: process.env.JWT_SECRET,
@@ -114,6 +116,8 @@ export const JWT_SECRET = env.JWT_SECRET
 export const SESSION_SECRET = env.SESSION_SECRET
 export const MONGO_URI = env.MONGO_URI
 export const REDIS_URL = env.REDIS_URL
+export const REDIS_SESSION_PREFIX = env.REDIS_SESSION_PREFIX
+export const SESSION_TTL_SECONDS = env.SESSION_TTL_SECONDS
 export const AZURE_STORAGE_CONNECTION_STRING = env.azure.connectionString
 export const AZURE_STORAGE_CONTAINER_NAME = env.azure.containerName
 export const AZURE_STORAGE_ACCOUNT_NAME = env.azure.accountName
