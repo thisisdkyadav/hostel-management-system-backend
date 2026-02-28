@@ -9,6 +9,7 @@ import { FamilyMember } from '../../../../models/index.js';
 import { User } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { BaseService, success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 class FamilyMemberService extends BaseService {
   constructor() {
@@ -79,6 +80,9 @@ class FamilyMemberService extends BaseService {
 
     if (!familyData || !Array.isArray(familyData.members) || familyData.members.length === 0) {
       return badRequest('Valid family members data is required');
+    }
+    if (familyData.members.length > MAX_BULK_RECORDS) {
+      return badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`);
     }
 
     return withTransaction(async (session) => {

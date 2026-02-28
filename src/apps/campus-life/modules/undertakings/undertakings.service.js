@@ -9,6 +9,7 @@ import { Undertaking } from '../../../../models/index.js';
 import { UndertakingAssignment } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 class UndertakingService extends BaseService {
   constructor() {
@@ -170,6 +171,13 @@ class UndertakingService extends BaseService {
    * @param {Array} rollNumbers - Array of roll numbers
    */
   async addStudentsToUndertaking(undertakingId, rollNumbers) {
+    if (!Array.isArray(rollNumbers) || rollNumbers.length === 0) {
+      return badRequest('Roll numbers array is required');
+    }
+    if (rollNumbers.length > MAX_BULK_RECORDS) {
+      return badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`);
+    }
+
     const undertaking = await this.model.findById(undertakingId);
 
     if (!undertaking) {

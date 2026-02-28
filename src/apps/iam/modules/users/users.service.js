@@ -6,6 +6,7 @@
 import bcrypt from 'bcrypt';
 import { User } from '../../../../models/index.js';
 import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 class UserService extends BaseService {
   constructor() {
@@ -54,6 +55,9 @@ class UserService extends BaseService {
   async bulkPasswordUpdate(passwordUpdates) {
     if (!passwordUpdates || !Array.isArray(passwordUpdates)) {
       return badRequest('Password updates must be provided as an array');
+    }
+    if (passwordUpdates.length > MAX_BULK_RECORDS) {
+      return badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`);
     }
 
     const emails = passwordUpdates.map((update) => update.email);
@@ -171,4 +175,3 @@ class UserService extends BaseService {
 
 export const userService = new UserService();
 export default userService;
-

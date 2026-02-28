@@ -4,6 +4,7 @@
 
 import Joi from 'joi';
 import { objectId, email, phone, name } from './common.validation.js';
+import { MAX_BULK_RECORDS } from '../core/constants/system-limits.constants.js';
 
 /**
  * Student profile schema (single)
@@ -34,7 +35,7 @@ const studentProfileBody = Joi.object({
 export const createStudentsProfilesSchema = Joi.object({
   body: Joi.alternatives().try(
     studentProfileBody,
-    Joi.array().items(studentProfileBody).min(1).max(500)
+    Joi.array().items(studentProfileBody).min(1).max(MAX_BULK_RECORDS)
   ),
 });
 
@@ -53,7 +54,7 @@ export const updateStudentsProfilesSchema = Joi.object({
         ['name', 'email', 'rollNumber'],
         (schema) => schema.optional()
       )
-    ).min(1).max(500)
+    ).min(1).max(MAX_BULK_RECORDS)
   ),
 });
 
@@ -75,7 +76,7 @@ export const updateRoomAllocationsSchema = Joi.object({
   }),
   body: Joi.alternatives().try(
     roomAllocationBody,
-    Joi.array().items(roomAllocationBody).min(1).max(500)
+    Joi.array().items(roomAllocationBody).min(1).max(MAX_BULK_RECORDS)
   ),
 });
 
@@ -212,7 +213,7 @@ export const uploadStudentIdCardSchema = Joi.object({
 export const bulkUpdateStudentsStatusSchema = Joi.object({
   body: Joi.object({
     status: Joi.string().valid('active', 'inactive', 'graduated', 'suspended').required(),
-    rollNumbers: Joi.array().items(Joi.string()).min(1).max(1000).required(),
+    rollNumbers: Joi.array().items(Joi.string()).min(1).max(MAX_BULK_RECORDS).required(),
   }),
 });
 
@@ -227,7 +228,7 @@ export const bulkUpdateDayScholarDetailsSchema = Joi.object({
         rollNumber: Joi.string().required(),
         isDayScholar: Joi.boolean().required(),
       })
-    ).min(1).max(1000).required(),
+    ).min(1).max(MAX_BULK_RECORDS).required(),
   }),
 });
 

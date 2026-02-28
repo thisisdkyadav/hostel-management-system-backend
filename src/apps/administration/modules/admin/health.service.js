@@ -9,6 +9,7 @@ import { Health } from '../../../../models/index.js';
 import { InsuranceClaim } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { BaseService, success, badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
+import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 class HealthService extends BaseService {
   constructor() {
@@ -49,6 +50,9 @@ class HealthService extends BaseService {
   async updateBulkStudentHealth(studentsData) {
     if (!Array.isArray(studentsData) || studentsData.length === 0) {
       return badRequest('Students data array is required and must not be empty');
+    }
+    if (studentsData.length > MAX_BULK_RECORDS) {
+      return badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`);
     }
 
     return withTransaction(async (session) => {

@@ -9,19 +9,25 @@ import express from 'express';
 import {
   createStudentsProfiles,
   updateStudentsProfiles,
-  updateRoomAllocations,
   getStudents,
   getStudentDetails,
   getMultipleStudentDetails,
   getStudentId,
   updateStudentProfile,
+} from './profiles-admin.profiles.module.js';
+import {
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
+} from './profiles-admin.bulk.module.js';
+import {
+  updateRoomAllocations,
+} from './profiles-admin.allocations.module.js';
+import {
   getDepartmentsList,
   renameDepartment,
   getDegreesList,
   renameDegree,
-} from './profiles-admin.controller.js';
+} from './profiles-admin.taxonomy.module.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';

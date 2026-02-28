@@ -20,7 +20,7 @@ import {
   changeArchiveStatus,
   deleteAllAllocations,
 } from './hostel-rooms.controller.js';
-import { updateRoomAllocations } from '../../../students/modules/profiles-admin/profiles-admin.controller.js';
+import { updateRoomAllocations } from '../../../students/modules/profiles-admin/profiles-admin.allocations.module.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';

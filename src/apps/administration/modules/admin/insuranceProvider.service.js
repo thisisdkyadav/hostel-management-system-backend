@@ -9,6 +9,7 @@ import { InsuranceProvider } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { Health } from '../../../../models/index.js';
 import { BaseService, success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 class InsuranceProviderService extends BaseService {
   constructor() {
@@ -76,6 +77,9 @@ class InsuranceProviderService extends BaseService {
 
     if (!Array.isArray(studentsData) || studentsData.length === 0) {
       return badRequest('Students data array is required and must not be empty');
+    }
+    if (studentsData.length > MAX_BULK_RECORDS) {
+      return badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`);
     }
 
     return withTransaction(async (session) => {
