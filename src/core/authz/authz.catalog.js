@@ -4,15 +4,29 @@
  *
  * Notes for current rollout:
  * - Layer-1 RBAC (`authorizeRoles`) remains the primary gate.
- * - Layer-3 AuthZ defaults to permissive for authorized users.
+ * - Layer-3 AuthZ is strict deny-by-default for unknown/missing route keys.
  */
 
 import { ROLES } from "../constants/roles.constants.js"
-import {
-  AUTHZ_CATALOG_VERSION,
-  AUTHZ_CONSTRAINT_TYPES,
-  AUTHZ_DEFAULT_POLICY,
-} from "./authz.constants.js"
+
+export const AUTHZ_EFFECT = {
+  ALLOW: "allow",
+  DENY: "deny",
+  INHERIT: "inherit",
+}
+
+export const AUTHZ_CONSTRAINT_TYPES = {
+  BOOLEAN: "boolean",
+  STRING: "string",
+  STRING_ARRAY: "string[]",
+  NUMBER: "number",
+  NUMBER_ARRAY: "number[]",
+  OBJECT: "object",
+  ANY: "any",
+}
+
+export const AUTHZ_CATALOG_VERSION = 1
+export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
 const capability = (key, label, description = "") => ({ key, label, description })
@@ -47,7 +61,6 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.megaEvents", "Mega Events", ["/admin/mega-events"]),
   route("route.admin.updatePassword", "Update Password", ["/admin/update-password"]),
   route("route.admin.settings", "Settings", ["/admin/settings"]),
-  route("route.admin.authz", "AuthZ Management", ["/admin/authz"]),
   route("route.admin.profile", "Profile", ["/admin/profile"]),
   route("route.admin.maintenance", "Maintenance Staff", ["/admin/maintenance"]),
   route("route.admin.notifications", "Notifications", ["/admin/notifications"]),

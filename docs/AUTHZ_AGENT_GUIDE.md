@@ -7,6 +7,10 @@ Auth remains 3 layers:
 2. `authorizeRoles(...)` (legacy role gate, unchanged)
 3. Layer-3 AuthZ (`requireRouteAccess`, optional capability/constraint)
 
+Layer-3 is strict-only:
+- denied route/capability checks must return 403
+- do not introduce observe/preview fallback paths
+
 Current rollout scope is intentionally narrow:
 1. Route access is the primary dynamic control.
 2. Only one capability is active in runtime code:
@@ -22,6 +26,8 @@ Do not reintroduce legacy permission runtime (`/permissions`, `requirePermission
 2. Middleware: `src/middlewares/authz.middleware.js`
 3. AuthZ IAM APIs: `src/apps/iam/modules/authz/authz.routes.js`, `src/apps/iam/modules/authz/authz.service.js`
 4. User override storage: `src/models/user/User.model.js` (`authz.override`, `authz.meta`)
+
+AuthZ management endpoints (`/api/v1/authz/users`, `/api/v1/authz/user/:userId*`) are Super Admin only.
 
 ## Enforcement Pattern
 

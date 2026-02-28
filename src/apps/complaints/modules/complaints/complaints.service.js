@@ -9,8 +9,7 @@ import { Complaint, FeedbackToken } from '../../../../models/index.js';
 import { RoomAllocation } from '../../../../models/index.js';
 import { emailService } from '../../../../services/email/email.service.js';
 import mongoose from 'mongoose';
-import env from '../../../../config/env.config.js';
-import { AUTHZ_MODES, getConstraintValue } from '../../../../core/authz/index.js';
+import { getConstraintValue } from '../../../../core/authz/index.js';
 import { invalidateStudentDashboardCache } from '../../../../utils/redisCache.js';
 
 const COMPLAINT_SCOPE_HOSTELS_CONSTRAINT = 'constraint.complaints.scope.hostelIds';
@@ -27,11 +26,6 @@ const toStringArray = (value) => {
   return value
     .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
     .filter(Boolean);
-};
-
-const isAuthzEnforceMode = () => {
-  const mode = String(env.AUTHZ_MODE || AUTHZ_MODES.OBSERVE).trim().toLowerCase();
-  return mode === AUTHZ_MODES.ENFORCE;
 };
 
 /**
@@ -148,7 +142,7 @@ class ComplaintService extends BaseService {
 
   getComplaintScopeContext(user) {
     const effectiveAuthz = user?.authz?.effective || null;
-    const enforceConstraints = isAuthzEnforceMode() && Boolean(effectiveAuthz);
+    const enforceConstraints = Boolean(effectiveAuthz);
 
     const ownHostelId = toObjectIdString(user?.hostel?._id || user?.hostel);
     const configuredHostelIds = toStringArray(

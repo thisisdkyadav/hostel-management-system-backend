@@ -23,23 +23,12 @@ router.use(authenticate)
 router.get("/catalog", getAuthzCatalog)
 router.get("/me", getMyAuthz)
 
-router.use(authorizeRoles(["Admin", "Super Admin"]))
-const AUTHZ_ROUTE_KEY_BY_ROLE = {
-  Admin: "route.admin.authz",
-  "Super Admin": "route.superAdmin.authz",
-}
+router.use(authorizeRoles(["Super Admin"]))
+router.use(requireRouteAccess("route.superAdmin.authz"))
 
-const requireAuthzAdminRouteAccess = (req, res, next) => {
-  const routeKey = AUTHZ_ROUTE_KEY_BY_ROLE[req?.user?.role]
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: "You do not have access to this route" })
-  }
-  return requireRouteAccess(routeKey)(req, res, next)
-}
-
-router.get("/users/:role?", requireAuthzAdminRouteAccess, getUsersByRole)
-router.get("/user/:userId", requireAuthzAdminRouteAccess, getUserAuthz)
-router.put("/user/:userId", requireAuthzAdminRouteAccess, updateUserAuthz)
-router.post("/user/:userId/reset", requireAuthzAdminRouteAccess, resetUserAuthz)
+router.get("/users/:role?", getUsersByRole)
+router.get("/user/:userId", getUserAuthz)
+router.put("/user/:userId", updateUserAuthz)
+router.post("/user/:userId/reset", resetUserAuthz)
 
 export default router
