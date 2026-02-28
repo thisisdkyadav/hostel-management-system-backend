@@ -24,7 +24,7 @@ Do not reintroduce legacy permission runtime (`/permissions`, `requirePermission
 
 1. Catalog: `src/core/authz/authz.catalog.js`
 2. Middleware: `src/middlewares/authz.middleware.js`
-3. AuthZ IAM APIs: `src/apps/iam/modules/authz/authz.routes.js`, `src/apps/iam/modules/authz/authz.service.js`
+3. AuthZ IAM APIs: `src/apps/iam/modules/authz/authz.routes.js`, `src/apps/iam/modules/authz/authz.module.js`
 4. User override storage: `src/models/user/User.model.js` (`authz.override`, `authz.meta`)
 
 AuthZ management endpoints (`/api/v1/authz/users`, `/api/v1/authz/user/:userId*`) are Super Admin only.

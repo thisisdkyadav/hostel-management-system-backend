@@ -11,7 +11,7 @@ import {
   getUsersByRole,
   resetUserAuthz,
   updateUserAuthz,
-} from "./authz.controller.js"
+} from "./authz.module.js"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
 import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
