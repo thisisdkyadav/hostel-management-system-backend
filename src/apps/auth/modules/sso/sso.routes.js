@@ -6,7 +6,7 @@
  */
 
 import express from 'express';
-import { redirect, verifySSOToken } from './sso.controller.js';
+import { redirect, verifySSOToken } from './sso.module.js';
 
 const router = express.Router();
 
@@ -14,4 +14,3 @@ router.get('/redirect', redirect);
 router.post('/verify', verifySSOToken);
 
 export default router;
-

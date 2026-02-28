@@ -17,7 +17,7 @@ import env from '../config/env.config.js';
 import { errorHandler, notFoundHandler } from '../core/errors/errorHandler.js';
 
 // Controllers for special routes (SSO verify needs special CORS handling)
-import { verifySSOToken } from '../apps/auth/modules/sso/sso.controller.js';
+import { verifySSOToken } from '../apps/auth/modules/sso/sso.module.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUB-APPLICATIONS

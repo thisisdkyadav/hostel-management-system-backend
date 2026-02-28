@@ -3,21 +3,19 @@
  */
 
 import Joi from 'joi';
-import { email, password, objectId } from './common.validation.js';
+import { email, password } from './common.validation.js';
 
 /**
  * Login validation
  * POST /api/auth/login
  */
 export const loginSchema = Joi.object({
-  body: Joi.object({
-    email: email.required().messages({
-      'string.email': 'Please provide a valid email address',
-      'any.required': 'Email is required',
-    }),
-    password: Joi.string().required().messages({
-      'any.required': 'Password is required',
-    }),
+  email: email.required().messages({
+    'string.email': 'Please provide a valid email address',
+    'any.required': 'Email is required',
+  }),
+  password: Joi.string().required().messages({
+    'any.required': 'Password is required',
   }),
 });
 
@@ -26,51 +24,53 @@ export const loginSchema = Joi.object({
  * POST /api/auth/google
  */
 export const googleLoginSchema = Joi.object({
-  body: Joi.object({
-    token: Joi.string().required().messages({
-      'any.required': 'Google token is required',
-    }),
+  token: Joi.string().trim().required().messages({
+    'any.required': 'Google token is required',
+  }),
+});
+
+/**
+ * Verify SSO token validation
+ * POST /api/auth/verify-sso-token
+ */
+export const verifySSOTokenSchema = Joi.object({
+  token: Joi.string().trim().required().messages({
+    'any.required': 'Token is required',
   }),
 });
 
 /**
  * Update password validation
- * PUT /api/auth/password
+ * POST /api/auth/update-password
  */
 export const updatePasswordSchema = Joi.object({
-  body: Joi.object({
-    oldPassword: Joi.string().required().messages({
-      'any.required': 'Old password is required',
-    }),
-    newPassword: password.required().messages({
-      'any.required': 'New password is required',
-      'string.min': 'New password must be at least 6 characters',
-    }),
+  oldPassword: Joi.string().required().messages({
+    'any.required': 'Old password is required',
+  }),
+  newPassword: password.required().messages({
+    'any.required': 'New password is required',
+    'string.min': 'New password must be at least 6 characters',
+  }),
+});
+
+/**
+ * Update pinned tabs validation
+ * PATCH /api/auth/user/pinned-tabs
+ */
+export const updatePinnedTabsSchema = Joi.object({
+  pinnedTabs: Joi.array().items(Joi.string().trim().allow('')).required().messages({
+    'array.base': 'pinnedTabs must be an array',
+    'any.required': 'pinnedTabs is required',
   }),
 });
 
 /**
  * Logout device validation
- * DELETE /api/auth/devices/:sessionId
+ * POST /api/auth/user/devices/logout/:sessionId
  */
 export const logoutDeviceSchema = Joi.object({
-  params: Joi.object({
-    sessionId: Joi.string().required().messages({
-      'any.required': 'Session ID is required',
-    }),
-  }),
-});
-
-/**
- * Set password validation (for users without password)
- * POST /api/auth/set-password
- */
-export const setPasswordSchema = Joi.object({
-  body: Joi.object({
-    password: password.required().messages({
-      'any.required': 'Password is required',
-      'string.min': 'Password must be at least 6 characters',
-    }),
+  sessionId: Joi.string().trim().required().messages({
+    'any.required': 'Session ID is required',
   }),
 });
 
@@ -79,11 +79,9 @@ export const setPasswordSchema = Joi.object({
  * POST /api/auth/forgot-password
  */
 export const forgotPasswordSchema = Joi.object({
-  body: Joi.object({
-    email: email.required().messages({
-      'string.email': 'Please provide a valid email address',
-      'any.required': 'Email is required',
-    }),
+  email: email.required().messages({
+    'string.email': 'Please provide a valid email address',
+    'any.required': 'Email is required',
   }),
 });
 
@@ -92,14 +90,12 @@ export const forgotPasswordSchema = Joi.object({
  * POST /api/auth/reset-password
  */
 export const resetPasswordSchema = Joi.object({
-  body: Joi.object({
-    token: Joi.string().required().messages({
-      'any.required': 'Reset token is required',
-    }),
-    password: password.required().messages({
-      'any.required': 'Password is required',
-      'string.min': 'Password must be at least 6 characters',
-    }),
+  token: Joi.string().trim().required().messages({
+    'any.required': 'Reset token is required',
+  }),
+  password: password.required().messages({
+    'any.required': 'Password is required',
+    'string.min': 'Password must be at least 6 characters',
   }),
 });
 
@@ -108,21 +104,19 @@ export const resetPasswordSchema = Joi.object({
  * GET /api/auth/reset-password/:token
  */
 export const verifyResetTokenSchema = Joi.object({
-  params: Joi.object({
-    token: Joi.string().required().messages({
-      'any.required': 'Reset token is required',
-    }),
+  token: Joi.string().trim().required().messages({
+    'any.required': 'Reset token is required',
   }),
 });
 
 export default {
   loginSchema,
   googleLoginSchema,
+  verifySSOTokenSchema,
   updatePasswordSchema,
+  updatePinnedTabsSchema,
   logoutDeviceSchema,
-  setPasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   verifyResetTokenSchema,
 };
-
