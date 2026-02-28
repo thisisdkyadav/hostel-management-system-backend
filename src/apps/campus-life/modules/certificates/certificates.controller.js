@@ -1,5 +1,5 @@
 import { certificateService } from './certificates.service.js';
-import { asyncHandler } from '../../../../utils/controllerHelpers.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Helper: Error format with error field

@@ -4,7 +4,7 @@
  * @module apps/student-affairs/modules/grievance/controller
  */
 
-import { asyncHandler, sendRawResponse } from '../../../../utils/controllerHelpers.js';
+import { asyncHandler, sendRawResponse } from '../../../../utils/index.js';
 import { grievanceService } from './grievance.service.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════

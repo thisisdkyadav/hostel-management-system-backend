@@ -7,7 +7,7 @@
  */
 
 import { tasksService } from './tasks.service.js';
-import { asyncHandler } from '../../../../utils/controllerHelpers.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Helper: Send raw response (preserves existing format)

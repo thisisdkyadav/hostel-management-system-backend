@@ -1,5 +1,5 @@
 import { feedbackService } from './feedback.service.js';
-import { asyncHandler } from '../../../../utils/controllerHelpers.js';
+import { asyncHandler } from '../../../../utils/index.js';
 
 /**
  * Helper: Error format with success: false

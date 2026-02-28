@@ -3,7 +3,7 @@
  * @description HTTP handlers for all events operations
  */
 
-import { asyncHandler, sendRawResponse } from "../../../../utils/controllerHelpers.js"
+import { asyncHandler, sendRawResponse } from "../../../../utils/index.js"
 import { calendarService } from "./calendar.service.js"
 import { proposalService } from "./proposal.service.js"
 import { expenseService } from "./expense.service.js"

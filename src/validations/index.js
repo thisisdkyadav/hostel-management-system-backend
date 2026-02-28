@@ -10,7 +10,7 @@
  */
 
 // Validation middleware
-export { validate, validateAsync } from './validate.middleware.js';
+export { validate } from '../middlewares/validate.middleware.js';
 
 // Common schemas (for building custom validators)
 export * as commonSchemas from './common.validation.js';

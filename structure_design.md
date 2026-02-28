@@ -23,3 +23,23 @@ Refactor policy:
 1. Start single-module.
 2. Split later only when complexity appears.
 3. If split does not reduce complexity, revert to single-module.
+
+## Rule 2: Common Response/Error/Validation Stack
+
+Use one common stack everywhere:
+1. Controllers use `asyncHandler` from `src/utils/index.js`.
+2. Services return `ServiceResponse`-style objects (`success`, `badRequest`, `notFound`, etc.).
+3. Controllers sending service results use `sendRawResponse` from `src/utils/index.js` when needed.
+4. Global errors are handled only by `src/core/errors/errorHandler.js`.
+5. Validation middleware source is `src/middlewares/validate.middleware.js`.
+
+Avoid:
+1. Parallel response systems or extra wrappers for the same job.
+2. Multiple validation middleware implementations.
+3. Direct imports from deprecated/common-internal paths when `src/utils/index.js` already exports the utility.
+
+## Rule 3: Common Import Consistency
+
+1. For shared utility helpers, prefer importing from `src/utils/index.js`.
+2. Only import deep utility files directly when a helper is intentionally not part of the shared API.
+3. Keep one clear shared entrypoint for common helpers to reduce drift across modules.

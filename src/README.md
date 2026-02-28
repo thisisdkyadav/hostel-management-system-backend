@@ -47,7 +47,7 @@ backend/
 │   └── utils/                    # Utility functions
 │       ├── index.js              # Utility exports
 │       ├── asyncHandler.js       # Async error wrapper
-│       ├── response.utils.js     # Standardized responses
+│       ├── controllerHelpers.js  # Shared response helper (sendRawResponse)
 │       └── ...
 ├── controllers/                  # Legacy controllers (re-exports)
 ├── routes/                       # Legacy routes (re-exports)
