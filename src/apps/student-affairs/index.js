@@ -20,6 +20,7 @@ import express from 'express';
 // Import module routes (uncomment as modules are built)
 import grievanceRoutes from './modules/grievance/grievance.routes.js';
 import eventsRoutes from './modules/events/events.routes.js';
+import bestPerformerRoutes from './modules/best-performer/best-performer.routes.js';
 // import scholarshipRoutes from './modules/scholarship/scholarship.routes.js';
 // import counselingRoutes from './modules/counseling/counseling.routes.js';
 // import disciplinaryRoutes from './modules/disciplinary/disciplinary.routes.js';
@@ -50,6 +51,7 @@ router.get('/health', (req, res) => {
 
 router.use('/grievances', grievanceRoutes);
 router.use('/events', eventsRoutes);
+router.use('/overall-best-performer', bestPerformerRoutes);
 // router.use('/scholarships', scholarshipRoutes);
 // router.use('/counseling', counselingRoutes);
 // router.use('/disciplinary', disciplinaryRoutes);

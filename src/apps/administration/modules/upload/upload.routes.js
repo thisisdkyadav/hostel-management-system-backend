@@ -19,6 +19,7 @@ import {
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
+  uploadOverallBestPerformerProofPDF,
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -32,8 +33,21 @@ const GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE = {
   [ROLES.ADMIN]: 'route.admin.events',
 };
 
+const OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE = {
+  [ROLES.STUDENT]: 'route.student.overallBestPerformer',
+  [ROLES.ADMIN]: 'route.admin.overallBestPerformer',
+};
+
 const requireGymkhanaEventUploadRouteAccess = (req, res, next) => {
   const routeKey = GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return next();
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
+
+const requireOverallBestPerformerUploadRouteAccess = (req, res, next) => {
+  const routeKey = OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
   if (!routeKey) {
     return next();
   }
@@ -135,5 +149,14 @@ router.post(
 
 // Certificate upload
 router.post('/certificate', authorizeRoles(['Admin']), upload.any(), uploadCertificate);
+
+// Overall Best Performer proof PDF upload
+router.post(
+  '/overall-best-performer-proof-pdf',
+  authorizeRoles(['Student', 'Admin', 'Super Admin']),
+  requireOverallBestPerformerUploadRouteAccess,
+  upload.any(),
+  uploadOverallBestPerformerProofPDF
+);
 
 export default router;

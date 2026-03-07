@@ -197,3 +197,19 @@ export const uploadCertificate = asyncHandler(async (req, res) => {
 
   return res.status(result.statusCode).json(result.data);
 });
+
+/**
+ * Upload Overall Best Performer proof PDF
+ */
+export const uploadOverallBestPerformerProofPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadOverallBestPerformerProofPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});

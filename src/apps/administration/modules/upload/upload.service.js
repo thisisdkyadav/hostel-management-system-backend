@@ -37,10 +37,11 @@ const eventBillDocsPath = path.join(uploadsBasePath, 'event-bill-docs');
 const eventReportDocsPath = path.join(uploadsBasePath, 'event-report-docs');
 const disCoProcessDocsPath = path.join(uploadsBasePath, 'disco-process-docs');
 const certificatesPath = path.join(uploadsBasePath, 'certificates');
+const overallBestPerformerProofDocsPath = path.join(uploadsBasePath, 'overall-best-performer-proofs');
 
 // Ensure directories exist
 if (USE_LOCAL_STORAGE) {
-  [profileImagesPath, studentIdCardsPath, h2FormsPath, eventProposalDocsPath, eventChiefGuestDocsPath, eventBillDocsPath, eventReportDocsPath, disCoProcessDocsPath, certificatesPath].forEach((dir) => {
+  [profileImagesPath, studentIdCardsPath, h2FormsPath, eventProposalDocsPath, eventChiefGuestDocsPath, eventBillDocsPath, eventReportDocsPath, disCoProcessDocsPath, certificatesPath, overallBestPerformerProofDocsPath].forEach((dir) => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -569,6 +570,51 @@ class UploadService {
       const blockBlobClient = containerClient.getBlockBlobClient(blobName);
       await blockBlobClient.uploadData(buffer, {
         blobHTTPHeaders: { blobContentType: mimetype },
+      });
+      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+      return { success: true, statusCode: 200, data: { url: sasUrl } };
+    }
+  }
+
+  /**
+   * Upload Overall Best Performer proof PDF
+   * @param {Object} params - Upload params
+   * @returns {Object} Result object
+   */
+  async uploadOverallBestPerformerProofPDF({ userId, file }) {
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, buffer, mimetype } = file;
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+
+    if (!isPdf) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF files are allowed',
+      };
+    }
+
+    const timestamp = Date.now();
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
+    const blobName = `overall-best-performer-proofs/${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
+      const filepath = path.join(overallBestPerformerProofDocsPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/overall-best-performer-proofs/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    } else {
+      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+      await blockBlobClient.uploadData(buffer, {
+        blobHTTPHeaders: { blobContentType: 'application/pdf' },
       });
       const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
       return { success: true, statusCode: 200, data: { url: sasUrl } };

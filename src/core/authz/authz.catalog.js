@@ -59,6 +59,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.events", "Events", ["/admin/events"]),
   route("route.admin.gymkhanaEvents", "Gymkhana Events", ["/admin/gymkhana-events"]),
   route("route.admin.megaEvents", "Mega Events", ["/admin/mega-events"]),
+  route("route.admin.overallBestPerformer", "Overall Best Performer", ["/admin/overall-best-performer"]),
   route("route.admin.updatePassword", "Update Password", ["/admin/update-password"]),
   route("route.admin.settings", "Settings", ["/admin/settings"]),
   route("route.admin.profile", "Profile", ["/admin/profile"]),
@@ -153,6 +154,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.student.security", "Student Security", ["/student/security"]),
   route("route.student.idCard", "Student ID Card", ["/student/id-card"]),
   route("route.student.undertakings", "Student Undertakings", ["/student/undertakings"]),
+  route("route.student.overallBestPerformer", "Student Overall Best Performer", ["/student/overall-best-performer"]),
   route("route.student.profile", "Student Profile", ["/student/profile"]),
 
   // Gymkhana
