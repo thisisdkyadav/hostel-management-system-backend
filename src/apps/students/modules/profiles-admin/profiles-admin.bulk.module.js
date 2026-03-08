@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
-import { StudentProfile } from '../../../../models/index.js';
+import { Configuration, StudentProfile } from '../../../../models/index.js';
 import { badRequest } from '../../../../services/base/index.js';
-import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
+import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
@@ -136,9 +136,88 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
   }
 });
 
+export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
+  const { degree, department, batch, rollNumbers } = req.body;
+  const normalizedRollNumbers = Array.isArray(rollNumbers)
+    ? [...new Set(rollNumbers.map((rollNumber) => (
+      typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
+    )).filter(Boolean))]
+    : [];
+
+  if (!degree || !department || !batch) {
+    return sendStandardResponse(res, badRequest('degree, department, and batch are required'));
+  }
+
+  if (normalizedRollNumbers.length === 0) {
+    return sendStandardResponse(res, badRequest('Please provide at least one roll number'));
+  }
+
+  if (normalizedRollNumbers.length > MAX_BULK_RECORDS) {
+    return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
+  }
+
+  const session = await mongoose.startSession();
+
+  try {
+    let responsePayload = null;
+
+    await session.withTransaction(async () => {
+      const studentBatchesConfig = await Configuration.findOne({ key: 'studentBatches' }).session(session);
+      const configuredBatches = studentBatchesConfig?.value || {};
+
+      if (!hasConfiguredBatch(configuredBatches, { degree, department, batch })) {
+        responsePayload = badRequest('The selected batch is not configured for the selected degree and department');
+        return;
+      }
+
+      const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
+        .select('rollNumber')
+        .session(session);
+      const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
+      const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
+
+      const students = await StudentProfile.updateMany(
+        { rollNumber: { $in: existingRollNumbers } },
+        { $set: { degree, department, batch } },
+        { session }
+      );
+
+      if (students.matchedCount === 0) {
+        responsePayload = {
+          success: false,
+          statusCode: 404,
+          message: 'No students found to update',
+          errors: unsuccessfulRollNumbers.map((rollNumber) => ({
+            rollNumber,
+            message: 'Student not found',
+          })),
+        };
+        return;
+      }
+
+      responsePayload = {
+        success: true,
+        statusCode: 200,
+        data: {
+          updatedCount: students.modifiedCount,
+          matchedCount: students.matchedCount,
+          unsuccessfulRollNumbers,
+          assignment: { degree, department, batch },
+        },
+        message: 'Students batch updated successfully',
+      };
+    });
+
+    return sendStandardResponse(res, responsePayload);
+  } finally {
+    await session.endSession();
+  }
+});
+
 export const profilesAdminBulkModule = {
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
+  bulkUpdateStudentsBatch,
 };
 
 export default profilesAdminBulkModule;

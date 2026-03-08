@@ -7,9 +7,11 @@
 
 import { Configuration } from '../../../../models/index.js';
 import { defaultConfigs, getConfigWithDefault } from '../../../../utils/configDefaults.js';
+import { normalizeStudentBatchesConfig } from '../../../../utils/index.js';
 import { BaseService, success, notFound, badRequest, error } from '../../../../services/base/index.js';
 
 const ACADEMIC_HOLIDAYS_KEY = "academicHolidays"
+const STUDENT_BATCHES_KEY = "studentBatches"
 const YEAR_KEY_REGEX = /^\d{4}$/
 
 const normalizeHolidayDate = (value) => {
@@ -125,6 +127,12 @@ class ConfigService extends BaseService {
         return badRequest(normalizedHolidays.message)
       }
       normalizedValue = normalizedHolidays.value
+    } else if (key === STUDENT_BATCHES_KEY) {
+      const normalizedStudentBatches = normalizeStudentBatchesConfig(value)
+      if (!normalizedStudentBatches.success) {
+        return badRequest(normalizedStudentBatches.message)
+      }
+      normalizedValue = normalizedStudentBatches.value
     }
 
     const result = await this.upsert(

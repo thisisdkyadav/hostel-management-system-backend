@@ -1,8 +1,8 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcrypt';
-import { StudentProfile, User } from '../../../../models/index.js';
+import { Configuration, StudentProfile, User } from '../../../../models/index.js';
 import { success, badRequest, forbidden, notFound } from '../../../../services/base/index.js';
-import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
+import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
 import { formatDate } from '../../../../utils/utils.js';
 import { getIO } from '../../../../loaders/socket.loader.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
@@ -112,6 +112,7 @@ const buildCreateProfileDoc = (userId, rollNumber) => ({
   rollNumber,
   department: '',
   degree: '',
+  batch: '',
   gender: '',
   dateOfBirth: null,
   address: '',
@@ -256,6 +257,49 @@ const buildUserUpdatePayload = (student, hashedPassword = null) => {
   return userUpdate;
 };
 
+const resolveBatchUpdate = ({ student = {}, currentProfile = {}, studentBatchesConfig = {} }) => {
+  const hasDegreeChange = student.degree !== undefined;
+  const hasDepartmentChange = student.department !== undefined;
+  const hasBatchChange = student.batch !== undefined;
+
+  if (!hasDegreeChange && !hasDepartmentChange && !hasBatchChange) {
+    return { success: true, value: undefined };
+  }
+
+  const nextDegree = hasDegreeChange ? (student.degree || '') : (currentProfile.degree || '');
+  const nextDepartment = hasDepartmentChange ? (student.department || '') : (currentProfile.department || '');
+
+  if (hasBatchChange) {
+    const nextBatch = typeof student.batch === 'string' ? student.batch.trim() : '';
+
+    if (!nextBatch) {
+      return { success: true, value: '' };
+    }
+
+    if (!nextDegree || !nextDepartment) {
+      return {
+        success: false,
+        message: 'Degree and department are required before assigning a batch',
+      };
+    }
+
+    if (!hasConfiguredBatch(studentBatchesConfig, { degree: nextDegree, department: nextDepartment, batch: nextBatch })) {
+      return {
+        success: false,
+        message: `Batch "${nextBatch}" is not configured for ${nextDegree} / ${nextDepartment}`,
+      };
+    }
+
+    return { success: true, value: nextBatch };
+  }
+
+  if (hasDegreeChange || hasDepartmentChange) {
+    return { success: true, value: '' };
+  }
+
+  return { success: true, value: undefined };
+};
+
 const buildChunkPasswordHashes = async (chunkStudents) => {
   const passwordHashesByIndex = new Map();
   const tasks = [];
@@ -289,13 +333,14 @@ const buildChunkPasswordHashes = async (chunkStudents) => {
   return passwordHashesByIndex;
 };
 
-const buildProfileUpdatePayload = (student, currentUserId) => {
+const buildProfileUpdatePayload = (student, currentUserId, batchValue) => {
   const profileUpdate = {};
 
   if (student.gender !== undefined) profileUpdate.gender = student.gender;
   if (student.dateOfBirth !== undefined) profileUpdate.dateOfBirth = formatDate(student.dateOfBirth);
   if (student.department !== undefined) profileUpdate.department = student.department;
   if (student.degree !== undefined) profileUpdate.degree = student.degree;
+  if (batchValue !== undefined) profileUpdate.batch = batchValue;
   if (student.address !== undefined) profileUpdate.address = student.address;
   if (student.admissionDate !== undefined) profileUpdate.admissionDate = formatDate(student.admissionDate);
   if (student.guardian !== undefined) profileUpdate.guardian = student.guardian;
@@ -337,9 +382,13 @@ const processUpdateStudentsChunk = async ({
   }
 
   const existingProfiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } })
-    .select('_id rollNumber userId')
+    .select('_id rollNumber userId degree department batch')
     .session(session)
     .lean();
+
+  const studentBatchesConfig = chunkStudents.some((student) => student.batch !== undefined)
+    ? ((await Configuration.findOne({ key: 'studentBatches' }).session(session))?.value || {})
+    : {};
 
   const profileByRollNumber = new Map();
   existingProfiles.forEach((profile) => {
@@ -382,7 +431,20 @@ const processUpdateStudentsChunk = async ({
       });
     }
 
-    const profileUpdate = buildProfileUpdatePayload(student, currentUserId);
+    const batchResolution = resolveBatchUpdate({
+      student,
+      currentProfile: existingProfile,
+      studentBatchesConfig,
+    });
+    if (!batchResolution.success) {
+      errors.push({
+        student: rollNumber,
+        message: batchResolution.message,
+      });
+      continue;
+    }
+
+    const profileUpdate = buildProfileUpdatePayload(student, currentUserId, batchResolution.value);
     if (Object.keys(profileUpdate).length > 0 && currentUserId) {
       profileBulkOps.push({
         updateOne: {
@@ -783,6 +845,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
     address,
     department,
     degree,
+    batch,
     admissionDate,
     guardian,
     guardianPhone,
@@ -823,6 +886,21 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
     guardianPhone,
     guardianEmail,
   };
+
+  const studentBatchesConfig = batch !== undefined
+    ? ((await Configuration.findOne({ key: 'studentBatches' }))?.value || {})
+    : {};
+  const batchResolution = resolveBatchUpdate({
+    student: { degree, department, batch },
+    currentProfile,
+    studentBatchesConfig,
+  });
+  if (!batchResolution.success) {
+    return sendStandardResponse(res, badRequest(batchResolution.message));
+  }
+  if (batchResolution.value !== undefined) {
+    profileUpdateData.batch = batchResolution.value;
+  }
 
   const updatedProfile = await StudentProfile.findOneAndUpdate(
     { userId },

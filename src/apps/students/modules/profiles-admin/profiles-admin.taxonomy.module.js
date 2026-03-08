@@ -1,6 +1,13 @@
 import { Configuration, StudentProfile } from '../../../../models/index.js';
 import { badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
+import {
+  getBatchOptionsFromConfig,
+  renameBatchInConfig,
+  renameDegreeInConfig,
+  renameDepartmentInConfig,
+} from '../../../../utils/index.js';
+import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 
 export const getDepartmentsList = asyncHandler(async (req, res) => {
   const departments = await StudentProfile.distinct('department');
@@ -27,6 +34,7 @@ export const renameDepartment = asyncHandler(async (req, res) => {
     if (!departments) {
       return notFound('Departments configuration not found');
     }
+    const studentBatches = await Configuration.findOne({ key: 'studentBatches' }).session(session);
 
     await StudentProfile.updateMany(
       { department: oldName },
@@ -38,6 +46,11 @@ export const renameDepartment = asyncHandler(async (req, res) => {
       department === oldName ? newName : department
     ));
     await departments.save({ session });
+
+    if (studentBatches) {
+      studentBatches.value = renameDepartmentInConfig(studentBatches.value, { oldName, newName });
+      await studentBatches.save({ session });
+    }
 
     return {
       success: true,
@@ -75,6 +88,7 @@ export const renameDegree = asyncHandler(async (req, res) => {
     if (!degrees) {
       return notFound('Degrees configuration not found');
     }
+    const studentBatches = await Configuration.findOne({ key: 'studentBatches' }).session(session);
 
     await StudentProfile.updateMany(
       { degree: oldName },
@@ -87,6 +101,11 @@ export const renameDegree = asyncHandler(async (req, res) => {
     ));
     await degrees.save({ session });
 
+    if (studentBatches) {
+      studentBatches.value = renameDegreeInConfig(studentBatches.value, { oldName, newName });
+      await studentBatches.save({ session });
+    }
+
     return {
       success: true,
       statusCode: 200,
@@ -98,11 +117,61 @@ export const renameDegree = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result);
 });
 
+export const getBatchesList = asyncHandler(async (req, res) => {
+  const { degree, department } = req.query;
+  const studentBatchesConfig = await getConfigWithDefault('studentBatches');
+  const batches = getBatchOptionsFromConfig(studentBatchesConfig?.value || {}, { degree, department });
+
+  return sendStandardResponse(res, {
+    success: true,
+    statusCode: 200,
+    data: {
+      batches,
+    },
+    message: 'Batches fetched successfully',
+  });
+});
+
+export const renameBatch = asyncHandler(async (req, res) => {
+  const { degree, department, oldName, newName } = req.body;
+
+  if (!degree || !department || !oldName || !newName) {
+    return sendStandardResponse(res, badRequest('degree, department, oldName, and newName are required'));
+  }
+
+  const result = await withTransaction(async (session) => {
+    const studentBatches = await Configuration.findOne({ key: 'studentBatches' }).session(session);
+    if (!studentBatches) {
+      return notFound('Student batches configuration not found');
+    }
+
+    await StudentProfile.updateMany(
+      { degree, department, batch: oldName },
+      { $set: { batch: newName } },
+      { session }
+    );
+
+    studentBatches.value = renameBatchInConfig(studentBatches.value, { degree, department, oldName, newName });
+    await studentBatches.save({ session });
+
+    return {
+      success: true,
+      statusCode: 200,
+      data: null,
+      message: 'Batch renamed successfully',
+    };
+  });
+
+  return sendStandardResponse(res, result);
+});
+
 export const profilesAdminTaxonomyModule = {
   getDepartmentsList,
   renameDepartment,
   getDegreesList,
   renameDegree,
+  getBatchesList,
+  renameBatch,
 };
 
 export default profilesAdminTaxonomyModule;

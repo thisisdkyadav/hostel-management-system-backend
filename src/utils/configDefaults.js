@@ -10,6 +10,10 @@ export const defaultConfigs = {
     value: ["Computer Science", "Electrical Engineering", "Mechanical Engineering", "Civil Engineering", "Chemical Engineering"],
     description: "List of departments in the institution",
   },
+  studentBatches: {
+    value: {},
+    description: "Batch options grouped by degree and department. Example: { BTech: { \"Computer Science\": [\"2023\", \"2024\"] } }",
+  },
   studentEditableFields: {
     value: ["profileImage", "dateOfBirth"],
     description: "Fields that students are allowed to edit in their profile",

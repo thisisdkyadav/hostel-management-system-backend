@@ -18,6 +18,7 @@ import {
 import {
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
+  bulkUpdateStudentsBatch,
 } from './profiles-admin.bulk.module.js';
 import {
   updateRoomAllocations,
@@ -27,6 +28,8 @@ import {
   renameDepartment,
   getDegreesList,
   renameDegree,
+  getBatchesList,
+  renameBatch,
 } from './profiles-admin.taxonomy.module.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -111,6 +114,12 @@ router.put(
   bulkUpdateDayScholarDetails
 );
 router.put(
+  '/profiles/batch',
+  authorizeRoles(['Admin']),
+  requireStudentsRouteAccess,
+  bulkUpdateStudentsBatch
+);
+router.put(
   '/hostels/:hostelId/room-allocations',
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
@@ -132,11 +141,22 @@ router.get(
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
   getDegreesList
 );
+router.get(
+  '/batches/list',
+  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
+  getBatchesList
+);
 router.put(
   '/degrees/rename',
   authorizeRoles(['Admin']),
   requireAdminSettingsRouteAccess,
   renameDegree
+);
+router.put(
+  '/batches/rename',
+  authorizeRoles(['Admin']),
+  requireAdminSettingsRouteAccess,
+  renameBatch
 );
 
 export default router;

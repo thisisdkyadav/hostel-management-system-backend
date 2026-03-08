@@ -81,6 +81,7 @@ class ProfilesSelfService extends BaseService {
         name: studentProfile.name,
         rollNumber: studentProfile.rollNumber,
         degree: studentProfile.degree,
+        batch: studentProfile.batch,
         year: studentProfile.year,
         hostelName: studentProfile.hostel || null,
         profileImage: studentProfile.profileImage || null,
