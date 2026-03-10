@@ -15,6 +15,7 @@ import {
   submitProcessCase,
   getAdminProcessCases,
   getProcessCaseById,
+  exportProcessCaseBundle,
   saveCaseStageTwo,
   sendCaseEmail,
   uploadCommitteeMinutes,
@@ -102,6 +103,12 @@ router.get(
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
   getProcessCaseById
+);
+router.get(
+  '/process/cases/:caseId/export',
+  authorizeRoles(['Admin', 'Super Admin']),
+  requireDiscoProcessRouteAccess,
+  exportProcessCaseBundle
 );
 router.patch(
   '/process/cases/:caseId/stage2',

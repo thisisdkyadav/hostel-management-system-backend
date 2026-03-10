@@ -3,7 +3,11 @@
  * Handles final disciplinary action CRUD and admin-driven disciplinary process workflow.
  */
 
+import fs from "fs/promises";
+import path from "path";
 import mongoose from "mongoose";
+import axios from "axios";
+import { fileURLToPath } from "url";
 import { DisCoAction, DisCoProcessCase, StudentProfile } from "../../../../models/index.js";
 import {
   BaseService,
@@ -14,6 +18,9 @@ import {
   paginated,
 } from "../../../../services/base/index.js";
 import { emailCustomService } from "../../../administration/modules/email/email.service.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const CASE_STATUS = {
   UNDER_PROCESS: "under_process",
@@ -34,6 +41,27 @@ const ADMIN_DISCIPLINARY_ROLES = new Set([
   "Associate Warden",
   "Hostel Supervisor",
 ]);
+const LOCAL_UPLOADS_BASE_PATH = path.join(
+  __dirname,
+  "..",
+  "..",
+  "..",
+  "..",
+  "..",
+  "uploads"
+);
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+    }
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
 
 const buildTimelineEntry = (action, performedBy, description = "", metadata = {}) => ({
   action,
@@ -75,6 +103,120 @@ const normalizeStatementRole = (role) => {
 const toUniqueIdArray = (items = []) => {
   if (!Array.isArray(items)) return [];
   return [...new Set(items.filter(Boolean).map((value) => String(value)))];
+};
+
+const sanitizeFileNameSegment = (value, fallback = "file") => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return fallback;
+
+  const normalized = trimmed
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/\s+/g, " ")
+    .replace(/\.+/g, ".")
+    .trim()
+    .replace(/^\.+|\.+$/g, "");
+
+  return normalized || fallback;
+};
+
+const sanitizeArchivePath = (value, fallback = "file") => {
+  const segments = String(value || "")
+    .split("/")
+    .map((segment) => sanitizeFileNameSegment(segment, "item"))
+    .filter(Boolean);
+
+  if (segments.length === 0) {
+    return sanitizeFileNameSegment(fallback, "file");
+  }
+
+  return segments.join("/");
+};
+
+const toDosDateTime = (input = new Date()) => {
+  const date = input instanceof Date && !Number.isNaN(input.getTime()) ? input : new Date();
+  const year = Math.max(date.getFullYear(), 1980);
+
+  return {
+    time:
+      ((date.getHours() & 0x1f) << 11) |
+      ((date.getMinutes() & 0x3f) << 5) |
+      (Math.floor(date.getSeconds() / 2) & 0x1f),
+    date: (((year - 1980) & 0x7f) << 9) | (((date.getMonth() + 1) & 0x0f) << 5) | (date.getDate() & 0x1f),
+  };
+};
+
+const computeCrc32 = (buffer) => {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = CRC32_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+};
+
+const createStoredZipBuffer = (entries = []) => {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const entryName = sanitizeArchivePath(entry?.name, "file");
+    const nameBuffer = Buffer.from(entryName, "utf8");
+    const dataBuffer = Buffer.isBuffer(entry?.data)
+      ? entry.data
+      : Buffer.from(typeof entry?.data === "string" ? entry.data : "");
+    const crc32 = computeCrc32(dataBuffer);
+    const { time, date } = toDosDateTime(entry?.date);
+    const utf8Flag = 0x0800;
+
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(utf8Flag, 6);
+    localHeader.writeUInt16LE(0, 8);
+    localHeader.writeUInt16LE(time, 10);
+    localHeader.writeUInt16LE(date, 12);
+    localHeader.writeUInt32LE(crc32, 14);
+    localHeader.writeUInt32LE(dataBuffer.length, 18);
+    localHeader.writeUInt32LE(dataBuffer.length, 22);
+    localHeader.writeUInt16LE(nameBuffer.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(utf8Flag, 8);
+    centralHeader.writeUInt16LE(0, 10);
+    centralHeader.writeUInt16LE(time, 12);
+    centralHeader.writeUInt16LE(date, 14);
+    centralHeader.writeUInt32LE(crc32, 16);
+    centralHeader.writeUInt32LE(dataBuffer.length, 20);
+    centralHeader.writeUInt32LE(dataBuffer.length, 24);
+    centralHeader.writeUInt16LE(nameBuffer.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+
+    localParts.push(localHeader, nameBuffer, dataBuffer);
+    centralParts.push(centralHeader, nameBuffer);
+    offset += localHeader.length + nameBuffer.length + dataBuffer.length;
+  }
+
+  const centralDirectorySize = centralParts.reduce((size, part) => size + part.length, 0);
+  const endRecord = Buffer.alloc(22);
+  endRecord.writeUInt32LE(0x06054b50, 0);
+  endRecord.writeUInt16LE(0, 4);
+  endRecord.writeUInt16LE(0, 6);
+  endRecord.writeUInt16LE(entries.length, 8);
+  endRecord.writeUInt16LE(entries.length, 10);
+  endRecord.writeUInt32LE(centralDirectorySize, 12);
+  endRecord.writeUInt32LE(offset, 16);
+  endRecord.writeUInt16LE(0, 20);
+
+  return Buffer.concat([...localParts, ...centralParts, endRecord]);
 };
 
 const ensureValidObjectIds = (items = [], label = "ids") => {
@@ -170,6 +312,22 @@ const isStageTwoComplete = (caseDoc) => {
 
   return true;
 };
+
+const populateAdminCaseDetail = (query) =>
+  query
+    .populate("submittedBy", "name email")
+    .populate("accusingStudentIds", "name email")
+    .populate("accusedStudentIds", "name email")
+    .populate("statements.studentUserId", "name email")
+    .populate("statements.addedBy", "name email")
+    .populate("evidenceDocuments.uploadedBy", "name email")
+    .populate("extraDocuments.uploadedBy", "name email")
+    .populate("emailLogs.sentBy", "name email")
+    .populate("committeeMeetingMinutes.uploadedBy", "name email")
+    .populate("finalDecision.disciplinedStudentIds", "name email")
+    .populate("finalDecision.studentDisciplinaryActions.studentUserId", "name email")
+    .populate("finalDecision.decidedBy", "name email")
+    .populate("timeline.performedBy", "name email");
 
 const toAdminCaseView = (caseDoc) => ({
   id: caseDoc._id,
@@ -270,6 +428,81 @@ const toAdminCaseView = (caseDoc) => ({
   createdAt: caseDoc.createdAt,
   updatedAt: caseDoc.updatedAt,
 });
+
+const downloadFileBuffer = async (fileUrl) => {
+  if (!fileUrl || typeof fileUrl !== "string") {
+    throw new Error("Invalid file URL");
+  }
+
+  if (fileUrl.startsWith("/uploads/")) {
+    const relativePath = fileUrl.replace(/^\/uploads\//, "");
+    const absolutePath = path.join(LOCAL_UPLOADS_BASE_PATH, relativePath);
+    return fs.readFile(absolutePath);
+  }
+
+  const response = await axios.get(fileUrl, { responseType: "arraybuffer" });
+  return Buffer.from(response.data);
+};
+
+const formatExportDateTime = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
+};
+
+const buildCaseSummaryText = ({ caseView, createdActions, exportedAt, warnings }) => {
+  const lines = [
+    "Disciplinary Process Export",
+    `Case ID: ${caseView.id}`,
+    `Short ID: ${String(caseView.id || "").slice(-6)}`,
+    `Status: ${caseView.caseStatus}`,
+    `Started By: ${caseView.startedBy?.name || "Unknown"}${caseView.startedBy?.email ? ` <${caseView.startedBy.email}>` : ""}`,
+    `Created At: ${formatExportDateTime(caseView.createdAt)}`,
+    `Updated At: ${formatExportDateTime(caseView.updatedAt)}`,
+    `Exported At: ${formatExportDateTime(exportedAt)}`,
+    "",
+    "Selected Students",
+    `Accusing: ${(caseView.selectedStudents?.accusing || []).map((student) => student.name || student.email || student.id).join(", ") || "None"}`,
+    `Accused: ${(caseView.selectedStudents?.accused || []).map((student) => student.name || student.email || student.id).join(", ") || "None"}`,
+    "",
+    "Final Decision",
+    `Status: ${caseView.finalDecision?.status || "pending"}`,
+    `Description: ${caseView.finalDecision?.decisionDescription || "-"}`,
+    `Decided By: ${caseView.finalDecision?.decidedBy?.name || "Unknown"}${caseView.finalDecision?.decidedBy?.email ? ` <${caseView.finalDecision.decidedBy.email}>` : ""}`,
+    `Decided At: ${formatExportDateTime(caseView.finalDecision?.decidedAt) || "-"}`,
+    "",
+    "Database Records",
+    `Created Disciplinary Actions: ${createdActions.length}`,
+  ];
+
+  if (warnings.length > 0) {
+    lines.push("", "Warnings");
+    warnings.forEach((warning) => lines.push(`- ${warning}`));
+  }
+
+  return `${lines.join("\n")}\n`;
+};
+
+const buildCreatedActionExportView = (actions = []) =>
+  actions.map((action) => ({
+    id: action._id,
+    user: toUserRef(action.userId),
+    reason: action.reason || "",
+    actionTaken: action.actionTaken || "",
+    date: action.date || null,
+    remarks: action.remarks || "",
+    reminderItems: (action.reminderItems || []).map((item) => ({
+      id: item._id,
+      action: item.action || "",
+      dueDate: item.dueDate || null,
+      isDone: Boolean(item.isDone),
+      doneAt: item.doneAt || null,
+      doneBy: toUserRef(item.doneBy),
+    })),
+    createdAt: action.createdAt || null,
+    updatedAt: action.updatedAt || null,
+  }));
 
 const normalizeCaseDocumentList = ({ documents, uploadedBy, fallbackName }) => {
   if (!documents) return { list: [] };
@@ -530,26 +763,166 @@ class DisCoService extends BaseService {
       return badRequest("Invalid case id");
     }
 
-    const caseDoc = await DisCoProcessCase.findById(caseId)
-      .populate("submittedBy", "name email")
-      .populate("accusingStudentIds", "name email")
-      .populate("accusedStudentIds", "name email")
-      .populate("statements.studentUserId", "name email")
-      .populate("statements.addedBy", "name email")
-      .populate("evidenceDocuments.uploadedBy", "name email")
-      .populate("extraDocuments.uploadedBy", "name email")
-      .populate("emailLogs.sentBy", "name email")
-      .populate("committeeMeetingMinutes.uploadedBy", "name email")
-      .populate("finalDecision.disciplinedStudentIds", "name email")
-      .populate("finalDecision.studentDisciplinaryActions.studentUserId", "name email")
-      .populate("finalDecision.decidedBy", "name email")
-      .populate("timeline.performedBy", "name email");
+    const caseDoc = await populateAdminCaseDetail(DisCoProcessCase.findById(caseId));
 
     if (!caseDoc) {
       return notFound("Disciplinary process case");
     }
 
     return success({ case: toAdminCaseView(caseDoc) });
+  }
+
+  async exportProcessCaseBundle(caseId) {
+    if (!mongoose.Types.ObjectId.isValid(caseId)) {
+      return badRequest("Invalid case id");
+    }
+
+    const caseDoc = await populateAdminCaseDetail(DisCoProcessCase.findById(caseId));
+    if (!caseDoc) {
+      return notFound("Disciplinary process case");
+    }
+
+    if (caseDoc.finalDecision?.status === FINAL_DECISION_STATUS.PENDING) {
+      return badRequest("Only completed cases can be exported");
+    }
+
+    const createdActions = (caseDoc.finalDecision?.createdDisCoActionIds || []).length
+      ? await DisCoAction.find({ _id: { $in: caseDoc.finalDecision.createdDisCoActionIds } })
+        .populate("userId", "name email")
+        .populate("reminderItems.doneBy", "name email")
+      : [];
+
+    const caseView = toAdminCaseView(caseDoc);
+    const warnings = [];
+    const archiveEntries = [];
+    const exportedAt = new Date();
+    const shortCaseId = String(caseView.id || "").slice(-6) || "case";
+    const fileNameCounters = new Map();
+
+    const buildUniqueArchivePath = (basePath, preferredName) => {
+      const archiveBase = sanitizeArchivePath(basePath, "documents");
+      const safeName = sanitizeFileNameSegment(preferredName, "document.pdf");
+      const key = `${archiveBase}/${safeName}`;
+      const currentCount = fileNameCounters.get(key) || 0;
+      fileNameCounters.set(key, currentCount + 1);
+
+      if (currentCount === 0) {
+        return `${archiveBase}/${safeName}`;
+      }
+
+      const parsed = path.parse(safeName);
+      const suffix = `-${currentCount + 1}`;
+      return `${archiveBase}/${parsed.name || "document"}${suffix}${parsed.ext || ""}`;
+    };
+
+    const pushArchiveFile = async ({ archivePath, fileUrl, fallbackName, warningLabel }) => {
+      try {
+        const data = await downloadFileBuffer(fileUrl);
+        archiveEntries.push({
+          name: buildUniqueArchivePath(archivePath, fallbackName || safeFileNameFromUrl(fileUrl, "document.pdf")),
+          data,
+        });
+      } catch (error) {
+        warnings.push(`${warningLabel} could not be included (${error.message})`);
+      }
+    };
+
+    await pushArchiveFile({
+      archivePath: "documents/complaint",
+      fileUrl: caseView.complaintPdfUrl,
+      fallbackName: caseView.complaintPdfName || "complaint.pdf",
+      warningLabel: "Complaint PDF",
+    });
+
+    for (const statement of caseView.statements || []) {
+      const studentLabel = sanitizeFileNameSegment(
+        statement.student?.name || statement.student?.email || statement.student?.id || "student",
+        "student"
+      );
+      await pushArchiveFile({
+        archivePath: `documents/statements/${statement.studentRole || "student"}`,
+        fileUrl: statement.statementPdfUrl,
+        fallbackName: `${studentLabel}-${statement.statementPdfName || "statement.pdf"}`,
+        warningLabel: `Statement for ${studentLabel}`,
+      });
+    }
+
+    for (const document of caseView.evidenceDocuments || []) {
+      await pushArchiveFile({
+        archivePath: "documents/evidence",
+        fileUrl: document.pdfUrl,
+        fallbackName: document.pdfName || "evidence.pdf",
+        warningLabel: `Evidence document ${document.pdfName || ""}`.trim(),
+      });
+    }
+
+    for (const document of caseView.extraDocuments || []) {
+      await pushArchiveFile({
+        archivePath: "documents/extra-documents",
+        fileUrl: document.pdfUrl,
+        fallbackName: document.pdfName || "extra-document.pdf",
+        warningLabel: `Extra document ${document.pdfName || ""}`.trim(),
+      });
+    }
+
+    if (caseView.committeeMeetingMinutes?.pdfUrl) {
+      await pushArchiveFile({
+        archivePath: "documents/committee-minutes",
+        fileUrl: caseView.committeeMeetingMinutes.pdfUrl,
+        fallbackName: caseView.committeeMeetingMinutes.pdfName || "committee-minutes.pdf",
+        warningLabel: "Committee meeting minutes",
+      });
+    }
+
+    for (const [emailIndex, emailLog] of (caseView.emailLogs || []).entries()) {
+      for (const attachment of emailLog.attachments || []) {
+        await pushArchiveFile({
+          archivePath: `documents/email-attachments/email-${emailIndex + 1}`,
+          fileUrl: attachment.fileUrl,
+          fallbackName: attachment.fileName || safeFileNameFromUrl(attachment.fileUrl, "attachment.pdf"),
+          warningLabel: `Email attachment ${attachment.fileName || attachment.fileUrl}`,
+        });
+      }
+    }
+
+    const exportPayload = {
+      exportedAt,
+      case: caseView,
+      createdDisciplinaryActions: buildCreatedActionExportView(createdActions),
+      warnings,
+    };
+
+    archiveEntries.unshift(
+      {
+        name: "README.txt",
+        data: buildCaseSummaryText({
+          caseView,
+          createdActions,
+          exportedAt,
+          warnings,
+        }),
+      },
+      {
+        name: "case-data.json",
+        data: JSON.stringify(exportPayload, null, 2),
+      }
+    );
+
+    if (warnings.length > 0) {
+      archiveEntries.push({
+        name: "missing-files.txt",
+        data: `${warnings.join("\n")}\n`,
+      });
+    }
+
+    return success(
+      {
+        fileName: sanitizeFileNameSegment(`disciplinary-case-${shortCaseId}.zip`, `disciplinary-case-${shortCaseId}.zip`),
+        contentType: "application/zip",
+        buffer: createStoredZipBuffer(archiveEntries),
+      },
+      200
+    );
   }
 
   /**

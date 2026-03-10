@@ -60,6 +60,25 @@ export const getProcessCaseById = asyncHandler(async (req, res) => {
   sendWithError(res, result);
 });
 
+export const exportProcessCaseBundle = asyncHandler(async (req, res) => {
+  const result = await disCoService.exportProcessCaseBundle(req.params.caseId);
+  if (!result.success) {
+    return res.status(result.statusCode).json({
+      success: false,
+      message: result.message,
+      error: result.error,
+    });
+  }
+
+  const { buffer, fileName, contentType } = result.data || {};
+  res.setHeader("Content-Type", contentType || "application/octet-stream");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${fileName || "disciplinary-case-export.zip"}"; filename*=UTF-8''${encodeURIComponent(fileName || "disciplinary-case-export.zip")}`
+  );
+  return res.status(result.statusCode || 200).send(buffer);
+});
+
 export const saveCaseStageTwo = asyncHandler(async (req, res) => {
   const result = await disCoService.saveCaseStageTwo(req.params.caseId, req.body, req.user);
   sendWithError(res, result);
