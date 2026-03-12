@@ -1,8 +1,69 @@
 import mongoose from 'mongoose';
 import { Hostel, Room, RoomAllocation, StudentProfile, Unit } from '../../../../models/index.js';
-import { badRequest, notFound } from '../../../../services/base/index.js';
+import { badRequest, notFound, success } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
+
+const normalizeAllocationRollNumber = (rollNumber) => (
+  typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
+);
+
+export const getAllocationStudentByRollNumber = asyncHandler(async (req, res) => {
+  const rollNumber = normalizeAllocationRollNumber(req.params.rollNumber);
+
+  if (!rollNumber) {
+    return sendStandardResponse(res, badRequest('Roll number is required'));
+  }
+
+  const studentProfile = await StudentProfile.findOne({ rollNumber })
+    .populate('userId', 'name email profileImage')
+    .populate({
+      path: 'currentRoomAllocation',
+      populate: [
+        {
+          path: 'hostelId',
+          select: 'name type',
+        },
+        {
+          path: 'roomId',
+          select: 'roomNumber unitId',
+          populate: {
+            path: 'unitId',
+            select: 'unitNumber',
+          },
+        },
+      ],
+    });
+
+  if (!studentProfile) {
+    return sendStandardResponse(res, notFound('Student profile not found'));
+  }
+
+  const currentAllocation = studentProfile.currentRoomAllocation
+    ? {
+        hostelId: studentProfile.currentRoomAllocation.hostelId?._id?.toString() || null,
+        hostelName: studentProfile.currentRoomAllocation.hostelId?.name || null,
+        hostelType: studentProfile.currentRoomAllocation.hostelId?.type || null,
+        unitNumber: studentProfile.currentRoomAllocation.roomId?.unitId?.unitNumber || null,
+        roomNumber: studentProfile.currentRoomAllocation.roomId?.roomNumber || null,
+        bedNumber: studentProfile.currentRoomAllocation.bedNumber || null,
+        allocationId: studentProfile.currentRoomAllocation._id?.toString() || null,
+      }
+    : null;
+
+  return sendStandardResponse(res, success({
+    student: {
+      id: studentProfile._id?.toString() || null,
+      userId: studentProfile.userId?._id?.toString() || null,
+      rollNumber: studentProfile.rollNumber,
+      name: studentProfile.userId?.name || null,
+      email: studentProfile.userId?.email || null,
+      profileImage: studentProfile.userId?.profileImage || null,
+      status: studentProfile.status || null,
+      currentAllocation,
+    },
+  }));
+});
 
 export const updateRoomAllocations = asyncHandler(async (req, res) => {
   const { hostelId } = req.params;
@@ -205,6 +266,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
 });
 
 export const profilesAdminAllocationsModule = {
+  getAllocationStudentByRollNumber,
   updateRoomAllocations,
 };
 

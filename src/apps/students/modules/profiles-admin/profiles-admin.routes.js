@@ -21,6 +21,7 @@ import {
   bulkUpdateStudentsBatch,
 } from './profiles-admin.bulk.module.js';
 import {
+  getAllocationStudentByRollNumber,
   updateRoomAllocations,
 } from './profiles-admin.allocations.module.js';
 import {
@@ -124,6 +125,12 @@ router.put(
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
   updateRoomAllocations
+);
+router.get(
+  '/room-allocations/student/:rollNumber',
+  authorizeRoles(['Admin']),
+  requireStudentsRouteAccess,
+  getAllocationStudentByRollNumber
 );
 router.get(
   '/departments/list',
