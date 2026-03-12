@@ -1,0 +1,195 @@
+import mongoose from "mongoose"
+
+const EligibilityScopeSchema = new mongoose.Schema(
+  {
+    batches: {
+      type: [String],
+      default: [],
+    },
+    extraRollNumbers: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false }
+)
+
+const ElectionCommissionSchema = new mongoose.Schema(
+  {
+    chiefElectionOfficerRollNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+    officerRollNumbers: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false }
+)
+
+const ElectionPostRequirementsSchema = new mongoose.Schema(
+  {
+    minCgpa: {
+      type: Number,
+      default: 6,
+    },
+    minCompletedSemestersUg: {
+      type: Number,
+      default: 3,
+    },
+    minCompletedSemestersPg: {
+      type: Number,
+      default: 1,
+    },
+    minRemainingSemesters: {
+      type: Number,
+      default: 2,
+    },
+    proposersRequired: {
+      type: Number,
+      default: 3,
+    },
+    secondersRequired: {
+      type: Number,
+      default: 5,
+    },
+    requireElectorateMembership: {
+      type: Boolean,
+      default: true,
+    },
+    requireHostelResident: {
+      type: Boolean,
+      default: false,
+    },
+    allowedHostelNames: {
+      type: [String],
+      default: [],
+    },
+    notes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  { _id: false }
+)
+
+const ElectionPostSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    code: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      default: "",
+    },
+    category: {
+      type: String,
+      enum: ["executive", "senator", "horc", "custom"],
+      default: "custom",
+    },
+    description: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    candidateEligibility: {
+      type: EligibilityScopeSchema,
+      default: () => ({}),
+    },
+    voterEligibility: {
+      type: EligibilityScopeSchema,
+      default: () => ({}),
+    },
+    requirements: {
+      type: ElectionPostRequirementsSchema,
+      default: () => ({}),
+    },
+  },
+  { _id: true }
+)
+
+const ElectionTimelineSchema = new mongoose.Schema(
+  {
+    announcementAt: { type: Date, required: true },
+    nominationStartAt: { type: Date, required: true },
+    nominationEndAt: { type: Date, required: true },
+    withdrawalEndAt: { type: Date, required: true },
+    campaigningStartAt: { type: Date, required: true },
+    campaigningEndAt: { type: Date, required: true },
+    votingStartAt: { type: Date, required: true },
+    votingEndAt: { type: Date, required: true },
+    resultsAnnouncedAt: { type: Date, required: true },
+    handoverAt: { type: Date, default: null },
+  },
+  { _id: false }
+)
+
+const ElectionSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    academicYear: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    phase: {
+      type: String,
+      enum: ["phase1", "horc", "custom"],
+      default: "phase1",
+    },
+    description: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    status: {
+      type: String,
+      enum: ["draft", "published", "completed", "cancelled"],
+      default: "draft",
+    },
+    electionCommission: {
+      type: ElectionCommissionSchema,
+      default: () => ({}),
+    },
+    timeline: {
+      type: ElectionTimelineSchema,
+      required: true,
+    },
+    posts: {
+      type: [ElectionPostSchema],
+      default: [],
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+  },
+  {
+    timestamps: true,
+  }
+)
+
+ElectionSchema.index({ status: 1, "timeline.votingStartAt": -1 })
+ElectionSchema.index({ academicYear: 1, phase: 1, createdAt: -1 })
+
+const Election = mongoose.model("Election", ElectionSchema)
+
+export default Election
