@@ -38,10 +38,11 @@ const eventReportDocsPath = path.join(uploadsBasePath, 'event-report-docs');
 const disCoProcessDocsPath = path.join(uploadsBasePath, 'disco-process-docs');
 const certificatesPath = path.join(uploadsBasePath, 'certificates');
 const overallBestPerformerProofDocsPath = path.join(uploadsBasePath, 'overall-best-performer-proofs');
+const electionNominationDocsPath = path.join(uploadsBasePath, 'election-nomination-docs');
 
 // Ensure directories exist
 if (USE_LOCAL_STORAGE) {
-  [profileImagesPath, studentIdCardsPath, h2FormsPath, eventProposalDocsPath, eventChiefGuestDocsPath, eventBillDocsPath, eventReportDocsPath, disCoProcessDocsPath, certificatesPath, overallBestPerformerProofDocsPath].forEach((dir) => {
+  [profileImagesPath, studentIdCardsPath, h2FormsPath, eventProposalDocsPath, eventChiefGuestDocsPath, eventBillDocsPath, eventReportDocsPath, disCoProcessDocsPath, certificatesPath, overallBestPerformerProofDocsPath, electionNominationDocsPath].forEach((dir) => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -49,6 +50,63 @@ if (USE_LOCAL_STORAGE) {
 }
 
 class UploadService {
+  _validateMixedDocument(file) {
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, mimetype } = file;
+    const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+    const isImage = allowedMimeTypes.slice(1).includes(mimetype);
+
+    if (!isPdf && !isImage) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF and image files are allowed',
+      };
+    }
+
+    return {
+      success: true,
+      isPdf,
+    };
+  }
+
+  async _uploadMixedDocument({ userId, file, localDirPath, localUrlPrefix, blobPrefix }) {
+    const validation = this._validateMixedDocument(file);
+    if (!validation.success) {
+      return validation;
+    }
+
+    const { originalname, buffer, mimetype } = file;
+    const timestamp = Date.now();
+    const parsed = path.parse(originalname);
+    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, '_');
+    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : validation.isPdf ? '.pdf' : '.png';
+    const blobName = `${blobPrefix}/${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
+      const filepath = path.join(localDirPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `${localUrlPrefix}/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    }
+
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    await blockBlobClient.uploadData(buffer, {
+      blobHTTPHeaders: { blobContentType: mimetype },
+    });
+    const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+    return { success: true, statusCode: 200, data: { url: sasUrl } };
+  }
+
   /**
    * Generate SAS URL for Azure blob
    * @private
@@ -531,49 +589,28 @@ class UploadService {
    * @returns {Object} Result object
    */
   async uploadCertificate({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
+    return this._uploadMixedDocument({
+      userId,
+      file,
+      localDirPath: certificatesPath,
+      localUrlPrefix: '/uploads/certificates',
+      blobPrefix: 'certificates',
+    });
+  }
 
-    const { originalname, buffer, mimetype } = file;
-
-    // Validation for PDF and image types
-    const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    const isImage = allowedMimeTypes.slice(1).includes(mimetype);
-
-    if (!isPdf && !isImage) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF and image files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const parsed = path.parse(originalname);
-    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, '_');
-    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : isPdf ? '.pdf' : '.png';
-    const blobName = `certificates/${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-      const filepath = path.join(certificatesPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/certificates/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: mimetype },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
+  /**
+   * Upload election nomination document
+   * @param {Object} params - Upload params
+   * @returns {Object} Result object
+   */
+  async uploadElectionNominationDocument({ userId, file }) {
+    return this._uploadMixedDocument({
+      userId,
+      file,
+      localDirPath: electionNominationDocsPath,
+      localUrlPrefix: '/uploads/election-nomination-docs',
+      blobPrefix: 'election-nomination-docs',
+    });
   }
 
   /**

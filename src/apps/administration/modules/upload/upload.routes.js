@@ -19,6 +19,7 @@ import {
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
+  uploadElectionNominationDocument,
   uploadOverallBestPerformerProofPDF,
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
@@ -38,6 +39,11 @@ const OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE = {
   [ROLES.ADMIN]: 'route.admin.overallBestPerformer',
 };
 
+const ELECTION_UPLOAD_ROUTE_KEYS_BY_ROLE = {
+  [ROLES.STUDENT]: 'route.student.elections',
+  [ROLES.ADMIN]: 'route.admin.elections',
+};
+
 const requireGymkhanaEventUploadRouteAccess = (req, res, next) => {
   const routeKey = GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
   if (!routeKey) {
@@ -48,6 +54,14 @@ const requireGymkhanaEventUploadRouteAccess = (req, res, next) => {
 
 const requireOverallBestPerformerUploadRouteAccess = (req, res, next) => {
   const routeKey = OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return next();
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
+
+const requireElectionUploadRouteAccess = (req, res, next) => {
+  const routeKey = ELECTION_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
   if (!routeKey) {
     return next();
   }
@@ -149,6 +163,15 @@ router.post(
 
 // Certificate upload
 router.post('/certificate', authorizeRoles(['Admin']), upload.any(), uploadCertificate);
+
+// Election nomination document upload
+router.post(
+  '/election-nomination-document',
+  authorizeRoles(['Student', 'Admin', 'Super Admin']),
+  requireElectionUploadRouteAccess,
+  upload.any(),
+  uploadElectionNominationDocument
+);
 
 // Overall Best Performer proof PDF upload
 router.post(

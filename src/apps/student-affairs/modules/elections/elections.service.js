@@ -41,6 +41,10 @@ const isAdminUser = (user) => {
   return user?.role === ROLES.ADMIN || user?.role === ROLES.SUPER_ADMIN
 }
 
+const hasUploadedIdCard = (studentProfile) => {
+  return Boolean(studentProfile?.idCard?.front || studentProfile?.idCard?.back)
+}
+
 const getCurrentStage = (election, currentTime = new Date()) => {
   if (!election) return ELECTION_STAGE.DRAFT
   if (election.status === ELECTION_STATUS.CANCELLED) return ELECTION_STAGE.CANCELLED
@@ -402,8 +406,11 @@ const serializeNomination = (nomination) => ({
   proposerRollNumbers: nomination.proposerRollNumbers || [],
   seconderRollNumbers: nomination.seconderRollNumbers || [],
   gradeCardUrl: nomination.gradeCardUrl || "",
-  identityCardUrl: nomination.identityCardUrl || "",
   manifestoUrl: nomination.manifestoUrl || "",
+  candidateIdCard: {
+    front: nomination.candidateProfileId?.idCard?.front || "",
+    back: nomination.candidateProfileId?.idCard?.back || "",
+  },
   attachments: nomination.attachments || [],
   status: nomination.status,
   review: nomination.review || {},
@@ -563,6 +570,7 @@ class ElectionsService {
     if (isAdminUser(user)) {
       const nominations = await ElectionNomination.find({ electionId: election._id })
         .populate({ path: "candidateUserId", select: "name email" })
+        .populate({ path: "candidateProfileId", select: "idCard" })
         .sort({ createdAt: -1 })
 
       response.nominations = nominations.map(serializeNomination)
@@ -668,7 +676,9 @@ class ElectionsService {
       ElectionNomination.find({
         electionId: { $in: electionIds },
         candidateUserId: user._id,
-      }).populate({ path: "candidateUserId", select: "name email" }),
+      })
+        .populate({ path: "candidateUserId", select: "name email" })
+        .populate({ path: "candidateProfileId", select: "idCard" }),
       ElectionVote.find({
         electionId: { $in: electionIds },
         voterUserId: user._id,
@@ -689,7 +699,9 @@ class ElectionsService {
       const approvedNominations = await ElectionNomination.find({
         electionId: election._id,
         status: NOMINATION_STATUS.VERIFIED,
-      }).populate({ path: "candidateUserId", select: "name email" })
+      })
+        .populate({ path: "candidateUserId", select: "name email" })
+        .populate({ path: "candidateProfileId", select: "idCard" })
 
       const approvedByPost = approvedNominations.reduce((acc, nomination) => {
         const key = String(nomination.postId)
@@ -757,6 +769,10 @@ class ElectionsService {
 
     if (!doesProfileMatchScope(studentProfile, post.candidateEligibility)) {
       return forbidden("You are not eligible to contest for this post")
+    }
+
+    if (!hasUploadedIdCard(studentProfile)) {
+      return forbidden("Upload your student ID card before submitting nomination")
     }
 
     const commissionRollNumbers = buildCommissionRollNumberSet(election)
@@ -916,7 +932,6 @@ class ElectionsService {
       proposerRollNumbers,
       seconderRollNumbers,
       gradeCardUrl: String(payload.gradeCardUrl || "").trim(),
-      identityCardUrl: String(payload.identityCardUrl || "").trim(),
       manifestoUrl: String(payload.manifestoUrl || "").trim(),
       attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
       status: NOMINATION_STATUS.SUBMITTED,
@@ -936,6 +951,7 @@ class ElectionsService {
     }
 
     await nomination.populate({ path: "candidateUserId", select: "name email" })
+    await nomination.populate({ path: "candidateProfileId", select: "idCard" })
 
     return success(
       serializeNomination(nomination),
@@ -957,7 +973,9 @@ class ElectionsService {
       _id: nominationId,
       electionId: election._id,
       candidateUserId: user._id,
-    }).populate({ path: "candidateUserId", select: "name email" })
+    })
+      .populate({ path: "candidateUserId", select: "name email" })
+      .populate({ path: "candidateProfileId", select: "idCard" })
 
     if (!nomination) return notFound("Nomination")
 
@@ -979,7 +997,9 @@ class ElectionsService {
     const nomination = await ElectionNomination.findOne({
       _id: nominationId,
       electionId: election._id,
-    }).populate({ path: "candidateUserId", select: "name email" })
+    })
+      .populate({ path: "candidateUserId", select: "name email" })
+      .populate({ path: "candidateProfileId", select: "idCard" })
 
     if (!nomination) return notFound("Nomination")
 
