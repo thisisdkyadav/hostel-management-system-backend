@@ -129,6 +129,16 @@ export const castVoteSchema = Joi.object({
   candidateNominationId: objectId.required(),
 })
 
+export const publishResultsSchema = Joi.object({
+  posts: Joi.array().items(
+    Joi.object({
+      postId: objectId.required(),
+      winnerNominationId: objectId.allow(null, ""),
+      notes: Joi.string().trim().max(3000).allow("").default(""),
+    })
+  ).default([]),
+})
+
 export default {
   electionIdSchema,
   nominationIdSchema,
@@ -139,4 +149,5 @@ export default {
   upsertNominationSchema,
   reviewNominationSchema,
   castVoteSchema,
+  publishResultsSchema,
 }

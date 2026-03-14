@@ -66,6 +66,11 @@ export const castVote = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const publishResults = asyncHandler(async (req, res) => {
+  const result = await electionsService.publishResults(req.params.id, req.body, req.user)
+  return sendStandardResponse(res, result)
+})
+
 export default {
   listAdminElections,
   getElectionDetail,
@@ -77,4 +82,5 @@ export default {
   withdrawNomination,
   reviewNomination,
   castVote,
+  publishResults,
 }

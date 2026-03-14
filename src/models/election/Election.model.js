@@ -132,6 +132,49 @@ const ElectionTimelineSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const ElectionResultPostSchema = new mongoose.Schema(
+  {
+    postId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
+    winnerNominationId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "ElectionNomination",
+      default: null,
+    },
+    notes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  { _id: false }
+)
+
+const ElectionResultPublicationSchema = new mongoose.Schema(
+  {
+    isPublished: {
+      type: Boolean,
+      default: false,
+    },
+    publishedAt: {
+      type: Date,
+      default: null,
+    },
+    publishedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    posts: {
+      type: [ElectionResultPostSchema],
+      default: [],
+    },
+  },
+  { _id: false }
+)
+
 const ElectionSchema = new mongoose.Schema(
   {
     title: {
@@ -170,6 +213,10 @@ const ElectionSchema = new mongoose.Schema(
     posts: {
       type: [ElectionPostSchema],
       default: [],
+    },
+    resultPublication: {
+      type: ElectionResultPublicationSchema,
+      default: () => ({}),
     },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -103,4 +103,13 @@ router.post(
   controller.castVote
 )
 
+router.post(
+  "/:id/results/publish",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.electionIdSchema, "params"),
+  validate(validation.publishResultsSchema),
+  controller.publishResults
+)
+
 export default router

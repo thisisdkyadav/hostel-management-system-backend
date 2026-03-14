@@ -107,12 +107,19 @@ const getCurrentStage = (election, currentTime = new Date()) => {
 }
 
 const isStudentPortalVisibleStage = (stage) => {
-  return [ELECTION_STAGE.NOMINATION, ELECTION_STAGE.WITHDRAWAL, ELECTION_STAGE.VOTING].includes(stage)
+  return [
+    ELECTION_STAGE.NOMINATION,
+    ELECTION_STAGE.WITHDRAWAL,
+    ELECTION_STAGE.VOTING,
+    ELECTION_STAGE.RESULTS,
+    ELECTION_STAGE.HANDOVER,
+  ].includes(stage)
 }
 
 const getStudentPortalMode = (stage) => {
   if (stage === ELECTION_STAGE.VOTING) return "voting"
   if ([ELECTION_STAGE.NOMINATION, ELECTION_STAGE.WITHDRAWAL].includes(stage)) return "participation"
+  if ([ELECTION_STAGE.RESULTS, ELECTION_STAGE.HANDOVER].includes(stage)) return "results"
   return "none"
 }
 
@@ -437,6 +444,92 @@ const serializeElectionBase = (election) => ({
   updatedAt: election.updatedAt,
 })
 
+const buildPublishedResultMap = (election) =>
+  new Map(
+    (election?.resultPublication?.posts || []).map((item) => [
+      String(item.postId),
+      {
+        winnerNominationId: item.winnerNominationId ? String(item.winnerNominationId) : null,
+        notes: item.notes || "",
+      },
+    ])
+  )
+
+const buildElectionResults = async (election) => {
+  const verifiedNominations = await ElectionNomination.find({
+    electionId: election._id,
+    status: NOMINATION_STATUS.VERIFIED,
+  }).populate({ path: "candidateUserId", select: "name email" })
+
+  const voteCounts = await ElectionVote.aggregate([
+    {
+      $match: {
+        electionId: new mongoose.Types.ObjectId(String(election._id)),
+      },
+    },
+    {
+      $group: {
+        _id: {
+          postId: "$postId",
+          candidateNominationId: "$candidateNominationId",
+        },
+        count: { $sum: 1 },
+      },
+    },
+  ])
+
+  const voteMap = new Map(
+    voteCounts.map((item) => [
+      `${String(item._id.postId)}:${String(item._id.candidateNominationId)}`,
+      Number(item.count || 0),
+    ])
+  )
+  const publishedResultMap = buildPublishedResultMap(election)
+
+  const posts = (election.posts || []).map((post) => {
+    const postId = String(post._id)
+    const postNominations = verifiedNominations
+      .filter((nomination) => String(nomination.postId) === postId)
+      .map((nomination) => ({
+        nominationId: String(nomination._id),
+        candidateName: nomination.candidateUserId?.name || nomination.candidateRollNumber,
+        candidateEmail: nomination.candidateUserId?.email || "",
+        candidateRollNumber: nomination.candidateRollNumber,
+        voteCount: voteMap.get(`${postId}:${String(nomination._id)}`) || 0,
+      }))
+      .sort((left, right) => {
+        if (right.voteCount !== left.voteCount) return right.voteCount - left.voteCount
+        return String(left.candidateName || "").localeCompare(String(right.candidateName || ""))
+      })
+
+    const previewWinner = postNominations[0] || null
+    const publishedResult = publishedResultMap.get(postId) || null
+    const publishedWinner =
+      postNominations.find(
+        (candidate) => String(candidate.nominationId) === String(publishedResult?.winnerNominationId || "")
+      ) || null
+
+    return {
+      postId,
+      postTitle: post.title,
+      totalVotes: postNominations.reduce((total, item) => total + Number(item.voteCount || 0), 0),
+      candidates: postNominations,
+      previewWinnerNominationId: previewWinner?.nominationId || null,
+      previewWinnerName: previewWinner?.candidateName || "",
+      publishedWinnerNominationId: publishedResult?.winnerNominationId || null,
+      publishedWinnerName: publishedWinner?.candidateName || "",
+      notes: publishedResult?.notes || "",
+    }
+  })
+
+  return {
+    isPublished: Boolean(election?.resultPublication?.isPublished),
+    publishedAt: election?.resultPublication?.publishedAt || null,
+    publishedBy: election?.resultPublication?.publishedBy || null,
+    posts,
+  }
+}
+
 const getNominationCountsByPost = async (electionId) => {
   const counts = await ElectionNomination.aggregate([
     {
@@ -513,6 +606,7 @@ const getRelevantPostsForStudent = (election, studentProfile, posts = [], myNomi
 
     if (mode === "voting") return canVote || Boolean(myVote)
     if (mode === "participation") return canStand || Boolean(myNomination)
+    if (mode === "results") return canStand || canVote || Boolean(myNomination) || Boolean(myVote)
     return false
   })
 }
@@ -565,6 +659,7 @@ class ElectionsService {
     const response = {
       ...base,
       posts,
+      results: await buildElectionResults(election),
     }
 
     if (isAdminUser(user)) {
@@ -645,6 +740,12 @@ class ElectionsService {
       if (getStudentPortalMode(stage) === "participation") {
         return (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.candidateEligibility))
       }
+      if (getStudentPortalMode(stage) === "results") {
+        return (election.posts || []).some((post) =>
+          doesProfileMatchScope(studentProfile, post.candidateEligibility) ||
+          doesProfileMatchScope(studentProfile, post.voterEligibility)
+        )
+      }
       return false
     })
     const modes = relevantElections.map((election) => getStudentPortalMode(getCurrentStage(election)))
@@ -653,12 +754,14 @@ class ElectionsService {
       ? "voting"
       : modes.includes("participation")
         ? "participation"
+        : modes.includes("results")
+          ? "results"
         : "none"
 
     return success({
       canAccessPortal: mode !== "none",
       mode,
-      navLabel: mode === "voting" ? "Voting" : mode === "participation" ? "Participation" : "Elections",
+      navLabel: "Elections",
       electionCount: relevantElections.length,
     })
   }
@@ -696,6 +799,10 @@ class ElectionsService {
     for (const election of elections) {
       const stage = getCurrentStage(election)
       const electionMode = getStudentPortalMode(stage)
+      const electionResults = await buildElectionResults(election)
+      const resultsByPost = new Map(
+        (electionResults.posts || []).map((item) => [String(item.postId), item])
+      )
       const approvedNominations = await ElectionNomination.find({
         electionId: election._id,
         status: NOMINATION_STATUS.VERIFIED,
@@ -731,6 +838,7 @@ class ElectionsService {
           hasVoted: Boolean(myVote),
           votedCandidateNominationId: myVote?.candidateNominationId || null,
           approvedCandidates: approvedByPost[String(post._id)] || [],
+          results: resultsByPost.get(String(post._id)) || null,
         }
       })
 
@@ -741,6 +849,7 @@ class ElectionsService {
       currentElections.push({
         ...serializeElectionBase(election),
         mode: electionMode,
+        results: electionResults,
         posts,
       })
     }
@@ -1076,6 +1185,54 @@ class ElectionsService {
       },
       200,
       "Vote cast successfully"
+    )
+  }
+
+  async publishResults(electionId, payload, user) {
+    const election = await Election.findById(electionId)
+    if (!election) return notFound("Election")
+
+    const computedResults = await buildElectionResults(election)
+    const requestedPosts = new Map(
+      (payload?.posts || []).map((item) => [String(item.postId), item])
+    )
+
+    const publicationPosts = []
+    for (const postResult of computedResults.posts) {
+      const requested = requestedPosts.get(String(postResult.postId)) || {}
+      const winnerNominationId = requested.winnerNominationId
+        ? String(requested.winnerNominationId)
+        : postResult.previewWinnerNominationId
+
+      if (
+        winnerNominationId &&
+        !postResult.candidates.some((candidate) => String(candidate.nominationId) === winnerNominationId)
+      ) {
+        return badRequest(`Selected winner is invalid for ${postResult.postTitle}`)
+      }
+
+      publicationPosts.push({
+        postId: new mongoose.Types.ObjectId(String(postResult.postId)),
+        winnerNominationId: winnerNominationId ? new mongoose.Types.ObjectId(winnerNominationId) : null,
+        notes: String(requested.notes || "").trim(),
+      })
+    }
+
+    election.resultPublication = {
+      isPublished: true,
+      publishedAt: new Date(),
+      publishedBy: user._id,
+      posts: publicationPosts,
+    }
+    election.updatedBy = user._id
+    await election.save()
+
+    return success(
+      {
+        results: await buildElectionResults(election),
+      },
+      200,
+      "Results published successfully"
     )
   }
 }
