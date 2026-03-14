@@ -88,19 +88,17 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
       const { isDayScholar, dayScholarDetails } = studentData;
 
       if (isDayScholar) {
-        const isIncomplete = !dayScholarDetails
-          || !dayScholarDetails.address
-          || !dayScholarDetails.ownerName
-          || !dayScholarDetails.ownerPhone
-          || !dayScholarDetails.ownerEmail;
-
-        if (isIncomplete) {
-          errors.push({ rollNumber, error: 'Incomplete day scholar details' });
-          continue;
-        }
-
         student.isDayScholar = true;
-        student.dayScholarDetails = dayScholarDetails;
+        if (dayScholarDetails && typeof dayScholarDetails === 'object' && !Array.isArray(dayScholarDetails)) {
+          student.dayScholarDetails = {
+            address: dayScholarDetails.address || '',
+            ownerName: dayScholarDetails.ownerName || '',
+            ownerPhone: dayScholarDetails.ownerPhone || '',
+            ownerEmail: dayScholarDetails.ownerEmail || '',
+          };
+        } else if (!student.dayScholarDetails) {
+          student.dayScholarDetails = null;
+        }
       } else {
         student.isDayScholar = false;
         student.dayScholarDetails = null;
