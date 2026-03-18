@@ -110,17 +110,6 @@ const splitIntoChunks = (items, chunkSize) => {
 const buildCreateProfileDoc = (userId, rollNumber) => ({
   userId,
   rollNumber,
-  department: '',
-  degree: '',
-  batch: '',
-  gender: '',
-  dateOfBirth: null,
-  address: '',
-  admissionDate: null,
-  guardian: '',
-  guardianPhone: '',
-  guardianEmail: '',
-  status: 'Active',
 });
 
 const validateCreateStudents = (students) => {
@@ -211,8 +200,6 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
         email: student.email,
         name: student.name,
         role: 'Student',
-        phone: '',
-        profileImage: '',
         password: hashedPassword,
       };
     })
