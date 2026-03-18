@@ -8,11 +8,10 @@ import {
 } from "./elections.constants.js"
 
 const rollNumber = Joi.string().trim().uppercase().max(30)
-const url = Joi.string().uri().allow("")
-const uploadedDocumentPath = Joi.string()
+const uploadedPdfPath = Joi.string()
   .trim()
   .max(2000)
-  .pattern(/^(\/uploads\/|https?:\/\/)/, "uploaded document path")
+  .pattern(/^(\/uploads\/|https?:\/\/).+\.pdf(\?.*)?$/i, "uploaded PDF path")
 
 const eligibilityScopeSchema = Joi.object({
   batches: Joi.array().items(Joi.string().trim().max(100)).default([]),
@@ -108,8 +107,9 @@ export const upsertNominationSchema = Joi.object({
   remainingSemesters: Joi.number().integer().min(0).required(),
   proposerRollNumbers: Joi.array().items(rollNumber).min(0).max(20).default([]),
   seconderRollNumbers: Joi.array().items(rollNumber).min(0).max(20).default([]),
-  gradeCardUrl: uploadedDocumentPath.required(),
-  manifestoUrl: uploadedDocumentPath.allow("").default(""),
+  gradeCardUrl: uploadedPdfPath.required(),
+  manifestoUrl: uploadedPdfPath.allow("").default(""),
+  porDocumentUrl: uploadedPdfPath.allow("").default(""),
   attachments: Joi.array().items(
     Joi.object({
       label: Joi.string().trim().min(1).max(120).required(),

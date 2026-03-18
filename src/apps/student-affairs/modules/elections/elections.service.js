@@ -414,6 +414,7 @@ const serializeNomination = (nomination) => ({
   seconderRollNumbers: nomination.seconderRollNumbers || [],
   gradeCardUrl: nomination.gradeCardUrl || "",
   manifestoUrl: nomination.manifestoUrl || "",
+  porDocumentUrl: nomination.porDocumentUrl || "",
   candidateIdCard: {
     front: nomination.candidateProfileId?.idCard?.front || "",
     back: nomination.candidateProfileId?.idCard?.back || "",
@@ -1056,6 +1057,7 @@ class ElectionsService {
       seconderRollNumbers,
       gradeCardUrl: String(payload.gradeCardUrl || "").trim(),
       manifestoUrl: String(payload.manifestoUrl || "").trim(),
+      porDocumentUrl: String(payload.porDocumentUrl || "").trim(),
       attachments: Array.isArray(payload.attachments) ? payload.attachments : [],
       status: NOMINATION_STATUS.SUBMITTED,
       review: {

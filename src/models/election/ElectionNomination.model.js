@@ -130,6 +130,11 @@ const ElectionNominationSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    porDocumentUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     attachments: {
       type: [ElectionAttachmentSchema],
       default: [],

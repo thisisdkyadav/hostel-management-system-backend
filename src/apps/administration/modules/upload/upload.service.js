@@ -604,13 +604,43 @@ class UploadService {
    * @returns {Object} Result object
    */
   async uploadElectionNominationDocument({ userId, file }) {
-    return this._uploadMixedDocument({
-      userId,
-      file,
-      localDirPath: electionNominationDocsPath,
-      localUrlPrefix: '/uploads/election-nomination-docs',
-      blobPrefix: 'election-nomination-docs',
+    if (!file) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'No file uploaded',
+      };
+    }
+
+    const { originalname, buffer, mimetype } = file;
+    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+
+    if (!isPdf) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Only PDF files are allowed',
+      };
+    }
+
+    const timestamp = Date.now();
+    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
+    const blobName = `election-nomination-docs/${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
+
+    if (USE_LOCAL_STORAGE) {
+      const filename = `${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
+      const filepath = path.join(electionNominationDocsPath, filename);
+      fs.writeFileSync(filepath, buffer);
+      const url = `/uploads/election-nomination-docs/${filename}`;
+      return { success: true, statusCode: 200, data: { url } };
+    }
+
+    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
+    await blockBlobClient.uploadData(buffer, {
+      blobHTTPHeaders: { blobContentType: 'application/pdf' },
     });
+    const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
+    return { success: true, statusCode: 200, data: { url: sasUrl } };
   }
 
   /**
