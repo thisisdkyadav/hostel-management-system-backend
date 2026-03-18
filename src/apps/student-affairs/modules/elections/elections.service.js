@@ -554,6 +554,7 @@ const getNominationCountsByPost = async (electionId) => {
       acc[postId] = {
         submitted: 0,
         verified: 0,
+        modification_requested: 0,
         rejected: 0,
         withdrawn: 0,
       }
@@ -650,6 +651,7 @@ class ElectionsService {
       nominationCounts: nominationCountsByPost[String(post._id)] || {
         submitted: 0,
         verified: 0,
+        modification_requested: 0,
         rejected: 0,
         withdrawn: 0,
       },
@@ -934,7 +936,11 @@ class ElectionsService {
       electionId: election._id,
       candidateUserId: user._id,
       status: {
-        $in: [NOMINATION_STATUS.SUBMITTED, NOMINATION_STATUS.VERIFIED],
+        $in: [
+          NOMINATION_STATUS.SUBMITTED,
+          NOMINATION_STATUS.MODIFICATION_REQUESTED,
+          NOMINATION_STATUS.VERIFIED,
+        ],
       },
       postId: {
         $ne: post._id,
@@ -986,7 +992,11 @@ class ElectionsService {
       electionId: election._id,
       candidateUserId: { $in: supporterUserIds },
       status: {
-        $in: [NOMINATION_STATUS.SUBMITTED, NOMINATION_STATUS.VERIFIED],
+        $in: [
+          NOMINATION_STATUS.SUBMITTED,
+          NOMINATION_STATUS.MODIFICATION_REQUESTED,
+          NOMINATION_STATUS.VERIFIED,
+        ],
       },
     })
     if (candidateSupporterConflict) {
@@ -1004,7 +1014,11 @@ class ElectionsService {
       postId: post._id,
       _id: nomination?._id ? { $ne: nomination._id } : { $exists: true },
       status: {
-        $in: [NOMINATION_STATUS.SUBMITTED, NOMINATION_STATUS.VERIFIED],
+        $in: [
+          NOMINATION_STATUS.SUBMITTED,
+          NOMINATION_STATUS.MODIFICATION_REQUESTED,
+          NOMINATION_STATUS.VERIFIED,
+        ],
       },
       $or: [
         { proposerUserIds: { $in: supporterUserIds } },

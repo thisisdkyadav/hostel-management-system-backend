@@ -21,6 +21,7 @@ export const ELECTION_POST_CATEGORY = {
 export const NOMINATION_STATUS = {
   SUBMITTED: "submitted",
   VERIFIED: "verified",
+  MODIFICATION_REQUESTED: "modification_requested",
   REJECTED: "rejected",
   WITHDRAWN: "withdrawn",
 }

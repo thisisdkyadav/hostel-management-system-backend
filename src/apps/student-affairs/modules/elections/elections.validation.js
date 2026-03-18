@@ -120,9 +120,17 @@ export const upsertNominationSchema = Joi.object({
 
 export const reviewNominationSchema = Joi.object({
   status: Joi.string()
-    .valid(NOMINATION_STATUS.VERIFIED, NOMINATION_STATUS.REJECTED)
+    .valid(
+      NOMINATION_STATUS.VERIFIED,
+      NOMINATION_STATUS.MODIFICATION_REQUESTED,
+      NOMINATION_STATUS.REJECTED
+    )
     .required(),
-  notes: Joi.string().trim().max(3000).allow("").default(""),
+  notes: Joi.when("status", {
+    is: NOMINATION_STATUS.MODIFICATION_REQUESTED,
+    then: Joi.string().trim().min(3).max(3000).required(),
+    otherwise: Joi.string().trim().max(3000).allow("").default(""),
+  }),
 })
 
 export const castVoteSchema = Joi.object({

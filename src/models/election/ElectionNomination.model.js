@@ -136,7 +136,7 @@ const ElectionNominationSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["submitted", "verified", "rejected", "withdrawn"],
+      enum: ["submitted", "verified", "modification_requested", "rejected", "withdrawn"],
       default: "submitted",
       index: true,
     },
