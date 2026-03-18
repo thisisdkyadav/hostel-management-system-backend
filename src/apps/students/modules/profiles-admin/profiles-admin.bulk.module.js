@@ -56,7 +56,25 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     return sendStandardResponse(res, badRequest('Invalid day scholar payload'));
   }
-  if (Object.keys(data).length > MAX_BULK_RECORDS) {
+
+  const normalizedEntries = Object.entries(data).reduce((entries, [rawRollNumber, studentData]) => {
+    const rollNumber = typeof rawRollNumber === 'string' ? rawRollNumber.trim().toUpperCase() : '';
+
+    if (!rollNumber) {
+      return entries;
+    }
+
+    entries[rollNumber] = studentData;
+    return entries;
+  }, {});
+
+  const rollNumbers = Object.keys(normalizedEntries);
+
+  if (rollNumbers.length === 0) {
+    return sendStandardResponse(res, badRequest('Please provide at least one valid roll number'));
+  }
+
+  if (rollNumbers.length > MAX_BULK_RECORDS) {
     return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
   }
 
@@ -67,7 +85,6 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
   try {
     session.startTransaction();
 
-    const rollNumbers = Object.keys(data);
     const students = await StudentProfile.find({ rollNumber: { $in: rollNumbers } }).session(session);
 
     const studentMap = new Map();
@@ -75,9 +92,9 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
       studentMap.set(student.rollNumber, student);
     });
 
-    const studentsToSave = [];
+    const bulkOperations = [];
 
-    for (const [rollNumber, studentData] of Object.entries(data)) {
+    for (const [rollNumber, studentData] of Object.entries(normalizedEntries)) {
       const student = studentMap.get(rollNumber);
 
       if (!student) {
@@ -88,28 +105,46 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
       const { isDayScholar, dayScholarDetails } = studentData;
 
       if (isDayScholar) {
-        student.isDayScholar = true;
-        if (dayScholarDetails && typeof dayScholarDetails === 'object' && !Array.isArray(dayScholarDetails)) {
-          student.dayScholarDetails = {
+        const nextDayScholarDetails = (
+          dayScholarDetails && typeof dayScholarDetails === 'object' && !Array.isArray(dayScholarDetails)
+        ) ? {
             address: dayScholarDetails.address || '',
             ownerName: dayScholarDetails.ownerName || '',
             ownerPhone: dayScholarDetails.ownerPhone || '',
             ownerEmail: dayScholarDetails.ownerEmail || '',
-          };
-        } else if (!student.dayScholarDetails) {
-          student.dayScholarDetails = null;
-        }
-      } else {
-        student.isDayScholar = false;
-        student.dayScholarDetails = null;
-      }
+          }
+          : null;
 
-      studentsToSave.push(student);
-      results.push({ rollNumber, success: true, isDayScholar: student.isDayScholar });
+        bulkOperations.push({
+          updateOne: {
+            filter: { _id: student._id },
+            update: {
+              $set: {
+                isDayScholar: true,
+                dayScholarDetails: nextDayScholarDetails,
+              },
+            },
+          },
+        });
+
+        results.push({ rollNumber, success: true, isDayScholar: true });
+      } else {
+        bulkOperations.push({
+          updateOne: {
+            filter: { _id: student._id },
+            update: {
+              $set: { isDayScholar: false },
+              $unset: { dayScholarDetails: 1 },
+            },
+          },
+        });
+
+        results.push({ rollNumber, success: true, isDayScholar: false });
+      }
     }
 
-    if (studentsToSave.length > 0) {
-      await Promise.all(studentsToSave.map((student) => student.save({ session })));
+    if (bulkOperations.length > 0) {
+      await StudentProfile.bulkWrite(bulkOperations, { session, ordered: false });
     }
 
     await session.commitTransaction();
