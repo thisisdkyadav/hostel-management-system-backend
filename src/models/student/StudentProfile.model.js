@@ -298,8 +298,21 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
     if (admissionDateTo) matchProfile.admissionDate.$lte = new Date(admissionDateTo)
   }
   if (status) matchProfile.status = status
-  if (isDayScholar !== "all") matchProfile.isDayScholar = isDayScholar === "true" ? true : false
   pipeline.push({ $match: matchProfile })
+
+  if (isDayScholar === "true") {
+    pipeline.push({ $match: { isDayScholar: true } })
+  } else if (isDayScholar === "false") {
+    pipeline.push({
+      $match: {
+        $or: [
+          { isDayScholar: false },
+          { isDayScholar: null },
+          { isDayScholar: { $exists: false } },
+        ],
+      },
+    })
+  }
 
   pipeline.push({
     $lookup: {
