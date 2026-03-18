@@ -264,11 +264,49 @@ export const complaintResolvedTemplate = ({
   return baseEmailTemplate(content);
 };
 
+export const electionSupportConfirmationTemplate = ({
+  supporterName,
+  candidateName,
+  candidateRollNumber,
+  electionTitle,
+  postTitle,
+  supportRole,
+  confirmationLink,
+}) => {
+  const content = `
+    <h2>Confirm Election Support</h2>
+    <p>Hello ${supporterName || "Student"},</p>
+    <p>${candidateName || "A candidate"} (${candidateRollNumber || "Roll Number unavailable"}) has listed you as a ${supportRole} for the <strong>${postTitle}</strong> post in <strong>${electionTitle}</strong>.</p>
+
+    <div class="info-box">
+      <p style="margin: 0 0 8px;"><strong>Candidate:</strong> ${candidateName || "—"}</p>
+      <p style="margin: 0 0 8px;"><strong>Roll Number:</strong> ${candidateRollNumber || "—"}</p>
+      <p style="margin: 0 0 8px;"><strong>Post:</strong> ${postTitle || "—"}</p>
+      <p style="margin: 0;"><strong>Support Type:</strong> ${supportRole || "Supporter"}</p>
+    </div>
+
+    <p>Please open the link below and confirm whether you accept this nomination support request.</p>
+
+    <div style="text-align: center;">
+      <a href="${confirmationLink}" class="button">Review Request</a>
+    </div>
+
+    <div class="warning">
+      <strong>Important:</strong> This secure link is unique to you and can be used only once.
+    </div>
+
+    <p class="muted-text">If the button doesn't work, copy and paste this link into your browser:</p>
+    <p class="link-text">${confirmationLink}</p>
+  `
+
+  return baseEmailTemplate(content)
+}
+
 export default {
   baseEmailTemplate,
   passwordResetTemplate,
   passwordResetSuccessTemplate,
   customEmailTemplate,
   complaintResolvedTemplate,
+  electionSupportConfirmationTemplate,
 };
-

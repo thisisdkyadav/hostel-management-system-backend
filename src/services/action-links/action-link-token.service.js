@@ -1,0 +1,103 @@
+import crypto from "crypto"
+import { ActionLinkToken } from "../../models/index.js"
+
+const DEFAULT_TOKEN_BYTES = 48
+
+export const ACTION_LINK_TOKEN_TYPE = {
+  COMPLAINT_FEEDBACK: "complaint_feedback",
+  ELECTION_NOMINATION_SUPPORT: "election_nomination_support",
+}
+
+export const hashActionLinkToken = (rawToken) =>
+  crypto.createHash("sha256").update(String(rawToken || "")).digest("hex")
+
+export const generateRawActionLinkToken = () =>
+  crypto.randomBytes(DEFAULT_TOKEN_BYTES).toString("base64url")
+
+export const createActionLinkToken = async ({
+  type,
+  subjectModel,
+  subjectId,
+  recipientUserId = null,
+  recipientEmail = "",
+  payload = {},
+  expiresAt,
+}) => {
+  const rawToken = generateRawActionLinkToken()
+  const tokenDoc = await ActionLinkToken.create({
+    type,
+    tokenHash: hashActionLinkToken(rawToken),
+    subjectModel,
+    subjectId,
+    recipientUserId,
+    recipientEmail: String(recipientEmail || "").trim(),
+    payload,
+    expiresAt,
+  })
+
+  return { rawToken, tokenDoc }
+}
+
+export const findActionLinkTokenByRawToken = async (
+  rawToken,
+  {
+    type = "",
+    includeUsed = false,
+    includeInvalidated = false,
+  } = {}
+) => {
+  const filter = {
+    tokenHash: hashActionLinkToken(rawToken),
+  }
+
+  if (type) {
+    filter.type = type
+  }
+  if (!includeUsed) {
+    filter.usedAt = null
+  }
+  if (!includeInvalidated) {
+    filter.invalidatedAt = null
+  }
+
+  return ActionLinkToken.findOne(filter)
+}
+
+export const invalidateActionLinkTokens = async (filter = {}, reason = "") => {
+  const normalizedFilter = {
+    ...filter,
+    invalidatedAt: null,
+  }
+
+  return ActionLinkToken.updateMany(normalizedFilter, {
+    $set: {
+      invalidatedAt: new Date(),
+      invalidationReason: String(reason || "").trim(),
+    },
+  })
+}
+
+export const consumeActionLinkToken = async (tokenDoc, responsePayload = {}) => {
+  if (!tokenDoc) return null
+
+  tokenDoc.usedAt = new Date()
+  tokenDoc.responsePayload = responsePayload
+  await tokenDoc.save()
+  return tokenDoc
+}
+
+export const isActionLinkTokenExpired = (tokenDoc) => {
+  if (!tokenDoc?.expiresAt) return true
+  return new Date(tokenDoc.expiresAt).getTime() < Date.now()
+}
+
+export default {
+  ACTION_LINK_TOKEN_TYPE,
+  hashActionLinkToken,
+  generateRawActionLinkToken,
+  createActionLinkToken,
+  findActionLinkTokenByRawToken,
+  invalidateActionLinkTokens,
+  consumeActionLinkToken,
+  isActionLinkTokenExpired,
+}

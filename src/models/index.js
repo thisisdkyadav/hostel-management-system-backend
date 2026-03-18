@@ -65,3 +65,6 @@ export * from './election/index.js'
 
 // AuthZ audit models
 export * from './authz/index.js'
+
+// Action-link models
+export * from './action-link/index.js'

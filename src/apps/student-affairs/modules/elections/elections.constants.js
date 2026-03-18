@@ -26,6 +26,12 @@ export const NOMINATION_STATUS = {
   WITHDRAWN: "withdrawn",
 }
 
+export const NOMINATION_SUPPORTER_STATUS = {
+  PENDING: "pending",
+  ACCEPTED: "accepted",
+  REJECTED: "rejected",
+}
+
 export const ELECTION_STAGE = {
   DRAFT: "draft",
   ANNOUNCED: "announced",
@@ -87,6 +93,7 @@ export default {
   ELECTION_PHASE,
   ELECTION_POST_CATEGORY,
   NOMINATION_STATUS,
+  NOMINATION_SUPPORTER_STATUS,
   ELECTION_STAGE,
   DEFAULT_POST_REQUIREMENTS_BY_CATEGORY,
 }

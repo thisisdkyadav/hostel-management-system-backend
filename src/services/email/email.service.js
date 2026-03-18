@@ -16,6 +16,7 @@ import {
   passwordResetSuccessTemplate,
   customEmailTemplate,
   complaintResolvedTemplate,
+  electionSupportConfirmationTemplate,
 } from './email.templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -90,21 +91,43 @@ class EmailService {
       return { success: false, error: 'Email service not configured' };
     }
 
+    const originalRecipients = Array.isArray(to) ? to.filter(Boolean) : [to].filter(Boolean);
+    const shouldRedirectInDevelopment =
+      env.isDevelopment && Boolean(env.smtp.developmentRedirectTo);
+    const effectiveRecipients = shouldRedirectInDevelopment
+      ? [env.smtp.developmentRedirectTo]
+      : originalRecipients;
+    const originalRecipientLabel = originalRecipients.join(", ");
+
     try {
+      const effectiveHtml = shouldRedirectInDevelopment
+        ? `
+          <div style="margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; background: #FEF3C7; color: #92400E; font-size: 13px;">
+            Development email redirect active. Original recipient(s): <strong>${originalRecipientLabel || "Unknown"}</strong>
+          </div>
+          ${html}
+        `
+        : html;
+      const effectiveText = shouldRedirectInDevelopment
+        ? `Development email redirect active. Original recipient(s): ${originalRecipientLabel || "Unknown"}\n\n${
+            text || this.stripHtml(html)
+          }`
+        : text || this.stripHtml(html);
       const normalizedAttachments = this.normalizeAttachments(attachments);
       const mailOptions = {
         from: env.smtp.from,
-        to: Array.isArray(to) ? to.join(', ') : to,
+        to: effectiveRecipients.join(', '),
         subject,
-        html,
-        text: text || this.stripHtml(html),
+        html: effectiveHtml,
+        text: effectiveText,
         attachments: normalizedAttachments,
       };
 
       const result = await this.transporter.sendMail(mailOptions);
       
       logger.info('Email sent successfully', {
-        to,
+        to: effectiveRecipients,
+        originalRecipients,
         subject,
         messageId: result.messageId,
       });
@@ -112,7 +135,8 @@ class EmailService {
       return { success: true, messageId: result.messageId };
     } catch (error) {
       logger.error('Failed to send email', {
-        to,
+        to: effectiveRecipients,
+        originalRecipients,
         subject,
         error: error.message,
       });
@@ -309,6 +333,34 @@ class EmailService {
     return this.sendEmail({
       to: email,
       subject: 'Your Complaint Has Been Resolved - Please Share Your Feedback',
+      html,
+    });
+  }
+
+  async sendElectionSupportConfirmationEmail({
+    email,
+    supporterName,
+    candidateName,
+    candidateRollNumber,
+    electionTitle,
+    postTitle,
+    supportRole,
+    confirmationToken,
+  }) {
+    const confirmationLink = `${env.FRONTEND_URL}/election-support-confirmation/${confirmationToken}`;
+    const html = electionSupportConfirmationTemplate({
+      supporterName,
+      candidateName,
+      candidateRollNumber,
+      electionTitle,
+      postTitle,
+      supportRole,
+      confirmationLink,
+    });
+
+    return this.sendEmail({
+      to: email,
+      subject: `Election Support Confirmation Required · ${postTitle}`,
       html,
     });
   }

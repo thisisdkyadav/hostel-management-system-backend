@@ -8,6 +8,20 @@ import * as controller from "./elections.controller.js"
 import * as validation from "./elections.validation.js"
 
 const router = express.Router()
+
+router.get(
+  "/supporter-confirmation/:token",
+  validate(validation.supporterConfirmationTokenSchema, "params"),
+  controller.getSupporterConfirmationByToken
+)
+
+router.post(
+  "/supporter-confirmation/:token/respond",
+  validate(validation.supporterConfirmationTokenSchema, "params"),
+  validate(validation.supporterConfirmationResponseSchema),
+  controller.respondToSupporterConfirmation
+)
+
 router.use(authenticate)
 
 const ROUTE_KEY_BY_ROLE = {
@@ -41,6 +55,15 @@ router.get(
   authorizeRoles([ROLES.STUDENT]),
   requireMappedRouteAccess,
   controller.getStudentCurrentElections
+)
+
+router.get(
+  "/:id/posts/:postId/supporters/lookup",
+  authorizeRoles([ROLES.STUDENT]),
+  requireMappedRouteAccess,
+  validate(validation.postIdSchema, "params"),
+  validate(validation.supporterLookupQuerySchema, "query"),
+  controller.lookupNominationSupporter
 )
 
 router.get(

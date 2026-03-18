@@ -11,6 +11,13 @@ import { emailService } from '../../../../services/email/email.service.js';
 import mongoose from 'mongoose';
 import { getConstraintValue } from '../../../../core/authz/index.js';
 import { invalidateStudentDashboardCache } from '../../../../utils/redisCache.js';
+import {
+  ACTION_LINK_TOKEN_TYPE,
+  consumeActionLinkToken,
+  createActionLinkToken,
+  findActionLinkTokenByRawToken,
+  isActionLinkTokenExpired,
+} from '../../../../services/action-links/action-link-token.service.js';
 
 const COMPLAINT_SCOPE_HOSTELS_CONSTRAINT = 'constraint.complaints.scope.hostelIds';
 
@@ -486,9 +493,13 @@ class ComplaintService extends BaseService {
     // Send feedback email when complaint is resolved
     if (status === 'Resolved' && complaint.userId?.email) {
       try {
-        // Create feedback token
-        const feedbackToken = await FeedbackToken.create({
-          complaintId: complaint._id,
+        const { rawToken: feedbackToken } = await createActionLinkToken({
+          type: ACTION_LINK_TOKEN_TYPE.COMPLAINT_FEEDBACK,
+          subjectModel: 'Complaint',
+          subjectId: complaint._id,
+          recipientUserId: complaint.userId?._id || null,
+          recipientEmail: complaint.userId.email,
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         });
 
         // Send email asynchronously (don't block response)
@@ -498,7 +509,7 @@ class ComplaintService extends BaseService {
           complaintTitle: complaint.title,
           complaintCategory: complaint.category,
           resolutionNotes: complaint.resolutionNotes,
-          feedbackToken: feedbackToken.token,
+          feedbackToken,
         }).catch(err => {
           console.error('Failed to send complaint resolved email:', err);
         });
@@ -559,21 +570,26 @@ class ComplaintService extends BaseService {
    * Get complaint by feedback token (public access)
    */
   async getComplaintByToken(token) {
-    const feedbackToken = await FeedbackToken.findOne({ token });
+    const actionLinkToken = await findActionLinkTokenByRawToken(token, {
+      type: ACTION_LINK_TOKEN_TYPE.COMPLAINT_FEEDBACK,
+      includeUsed: true,
+    });
+    const legacyFeedbackToken = !actionLinkToken ? await FeedbackToken.findOne({ token }) : null;
 
-    if (!feedbackToken) {
+    if (!actionLinkToken && !legacyFeedbackToken) {
       return notFound('Invalid feedback link');
     }
 
-    if (feedbackToken.expiresAt < new Date()) {
+    if (actionLinkToken && isActionLinkTokenExpired(actionLinkToken)) {
       return badRequest('This feedback link has expired');
     }
 
-    if (feedbackToken.used) {
+    if (actionLinkToken?.usedAt || legacyFeedbackToken?.used) {
       return badRequest('Feedback has already been submitted for this complaint');
     }
 
-    const complaint = await this.model.findById(feedbackToken.complaintId)
+    const complaintId = actionLinkToken?.subjectId || legacyFeedbackToken?.complaintId
+    const complaint = await this.model.findById(complaintId)
       .populate('userId', 'name email')
       .populate('hostelId', 'name')
       .populate('unitId', 'unitNumber')
@@ -615,23 +631,31 @@ class ComplaintService extends BaseService {
   async submitFeedbackByToken(token, feedbackData) {
     const { feedback, feedbackRating, satisfactionStatus } = feedbackData;
 
-    const feedbackToken = await FeedbackToken.findOne({ token });
+    const actionLinkToken = await findActionLinkTokenByRawToken(token, {
+      type: ACTION_LINK_TOKEN_TYPE.COMPLAINT_FEEDBACK,
+      includeUsed: true,
+    });
+    const legacyFeedbackToken = !actionLinkToken ? await FeedbackToken.findOne({ token }) : null;
 
-    if (!feedbackToken) {
+    if (!actionLinkToken && !legacyFeedbackToken) {
       return notFound('Invalid feedback link');
     }
 
-    if (feedbackToken.expiresAt < new Date()) {
+    if (actionLinkToken && isActionLinkTokenExpired(actionLinkToken)) {
       return badRequest('This feedback link has expired');
     }
 
-    if (feedbackToken.used) {
+    if (legacyFeedbackToken && legacyFeedbackToken.expiresAt < new Date()) {
+      return badRequest('This feedback link has expired');
+    }
+
+    if (actionLinkToken?.usedAt || legacyFeedbackToken?.used) {
       return badRequest('Feedback has already been submitted for this complaint');
     }
 
     // Update complaint with feedback
     const complaint = await this.model.findByIdAndUpdate(
-      feedbackToken.complaintId,
+      actionLinkToken?.subjectId || legacyFeedbackToken?.complaintId,
       { feedback, feedbackRating, satisfactionStatus },
       { new: true }
     );
@@ -640,9 +664,15 @@ class ComplaintService extends BaseService {
       return notFound('Complaint not found');
     }
 
-    // Mark token as used
-    feedbackToken.used = true;
-    await feedbackToken.save();
+    if (actionLinkToken) {
+      await consumeActionLinkToken(actionLinkToken, {
+        feedbackRating,
+        satisfactionStatus,
+      });
+    } else if (legacyFeedbackToken) {
+      legacyFeedbackToken.used = true;
+      await legacyFeedbackToken.save();
+    }
 
     return success({ message: 'Feedback submitted successfully' });
   }

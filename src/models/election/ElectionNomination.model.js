@@ -36,6 +36,56 @@ const ElectionNominationReviewSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const ElectionNominationSupporterSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    rollNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      required: true,
+    },
+    name: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    email: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    profileImage: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    status: {
+      type: String,
+      enum: ["pending", "accepted", "rejected"],
+      default: "pending",
+    },
+    invitedAt: {
+      type: Date,
+      default: null,
+    },
+    respondedAt: {
+      type: Date,
+      default: null,
+    },
+    responseNote: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  { _id: false }
+)
+
 const ElectionNominationSchema = new mongoose.Schema(
   {
     electionId: {
@@ -113,6 +163,14 @@ const ElectionNominationSchema = new mongoose.Schema(
     },
     seconderRollNumbers: {
       type: [String],
+      default: [],
+    },
+    proposerEntries: {
+      type: [ElectionNominationSupporterSchema],
+      default: [],
+    },
+    seconderEntries: {
+      type: [ElectionNominationSupporterSchema],
       default: [],
     },
     gradeCardUrl: {

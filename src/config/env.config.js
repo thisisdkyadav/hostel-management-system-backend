@@ -73,6 +73,7 @@ export const env = {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM || "HMS <saappsupport@iiti.ac.in>",
+    developmentRedirectTo: process.env.SMTP_DEVELOPMENT_REDIRECT_TO || "",
   },
 
   // Frontend URL (for password reset links)

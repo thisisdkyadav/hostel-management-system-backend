@@ -20,7 +20,17 @@ import {
   ELECTION_STAGE,
   ELECTION_STATUS,
   NOMINATION_STATUS,
+  NOMINATION_SUPPORTER_STATUS,
 } from "./elections.constants.js"
+import { emailService } from "../../../../services/email/email.service.js"
+import {
+  ACTION_LINK_TOKEN_TYPE,
+  consumeActionLinkToken,
+  createActionLinkToken,
+  findActionLinkTokenByRawToken,
+  invalidateActionLinkTokens,
+  isActionLinkTokenExpired,
+} from "../../../../services/action-links/action-link-token.service.js"
 
 const normalizeStringArray = (values = []) => {
   if (!Array.isArray(values)) return []
@@ -40,6 +50,12 @@ const toDate = (value) => {
 const isAdminUser = (user) => {
   return user?.role === ROLES.ADMIN || user?.role === ROLES.SUPER_ADMIN
 }
+
+const ACTIVE_NOMINATION_STATUSES = [
+  NOMINATION_STATUS.SUBMITTED,
+  NOMINATION_STATUS.MODIFICATION_REQUESTED,
+  NOMINATION_STATUS.VERIFIED,
+]
 
 const hasUploadedIdCard = (studentProfile) => {
   return Boolean(studentProfile?.idCard?.front || studentProfile?.idCard?.back)
@@ -171,7 +187,7 @@ const getProfilesForRollNumbers = async (rollNumbers = []) => {
   return StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers }, status: "Active" })
     .populate({
       path: "userId",
-      select: "name email role",
+      select: "name email role profileImage",
     })
 }
 
@@ -313,6 +329,122 @@ const buildCommissionRollNumberSet = (election) => {
   return new Set(normalizeRollNumbers([chief, ...officers]))
 }
 
+const doesProfileMatchSupporterScope = (profile, post) =>
+  doesProfileMatchScope(profile, post?.voterEligibility) ||
+  doesProfileMatchScope(profile, post?.candidateEligibility)
+
+const serializeSupporter = (supporter = {}) => ({
+  userId: supporter.userId?._id || supporter.userId || null,
+  rollNumber: String(supporter.rollNumber || "").toUpperCase(),
+  name: supporter.name || "",
+  email: supporter.email || "",
+  profileImage: supporter.profileImage || "",
+  status: supporter.status || NOMINATION_SUPPORTER_STATUS.PENDING,
+  invitedAt: supporter.invitedAt || null,
+  respondedAt: supporter.respondedAt || null,
+  responseNote: supporter.responseNote || "",
+})
+
+const buildSupporterStatusSummary = (nomination) => {
+  const supporters = [
+    ...(Array.isArray(nomination?.proposerEntries) ? nomination.proposerEntries : []),
+    ...(Array.isArray(nomination?.seconderEntries) ? nomination.seconderEntries : []),
+  ]
+
+  return supporters.reduce(
+    (acc, supporter) => {
+      acc.total += 1
+      const key = supporter?.status || NOMINATION_SUPPORTER_STATUS.PENDING
+      if (typeof acc[key] !== "number") {
+        acc[key] = 0
+      }
+      acc[key] += 1
+      return acc
+    },
+    {
+      total: 0,
+      pending: 0,
+      accepted: 0,
+      rejected: 0,
+    }
+  )
+}
+
+const getSupporterStatusChecks = (nomination, post) => {
+  const proposers = Array.isArray(nomination?.proposerEntries) ? nomination.proposerEntries : []
+  const seconders = Array.isArray(nomination?.seconderEntries) ? nomination.seconderEntries : []
+  const proposersRequired = Number(post?.requirements?.proposersRequired || 0)
+  const secondersRequired = Number(post?.requirements?.secondersRequired || 0)
+
+  const proposerAcceptedCount = proposers.filter(
+    (supporter) => supporter?.status === NOMINATION_SUPPORTER_STATUS.ACCEPTED
+  ).length
+  const seconderAcceptedCount = seconders.filter(
+    (supporter) => supporter?.status === NOMINATION_SUPPORTER_STATUS.ACCEPTED
+  ).length
+
+  const rejectedSupporters = [...proposers, ...seconders].filter(
+    (supporter) => supporter?.status === NOMINATION_SUPPORTER_STATUS.REJECTED
+  )
+  const pendingSupporters = [...proposers, ...seconders].filter(
+    (supporter) => supporter?.status === NOMINATION_SUPPORTER_STATUS.PENDING
+  )
+
+  return {
+    proposersRequired,
+    secondersRequired,
+    proposerAcceptedCount,
+    seconderAcceptedCount,
+    rejectedSupporters,
+    pendingSupporters,
+    allAccepted:
+      proposerAcceptedCount >= proposersRequired &&
+      seconderAcceptedCount >= secondersRequired &&
+      rejectedSupporters.length === 0 &&
+      pendingSupporters.length === 0,
+  }
+}
+
+const getNominationSupporterEntries = (nomination, supportType) => {
+  if (supportType === "proposer") {
+    return Array.isArray(nomination?.proposerEntries) ? nomination.proposerEntries : []
+  }
+  return Array.isArray(nomination?.seconderEntries) ? nomination.seconderEntries : []
+}
+
+const getNominationSupporterEntry = (nomination, supportType, rollNumber) => {
+  const normalizedRollNumber = String(rollNumber || "").trim().toUpperCase()
+  return getNominationSupporterEntries(nomination, supportType).find(
+    (entry) => String(entry?.rollNumber || "").trim().toUpperCase() === normalizedRollNumber
+  ) || null
+}
+
+const getSupporterConfirmationExpiry = (election) => {
+  const withdrawalEndAt = toDate(election?.timeline?.withdrawalEndAt)
+  const nominationEndAt = toDate(election?.timeline?.nominationEndAt)
+  const fallback = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  const preferred = withdrawalEndAt || nominationEndAt || fallback
+  return preferred.getTime() > Date.now() ? preferred : fallback
+}
+
+const buildSupporterLinkPayload = ({
+  electionId,
+  postId,
+  supportType,
+  supporterRollNumber,
+}) => ({
+  electionId: String(electionId || ""),
+  postId: String(postId || ""),
+  supportType,
+  supporterRollNumber: String(supporterRollNumber || "").trim().toUpperCase(),
+})
+
+const areSupporterPayloadsEqual = (left = {}, right = {}) =>
+  String(left?.electionId || "") === String(right?.electionId || "") &&
+  String(left?.postId || "") === String(right?.postId || "") &&
+  String(left?.supportType || "") === String(right?.supportType || "") &&
+  String(left?.supporterRollNumber || "") === String(right?.supporterRollNumber || "")
+
 const getEligibleStudentProfilesForScope = async (scope = {}) => {
   const batches = normalizeStringArray(scope?.batches)
   const extraRollNumbers = normalizeRollNumbers(scope?.extraRollNumbers)
@@ -341,7 +473,7 @@ const getStudentProfileWithRelations = async (userId) => {
   return StudentProfile.findOne({ userId, status: "Active" })
     .populate({
       path: "userId",
-      select: "name email role",
+      select: "name email role profileImage",
     })
     .populate({
       path: "currentRoomAllocation",
@@ -403,6 +535,7 @@ const serializeNomination = (nomination) => ({
   candidateUserId: nomination.candidateUserId?._id || nomination.candidateUserId,
   candidateName: nomination.candidateUserId?.name || "",
   candidateEmail: nomination.candidateUserId?.email || "",
+  candidateProfileImage: nomination.candidateUserId?.profileImage || "",
   candidateRollNumber: nomination.candidateRollNumber,
   candidateBatch: nomination.candidateBatch || "",
   pitch: nomination.pitch || "",
@@ -412,6 +545,9 @@ const serializeNomination = (nomination) => ({
   remainingSemesters: nomination.remainingSemesters,
   proposerRollNumbers: nomination.proposerRollNumbers || [],
   seconderRollNumbers: nomination.seconderRollNumbers || [],
+  proposerEntries: (nomination.proposerEntries || []).map(serializeSupporter),
+  seconderEntries: (nomination.seconderEntries || []).map(serializeSupporter),
+  supporterSummary: buildSupporterStatusSummary(nomination),
   gradeCardUrl: nomination.gradeCardUrl || "",
   manifestoUrl: nomination.manifestoUrl || "",
   porDocumentUrl: nomination.porDocumentUrl || "",
@@ -460,7 +596,7 @@ const buildElectionResults = async (election) => {
   const verifiedNominations = await ElectionNomination.find({
     electionId: election._id,
     status: NOMINATION_STATUS.VERIFIED,
-  }).populate({ path: "candidateUserId", select: "name email" })
+  }).populate({ path: "candidateUserId", select: "name email profileImage" })
 
   const voteCounts = await ElectionVote.aggregate([
     {
@@ -613,6 +749,161 @@ const getRelevantPostsForStudent = (election, studentProfile, posts = [], myNomi
   })
 }
 
+const buildSupporterEntriesForRole = ({
+  existingEntries = [],
+  rollNumbers = [],
+  supporterProfiles = [],
+}) => {
+  const existingEntryMap = new Map(
+    existingEntries.map((entry) => [String(entry?.rollNumber || "").trim().toUpperCase(), entry])
+  )
+  const profileMap = new Map(
+    supporterProfiles.map((profile) => [String(profile.rollNumber || "").trim().toUpperCase(), profile])
+  )
+
+  const notifications = []
+  const entries = rollNumbers.map((rollNumber) => {
+    const normalizedRollNumber = String(rollNumber || "").trim().toUpperCase()
+    const existingEntry = existingEntryMap.get(normalizedRollNumber)
+    const profile = profileMap.get(normalizedRollNumber)
+
+    const nextEntry = {
+      userId: profile?.userId?._id || null,
+      rollNumber: normalizedRollNumber,
+      name: profile?.userId?.name || "",
+      email: profile?.userId?.email || "",
+      profileImage: profile?.userId?.profileImage || "",
+      status: NOMINATION_SUPPORTER_STATUS.PENDING,
+      invitedAt: null,
+      respondedAt: null,
+      responseNote: "",
+    }
+
+    if (existingEntry?.status === NOMINATION_SUPPORTER_STATUS.ACCEPTED) {
+      nextEntry.status = NOMINATION_SUPPORTER_STATUS.ACCEPTED
+      nextEntry.invitedAt = existingEntry.invitedAt || null
+      nextEntry.respondedAt = existingEntry.respondedAt || null
+      nextEntry.responseNote = existingEntry.responseNote || ""
+      return nextEntry
+    }
+
+    if (existingEntry?.status === NOMINATION_SUPPORTER_STATUS.PENDING) {
+      nextEntry.status = NOMINATION_SUPPORTER_STATUS.PENDING
+      nextEntry.invitedAt = existingEntry.invitedAt || null
+      if (!existingEntry.invitedAt) {
+        notifications.push({
+          rollNumber: normalizedRollNumber,
+          userId: nextEntry.userId,
+          email: nextEntry.email,
+          name: nextEntry.name,
+          profileImage: nextEntry.profileImage,
+          previousStatus: existingEntry?.status || "",
+        })
+      }
+      return nextEntry
+    }
+
+    notifications.push({
+      rollNumber: normalizedRollNumber,
+      userId: nextEntry.userId,
+      email: nextEntry.email,
+      name: nextEntry.name,
+      profileImage: nextEntry.profileImage,
+      previousStatus: existingEntry?.status || "",
+    })
+
+    return nextEntry
+  })
+
+  return { entries, notifications }
+}
+
+const buildSupporterPayloadKey = (supportType, rollNumber) =>
+  `${String(supportType || "")}:${String(rollNumber || "").trim().toUpperCase()}`
+
+const buildSupporterPayloadMap = (entries = [], supportType = "") =>
+  new Map(
+    entries.map((entry) => {
+      const payload = buildSupporterLinkPayload({
+        supportType,
+        supporterRollNumber: entry.rollNumber,
+      })
+      return [buildSupporterPayloadKey(supportType, entry.rollNumber), payload]
+    })
+  )
+
+const sendNominationSupportRequests = async ({
+  election,
+  nomination,
+  candidateName,
+  candidateRollNumber,
+  postTitle,
+  supporters = [],
+}) => {
+  const failures = []
+  const sentKeys = []
+
+  for (const supporter of supporters) {
+    if (!supporter?.email) {
+      failures.push(`${supporter?.rollNumber || "Unknown supporter"} has no email address`)
+      continue
+    }
+
+    try {
+      const payload = buildSupporterLinkPayload({
+        electionId: election?._id,
+        postId: nomination?.postId,
+        supportType: supporter.supportType,
+        supporterRollNumber: supporter.rollNumber,
+      })
+      const { rawToken } = await createActionLinkToken({
+        type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+        subjectModel: "ElectionNomination",
+        subjectId: nomination._id,
+        recipientUserId: supporter.userId || null,
+        recipientEmail: supporter.email,
+        payload,
+        expiresAt: getSupporterConfirmationExpiry(election),
+      })
+
+      const emailResult = await emailService.sendElectionSupportConfirmationEmail({
+        email: supporter.email,
+        supporterName: supporter.name,
+        candidateName,
+        candidateRollNumber,
+        electionTitle: election?.title || "Election",
+        postTitle,
+        supportRole: supporter.supportType === "proposer" ? "Proposer" : "Seconder",
+        confirmationToken: rawToken,
+      })
+      if (!emailResult?.success) {
+        await invalidateActionLinkTokens(
+          {
+            type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+            subjectModel: "ElectionNomination",
+            subjectId: nomination._id,
+            "payload.supportType": supporter.supportType,
+            "payload.supporterRollNumber": String(supporter.rollNumber || "").trim().toUpperCase(),
+          },
+          "Support confirmation email delivery failed"
+        )
+        failures.push(
+          `${supporter?.rollNumber || "Unknown supporter"}: ${emailResult?.error || "Failed to send confirmation email"}`
+        )
+        continue
+      }
+
+      sentKeys.push(buildSupporterPayloadKey(supporter.supportType, supporter.rollNumber))
+    } catch (error) {
+      failures.push(
+        `${supporter?.rollNumber || "Unknown supporter"}: ${error?.message || "Failed to send confirmation email"}`
+      )
+    }
+  }
+
+  return { failures, sentKeys }
+}
+
 class ElectionsService {
   async listAdminElections(query = {}) {
     const filter = {}
@@ -667,7 +958,7 @@ class ElectionsService {
 
     if (isAdminUser(user)) {
       const nominations = await ElectionNomination.find({ electionId: election._id })
-        .populate({ path: "candidateUserId", select: "name email" })
+        .populate({ path: "candidateUserId", select: "name email profileImage" })
         .populate({ path: "candidateProfileId", select: "idCard" })
         .sort({ createdAt: -1 })
 
@@ -783,7 +1074,7 @@ class ElectionsService {
         electionId: { $in: electionIds },
         candidateUserId: user._id,
       })
-        .populate({ path: "candidateUserId", select: "name email" })
+        .populate({ path: "candidateUserId", select: "name email profileImage" })
         .populate({ path: "candidateProfileId", select: "idCard" }),
       ElectionVote.find({
         electionId: { $in: electionIds },
@@ -810,7 +1101,7 @@ class ElectionsService {
         electionId: election._id,
         status: NOMINATION_STATUS.VERIFIED,
       })
-        .populate({ path: "candidateUserId", select: "name email" })
+        .populate({ path: "candidateUserId", select: "name email profileImage" })
         .populate({ path: "candidateProfileId", select: "idCard" })
 
       const approvedByPost = approvedNominations.reduce((acc, nomination) => {
@@ -860,6 +1151,242 @@ class ElectionsService {
     return success({
       elections: currentElections,
     })
+  }
+
+  async lookupNominationSupporter(electionId, postId, query, user) {
+    const election = await Election.findById(electionId)
+    if (!election) return notFound("Election")
+
+    const stage = getCurrentStage(election)
+    if (![ELECTION_STAGE.NOMINATION, ELECTION_STAGE.WITHDRAWAL].includes(stage)) {
+      return forbidden("Supporter lookup is only available while nominations are active")
+    }
+
+    const post = resolvePostById(election, postId)
+    if (!post) return notFound("Election post")
+
+    const studentProfile = await getStudentProfileWithRelations(user._id)
+    if (!studentProfile) {
+      return forbidden("Only active students can nominate for elections")
+    }
+
+    const rollNumber = String(query?.rollNumber || "").trim().toUpperCase()
+    if (!rollNumber) {
+      return badRequest("Supporter roll number is required")
+    }
+
+    if (rollNumber === String(studentProfile.rollNumber || "").trim().toUpperCase()) {
+      return badRequest("Candidate cannot propose or second themselves")
+    }
+
+    let nomination = null
+    if (query?.nominationId) {
+      nomination = await ElectionNomination.findOne({
+        _id: query.nominationId,
+        electionId: election._id,
+        postId: post._id,
+        candidateUserId: user._id,
+      })
+    } else {
+      nomination = await ElectionNomination.findOne({
+        electionId: election._id,
+        postId: post._id,
+        candidateUserId: user._id,
+      })
+    }
+
+    const lookupResult = await validateRollNumberUsersExist([rollNumber], "supporter roll number")
+    if (!lookupResult.success) return lookupResult
+
+    const supporterProfile = lookupResult.data.profiles[0]
+    const supporterUserId = supporterProfile?.userId?._id || null
+    const commissionRollNumbers = buildCommissionRollNumberSet(election)
+    if (commissionRollNumbers.has(rollNumber)) {
+      return forbidden("Election commission members cannot propose or second candidates")
+    }
+
+    if (!doesProfileMatchSupporterScope(supporterProfile, post)) {
+      return forbidden("This student is not eligible to support this nomination")
+    }
+
+    const activeCandidateNomination = await ElectionNomination.findOne({
+      electionId: election._id,
+      candidateUserId: supporterUserId,
+      status: { $in: ACTIVE_NOMINATION_STATUSES },
+    })
+    if (activeCandidateNomination) {
+      return forbidden("Candidates contesting in this election cannot propose or second another candidate")
+    }
+
+    const conflictingSupporterAssignment = await ElectionNomination.findOne({
+      electionId: election._id,
+      postId: post._id,
+      _id: nomination?._id ? { $ne: nomination._id } : { $exists: true },
+      status: { $in: ACTIVE_NOMINATION_STATUSES },
+      $or: [
+        { proposerUserIds: { $in: [supporterUserId] } },
+        { seconderUserIds: { $in: [supporterUserId] } },
+      ],
+    })
+    if (conflictingSupporterAssignment) {
+      return forbidden("This student has already supported another candidate for this post")
+    }
+
+    const currentRoleEntry =
+      getNominationSupporterEntry(nomination, query?.supportType, rollNumber) ||
+      getNominationSupporterEntry(
+        nomination,
+        query?.supportType === "proposer" ? "seconder" : "proposer",
+        rollNumber
+      )
+
+    return success({
+      rollNumber,
+      userId: supporterUserId,
+      name: supporterProfile?.userId?.name || "",
+      email: supporterProfile?.userId?.email || "",
+      profileImage: supporterProfile?.userId?.profileImage || "",
+      candidatePoolEligible: doesProfileMatchScope(supporterProfile, post.candidateEligibility),
+      voterPoolEligible: doesProfileMatchScope(supporterProfile, post.voterEligibility),
+      currentStatus: currentRoleEntry?.status || "",
+      currentRole:
+        getNominationSupporterEntry(nomination, "proposer", rollNumber)
+          ? "proposer"
+          : getNominationSupporterEntry(nomination, "seconder", rollNumber)
+            ? "seconder"
+            : "",
+    })
+  }
+
+  async getSupporterConfirmationByToken(token) {
+    const tokenDoc = await findActionLinkTokenByRawToken(token, {
+      type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+      includeUsed: true,
+      includeInvalidated: true,
+    })
+    if (!tokenDoc) {
+      return notFound("Invalid confirmation link")
+    }
+
+    const nomination = await ElectionNomination.findById(tokenDoc.subjectId)
+      .populate({ path: "candidateUserId", select: "name email profileImage" })
+      .populate({ path: "candidateProfileId", select: "idCard" })
+    if (!nomination) {
+      return notFound("Nomination")
+    }
+    if (!ACTIVE_NOMINATION_STATUSES.includes(nomination.status)) {
+      return badRequest("This nomination is no longer accepting supporter confirmations")
+    }
+
+    const election = await Election.findById(nomination.electionId)
+    if (!election) {
+      return notFound("Election")
+    }
+
+    const supportType = tokenDoc?.payload?.supportType === "seconder" ? "seconder" : "proposer"
+    const supporterRollNumber = String(tokenDoc?.payload?.supporterRollNumber || "").trim().toUpperCase()
+    const supporterEntry = getNominationSupporterEntry(nomination, supportType, supporterRollNumber)
+    if (!supporterEntry) {
+      return badRequest("This supporter request is no longer active")
+    }
+
+    return success({
+      tokenState: tokenDoc.invalidatedAt
+        ? "invalidated"
+        : tokenDoc.usedAt
+          ? "used"
+          : isActionLinkTokenExpired(tokenDoc)
+            ? "expired"
+            : "active",
+      tokenUsedAt: tokenDoc.usedAt || null,
+      tokenExpiresAt: tokenDoc.expiresAt || null,
+      election: {
+        id: election._id,
+        title: election.title,
+        academicYear: election.academicYear,
+      },
+      nomination: {
+        id: nomination._id,
+        postId: nomination.postId,
+        postTitle: nomination.postTitle,
+        candidateName: nomination.candidateUserId?.name || "",
+        candidateEmail: nomination.candidateUserId?.email || "",
+        candidateProfileImage: nomination.candidateUserId?.profileImage || "",
+        candidateRollNumber: nomination.candidateRollNumber,
+        supportType,
+        supporter: serializeSupporter(supporterEntry),
+      },
+    })
+  }
+
+  async respondToSupporterConfirmation(token, payload) {
+    const tokenDoc = await findActionLinkTokenByRawToken(token, {
+      type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+    })
+    if (!tokenDoc) {
+      return notFound("Invalid confirmation link")
+    }
+
+    if (isActionLinkTokenExpired(tokenDoc)) {
+      return badRequest("This confirmation link has expired")
+    }
+
+    const nomination = await ElectionNomination.findById(tokenDoc.subjectId)
+      .populate({ path: "candidateUserId", select: "name email profileImage" })
+      .populate({ path: "candidateProfileId", select: "idCard" })
+    if (!nomination) {
+      return notFound("Nomination")
+    }
+
+    const supportType = tokenDoc?.payload?.supportType === "seconder" ? "seconder" : "proposer"
+    const supporterRollNumber = String(tokenDoc?.payload?.supporterRollNumber || "").trim().toUpperCase()
+    const targetEntriesKey = supportType === "proposer" ? "proposerEntries" : "seconderEntries"
+    const targetEntries = Array.isArray(nomination[targetEntriesKey]) ? nomination[targetEntriesKey] : []
+    const supporterIndex = targetEntries.findIndex(
+      (entry) => String(entry?.rollNumber || "").trim().toUpperCase() === supporterRollNumber
+    )
+    if (supporterIndex === -1) {
+      return badRequest("This supporter request is no longer active")
+    }
+    if (targetEntries[supporterIndex]?.status !== NOMINATION_SUPPORTER_STATUS.PENDING) {
+      return badRequest("This supporter request has already been processed")
+    }
+
+    targetEntries[supporterIndex].status =
+      payload?.decision === "accepted"
+        ? NOMINATION_SUPPORTER_STATUS.ACCEPTED
+        : NOMINATION_SUPPORTER_STATUS.REJECTED
+    targetEntries[supporterIndex].respondedAt = new Date()
+    targetEntries[supporterIndex].responseNote = ""
+    nomination[targetEntriesKey] = targetEntries
+    await nomination.save()
+
+    await consumeActionLinkToken(tokenDoc, {
+      decision: payload?.decision,
+      supportType,
+      supporterRollNumber,
+    })
+    await invalidateActionLinkTokens(
+      {
+        type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+        subjectModel: "ElectionNomination",
+        subjectId: nomination._id,
+        _id: { $ne: tokenDoc._id },
+        "payload.supportType": supportType,
+        "payload.supporterRollNumber": supporterRollNumber,
+      },
+      "Supporter has already responded"
+    )
+
+    return success(
+      {
+        nomination: serializeNomination(nomination),
+      },
+      200,
+      payload?.decision === "accepted"
+        ? "You have accepted this nomination support request"
+        : "You have rejected this nomination support request"
+    )
   }
 
   async upsertNomination(electionId, postId, payload, user) {
@@ -936,13 +1463,7 @@ class ElectionsService {
     const activeOtherNomination = await ElectionNomination.findOne({
       electionId: election._id,
       candidateUserId: user._id,
-      status: {
-        $in: [
-          NOMINATION_STATUS.SUBMITTED,
-          NOMINATION_STATUS.MODIFICATION_REQUESTED,
-          NOMINATION_STATUS.VERIFIED,
-        ],
-      },
+      status: { $in: ACTIVE_NOMINATION_STATUSES },
       postId: {
         $ne: post._id,
       },
@@ -977,9 +1498,11 @@ class ElectionsService {
     const supporterProfiles = supportersResult.data.profiles
     const supporterUserIds = supporterProfiles.map((profile) => profile.userId?._id).filter(Boolean)
 
-    const invalidElectorateSupporters = supporterProfiles.filter((profile) => !doesProfileMatchScope(profile, post.voterEligibility))
+    const invalidElectorateSupporters = supporterProfiles.filter(
+      (profile) => !doesProfileMatchSupporterScope(profile, post)
+    )
     if (invalidElectorateSupporters.length > 0) {
-      return forbidden("All proposers and seconders must belong to the electorate for the post")
+      return forbidden("All proposers and seconders must belong to the candidate or voter pool for the post")
     }
 
     const commissionSupporters = supporterProfiles.filter((profile) =>
@@ -992,13 +1515,7 @@ class ElectionsService {
     const candidateSupporterConflict = await ElectionNomination.findOne({
       electionId: election._id,
       candidateUserId: { $in: supporterUserIds },
-      status: {
-        $in: [
-          NOMINATION_STATUS.SUBMITTED,
-          NOMINATION_STATUS.MODIFICATION_REQUESTED,
-          NOMINATION_STATUS.VERIFIED,
-        ],
-      },
+      status: { $in: ACTIVE_NOMINATION_STATUSES },
     })
     if (candidateSupporterConflict) {
       return forbidden("Candidates contesting in this election cannot propose or second another candidate")
@@ -1014,13 +1531,7 @@ class ElectionsService {
       electionId: election._id,
       postId: post._id,
       _id: nomination?._id ? { $ne: nomination._id } : { $exists: true },
-      status: {
-        $in: [
-          NOMINATION_STATUS.SUBMITTED,
-          NOMINATION_STATUS.MODIFICATION_REQUESTED,
-          NOMINATION_STATUS.VERIFIED,
-        ],
-      },
+      status: { $in: ACTIVE_NOMINATION_STATUSES },
       $or: [
         { proposerUserIds: { $in: supporterUserIds } },
         { seconderUserIds: { $in: supporterUserIds } },
@@ -1037,6 +1548,40 @@ class ElectionsService {
     const seconderUserIds = supporterProfiles
       .filter((profile) => seconderRollNumbers.includes(String(profile.rollNumber).toUpperCase()))
       .map((profile) => profile.userId._id)
+
+    const proposerBuild = buildSupporterEntriesForRole({
+      existingEntries: nomination?.proposerEntries || [],
+      rollNumbers: proposerRollNumbers,
+      supporterProfiles,
+    })
+    const seconderBuild = buildSupporterEntriesForRole({
+      existingEntries: nomination?.seconderEntries || [],
+      rollNumbers: seconderRollNumbers,
+      supporterProfiles,
+    })
+
+    const previousSupporterPayloads = nomination
+      ? [
+          ...(nomination.proposerEntries || []).map((entry) => ({
+            key: buildSupporterPayloadKey("proposer", entry.rollNumber),
+            payload: buildSupporterLinkPayload({
+              electionId: election._id,
+              postId: post._id,
+              supportType: "proposer",
+              supporterRollNumber: entry.rollNumber,
+            }),
+          })),
+          ...(nomination.seconderEntries || []).map((entry) => ({
+            key: buildSupporterPayloadKey("seconder", entry.rollNumber),
+            payload: buildSupporterLinkPayload({
+              electionId: election._id,
+              postId: post._id,
+              supportType: "seconder",
+              supporterRollNumber: entry.rollNumber,
+            }),
+          })),
+        ]
+      : []
 
     const nominationPayload = {
       electionId: election._id,
@@ -1055,6 +1600,8 @@ class ElectionsService {
       seconderUserIds,
       proposerRollNumbers,
       seconderRollNumbers,
+      proposerEntries: proposerBuild.entries,
+      seconderEntries: seconderBuild.entries,
       gradeCardUrl: String(payload.gradeCardUrl || "").trim(),
       manifestoUrl: String(payload.manifestoUrl || "").trim(),
       porDocumentUrl: String(payload.porDocumentUrl || "").trim(),
@@ -1075,13 +1622,93 @@ class ElectionsService {
       await nomination.save()
     }
 
-    await nomination.populate({ path: "candidateUserId", select: "name email" })
+    const currentSupporterPayloadMap = new Map([
+      ...[...(nomination.proposerEntries || [])].map((entry) => [
+        buildSupporterPayloadKey("proposer", entry.rollNumber),
+        buildSupporterLinkPayload({
+          electionId: election._id,
+          postId: post._id,
+          supportType: "proposer",
+          supporterRollNumber: entry.rollNumber,
+        }),
+      ]),
+      ...[...(nomination.seconderEntries || [])].map((entry) => [
+        buildSupporterPayloadKey("seconder", entry.rollNumber),
+        buildSupporterLinkPayload({
+          electionId: election._id,
+          postId: post._id,
+          supportType: "seconder",
+          supporterRollNumber: entry.rollNumber,
+        }),
+      ]),
+    ])
+
+    for (const previousEntry of previousSupporterPayloads) {
+      if (!currentSupporterPayloadMap.has(previousEntry.key)) {
+        await invalidateActionLinkTokens(
+          {
+            type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+            subjectModel: "ElectionNomination",
+            subjectId: nomination._id,
+            "payload.supportType": previousEntry.payload.supportType,
+            "payload.supporterRollNumber": previousEntry.payload.supporterRollNumber,
+          },
+          "Supporter removed from nomination"
+        )
+      }
+    }
+
+    const supportersToNotify = [
+      ...proposerBuild.notifications.map((entry) => ({ ...entry, supportType: "proposer" })),
+      ...seconderBuild.notifications.map((entry) => ({ ...entry, supportType: "seconder" })),
+    ]
+
+    for (const supporter of supportersToNotify) {
+      await invalidateActionLinkTokens(
+        {
+          type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+          subjectModel: "ElectionNomination",
+          subjectId: nomination._id,
+          "payload.supportType": supporter.supportType,
+          "payload.supporterRollNumber": String(supporter.rollNumber || "").trim().toUpperCase(),
+        },
+        "Support confirmation request reissued"
+      )
+    }
+
+    const notificationResult = await sendNominationSupportRequests({
+      election,
+      nomination,
+      candidateName: studentProfile?.userId?.name || "",
+      candidateRollNumber: studentProfile.rollNumber,
+      postTitle: post.title,
+      supporters: supportersToNotify,
+    })
+
+    const sentAt = new Date()
+    if ((notificationResult?.sentKeys || []).length > 0) {
+      nomination.proposerEntries = (nomination.proposerEntries || []).map((entry) => (
+        notificationResult.sentKeys.includes(buildSupporterPayloadKey("proposer", entry.rollNumber))
+          ? { ...(entry?.toObject ? entry.toObject() : entry), invitedAt: sentAt }
+          : entry
+      ))
+      nomination.seconderEntries = (nomination.seconderEntries || []).map((entry) => (
+        notificationResult.sentKeys.includes(buildSupporterPayloadKey("seconder", entry.rollNumber))
+          ? { ...(entry?.toObject ? entry.toObject() : entry), invitedAt: sentAt }
+          : entry
+      ))
+      await nomination.save()
+    }
+
+    await nomination.populate({ path: "candidateUserId", select: "name email profileImage" })
     await nomination.populate({ path: "candidateProfileId", select: "idCard" })
 
     return success(
       serializeNomination(nomination),
       200,
-      "Nomination saved successfully"
+      notificationResult?.failures?.length
+        ? `Nomination saved, but some supporter confirmation emails could not be sent: ${notificationResult.failures.join("; ")}`
+        : "Nomination saved successfully"
     )
   }
 
@@ -1099,7 +1726,7 @@ class ElectionsService {
       electionId: election._id,
       candidateUserId: user._id,
     })
-      .populate({ path: "candidateUserId", select: "name email" })
+      .populate({ path: "candidateUserId", select: "name email profileImage" })
       .populate({ path: "candidateProfileId", select: "idCard" })
 
     if (!nomination) return notFound("Nomination")
@@ -1107,6 +1734,14 @@ class ElectionsService {
     nomination.status = NOMINATION_STATUS.WITHDRAWN
     nomination.withdrawnAt = new Date()
     await nomination.save()
+    await invalidateActionLinkTokens(
+      {
+        type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+        subjectModel: "ElectionNomination",
+        subjectId: nomination._id,
+      },
+      "Nomination withdrawn"
+    )
 
     return success(
       serializeNomination(nomination),
@@ -1123,10 +1758,26 @@ class ElectionsService {
       _id: nominationId,
       electionId: election._id,
     })
-      .populate({ path: "candidateUserId", select: "name email" })
+      .populate({ path: "candidateUserId", select: "name email profileImage" })
       .populate({ path: "candidateProfileId", select: "idCard" })
 
     if (!nomination) return notFound("Nomination")
+
+    if (payload.status === NOMINATION_STATUS.VERIFIED) {
+      const post = resolvePostById(election, nomination.postId)
+      if (!post) return notFound("Election post")
+
+      const supporterChecks = getSupporterStatusChecks(nomination, post)
+      if (supporterChecks.rejectedSupporters.length > 0) {
+        return badRequest("Nomination cannot be verified while any proposer or seconder has rejected support")
+      }
+      if (supporterChecks.pendingSupporters.length > 0) {
+        return badRequest("Nomination cannot be verified until all proposers and seconders have responded")
+      }
+      if (!supporterChecks.allAccepted) {
+        return badRequest("Nomination cannot be verified until all required proposers and seconders have accepted")
+      }
+    }
 
     nomination.status = payload.status
     nomination.review = {
@@ -1135,6 +1786,17 @@ class ElectionsService {
       notes: String(payload.notes || "").trim(),
     }
     await nomination.save()
+
+    if ([NOMINATION_STATUS.REJECTED, NOMINATION_STATUS.WITHDRAWN].includes(payload.status)) {
+      await invalidateActionLinkTokens(
+        {
+          type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
+          subjectModel: "ElectionNomination",
+          subjectId: nomination._id,
+        },
+        "Nomination review completed"
+      )
+    }
 
     return success(
       serializeNomination(nomination),
