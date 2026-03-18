@@ -81,6 +81,8 @@ export const supporterConfirmationTokenSchema = Joi.object({
   token: Joi.string().trim().min(20).max(300).required(),
 })
 
+export const ballotTokenSchema = supporterConfirmationTokenSchema
+
 export const createElectionSchema = Joi.object({
   title: Joi.string().trim().min(3).max(200).required(),
   academicYear: Joi.string().trim().min(4).max(50).required(),
@@ -151,6 +153,18 @@ export const supporterConfirmationResponseSchema = Joi.object({
   decision: Joi.string().valid("accepted", "rejected").required(),
 })
 
+export const submitBallotSchema = Joi.object({
+  votes: Joi.array()
+    .items(
+      Joi.object({
+        postId: objectId.required(),
+        candidateNominationId: objectId.required(),
+      })
+    )
+    .min(1)
+    .required(),
+})
+
 export const publishResultsSchema = Joi.object({
   posts: Joi.array().items(
     Joi.object({
@@ -167,6 +181,7 @@ export default {
   postIdSchema,
   supporterLookupQuerySchema,
   supporterConfirmationTokenSchema,
+  ballotTokenSchema,
   createElectionSchema,
   updateElectionSchema,
   listAdminElectionsSchema,
@@ -174,5 +189,6 @@ export default {
   reviewNominationSchema,
   castVoteSchema,
   supporterConfirmationResponseSchema,
+  submitBallotSchema,
   publishResultsSchema,
 }

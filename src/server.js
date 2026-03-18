@@ -14,6 +14,10 @@ import {
   stopCommonCacheScheduler,
   warmCommonCaches,
 } from './services/cache/commonData.cache.js';
+import {
+  startElectionVotingEmailScheduler,
+  stopElectionVotingEmailScheduler,
+} from './apps/student-affairs/modules/elections/elections-voting-dispatch.service.js';
 
 const PORT = env.PORT || 5000;
 
@@ -28,6 +32,7 @@ const startServer = async () => {
       console.error('⚠️ Initial common cache warm-up failed:', cacheError?.message || cacheError);
     });
     startCommonCacheScheduler();
+    startElectionVotingEmailScheduler();
 
     // 2. Create Express app
     const { app, sessionMiddleware } = createApp();
@@ -50,6 +55,7 @@ const startServer = async () => {
       // Close Socket.IO connections
       await closeSocketIO();
       stopCommonCacheScheduler();
+      stopElectionVotingEmailScheduler();
       await closeSessionRedisClient();
       await closeDataCacheClient();
       

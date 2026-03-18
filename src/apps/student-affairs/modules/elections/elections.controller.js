@@ -41,6 +41,11 @@ export const lookupNominationSupporter = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const getBallotByToken = asyncHandler(async (req, res) => {
+  const result = await electionsService.getBallotByToken(req.params.token)
+  return sendStandardResponse(res, result)
+})
+
 export const upsertNomination = asyncHandler(async (req, res) => {
   const result = await electionsService.upsertNomination(
     req.params.id,
@@ -91,6 +96,11 @@ export const respondToSupporterConfirmation = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const submitBallotByToken = asyncHandler(async (req, res) => {
+  const result = await electionsService.submitBallotByToken(req.params.token, req.body)
+  return sendStandardResponse(res, result)
+})
+
 export default {
   listAdminElections,
   getElectionDetail,
@@ -99,6 +109,7 @@ export default {
   getStudentPortalState,
   getStudentCurrentElections,
   lookupNominationSupporter,
+  getBallotByToken,
   upsertNomination,
   withdrawNomination,
   reviewNomination,
@@ -106,4 +117,5 @@ export default {
   publishResults,
   getSupporterConfirmationByToken,
   respondToSupporterConfirmation,
+  submitBallotByToken,
 }

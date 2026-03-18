@@ -6,6 +6,7 @@ const DEFAULT_TOKEN_BYTES = 48
 export const ACTION_LINK_TOKEN_TYPE = {
   COMPLAINT_FEEDBACK: "complaint_feedback",
   ELECTION_NOMINATION_SUPPORT: "election_nomination_support",
+  ELECTION_VOTING_BALLOT: "election_voting_ballot",
 }
 
 export const hashActionLinkToken = (rawToken) =>

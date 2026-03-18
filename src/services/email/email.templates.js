@@ -302,6 +302,42 @@ export const electionSupportConfirmationTemplate = ({
   return baseEmailTemplate(content)
 }
 
+export const electionVotingBallotTemplate = ({
+  studentName,
+  electionTitle,
+  votingStartAt,
+  votingEndAt,
+  postCount,
+  ballotLink,
+}) => {
+  const content = `
+    <h2>Your Election Ballot Is Ready</h2>
+    <p>Hello ${studentName || "Student"},</p>
+    <p>Your voting ballot for <strong>${electionTitle}</strong> is now ready.</p>
+
+    <div class="info-box">
+      <p style="margin: 0 0 8px;"><strong>Available Posts:</strong> ${postCount || 0}</p>
+      <p style="margin: 0 0 8px;"><strong>Voting Starts:</strong> ${votingStartAt || "—"}</p>
+      <p style="margin: 0;"><strong>Voting Ends:</strong> ${votingEndAt || "—"}</p>
+    </div>
+
+    <p>You must submit your ballot in one go. Please choose one candidate for every available post before submitting.</p>
+
+    <div style="text-align: center;">
+      <a href="${ballotLink}" class="button">Open Ballot</a>
+    </div>
+
+    <div class="warning">
+      <strong>Important:</strong> This voting link only works during the voting window and cannot be used again after you submit your ballot.
+    </div>
+
+    <p class="muted-text">If the button doesn't work, copy and paste this link into your browser:</p>
+    <p class="link-text">${ballotLink}</p>
+  `
+
+  return baseEmailTemplate(content)
+}
+
 export default {
   baseEmailTemplate,
   passwordResetTemplate,
@@ -309,4 +345,5 @@ export default {
   customEmailTemplate,
   complaintResolvedTemplate,
   electionSupportConfirmationTemplate,
+  electionVotingBallotTemplate,
 };

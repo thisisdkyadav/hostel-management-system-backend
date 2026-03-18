@@ -175,6 +175,51 @@ const ElectionResultPublicationSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const ElectionVotingEmailDispatchSchema = new mongoose.Schema(
+  {
+    dispatchKey: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    status: {
+      type: String,
+      enum: ["idle", "running", "completed", "failed"],
+      default: "idle",
+    },
+    startedAt: {
+      type: Date,
+      default: null,
+    },
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+    lastTriggeredAt: {
+      type: Date,
+      default: null,
+    },
+    totalRecipients: {
+      type: Number,
+      default: 0,
+    },
+    sentRecipients: {
+      type: Number,
+      default: 0,
+    },
+    failedRecipients: {
+      type: Number,
+      default: 0,
+    },
+    lastError: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+  },
+  { _id: false }
+)
+
 const ElectionSchema = new mongoose.Schema(
   {
     title: {
@@ -216,6 +261,10 @@ const ElectionSchema = new mongoose.Schema(
     },
     resultPublication: {
       type: ElectionResultPublicationSchema,
+      default: () => ({}),
+    },
+    votingEmailDispatch: {
+      type: ElectionVotingEmailDispatchSchema,
       default: () => ({}),
     },
     createdBy: {

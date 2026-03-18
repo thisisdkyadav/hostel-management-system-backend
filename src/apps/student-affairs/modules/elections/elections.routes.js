@@ -22,6 +22,19 @@ router.post(
   controller.respondToSupporterConfirmation
 )
 
+router.get(
+  "/ballot/:token",
+  validate(validation.ballotTokenSchema, "params"),
+  controller.getBallotByToken
+)
+
+router.post(
+  "/ballot/:token/submit",
+  validate(validation.ballotTokenSchema, "params"),
+  validate(validation.submitBallotSchema),
+  controller.submitBallotByToken
+)
+
 router.use(authenticate)
 
 const ROUTE_KEY_BY_ROLE = {

@@ -17,6 +17,7 @@ import {
   customEmailTemplate,
   complaintResolvedTemplate,
   electionSupportConfirmationTemplate,
+  electionVotingBallotTemplate,
 } from './email.templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -361,6 +362,32 @@ class EmailService {
     return this.sendEmail({
       to: email,
       subject: `Election Support Confirmation Required · ${postTitle}`,
+      html,
+    });
+  }
+
+  async sendElectionVotingBallotEmail({
+    email,
+    studentName,
+    electionTitle,
+    votingStartAt,
+    votingEndAt,
+    postCount,
+    ballotToken,
+  }) {
+    const ballotLink = `${env.FRONTEND_URL}/election-ballot/${ballotToken}`;
+    const html = electionVotingBallotTemplate({
+      studentName,
+      electionTitle,
+      votingStartAt,
+      votingEndAt,
+      postCount,
+      ballotLink,
+    });
+
+    return this.sendEmail({
+      to: email,
+      subject: `Election Ballot · ${electionTitle}`,
       html,
     });
   }
