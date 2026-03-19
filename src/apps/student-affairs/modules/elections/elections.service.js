@@ -1215,6 +1215,79 @@ class ElectionsService {
     return created(serializeElectionBase(election), "Election created successfully")
   }
 
+  async cloneElection(id, payload, user) {
+    const sourceElection = await Election.findById(id)
+    if (!sourceElection) return notFound("Election")
+
+    if ([ELECTION_STATUS.CANCELLED, ELECTION_STATUS.COMPLETED].includes(sourceElection.status)) {
+      return forbidden("Only active elections can be copied")
+    }
+
+    const votingStartAt = toDate(sourceElection?.timeline?.votingStartAt)
+    if (!votingStartAt || new Date() >= votingStartAt) {
+      return forbidden("Election can only be copied before voting starts")
+    }
+
+    const title = String(payload?.title || "").trim()
+    if (!title) {
+      return badRequest("Title is required to create a copied election")
+    }
+
+    const clonedElection = await Election.create({
+      title,
+      academicYear: sourceElection.academicYear,
+      phase: sourceElection.phase,
+      description: sourceElection.description || "",
+      status: sourceElection.status,
+      electionCommission: {
+        chiefElectionOfficerRollNumber: sourceElection.electionCommission?.chiefElectionOfficerRollNumber || "",
+        officerRollNumbers: normalizeRollNumbers(sourceElection.electionCommission?.officerRollNumbers),
+      },
+      timeline: {
+        announcementAt: sourceElection.timeline?.announcementAt,
+        nominationStartAt: sourceElection.timeline?.nominationStartAt,
+        nominationEndAt: sourceElection.timeline?.nominationEndAt,
+        withdrawalEndAt: sourceElection.timeline?.withdrawalEndAt,
+        campaigningStartAt: sourceElection.timeline?.campaigningStartAt,
+        campaigningEndAt: sourceElection.timeline?.campaigningEndAt,
+        votingStartAt: sourceElection.timeline?.votingStartAt,
+        votingEndAt: sourceElection.timeline?.votingEndAt,
+        resultsAnnouncedAt: sourceElection.timeline?.resultsAnnouncedAt,
+        handoverAt: sourceElection.timeline?.handoverAt || null,
+      },
+      posts: (sourceElection.posts || []).map((post) => ({
+        title: post.title,
+        code: post.code || "",
+        category: post.category,
+        description: post.description || "",
+        candidateEligibility: {
+          batches: normalizeStringArray(post.candidateEligibility?.batches),
+          extraRollNumbers: normalizeRollNumbers(post.candidateEligibility?.extraRollNumbers),
+        },
+        voterEligibility: {
+          batches: normalizeStringArray(post.voterEligibility?.batches),
+          extraRollNumbers: normalizeRollNumbers(post.voterEligibility?.extraRollNumbers),
+        },
+        requirements: {
+          minCgpa: Number(post.requirements?.minCgpa || 0),
+          minCompletedSemestersUg: Number(post.requirements?.minCompletedSemestersUg || 0),
+          minCompletedSemestersPg: Number(post.requirements?.minCompletedSemestersPg || 0),
+          minRemainingSemesters: Number(post.requirements?.minRemainingSemesters || 0),
+          proposersRequired: Number(post.requirements?.proposersRequired || 0),
+          secondersRequired: Number(post.requirements?.secondersRequired || 0),
+          requireElectorateMembership: Boolean(post.requirements?.requireElectorateMembership),
+          requireHostelResident: Boolean(post.requirements?.requireHostelResident),
+          allowedHostelNames: normalizeStringArray(post.requirements?.allowedHostelNames),
+          notes: post.requirements?.notes || "",
+        },
+      })),
+      createdBy: user._id,
+      updatedBy: user._id,
+    })
+
+    return created(serializeElectionBase(clonedElection), "Election copied successfully")
+  }
+
   async updateElection(id, payload, user) {
     const election = await Election.findById(id)
     if (!election) return notFound("Election")

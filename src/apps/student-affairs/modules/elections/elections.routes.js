@@ -103,6 +103,15 @@ router.post(
   controller.createElection
 )
 
+router.post(
+  "/:id/clone",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.electionIdSchema, "params"),
+  validate(validation.cloneElectionSchema),
+  controller.cloneElection
+)
+
 router.put(
   "/:id",
   authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),

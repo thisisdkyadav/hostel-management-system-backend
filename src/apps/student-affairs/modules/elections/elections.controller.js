@@ -21,6 +21,11 @@ export const createElection = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const cloneElection = asyncHandler(async (req, res) => {
+  const result = await electionsService.cloneElection(req.params.id, req.body, req.user)
+  return sendStandardResponse(res, result)
+})
+
 export const updateElection = asyncHandler(async (req, res) => {
   const result = await electionsService.updateElection(req.params.id, req.body, req.user)
   return sendStandardResponse(res, result)
@@ -116,6 +121,7 @@ export default {
   getElectionDetail,
   getVotingLiveStats,
   createElection,
+  cloneElection,
   updateElection,
   getStudentPortalState,
   getStudentCurrentElections,

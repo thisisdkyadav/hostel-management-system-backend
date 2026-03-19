@@ -103,6 +103,10 @@ export const createElectionSchema = Joi.object({
 
 export const updateElectionSchema = createElectionSchema
 
+export const cloneElectionSchema = Joi.object({
+  title: Joi.string().trim().min(3).max(200).required(),
+})
+
 export const listAdminElectionsSchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
@@ -184,6 +188,7 @@ export default {
   ballotTokenSchema,
   createElectionSchema,
   updateElectionSchema,
+  cloneElectionSchema,
   listAdminElectionsSchema,
   upsertNominationSchema,
   reviewNominationSchema,
