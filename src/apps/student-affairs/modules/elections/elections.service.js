@@ -31,6 +31,7 @@ import {
   invalidateActionLinkTokens,
   isActionLinkTokenExpired,
 } from "../../../../services/action-links/action-link-token.service.js"
+import { emitToRole } from "../../../../utils/socketHandlers.js"
 import { triggerElectionVotingEmailDispatchForElection } from "./elections-voting-dispatch.service.js"
 
 const normalizeStringArray = (values = []) => {
@@ -593,6 +594,158 @@ const serializeElectionBase = (election) => ({
   updatedAt: election.updatedAt,
 })
 
+const buildStudentScopeQuery = (scope = {}) => {
+  const batches = normalizeStringArray(scope?.batches)
+  const extraRollNumbers = normalizeRollNumbers(scope?.extraRollNumbers)
+
+  if (batches.length === 0 && extraRollNumbers.length === 0) {
+    return null
+  }
+
+  const query = {
+    status: "Active",
+    $or: [],
+  }
+
+  if (batches.length > 0) {
+    query.$or.push({ batch: { $in: batches } })
+  }
+
+  if (extraRollNumbers.length > 0) {
+    query.$or.push({ rollNumber: { $in: extraRollNumbers } })
+  }
+
+  return query
+}
+
+const buildElectionVotingLiveStats = async (election) => {
+  const electionId = new mongoose.Types.ObjectId(String(election._id))
+
+  const [verifiedNominationCounts, voteCounts, distinctVoterIds] = await Promise.all([
+    ElectionNomination.aggregate([
+      {
+        $match: {
+          electionId,
+          status: NOMINATION_STATUS.VERIFIED,
+        },
+      },
+      {
+        $group: {
+          _id: "$postId",
+          count: { $sum: 1 },
+        },
+      },
+    ]),
+    ElectionVote.aggregate([
+      {
+        $match: {
+          electionId,
+        },
+      },
+      {
+        $group: {
+          _id: "$postId",
+          count: { $sum: 1 },
+          lastCastAt: { $max: "$castAt" },
+        },
+      },
+    ]),
+    ElectionVote.distinct("voterUserId", { electionId: election._id }),
+  ])
+
+  const verifiedNominationCountMap = new Map(
+    verifiedNominationCounts.map((item) => [String(item._id), Number(item.count || 0)])
+  )
+  const voteCountMap = new Map(
+    voteCounts.map((item) => [
+      String(item._id),
+      {
+        count: Number(item.count || 0),
+        lastCastAt: item.lastCastAt || null,
+      },
+    ])
+  )
+
+  const overallEligibleVoterIds = new Set()
+  const posts = await Promise.all(
+    (election?.posts || []).map(async (post) => {
+      const postId = String(post._id)
+      const electorateQuery = buildStudentScopeQuery(post?.voterEligibility)
+      const eligibleVoterIds = electorateQuery
+        ? (await StudentProfile.distinct("userId", electorateQuery)).map((value) => String(value))
+        : []
+      const eligibleVoterCount = eligibleVoterIds.length
+      const verifiedCandidateCount = verifiedNominationCountMap.get(postId) || 0
+      const postVoteData = voteCountMap.get(postId) || { count: 0, lastCastAt: null }
+      const votedCount = postVoteData.count
+      const pendingCount = Math.max(eligibleVoterCount - votedCount, 0)
+
+      if (verifiedCandidateCount > 0) {
+        eligibleVoterIds.forEach((userId) => overallEligibleVoterIds.add(userId))
+      }
+
+      return {
+        postId,
+        postTitle: post.title,
+        verifiedCandidateCount,
+        eligibleVoterCount,
+        votedCount,
+        pendingCount,
+        turnoutPercentage:
+          eligibleVoterCount > 0
+            ? Number(((votedCount / eligibleVoterCount) * 100).toFixed(1))
+            : 0,
+        lastCastAt: postVoteData.lastCastAt,
+      }
+    })
+  )
+
+  const ballotsSubmitted = distinctVoterIds.length
+  const totalEligibleVoters = overallEligibleVoterIds.size
+  const ballotsPending = Math.max(totalEligibleVoters - ballotsSubmitted, 0)
+
+  return {
+    electionId: String(election._id),
+    generatedAt: new Date(),
+    dispatch: {
+      dispatchKey: election.votingEmailDispatch?.dispatchKey || "",
+      status: election.votingEmailDispatch?.status || "idle",
+      startedAt: election.votingEmailDispatch?.startedAt || null,
+      completedAt: election.votingEmailDispatch?.completedAt || null,
+      lastTriggeredAt: election.votingEmailDispatch?.lastTriggeredAt || null,
+      totalRecipients: Number(election.votingEmailDispatch?.totalRecipients || 0),
+      sentRecipients: Number(election.votingEmailDispatch?.sentRecipients || 0),
+      failedRecipients: Number(election.votingEmailDispatch?.failedRecipients || 0),
+      lastError: election.votingEmailDispatch?.lastError || "",
+    },
+    overview: {
+      totalEligibleVoters,
+      ballotsSubmitted,
+      ballotsPending,
+      turnoutPercentage:
+        totalEligibleVoters > 0
+          ? Number(((ballotsSubmitted / totalEligibleVoters) * 100).toFixed(1))
+          : 0,
+      totalVotesCast: posts.reduce((sum, post) => sum + Number(post.votedCount || 0), 0),
+      activePostCount: posts.filter((post) => post.verifiedCandidateCount > 0).length,
+    },
+    posts,
+  }
+}
+
+const emitElectionVotingLiveUpdate = async (election) => {
+  if (!election?._id) return
+
+  const stats = await buildElectionVotingLiveStats(election)
+  const payload = {
+    electionId: String(election._id),
+    stats,
+  }
+
+  emitToRole(ROLES.ADMIN, "election:voting-live:update", payload)
+  emitToRole(ROLES.SUPER_ADMIN, "election:voting-live:update", payload)
+}
+
 const buildPublishedResultMap = (election) =>
   new Map(
     (election?.resultPublication?.posts || []).map((item) => [
@@ -1037,6 +1190,18 @@ class ElectionsService {
     return success(response)
   }
 
+  async getVotingLiveStats(id) {
+    const election = await Election.findById(id)
+    if (!election) return notFound("Election")
+
+    if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
+      return forbidden("Live voting data is only available while voting is in progress")
+    }
+
+    const stats = await buildElectionVotingLiveStats(election)
+    return success(stats)
+  }
+
   async createElection(payload, user) {
     const normalizedResult = await normalizeElectionPayload(payload)
     if (!normalizedResult.success) return normalizedResult
@@ -1046,8 +1211,6 @@ class ElectionsService {
       createdBy: user._id,
       updatedBy: user._id,
     })
-
-    triggerElectionVotingEmailDispatchForElection(election._id, "create").catch(() => {})
 
     return created(serializeElectionBase(election), "Election created successfully")
   }
@@ -1087,9 +1250,41 @@ class ElectionsService {
     Object.assign(election, normalizedResult.data, { updatedBy: user._id })
     await election.save()
 
-    triggerElectionVotingEmailDispatchForElection(election._id, "update").catch(() => {})
-
     return success(serializeElectionBase(election), 200, "Election updated successfully")
+  }
+
+  async sendVotingEmails(id) {
+    const election = await Election.findById(id)
+    if (!election) return notFound("Election")
+
+    if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
+      return forbidden("Voting emails can only be sent while voting is in progress")
+    }
+
+    const votingStartAt = toDate(election?.timeline?.votingStartAt)
+    if (!votingStartAt) {
+      return badRequest("Voting start time is not configured correctly")
+    }
+
+    const dispatchKey = votingStartAt.toISOString()
+    const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
+    const existingStatus = String(election?.votingEmailDispatch?.status || "idle")
+
+    if (existingDispatchKey === dispatchKey && existingStatus === "running") {
+      return badRequest("Voting emails are already being sent")
+    }
+
+    triggerElectionVotingEmailDispatchForElection(election._id, "manual").catch((error) => {
+      console.error("Manual election voting email dispatch failed:", error?.message || error)
+    })
+
+    return success(
+      {
+        queued: true,
+      },
+      200,
+      "Voting emails have been queued"
+    )
   }
 
   async getStudentPortalState(user) {
@@ -1618,6 +1813,10 @@ class ElectionsService {
       },
       "Ballot already submitted"
     )
+
+    emitElectionVotingLiveUpdate(election).catch((error) => {
+      console.error("Failed to emit election voting live update:", error?.message || error)
+    })
 
     return success(
       {

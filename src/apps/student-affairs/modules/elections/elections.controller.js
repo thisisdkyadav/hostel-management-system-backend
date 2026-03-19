@@ -11,6 +11,11 @@ export const getElectionDetail = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const getVotingLiveStats = asyncHandler(async (req, res) => {
+  const result = await electionsService.getVotingLiveStats(req.params.id)
+  return sendStandardResponse(res, result)
+})
+
 export const createElection = asyncHandler(async (req, res) => {
   const result = await electionsService.createElection(req.body, req.user)
   return sendStandardResponse(res, result)
@@ -86,6 +91,11 @@ export const publishResults = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const sendVotingEmails = asyncHandler(async (req, res) => {
+  const result = await electionsService.sendVotingEmails(req.params.id)
+  return sendStandardResponse(res, result)
+})
+
 export const getSupporterConfirmationByToken = asyncHandler(async (req, res) => {
   const result = await electionsService.getSupporterConfirmationByToken(req.params.token)
   return sendStandardResponse(res, result)
@@ -104,6 +114,7 @@ export const submitBallotByToken = asyncHandler(async (req, res) => {
 export default {
   listAdminElections,
   getElectionDetail,
+  getVotingLiveStats,
   createElection,
   updateElection,
   getStudentPortalState,
@@ -115,6 +126,7 @@ export default {
   reviewNomination,
   castVote,
   publishResults,
+  sendVotingEmails,
   getSupporterConfirmationByToken,
   respondToSupporterConfirmation,
   submitBallotByToken,

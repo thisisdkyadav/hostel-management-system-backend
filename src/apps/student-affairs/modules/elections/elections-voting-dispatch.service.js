@@ -5,17 +5,41 @@ import {
   StudentProfile,
 } from "../../../../models/index.js"
 import { emailService } from "../../../../services/email/email.service.js"
+import { ROLES } from "../../../../core/constants/roles.constants.js"
 import {
   ACTION_LINK_TOKEN_TYPE,
   createActionLinkToken,
   invalidateActionLinkTokens,
 } from "../../../../services/action-links/action-link-token.service.js"
+import { emitToRole } from "../../../../utils/socketHandlers.js"
 
 const PRE_VOTING_EMAIL_WINDOW_MS = 30 * 60 * 1000
 const DISPATCH_INTERVAL_MS = 60 * 1000
 const EMAIL_BATCH_SIZE = 50
 const activeDispatches = new Set()
 let schedulerIntervalId = null
+
+const emitVotingDispatchUpdate = (election) => {
+  if (!election?._id) return
+
+  const payload = {
+    electionId: String(election._id),
+    dispatch: {
+      dispatchKey: election.votingEmailDispatch?.dispatchKey || "",
+      status: election.votingEmailDispatch?.status || "idle",
+      startedAt: election.votingEmailDispatch?.startedAt || null,
+      completedAt: election.votingEmailDispatch?.completedAt || null,
+      lastTriggeredAt: election.votingEmailDispatch?.lastTriggeredAt || null,
+      totalRecipients: Number(election.votingEmailDispatch?.totalRecipients || 0),
+      sentRecipients: Number(election.votingEmailDispatch?.sentRecipients || 0),
+      failedRecipients: Number(election.votingEmailDispatch?.failedRecipients || 0),
+      lastError: election.votingEmailDispatch?.lastError || "",
+    },
+  }
+
+  emitToRole(ROLES.ADMIN, "election:voting-live:dispatch", payload)
+  emitToRole(ROLES.SUPER_ADMIN, "election:voting-live:dispatch", payload)
+}
 
 const normalizeStringArray = (values = []) =>
   Array.isArray(values)
@@ -45,16 +69,38 @@ const getVotingDispatchKey = (election) => {
   return Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString()
 }
 
-const isDispatchDueNow = (election, now = new Date()) => {
-  if (election?.status !== "published") return false
-
+const hasValidVotingWindow = (election) => {
   const votingStartAt = new Date(election?.timeline?.votingStartAt)
   const votingEndAt = new Date(election?.timeline?.votingEndAt)
+
   if (Number.isNaN(votingStartAt.getTime()) || Number.isNaN(votingEndAt.getTime())) {
-    return false
+    return null
   }
 
+  return { votingStartAt, votingEndAt }
+}
+
+const isAutomaticDispatchDueNow = (election, now = new Date()) => {
+  if (election?.status !== "published") return false
+
+  const votingWindow = hasValidVotingWindow(election)
+  if (!votingWindow) return false
+
+  const { votingStartAt } = votingWindow
+
   return now.getTime() >= votingStartAt.getTime() - PRE_VOTING_EMAIL_WINDOW_MS &&
+    now.getTime() < votingStartAt.getTime()
+}
+
+const isManualDispatchAllowedNow = (election, now = new Date()) => {
+  if (election?.status !== "published") return false
+
+  const votingWindow = hasValidVotingWindow(election)
+  if (!votingWindow) return false
+
+  const { votingStartAt, votingEndAt } = votingWindow
+
+  return now.getTime() >= votingStartAt.getTime() &&
     now.getTime() < votingEndAt.getTime()
 }
 
@@ -184,35 +230,39 @@ const processDispatchBatch = async (election, recipients = []) => {
 }
 
 export const triggerElectionVotingEmailDispatchForElection = async (electionId, reason = "manual") => {
+  const activeDispatchKey = String(electionId || "")
+  if (!activeDispatchKey || activeDispatches.has(activeDispatchKey)) {
+    return false
+  }
+
+  activeDispatches.add(activeDispatchKey)
+
   const election = await Election.findById(electionId)
-  if (!election || !isDispatchDueNow(election)) {
+  const canDispatch = reason === "manual"
+    ? isManualDispatchAllowedNow(election)
+    : isAutomaticDispatchDueNow(election)
+
+  if (!election || !canDispatch) {
     return false
   }
 
   const dispatchKey = getVotingDispatchKey(election)
-  if (!dispatchKey || activeDispatches.has(String(election._id))) {
+  if (!dispatchKey) {
     return false
   }
 
   const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
   const existingStatus = String(election?.votingEmailDispatch?.status || "idle")
-  const completedAt = election?.votingEmailDispatch?.completedAt
-    ? new Date(election.votingEmailDispatch.completedAt)
-    : null
-  const updatedAt = election?.updatedAt ? new Date(election.updatedAt) : null
-  const wasUpdatedAfterDispatch =
-    completedAt &&
-    updatedAt &&
-    !Number.isNaN(completedAt.getTime()) &&
-    !Number.isNaN(updatedAt.getTime()) &&
-    updatedAt.getTime() > completedAt.getTime()
 
-  if (existingDispatchKey === dispatchKey && existingStatus === "completed" && !wasUpdatedAfterDispatch) {
+  if (
+    existingDispatchKey === dispatchKey &&
+    (
+      existingStatus === "running" ||
+      (reason !== "manual" && ["completed", "failed"].includes(existingStatus))
+    )
+  ) {
     return false
   }
-
-  activeDispatches.add(String(election._id))
-
   try {
     const eligibleProfiles = await collectEligibleVoterProfiles(election)
     const verifiedNominations = await ElectionNomination.find({
@@ -245,6 +295,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
       lastError: "",
     }
     await election.save()
+    emitVotingDispatchUpdate(election)
 
     let sentRecipients = 0
     let failedRecipients = 0
@@ -268,6 +319,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
         lastError: errors[0] || "",
       }
       await election.save()
+      emitVotingDispatchUpdate(election)
     }
 
     election.votingEmailDispatch = {
@@ -282,10 +334,11 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
       lastError: errors[0] || "",
     }
     await election.save()
+    emitVotingDispatchUpdate(election)
 
     return true
   } catch (error) {
-    await Election.findByIdAndUpdate(electionId, {
+    const failedElection = await Election.findByIdAndUpdate(electionId, {
       $set: {
         "votingEmailDispatch.dispatchKey": dispatchKey,
         "votingEmailDispatch.status": "failed",
@@ -293,17 +346,18 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
         "votingEmailDispatch.lastTriggeredAt": new Date(),
         "votingEmailDispatch.lastError": error?.message || "Voting email dispatch failed",
       },
-    })
+    }, { new: true })
+    emitVotingDispatchUpdate(failedElection)
     return false
   } finally {
-    activeDispatches.delete(String(electionId))
+    activeDispatches.delete(activeDispatchKey)
   }
 }
 
 export const scanAndTriggerElectionVotingEmailDispatches = async () => {
   const elections = await Election.find({ status: "published" }).select("_id timeline status votingEmailDispatch posts title")
   for (const election of elections) {
-    if (!isDispatchDueNow(election)) continue
+    if (!isAutomaticDispatchDueNow(election)) continue
     triggerElectionVotingEmailDispatchForElection(election._id, "scheduler").catch((error) => {
       console.error("Election voting email dispatch failed:", error?.message || error)
     })
