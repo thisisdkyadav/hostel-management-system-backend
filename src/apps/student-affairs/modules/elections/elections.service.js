@@ -618,6 +618,14 @@ const buildStudentScopeQuery = (scope = {}) => {
   return query
 }
 
+const countStudentsForScope = async (scope = {}) => {
+  const query = buildStudentScopeQuery(scope)
+  if (!query) return 0
+
+  const eligibleUserIds = await StudentProfile.distinct("userId", query)
+  return eligibleUserIds.length
+}
+
 const buildElectionVotingLiveStats = async (election) => {
   const electionId = new mongoose.Types.ObjectId(String(election._id))
 
@@ -1158,10 +1166,23 @@ class ElectionsService {
 
     const nominationCountsByPost = await getNominationCountsByPost(election._id)
     const voteCountsByPost = await getVoteCountsByPost(election._id)
+    const scopeCountsByPost = Object.fromEntries(
+      await Promise.all(
+        (election.posts || []).map(async (post) => [
+          String(post._id),
+          {
+            candidateEligibleCount: await countStudentsForScope(post.candidateEligibility),
+            voterEligibleCount: await countStudentsForScope(post.voterEligibility),
+          },
+        ])
+      )
+    )
 
     const base = serializeElectionBase(election)
     const posts = (election.posts || []).map((post) => ({
       ...serializePost(post),
+      candidateEligibleCount: Number(scopeCountsByPost[String(post._id)]?.candidateEligibleCount || 0),
+      voterEligibleCount: Number(scopeCountsByPost[String(post._id)]?.voterEligibleCount || 0),
       nominationCounts: nominationCountsByPost[String(post._id)] || {
         submitted: 0,
         verified: 0,
@@ -1188,6 +1209,11 @@ class ElectionsService {
     }
 
     return success(response)
+  }
+
+  async getScopeCount(scope = {}) {
+    const count = await countStudentsForScope(scope)
+    return success({ count })
   }
 
   async getVotingLiveStats(id) {
@@ -1284,6 +1310,63 @@ class ElectionsService {
       createdBy: user._id,
       updatedBy: user._id,
     })
+
+    const sourceNominations = await ElectionNomination.find({ electionId: sourceElection._id }).lean()
+
+    if (sourceNominations.length > 0) {
+      const sourcePosts = sourceElection.posts || []
+      const clonedPosts = clonedElection.posts || []
+      const postIdMap = new Map(
+        sourcePosts.map((post, index) => [String(post._id), clonedPosts[index]?._id || null])
+      )
+
+      const clonedNominations = sourceNominations
+        .map((nomination) => {
+          const mappedPostId = postIdMap.get(String(nomination.postId))
+          if (!mappedPostId) return null
+
+          return {
+            electionId: clonedElection._id,
+            postId: mappedPostId,
+            postTitle: nomination.postTitle,
+            candidateUserId: nomination.candidateUserId,
+            candidateProfileId: nomination.candidateProfileId,
+            candidateRollNumber: nomination.candidateRollNumber,
+            candidateBatch: nomination.candidateBatch || "",
+            pitch: nomination.pitch || "",
+            agendaPoints: Array.isArray(nomination.agendaPoints) ? nomination.agendaPoints : [],
+            cgpa: nomination.cgpa,
+            completedSemesters: nomination.completedSemesters,
+            remainingSemesters: nomination.remainingSemesters,
+            proposerUserIds: Array.isArray(nomination.proposerUserIds) ? nomination.proposerUserIds : [],
+            seconderUserIds: Array.isArray(nomination.seconderUserIds) ? nomination.seconderUserIds : [],
+            proposerRollNumbers: Array.isArray(nomination.proposerRollNumbers)
+              ? nomination.proposerRollNumbers
+              : [],
+            seconderRollNumbers: Array.isArray(nomination.seconderRollNumbers)
+              ? nomination.seconderRollNumbers
+              : [],
+            proposerEntries: Array.isArray(nomination.proposerEntries) ? nomination.proposerEntries : [],
+            seconderEntries: Array.isArray(nomination.seconderEntries) ? nomination.seconderEntries : [],
+            gradeCardUrl: nomination.gradeCardUrl || "",
+            identityCardUrl: nomination.identityCardUrl || "",
+            manifestoUrl: nomination.manifestoUrl || "",
+            porDocumentUrl: nomination.porDocumentUrl || "",
+            attachments: Array.isArray(nomination.attachments) ? nomination.attachments : [],
+            status: nomination.status,
+            review: nomination.review || {},
+            submittedAt: nomination.submittedAt || nomination.createdAt || new Date(),
+            withdrawnAt: nomination.withdrawnAt || null,
+            createdAt: nomination.createdAt || new Date(),
+            updatedAt: nomination.updatedAt || new Date(),
+          }
+        })
+        .filter(Boolean)
+
+      if (clonedNominations.length > 0) {
+        await ElectionNomination.insertMany(clonedNominations)
+      }
+    }
 
     return created(serializeElectionBase(clonedElection), "Election copied successfully")
   }

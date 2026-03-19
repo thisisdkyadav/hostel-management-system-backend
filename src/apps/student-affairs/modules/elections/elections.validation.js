@@ -18,6 +18,8 @@ const eligibilityScopeSchema = Joi.object({
   extraRollNumbers: Joi.array().items(rollNumber).default([]),
 })
 
+export const scopeCountSchema = eligibilityScopeSchema.required()
+
 const postRequirementsSchema = Joi.object({
   minCgpa: Joi.number().min(0).max(10).default(6),
   minCompletedSemestersUg: Joi.number().integer().min(0).default(3),
@@ -183,6 +185,7 @@ export default {
   electionIdSchema,
   nominationIdSchema,
   postIdSchema,
+  scopeCountSchema,
   supporterLookupQuerySchema,
   supporterConfirmationTokenSchema,
   ballotTokenSchema,

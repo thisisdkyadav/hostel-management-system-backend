@@ -70,6 +70,14 @@ router.get(
   controller.getStudentCurrentElections
 )
 
+router.post(
+  "/scope-count",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.scopeCountSchema),
+  controller.getScopeCount
+)
+
 router.get(
   "/:id/posts/:postId/supporters/lookup",
   authorizeRoles([ROLES.STUDENT]),
