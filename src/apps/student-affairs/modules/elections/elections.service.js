@@ -1289,6 +1289,16 @@ class ElectionsService {
       return forbidden("Election can only be copied before voting starts")
     }
 
+    const pendingNominationReviewCount = await ElectionNomination.countDocuments({
+      electionId: sourceElection._id,
+      status: {
+        $in: [NOMINATION_STATUS.SUBMITTED, NOMINATION_STATUS.MODIFICATION_REQUESTED],
+      },
+    })
+    if (pendingNominationReviewCount > 0) {
+      return forbidden("Election can only be copied after all nominations have been finalized")
+    }
+
     const title = String(payload?.title || "").trim()
     if (!title) {
       return badRequest("Title is required to create a copied election")
@@ -1465,9 +1475,10 @@ class ElectionsService {
       return badRequest("Voting emails are already being sent")
     }
 
-    triggerElectionVotingEmailDispatchForElection(election._id, "manual").catch((error) => {
-      console.error("Manual election voting email dispatch failed:", error?.message || error)
-    })
+    const queued = await triggerElectionVotingEmailDispatchForElection(election._id, "manual")
+    if (!queued) {
+      return badRequest("Voting emails could not be queued right now. Please refresh and try again.")
+    }
 
     return success(
       {
@@ -1485,6 +1496,20 @@ class ElectionsService {
     }
 
     const elections = await getVisiblePublishedElections()
+    const electionIds = elections.map((item) => item._id)
+    const [nominationElectionIds, voteElectionIds] = await Promise.all([
+      ElectionNomination.distinct("electionId", {
+        electionId: { $in: electionIds },
+        candidateUserId: user._id,
+      }),
+      ElectionVote.distinct("electionId", {
+        electionId: { $in: electionIds },
+        voterUserId: user._id,
+      }),
+    ])
+
+    const nominationElectionIdSet = new Set(nominationElectionIds.map((value) => String(value)))
+    const voteElectionIdSet = new Set(voteElectionIds.map((value) => String(value)))
     const relevantElections = elections.filter((election) => {
       const stage = getCurrentStage(election)
       if (getStudentPortalMode(stage) === "voting") {
@@ -1494,9 +1519,13 @@ class ElectionsService {
         return (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.candidateEligibility))
       }
       if (getStudentPortalMode(stage) === "results") {
-        return (election.posts || []).some((post) =>
-          doesProfileMatchScope(studentProfile, post.candidateEligibility) ||
-          doesProfileMatchScope(studentProfile, post.voterEligibility)
+        return (
+          nominationElectionIdSet.has(String(election._id)) ||
+          voteElectionIdSet.has(String(election._id)) ||
+          (election.posts || []).some((post) =>
+            doesProfileMatchScope(studentProfile, post.candidateEligibility) ||
+            doesProfileMatchScope(studentProfile, post.voterEligibility)
+          )
         )
       }
       return false
@@ -2453,6 +2482,11 @@ class ElectionsService {
   async publishResults(electionId, payload, user) {
     const election = await Election.findById(electionId)
     if (!election) return notFound("Election")
+
+    const stage = getCurrentStage(election)
+    if (![ELECTION_STAGE.RESULTS, ELECTION_STAGE.HANDOVER, ELECTION_STAGE.COMPLETED].includes(stage)) {
+      return forbidden("Results can only be published after voting has ended")
+    }
 
     const computedResults = await buildElectionResults(election)
     const requestedPosts = new Map(

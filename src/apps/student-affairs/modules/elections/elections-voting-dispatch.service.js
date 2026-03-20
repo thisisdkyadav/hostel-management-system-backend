@@ -236,34 +236,34 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
   }
 
   activeDispatches.add(activeDispatchKey)
-
-  const election = await Election.findById(electionId)
-  const canDispatch = reason === "manual"
-    ? isManualDispatchAllowedNow(election)
-    : isAutomaticDispatchDueNow(election)
-
-  if (!election || !canDispatch) {
-    return false
-  }
-
-  const dispatchKey = getVotingDispatchKey(election)
-  if (!dispatchKey) {
-    return false
-  }
-
-  const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
-  const existingStatus = String(election?.votingEmailDispatch?.status || "idle")
-
-  if (
-    existingDispatchKey === dispatchKey &&
-    (
-      existingStatus === "running" ||
-      (reason !== "manual" && ["completed", "failed"].includes(existingStatus))
-    )
-  ) {
-    return false
-  }
   try {
+    const election = await Election.findById(electionId)
+    const canDispatch = reason === "manual"
+      ? isManualDispatchAllowedNow(election)
+      : isAutomaticDispatchDueNow(election)
+
+    if (!election || !canDispatch) {
+      return false
+    }
+
+    const dispatchKey = getVotingDispatchKey(election)
+    if (!dispatchKey) {
+      return false
+    }
+
+    const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
+    const existingStatus = String(election?.votingEmailDispatch?.status || "idle")
+
+    if (
+      existingDispatchKey === dispatchKey &&
+      (
+        existingStatus === "running" ||
+        (reason !== "manual" && ["completed", "failed"].includes(existingStatus))
+      )
+    ) {
+      return false
+    }
+
     const eligibleProfiles = await collectEligibleVoterProfiles(election)
     const verifiedNominations = await ElectionNomination.find({
       electionId: election._id,
@@ -338,15 +338,18 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
 
     return true
   } catch (error) {
-    const failedElection = await Election.findByIdAndUpdate(electionId, {
-      $set: {
-        "votingEmailDispatch.dispatchKey": dispatchKey,
-        "votingEmailDispatch.status": "failed",
-        "votingEmailDispatch.completedAt": new Date(),
-        "votingEmailDispatch.lastTriggeredAt": new Date(),
-        "votingEmailDispatch.lastError": error?.message || "Voting email dispatch failed",
+    const failedElection = await Election.findByIdAndUpdate(
+      electionId,
+      {
+        $set: {
+          "votingEmailDispatch.status": "failed",
+          "votingEmailDispatch.completedAt": new Date(),
+          "votingEmailDispatch.lastTriggeredAt": new Date(),
+          "votingEmailDispatch.lastError": error?.message || "Voting email dispatch failed",
+        },
       },
-    }, { new: true })
+      { new: true }
+    )
     emitVotingDispatchUpdate(failedElection)
     return false
   } finally {
