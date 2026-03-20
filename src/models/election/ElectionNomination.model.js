@@ -126,15 +126,6 @@ const ElectionNominationSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
-    pitch: {
-      type: String,
-      trim: true,
-      default: "",
-    },
-    agendaPoints: {
-      type: [String],
-      default: [],
-    },
     cgpa: {
       type: Number,
       default: null,
