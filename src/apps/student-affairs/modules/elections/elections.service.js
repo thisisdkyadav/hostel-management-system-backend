@@ -521,6 +521,33 @@ const doesProfileMatchScope = (profile, scope = {}) => {
   )
 }
 
+const canProfileContestForPost = (profile, post) => {
+  if (!doesProfileMatchScope(profile, post?.candidateEligibility)) {
+    return false
+  }
+
+  if (post?.requirements?.requireHostelResident) {
+    const hostelName = profile?.currentRoomAllocation?.hostelId?.name || ""
+    if (!hostelName) {
+      return false
+    }
+
+    const allowedHostelNames = normalizeStringArray(post?.requirements?.allowedHostelNames)
+    if (allowedHostelNames.length > 0 && !allowedHostelNames.includes(hostelName)) {
+      return false
+    }
+  }
+
+  if (
+    post?.requirements?.requireElectorateMembership &&
+    !doesProfileMatchScope(profile, post?.voterEligibility)
+  ) {
+    return false
+  }
+
+  return true
+}
+
 const serializeScope = (scope = {}) => ({
   batches: normalizeStringArray(scope?.batches),
   groups: normalizeStringArray(scope?.groups),
@@ -977,7 +1004,7 @@ const getRelevantPostsForStudent = (election, studentProfile, posts = [], myNomi
     const postKey = `${String(election._id)}:${String(post._id)}`
     const myNomination = myNominationMap.get(postKey)
     const myVote = myVoteMap.get(postKey)
-    const canStand = doesProfileMatchScope(studentProfile, post.candidateEligibility)
+    const canStand = canProfileContestForPost(studentProfile, post)
     const canVote = doesProfileMatchScope(studentProfile, post.voterEligibility)
 
     if (mode === "voting") return canVote || Boolean(myVote)
@@ -1658,7 +1685,7 @@ class ElectionsService {
 
         return {
           ...serializePost(post),
-          canStand: doesProfileMatchScope(studentProfile, post.candidateEligibility),
+          canStand: canProfileContestForPost(studentProfile, post),
           canVote: doesProfileMatchScope(studentProfile, post.voterEligibility),
           myNomination: myNomination ? serializeNomination(myNomination) : null,
           hasVoted: Boolean(myVote),
