@@ -263,9 +263,19 @@ const normalizePostRequirements = (category, requirements = {}) => {
   return {
     ...defaults,
     ...requirements,
+    minCompletedSemestersUg: 0,
+    minCompletedSemestersPg: 0,
+    minRemainingSemesters: 0,
+    proposersRequired: 1,
+    secondersRequired: 1,
     allowedHostelNames: normalizeStringArray(requirements?.allowedHostelNames),
   }
 }
+
+const getEffectiveSupporterRequirements = () => ({
+  proposersRequired: 1,
+  secondersRequired: 1,
+})
 
 const normalizeElectionPayload = async (payload = {}) => {
   const timelineResult = validateTimelineOrder(payload.timeline)
@@ -375,8 +385,7 @@ const buildSupporterStatusSummary = (nomination) => {
 const getSupporterStatusChecks = (nomination, post) => {
   const proposers = Array.isArray(nomination?.proposerEntries) ? nomination.proposerEntries : []
   const seconders = Array.isArray(nomination?.seconderEntries) ? nomination.seconderEntries : []
-  const proposersRequired = Number(post?.requirements?.proposersRequired || 0)
-  const secondersRequired = Number(post?.requirements?.secondersRequired || 0)
+  const { proposersRequired, secondersRequired } = getEffectiveSupporterRequirements(post)
 
   const proposerAcceptedCount = proposers.filter(
     (supporter) => supporter?.status === NOMINATION_SUPPORTER_STATUS.ACCEPTED
@@ -528,11 +537,11 @@ const serializePost = (post) => ({
   voterEligibility: serializeScope(post.voterEligibility),
   requirements: {
     minCgpa: Number(post.requirements?.minCgpa || 0),
-    minCompletedSemestersUg: Number(post.requirements?.minCompletedSemestersUg || 0),
-    minCompletedSemestersPg: Number(post.requirements?.minCompletedSemestersPg || 0),
-    minRemainingSemesters: Number(post.requirements?.minRemainingSemesters || 0),
-    proposersRequired: Number(post.requirements?.proposersRequired || 0),
-    secondersRequired: Number(post.requirements?.secondersRequired || 0),
+    minCompletedSemestersUg: 0,
+    minCompletedSemestersPg: 0,
+    minRemainingSemesters: 0,
+    proposersRequired: 1,
+    secondersRequired: 1,
     requireElectorateMembership: Boolean(post.requirements?.requireElectorateMembership),
     requireHostelResident: Boolean(post.requirements?.requireHostelResident),
     allowedHostelNames: normalizeStringArray(post.requirements?.allowedHostelNames),
@@ -1375,11 +1384,11 @@ class ElectionsService {
         },
         requirements: {
           minCgpa: Number(post.requirements?.minCgpa || 0),
-          minCompletedSemestersUg: Number(post.requirements?.minCompletedSemestersUg || 0),
-          minCompletedSemestersPg: Number(post.requirements?.minCompletedSemestersPg || 0),
-          minRemainingSemesters: Number(post.requirements?.minRemainingSemesters || 0),
-          proposersRequired: Number(post.requirements?.proposersRequired || 0),
-          secondersRequired: Number(post.requirements?.secondersRequired || 0),
+          minCompletedSemestersUg: 0,
+          minCompletedSemestersPg: 0,
+          minRemainingSemesters: 0,
+          proposersRequired: 1,
+          secondersRequired: 1,
           requireElectorateMembership: Boolean(post.requirements?.requireElectorateMembership),
           requireHostelResident: Boolean(post.requirements?.requireHostelResident),
           allowedHostelNames: normalizeStringArray(post.requirements?.allowedHostelNames),
@@ -2140,25 +2149,6 @@ class ElectionsService {
       return forbidden(`Minimum CGPA ${post.requirements?.minCgpa} is required`)
     }
 
-    const isPgStudent = !String(studentProfile.degree || "").toLowerCase().includes("b.tech") &&
-      !String(studentProfile.degree || "").toLowerCase().includes("btech") &&
-      !String(studentProfile.degree || "").toLowerCase().includes("ug")
-
-    const completedSemesters = Number(payload.completedSemesters || 0)
-    const remainingSemesters = Number(payload.remainingSemesters || 0)
-    const minCompleted = isPgStudent
-      ? Number(post.requirements?.minCompletedSemestersPg || 0)
-      : Number(post.requirements?.minCompletedSemestersUg || 0)
-
-    if (completedSemesters < minCompleted) {
-      return forbidden(`At least ${minCompleted} completed semesters are required`)
-    }
-    if (remainingSemesters < Number(post.requirements?.minRemainingSemesters || 0)) {
-      return forbidden(
-        `At least ${post.requirements?.minRemainingSemesters} remaining semesters are required`
-      )
-    }
-
     if (payload.hasNoActiveBacklogs !== true) {
       return forbidden("Students with an active backlog cannot contest in the election")
     }
@@ -2177,6 +2167,7 @@ class ElectionsService {
 
     const proposerRollNumbers = normalizeRollNumbers(payload.proposerRollNumbers)
     const seconderRollNumbers = normalizeRollNumbers(payload.seconderRollNumbers)
+    const { proposersRequired, secondersRequired } = getEffectiveSupporterRequirements(post)
 
     const supporterOverlap = proposerRollNumbers.filter((rollNumber) => seconderRollNumbers.includes(rollNumber))
     if (supporterOverlap.length > 0) {
@@ -2188,11 +2179,11 @@ class ElectionsService {
       return badRequest("Candidate cannot propose or second themselves")
     }
 
-    if (proposerRollNumbers.length < Number(post.requirements?.proposersRequired || 0)) {
-      return badRequest(`At least ${post.requirements?.proposersRequired} proposers are required`)
+    if (proposerRollNumbers.length < proposersRequired) {
+      return badRequest(`At least ${proposersRequired} proposer is required`)
     }
-    if (seconderRollNumbers.length < Number(post.requirements?.secondersRequired || 0)) {
-      return badRequest(`At least ${post.requirements?.secondersRequired} seconders are required`)
+    if (seconderRollNumbers.length < secondersRequired) {
+      return badRequest(`At least ${secondersRequired} seconder is required`)
     }
 
     const supportersResult = await validateRollNumberUsersExist(supporterRollNumbers, "supporter roll numbers")
@@ -2290,8 +2281,8 @@ class ElectionsService {
       pitch: String(payload.pitch || "").trim(),
       agendaPoints: normalizeStringArray(payload.agendaPoints),
       cgpa: Number(payload.cgpa),
-      completedSemesters,
-      remainingSemesters,
+      completedSemesters: payload.completedSemesters == null ? null : Number(payload.completedSemesters),
+      remainingSemesters: payload.remainingSemesters == null ? null : Number(payload.remainingSemesters),
       hasNoActiveBacklogs: true,
       proposerUserIds,
       seconderUserIds,

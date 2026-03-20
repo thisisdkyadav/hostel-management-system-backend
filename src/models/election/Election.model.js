@@ -42,23 +42,23 @@ const ElectionPostRequirementsSchema = new mongoose.Schema(
     },
     minCompletedSemestersUg: {
       type: Number,
-      default: 3,
+      default: 0,
     },
     minCompletedSemestersPg: {
       type: Number,
-      default: 1,
+      default: 0,
     },
     minRemainingSemesters: {
       type: Number,
-      default: 2,
+      default: 0,
     },
     proposersRequired: {
       type: Number,
-      default: 3,
+      default: 1,
     },
     secondersRequired: {
       type: Number,
-      default: 5,
+      default: 1,
     },
     requireElectorateMembership: {
       type: Boolean,
