@@ -177,7 +177,9 @@ export const publishResultsSchema = Joi.object({
     Joi.object({
       postId: objectId.required(),
       winnerNominationId: objectId.allow(null, ""),
+      winnerNominationIds: Joi.array().items(nominationSelection).default([]),
       winnerIsNota: Joi.boolean().default(false),
+      winnerIsTie: Joi.boolean().default(false),
       notes: Joi.string().trim().max(3000).allow("").default(""),
     })
   ).default([]),

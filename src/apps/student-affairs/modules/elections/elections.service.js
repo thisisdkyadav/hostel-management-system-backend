@@ -762,7 +762,13 @@ const buildPublishedResultMap = (election) =>
       String(item.postId),
       {
         winnerNominationId: item.winnerNominationId ? String(item.winnerNominationId) : null,
+        winnerNominationIds: Array.isArray(item.winnerNominationIds) && item.winnerNominationIds.length > 0
+          ? item.winnerNominationIds.map((value) => String(value))
+          : item.winnerNominationId
+            ? [String(item.winnerNominationId)]
+            : [],
         winnerIsNota: Boolean(item.winnerIsNota),
+        winnerIsTie: Boolean(item.winnerIsTie),
         notes: item.notes || "",
       },
     ])
@@ -833,13 +839,18 @@ const buildElectionResults = async (election) => {
     })
 
     const previewWinner = postNominations[0] || null
+    const previewTopVoteCount = Number(previewWinner?.voteCount || 0)
+    const previewWinners = postNominations.filter(
+      (candidate) => Number(candidate.voteCount || 0) === previewTopVoteCount
+    )
     const publishedResult = publishedResultMap.get(postId) || null
-    const publishedWinner =
-      postNominations.find((candidate) =>
-        publishedResult?.winnerIsNota
-          ? candidate.isNota
-          : String(candidate.nominationId) === String(publishedResult?.winnerNominationId || "")
-      ) || null
+    const publishedWinnerIds = new Set([
+      ...((publishedResult?.winnerNominationIds || []).map((value) => String(value))),
+      ...(publishedResult?.winnerIsNota ? [NOTA_OPTION_ID] : []),
+    ])
+    const publishedWinners = postNominations.filter((candidate) =>
+      publishedWinnerIds.has(String(candidate.nominationId || ""))
+    )
 
     return {
       postId,
@@ -848,9 +859,15 @@ const buildElectionResults = async (election) => {
       candidates: postNominations,
       previewWinnerNominationId: previewWinner?.nominationId || null,
       previewWinnerName: previewWinner?.candidateName || "",
+      previewWinnerNominationIds: previewWinners.map((candidate) => String(candidate.nominationId)),
+      previewWinnerNames: previewWinners.map((candidate) => candidate.candidateName),
+      previewWinnerIsTie: previewWinners.length > 1,
       previewWinnerIsNota: Boolean(previewWinner?.isNota),
       publishedWinnerNominationId: publishedResult?.winnerNominationId || null,
-      publishedWinnerName: publishedWinner?.candidateName || "",
+      publishedWinnerName: publishedWinners[0]?.candidateName || "",
+      publishedWinnerNominationIds: publishedWinners.map((candidate) => String(candidate.nominationId)),
+      publishedWinnerNames: publishedWinners.map((candidate) => candidate.candidateName),
+      publishedWinnerIsTie: Boolean(publishedResult?.winnerIsTie),
       publishedWinnerIsNota: Boolean(publishedResult?.winnerIsNota),
       notes: publishedResult?.notes || "",
     }
@@ -2496,16 +2513,34 @@ class ElectionsService {
     const publicationPosts = []
     for (const postResult of computedResults.posts) {
       const requested = requestedPosts.get(String(postResult.postId)) || {}
-      const winnerIsNota =
-        Boolean(requested.winnerIsNota) ||
-        (!requested.winnerNominationId && Boolean(postResult.previewWinnerIsNota))
-      const winnerNominationId = winnerIsNota
-        ? null
+      const requestedWinnerIds = Array.isArray(requested.winnerNominationIds)
+        ? requested.winnerNominationIds.map((value) => String(value))
+        : []
+      const defaultWinnerIds = Array.isArray(postResult.previewWinnerNominationIds)
+        ? postResult.previewWinnerNominationIds.map((value) => String(value))
+        : []
+      const winnerSelectionIds = requestedWinnerIds.length > 0
+        ? requestedWinnerIds
         : requested.winnerNominationId
-          ? String(requested.winnerNominationId)
-          : postResult.previewWinnerIsNota
-            ? null
-            : postResult.previewWinnerNominationId
+          ? [String(requested.winnerNominationId)]
+          : defaultWinnerIds
+      const winnerIsNota = winnerSelectionIds.includes(NOTA_OPTION_ID)
+      const winnerNominationIds = winnerSelectionIds.filter((value) => value !== NOTA_OPTION_ID)
+      const winnerIsTie = Boolean(requested.winnerIsTie) || winnerSelectionIds.length > 1
+      const winnerNominationId = winnerNominationIds[0] || null
+
+      if (
+        winnerSelectionIds.length === 0
+      ) {
+        return badRequest(`Select at least one published result option for ${postResult.postTitle}`)
+      }
+
+      if (
+        winnerIsTie &&
+        winnerSelectionIds.length < 2
+      ) {
+        return badRequest(`Select at least two tied options for ${postResult.postTitle}`)
+      }
 
       if (
         winnerIsNota &&
@@ -2515,16 +2550,31 @@ class ElectionsService {
       }
 
       if (
-        winnerNominationId &&
-        !postResult.candidates.some((candidate) => String(candidate.nominationId) === winnerNominationId)
+        winnerSelectionIds.some(
+          (winnerId) => !postResult.candidates.some((candidate) => String(candidate.nominationId) === String(winnerId))
+        )
       ) {
         return badRequest(`Selected winner is invalid for ${postResult.postTitle}`)
+      }
+
+      if (winnerIsTie) {
+        const selectedCandidates = postResult.candidates.filter((candidate) =>
+          winnerSelectionIds.includes(String(candidate.nominationId))
+        )
+        const selectedVoteCounts = [...new Set(selectedCandidates.map((candidate) => Number(candidate.voteCount || 0)))]
+        const highestVoteCount = Math.max(...postResult.candidates.map((candidate) => Number(candidate.voteCount || 0)))
+
+        if (selectedVoteCounts.length !== 1 || selectedVoteCounts[0] !== highestVoteCount) {
+          return badRequest(`Tie can only be published among the top equal-vote options for ${postResult.postTitle}`)
+        }
       }
 
       publicationPosts.push({
         postId: new mongoose.Types.ObjectId(String(postResult.postId)),
         winnerNominationId: winnerNominationId ? new mongoose.Types.ObjectId(winnerNominationId) : null,
+        winnerNominationIds: winnerNominationIds.map((winnerId) => new mongoose.Types.ObjectId(winnerId)),
         winnerIsNota,
+        winnerIsTie,
         notes: String(requested.notes || "").trim(),
       })
     }

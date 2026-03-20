@@ -143,7 +143,16 @@ const ElectionResultPostSchema = new mongoose.Schema(
       ref: "ElectionNomination",
       default: null,
     },
+    winnerNominationIds: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "ElectionNomination",
+      default: [],
+    },
     winnerIsNota: {
+      type: Boolean,
+      default: false,
+    },
+    winnerIsTie: {
       type: Boolean,
       default: false,
     },
