@@ -335,10 +335,6 @@ const buildCommissionRollNumberSet = (election) => {
   return new Set(normalizeRollNumbers([chief, ...officers]))
 }
 
-const doesProfileMatchSupporterScope = (profile, post) =>
-  doesProfileMatchScope(profile, post?.voterEligibility) ||
-  doesProfileMatchScope(profile, post?.candidateEligibility)
-
 const serializeSupporter = (supporter = {}) => ({
   userId: supporter.userId?._id || supporter.userId || null,
   rollNumber: String(supporter.rollNumber || "").toUpperCase(),
@@ -1732,10 +1728,6 @@ class ElectionsService {
       return forbidden("Election commission members cannot propose or second candidates")
     }
 
-    if (!doesProfileMatchSupporterScope(supporterProfile, post)) {
-      return forbidden("This student is not eligible to support this nomination")
-    }
-
     const activeCandidateNomination = await ElectionNomination.findOne({
       electionId: election._id,
       candidateUserId: supporterUserId,
@@ -1773,8 +1765,6 @@ class ElectionsService {
       name: supporterProfile?.userId?.name || "",
       email: supporterProfile?.userId?.email || "",
       profileImage: supporterProfile?.userId?.profileImage || "",
-      candidatePoolEligible: doesProfileMatchScope(supporterProfile, post.candidateEligibility),
-      voterPoolEligible: doesProfileMatchScope(supporterProfile, post.voterEligibility),
       currentStatus: currentRoleEntry?.status || "",
       currentRole:
         getNominationSupporterEntry(nomination, "proposer", rollNumber)
@@ -2210,13 +2200,6 @@ class ElectionsService {
 
     const supporterProfiles = supportersResult.data.profiles
     const supporterUserIds = supporterProfiles.map((profile) => profile.userId?._id).filter(Boolean)
-
-    const invalidElectorateSupporters = supporterProfiles.filter(
-      (profile) => !doesProfileMatchSupporterScope(profile, post)
-    )
-    if (invalidElectorateSupporters.length > 0) {
-      return forbidden("All proposers and seconders must belong to the candidate or voter pool for the post")
-    }
 
     const commissionSupporters = supporterProfiles.filter((profile) =>
       commissionRollNumbers.has(String(profile.rollNumber || "").toUpperCase())
