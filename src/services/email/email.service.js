@@ -18,6 +18,7 @@ import {
   complaintResolvedTemplate,
   electionSupportConfirmationTemplate,
   electionVotingBallotTemplate,
+  electionNominationReviewTemplate,
 } from './email.templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -390,6 +391,54 @@ class EmailService {
       subject: `Election Ballot · ${electionTitle}`,
       html,
     });
+  }
+
+  async sendElectionNominationReviewEmail({
+    email,
+    studentName,
+    electionTitle,
+    postTitle,
+    decision,
+    reviewNotes,
+  }) {
+    const decisionConfig = {
+      verified: {
+        label: "Verified",
+        subject: `Nomination Verified · ${postTitle}`,
+        introMessage: `Your nomination for ${postTitle || "this post"} in ${electionTitle || "the election"} has been verified.`,
+      },
+      rejected: {
+        label: "Rejected",
+        subject: `Nomination Rejected · ${postTitle}`,
+        introMessage: `Your nomination for ${postTitle || "this post"} in ${electionTitle || "the election"} has been rejected.`,
+      },
+      modification_requested: {
+        label: "Modification Requested",
+        subject: `Nomination Modification Required · ${postTitle}`,
+        introMessage: `Your nomination for ${postTitle || "this post"} in ${electionTitle || "the election"} needs changes before it can be reviewed again.`,
+      },
+    }
+
+    const currentDecision = decisionConfig[String(decision || "").trim()] || {
+      label: "Updated",
+      subject: `Nomination Update · ${postTitle || electionTitle || "Election"}`,
+      introMessage: "Your election nomination has been reviewed.",
+    }
+
+    const html = electionNominationReviewTemplate({
+      studentName,
+      electionTitle,
+      postTitle,
+      decisionLabel: currentDecision.label,
+      introMessage: currentDecision.introMessage,
+      reviewNotes,
+    })
+
+    return this.sendEmail({
+      to: email,
+      subject: currentDecision.subject,
+      html,
+    })
   }
 }
 

@@ -124,6 +124,7 @@ export const upsertNominationSchema = Joi.object({
   cgpa: Joi.number().min(0).max(10).required(),
   completedSemesters: Joi.number().integer().min(0).required(),
   remainingSemesters: Joi.number().integer().min(0).required(),
+  hasNoActiveBacklogs: Joi.boolean().valid(true).required(),
   proposerRollNumbers: Joi.array().items(rollNumber).min(0).max(20).default([]),
   seconderRollNumbers: Joi.array().items(rollNumber).min(0).max(20).default([]),
   gradeCardUrl: uploadedPdfPath.required(),

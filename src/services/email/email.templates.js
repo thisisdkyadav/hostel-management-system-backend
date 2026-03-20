@@ -338,6 +338,52 @@ export const electionVotingBallotTemplate = ({
   return baseEmailTemplate(content)
 }
 
+export const electionNominationReviewTemplate = ({
+  studentName,
+  electionTitle,
+  postTitle,
+  decisionLabel,
+  introMessage,
+  reviewNotes,
+}) => {
+  const escapeHtml = (value) => String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+
+  const safeStudentName = escapeHtml(studentName || "Student")
+  const safeIntroMessage = escapeHtml(introMessage)
+  const safeElectionTitle = escapeHtml(electionTitle || "—")
+  const safePostTitle = escapeHtml(postTitle || "—")
+  const safeDecisionLabel = escapeHtml(decisionLabel || "Updated")
+  const safeReviewNotes = escapeHtml(reviewNotes).replace(/\n/g, "<br />")
+
+  const content = `
+    <h2>Nomination Review Update</h2>
+    <p>Hello ${safeStudentName},</p>
+    <p>${safeIntroMessage}</p>
+
+    <div class="info-box">
+      <p style="margin: 0 0 8px;"><strong>Election:</strong> ${safeElectionTitle}</p>
+      <p style="margin: 0 0 8px;"><strong>Post:</strong> ${safePostTitle}</p>
+      <p style="margin: 0;"><strong>Status:</strong> ${safeDecisionLabel}</p>
+    </div>
+
+    ${reviewNotes ? `
+      <div class="warning">
+        <strong>Review Comment:</strong><br />
+        ${safeReviewNotes}
+      </div>
+    ` : ""}
+
+    <p class="muted-text">Please open the HMS portal for the latest nomination details and any next steps.</p>
+  `
+
+  return baseEmailTemplate(content)
+}
+
 export default {
   baseEmailTemplate,
   passwordResetTemplate,
@@ -346,4 +392,5 @@ export default {
   complaintResolvedTemplate,
   electionSupportConfirmationTemplate,
   electionVotingBallotTemplate,
+  electionNominationReviewTemplate,
 };

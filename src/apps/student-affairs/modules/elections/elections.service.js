@@ -547,6 +547,7 @@ const serializeNomination = (nomination) => ({
   cgpa: nomination.cgpa,
   completedSemesters: nomination.completedSemesters,
   remainingSemesters: nomination.remainingSemesters,
+  hasNoActiveBacklogs: Boolean(nomination.hasNoActiveBacklogs),
   proposerRollNumbers: nomination.proposerRollNumbers || [],
   seconderRollNumbers: nomination.seconderRollNumbers || [],
   proposerEntries: (nomination.proposerEntries || []).map(serializeSupporter),
@@ -1400,6 +1401,7 @@ class ElectionsService {
             cgpa: nomination.cgpa,
             completedSemesters: nomination.completedSemesters,
             remainingSemesters: nomination.remainingSemesters,
+            hasNoActiveBacklogs: Boolean(nomination.hasNoActiveBacklogs),
             proposerUserIds: Array.isArray(nomination.proposerUserIds) ? nomination.proposerUserIds : [],
             seconderUserIds: Array.isArray(nomination.seconderUserIds) ? nomination.seconderUserIds : [],
             proposerRollNumbers: Array.isArray(nomination.proposerRollNumbers)
@@ -2147,6 +2149,10 @@ class ElectionsService {
       )
     }
 
+    if (payload.hasNoActiveBacklogs !== true) {
+      return forbidden("Students with an active backlog cannot contest in the election")
+    }
+
     const activeOtherNomination = await ElectionNomination.findOne({
       electionId: election._id,
       candidateUserId: user._id,
@@ -2283,6 +2289,7 @@ class ElectionsService {
       cgpa: Number(payload.cgpa),
       completedSemesters,
       remainingSemesters,
+      hasNoActiveBacklogs: true,
       proposerUserIds,
       seconderUserIds,
       proposerRollNumbers,
@@ -2473,6 +2480,28 @@ class ElectionsService {
       notes: String(payload.notes || "").trim(),
     }
     await nomination.save()
+
+    const reviewedPost = resolvePostById(election, nomination.postId)
+    const candidateEmail = nomination?.candidateUserId?.email
+    if (
+      candidateEmail &&
+      [
+        NOMINATION_STATUS.VERIFIED,
+        NOMINATION_STATUS.REJECTED,
+        NOMINATION_STATUS.MODIFICATION_REQUESTED,
+      ].includes(payload.status)
+    ) {
+      emailService.sendElectionNominationReviewEmail({
+        email: candidateEmail,
+        studentName: nomination?.candidateUserId?.name,
+        electionTitle: election?.title,
+        postTitle: reviewedPost?.title,
+        decision: payload.status,
+        reviewNotes: nomination?.review?.notes,
+      }).catch((error) => {
+        console.error("Failed to send election nomination review email:", error?.message || error)
+      })
+    }
 
     if ([NOMINATION_STATUS.REJECTED, NOMINATION_STATUS.WITHDRAWN].includes(payload.status)) {
       await invalidateActionLinkTokens(

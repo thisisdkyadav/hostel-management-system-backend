@@ -147,6 +147,10 @@ const ElectionNominationSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    hasNoActiveBacklogs: {
+      type: Boolean,
+      default: false,
+    },
     proposerUserIds: {
       type: [mongoose.Schema.Types.ObjectId],
       ref: "User",
