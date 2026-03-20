@@ -74,6 +74,25 @@ router.use(authenticate);
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
+const TEN_MB = 10 * 1024 * 1024;
+const electionNominationUpload = multer({
+  storage,
+  limits: { fileSize: TEN_MB },
+});
+
+const handleElectionNominationUpload = (req, res, next) => {
+  electionNominationUpload.any()(req, res, (error) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Document size must be 10MB or smaller' });
+    }
+
+    if (error) {
+      return next(error);
+    }
+
+    return next();
+  });
+};
 
 // Profile image upload
 router.post(
@@ -169,7 +188,7 @@ router.post(
   '/election-nomination-document',
   authorizeRoles(['Student', 'Admin', 'Super Admin']),
   requireElectionUploadRouteAccess,
-  upload.any(),
+  handleElectionNominationUpload,
   uploadElectionNominationDocument
 );
 

@@ -39,6 +39,7 @@ const disCoProcessDocsPath = path.join(uploadsBasePath, 'disco-process-docs');
 const certificatesPath = path.join(uploadsBasePath, 'certificates');
 const overallBestPerformerProofDocsPath = path.join(uploadsBasePath, 'overall-best-performer-proofs');
 const electionNominationDocsPath = path.join(uploadsBasePath, 'election-nomination-docs');
+const electionNominationDocMaxSizeBytes = 10 * 1024 * 1024;
 
 // Ensure directories exist
 if (USE_LOCAL_STORAGE) {
@@ -620,6 +621,14 @@ class UploadService {
         success: false,
         statusCode: 400,
         message: 'Only PDF files are allowed',
+      };
+    }
+
+    if (Number(file.size || buffer?.length || 0) > electionNominationDocMaxSizeBytes) {
+      return {
+        success: false,
+        statusCode: 400,
+        message: 'Document size must be 10MB or smaller',
       };
     }
 
