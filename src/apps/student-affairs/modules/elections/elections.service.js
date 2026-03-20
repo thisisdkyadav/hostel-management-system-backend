@@ -1326,7 +1326,7 @@ class ElectionsService {
       academicYear: sourceElection.academicYear,
       phase: sourceElection.phase,
       description: sourceElection.description || "",
-      status: sourceElection.status,
+      status: ELECTION_STATUS.DRAFT,
       electionCommission: {
         chiefElectionOfficerRollNumber: sourceElection.electionCommission?.chiefElectionOfficerRollNumber || "",
         officerRollNumbers: normalizeRollNumbers(sourceElection.electionCommission?.officerRollNumbers),
