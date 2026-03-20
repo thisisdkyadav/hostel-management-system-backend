@@ -53,13 +53,19 @@ const normalizeRollNumbers = (values = []) =>
 
 const doesProfileMatchScope = (profile, scope = {}) => {
   const batches = normalizeStringArray(scope?.batches)
+  const groups = normalizeStringArray(scope?.groups)
   const extraRollNumbers = normalizeRollNumbers(scope?.extraRollNumbers)
-  if (batches.length === 0 && extraRollNumbers.length === 0) return false
+  if (batches.length === 0 && groups.length === 0 && extraRollNumbers.length === 0) return false
 
   const profileBatch = String(profile?.batch || "").trim()
+  const profileGroups = normalizeStringArray(profile?.groups)
   const profileRollNumber = String(profile?.rollNumber || "").trim().toUpperCase()
 
-  return batches.includes(profileBatch) || extraRollNumbers.includes(profileRollNumber)
+  return (
+    batches.includes(profileBatch) ||
+    groups.some((group) => profileGroups.includes(group)) ||
+    extraRollNumbers.includes(profileRollNumber)
+  )
 }
 
 const getVotingDispatchKey = (election) => {
@@ -106,18 +112,22 @@ const isManualDispatchAllowedNow = (election, now = new Date()) => {
 
 const collectEligibleVoterProfiles = async (election) => {
   const allBatches = new Set()
+  const allGroups = new Set()
   const allExtraRollNumbers = new Set()
 
   for (const post of election?.posts || []) {
     for (const batch of normalizeStringArray(post?.voterEligibility?.batches)) {
       allBatches.add(batch)
     }
+    for (const group of normalizeStringArray(post?.voterEligibility?.groups)) {
+      allGroups.add(group)
+    }
     for (const rollNumber of normalizeRollNumbers(post?.voterEligibility?.extraRollNumbers)) {
       allExtraRollNumbers.add(rollNumber)
     }
   }
 
-  if (allBatches.size === 0 && allExtraRollNumbers.size === 0) {
+  if (allBatches.size === 0 && allGroups.size === 0 && allExtraRollNumbers.size === 0) {
     return []
   }
 
@@ -127,6 +137,9 @@ const collectEligibleVoterProfiles = async (election) => {
   }
   if (allBatches.size > 0) {
     query.$or.push({ batch: { $in: [...allBatches] } })
+  }
+  if (allGroups.size > 0) {
+    query.$or.push({ groups: { $in: [...allGroups] } })
   }
   if (allExtraRollNumbers.size > 0) {
     query.$or.push({ rollNumber: { $in: [...allExtraRollNumbers] } })

@@ -16,6 +16,7 @@ const uploadedPdfPath = Joi.string()
 
 const eligibilityScopeSchema = Joi.object({
   batches: Joi.array().items(Joi.string().trim().max(100)).default([]),
+  groups: Joi.array().items(Joi.string().trim().max(120)).default([]),
   extraRollNumbers: Joi.array().items(rollNumber).default([]),
 })
 

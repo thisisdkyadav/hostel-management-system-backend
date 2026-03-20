@@ -6,6 +6,10 @@ const EligibilityScopeSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    groups: {
+      type: [String],
+      default: [],
+    },
     extraRollNumbers: {
       type: [String],
       default: [],

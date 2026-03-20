@@ -220,15 +220,17 @@ const validateRollNumberUsersExist = async (rollNumbers = [], label = "roll numb
 
 const normalizeScope = async (scope = {}, label = "students") => {
   const batches = normalizeStringArray(scope?.batches)
+  const groups = normalizeStringArray(scope?.groups)
   const rollNumberResult = await validateRollNumberUsersExist(scope?.extraRollNumbers, label)
   if (!rollNumberResult.success) return rollNumberResult
 
-  if (batches.length === 0 && rollNumberResult.data.rollNumbers.length === 0) {
-    return badRequest(`At least one batch or CSV student must be configured for ${label}`)
+  if (batches.length === 0 && groups.length === 0 && rollNumberResult.data.rollNumbers.length === 0) {
+    return badRequest(`At least one batch, group, or CSV student must be configured for ${label}`)
   }
 
   return success({
     batches,
+    groups,
     extraRollNumbers: rollNumberResult.data.rollNumbers,
   })
 }
@@ -451,8 +453,9 @@ const areSupporterPayloadsEqual = (left = {}, right = {}) =>
 
 const getEligibleStudentProfilesForScope = async (scope = {}) => {
   const batches = normalizeStringArray(scope?.batches)
+  const groups = normalizeStringArray(scope?.groups)
   const extraRollNumbers = normalizeRollNumbers(scope?.extraRollNumbers)
-  if (batches.length === 0 && extraRollNumbers.length === 0) return []
+  if (batches.length === 0 && groups.length === 0 && extraRollNumbers.length === 0) return []
 
   const query = {
     status: "Active",
@@ -461,6 +464,9 @@ const getEligibleStudentProfilesForScope = async (scope = {}) => {
 
   if (batches.length > 0) {
     query.$or.push({ batch: { $in: batches } })
+  }
+  if (groups.length > 0) {
+    query.$or.push({ groups: { $in: groups } })
   }
   if (extraRollNumbers.length > 0) {
     query.$or.push({ rollNumber: { $in: extraRollNumbers } })
@@ -492,20 +498,27 @@ const doesProfileMatchScope = (profile, scope = {}) => {
   if (!profile) return false
 
   const batches = normalizeStringArray(scope?.batches)
+  const groups = normalizeStringArray(scope?.groups)
   const extraRollNumbers = normalizeRollNumbers(scope?.extraRollNumbers)
 
-  if (batches.length === 0 && extraRollNumbers.length === 0) {
+  if (batches.length === 0 && groups.length === 0 && extraRollNumbers.length === 0) {
     return false
   }
 
   const profileBatch = String(profile.batch || "").trim()
+  const profileGroups = normalizeStringArray(profile.groups)
   const profileRollNumber = String(profile.rollNumber || "").trim().toUpperCase()
 
-  return batches.includes(profileBatch) || extraRollNumbers.includes(profileRollNumber)
+  return (
+    batches.includes(profileBatch) ||
+    groups.some((group) => profileGroups.includes(group)) ||
+    extraRollNumbers.includes(profileRollNumber)
+  )
 }
 
 const serializeScope = (scope = {}) => ({
   batches: normalizeStringArray(scope?.batches),
+  groups: normalizeStringArray(scope?.groups),
   extraRollNumbers: normalizeRollNumbers(scope?.extraRollNumbers),
 })
 
@@ -599,9 +612,10 @@ const serializeElectionBase = (election) => ({
 
 const buildStudentScopeQuery = (scope = {}) => {
   const batches = normalizeStringArray(scope?.batches)
+  const groups = normalizeStringArray(scope?.groups)
   const extraRollNumbers = normalizeRollNumbers(scope?.extraRollNumbers)
 
-  if (batches.length === 0 && extraRollNumbers.length === 0) {
+  if (batches.length === 0 && groups.length === 0 && extraRollNumbers.length === 0) {
     return null
   }
 
@@ -612,6 +626,10 @@ const buildStudentScopeQuery = (scope = {}) => {
 
   if (batches.length > 0) {
     query.$or.push({ batch: { $in: batches } })
+  }
+
+  if (groups.length > 0) {
+    query.$or.push({ groups: { $in: groups } })
   }
 
   if (extraRollNumbers.length > 0) {
@@ -1351,10 +1369,12 @@ class ElectionsService {
         description: post.description || "",
         candidateEligibility: {
           batches: normalizeStringArray(post.candidateEligibility?.batches),
+          groups: normalizeStringArray(post.candidateEligibility?.groups),
           extraRollNumbers: normalizeRollNumbers(post.candidateEligibility?.extraRollNumbers),
         },
         voterEligibility: {
           batches: normalizeStringArray(post.voterEligibility?.batches),
+          groups: normalizeStringArray(post.voterEligibility?.groups),
           extraRollNumbers: normalizeRollNumbers(post.voterEligibility?.extraRollNumbers),
         },
         requirements: {
