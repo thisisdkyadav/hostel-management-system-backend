@@ -268,6 +268,7 @@ const normalizePostRequirements = (category, requirements = {}) => {
     minRemainingSemesters: 0,
     proposersRequired: 1,
     secondersRequired: 1,
+    requireElectorateMembership: false,
     allowedHostelNames: normalizeStringArray(requirements?.allowedHostelNames),
   }
 }
@@ -538,13 +539,6 @@ const canProfileContestForPost = (profile, post) => {
     }
   }
 
-  if (
-    post?.requirements?.requireElectorateMembership &&
-    !doesProfileMatchScope(profile, post?.voterEligibility)
-  ) {
-    return false
-  }
-
   return true
 }
 
@@ -569,7 +563,7 @@ const serializePost = (post) => ({
     minRemainingSemesters: 0,
     proposersRequired: 1,
     secondersRequired: 1,
-    requireElectorateMembership: Boolean(post.requirements?.requireElectorateMembership),
+    requireElectorateMembership: false,
     requireHostelResident: Boolean(post.requirements?.requireHostelResident),
     allowedHostelNames: normalizeStringArray(post.requirements?.allowedHostelNames),
     notes: post.requirements?.notes || "",
@@ -1416,7 +1410,7 @@ class ElectionsService {
           minRemainingSemesters: 0,
           proposersRequired: 1,
           secondersRequired: 1,
-          requireElectorateMembership: Boolean(post.requirements?.requireElectorateMembership),
+          requireElectorateMembership: false,
           requireHostelResident: Boolean(post.requirements?.requireHostelResident),
           allowedHostelNames: normalizeStringArray(post.requirements?.allowedHostelNames),
           notes: post.requirements?.notes || "",
@@ -2163,13 +2157,6 @@ class ElectionsService {
       if (allowedHostelNames.length > 0 && !allowedHostelNames.includes(hostelName)) {
         return forbidden("You are not eligible for this hostel-specific post")
       }
-    }
-
-    if (
-      post.requirements?.requireElectorateMembership &&
-      !doesProfileMatchScope(studentProfile, post.voterEligibility)
-    ) {
-      return forbidden("Only members of the electorate can contest this post")
     }
 
     if (Number(payload.cgpa) < Number(post.requirements?.minCgpa || 0)) {

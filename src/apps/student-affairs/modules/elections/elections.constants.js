@@ -53,7 +53,7 @@ export const DEFAULT_POST_REQUIREMENTS_BY_CATEGORY = {
     minRemainingSemesters: 0,
     proposersRequired: 1,
     secondersRequired: 1,
-    requireElectorateMembership: true,
+    requireElectorateMembership: false,
     requireHostelResident: false,
   },
   [ELECTION_POST_CATEGORY.SENATOR]: {
@@ -63,7 +63,7 @@ export const DEFAULT_POST_REQUIREMENTS_BY_CATEGORY = {
     minRemainingSemesters: 0,
     proposersRequired: 1,
     secondersRequired: 1,
-    requireElectorateMembership: true,
+    requireElectorateMembership: false,
     requireHostelResident: false,
   },
   [ELECTION_POST_CATEGORY.HORC]: {
@@ -73,7 +73,7 @@ export const DEFAULT_POST_REQUIREMENTS_BY_CATEGORY = {
     minRemainingSemesters: 0,
     proposersRequired: 1,
     secondersRequired: 1,
-    requireElectorateMembership: true,
+    requireElectorateMembership: false,
     requireHostelResident: true,
   },
   [ELECTION_POST_CATEGORY.CUSTOM]: {
@@ -83,7 +83,7 @@ export const DEFAULT_POST_REQUIREMENTS_BY_CATEGORY = {
     minRemainingSemesters: 0,
     proposersRequired: 1,
     secondersRequired: 1,
-    requireElectorateMembership: true,
+    requireElectorateMembership: false,
     requireHostelResident: false,
   },
 }

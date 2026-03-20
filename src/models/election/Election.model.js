@@ -62,7 +62,7 @@ const ElectionPostRequirementsSchema = new mongoose.Schema(
     },
     requireElectorateMembership: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     requireHostelResident: {
       type: Boolean,

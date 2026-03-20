@@ -29,7 +29,7 @@ const postRequirementsSchema = Joi.object({
   minRemainingSemesters: Joi.number().integer().min(0).default(0),
   proposersRequired: Joi.number().integer().min(1).default(1),
   secondersRequired: Joi.number().integer().min(1).default(1),
-  requireElectorateMembership: Joi.boolean().default(true),
+  requireElectorateMembership: Joi.boolean().default(false),
   requireHostelResident: Joi.boolean().default(false),
   allowedHostelNames: Joi.array().items(Joi.string().trim().max(120)).default([]),
   notes: Joi.string().trim().max(2000).allow("").default(""),
