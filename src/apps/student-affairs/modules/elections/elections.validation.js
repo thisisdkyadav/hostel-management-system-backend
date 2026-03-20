@@ -120,8 +120,26 @@ export const listAdminElectionsSchema = Joi.object({
 })
 
 export const upsertNominationSchema = Joi.object({
-  pitch: Joi.string().trim().max(3000).allow("").default(""),
-  agendaPoints: Joi.array().items(Joi.string().trim().max(200)).max(8).default([]),
+  pitch: Joi.string().trim().max(2000).allow("").default(""),
+  agendaPoints: Joi.array()
+    .items(Joi.string().trim().max(2000))
+    .max(8)
+    .custom((value, helpers) => {
+      const totalCharacters = (value || []).reduce(
+        (sum, item) => sum + String(item || "").trim().length,
+        0
+      )
+
+      if (totalCharacters > 2000) {
+        return helpers.error("any.invalid")
+      }
+
+      return value
+    }, "agenda points total character limit")
+    .messages({
+      "any.invalid": "\"agendaPoints\" must be 2000 characters or fewer in total",
+    })
+    .default([]),
   cgpa: Joi.number().min(0).max(10).required(),
   completedSemesters: Joi.number().integer().min(0).allow(null).default(null),
   remainingSemesters: Joi.number().integer().min(0).allow(null).default(null),
