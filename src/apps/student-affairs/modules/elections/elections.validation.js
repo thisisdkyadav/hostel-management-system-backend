@@ -8,6 +8,7 @@ import {
 } from "./elections.constants.js"
 
 const rollNumber = Joi.string().trim().uppercase().max(30)
+const nominationSelection = Joi.alternatives().try(objectId, Joi.string().valid("nota"))
 const uploadedPdfPath = Joi.string()
   .trim()
   .max(2000)
@@ -152,7 +153,7 @@ export const reviewNominationSchema = Joi.object({
 })
 
 export const castVoteSchema = Joi.object({
-  candidateNominationId: objectId.required(),
+  candidateNominationId: nominationSelection.required(),
 })
 
 export const supporterConfirmationResponseSchema = Joi.object({
@@ -164,7 +165,7 @@ export const submitBallotSchema = Joi.object({
     .items(
       Joi.object({
         postId: objectId.required(),
-        candidateNominationId: objectId.required(),
+        candidateNominationId: nominationSelection.required(),
       })
     )
     .min(1)
@@ -176,6 +177,7 @@ export const publishResultsSchema = Joi.object({
     Joi.object({
       postId: objectId.required(),
       winnerNominationId: objectId.allow(null, ""),
+      winnerIsNota: Joi.boolean().default(false),
       notes: Joi.string().trim().max(3000).allow("").default(""),
     })
   ).default([]),

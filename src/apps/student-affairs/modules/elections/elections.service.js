@@ -58,6 +58,8 @@ const ACTIVE_NOMINATION_STATUSES = [
   NOMINATION_STATUS.MODIFICATION_REQUESTED,
   NOMINATION_STATUS.VERIFIED,
 ]
+const NOTA_OPTION_ID = "nota"
+const NOTA_OPTION_LABEL = "NOTA"
 
 const hasUploadedIdCard = (studentProfile) => {
   return Boolean(studentProfile?.idCard?.front || studentProfile?.idCard?.back)
@@ -760,6 +762,7 @@ const buildPublishedResultMap = (election) =>
       String(item.postId),
       {
         winnerNominationId: item.winnerNominationId ? String(item.winnerNominationId) : null,
+        winnerIsNota: Boolean(item.winnerIsNota),
         notes: item.notes || "",
       },
     ])
@@ -782,6 +785,7 @@ const buildElectionResults = async (election) => {
         _id: {
           postId: "$postId",
           candidateNominationId: "$candidateNominationId",
+          isNota: "$isNota",
         },
         count: { $sum: 1 },
       },
@@ -790,7 +794,9 @@ const buildElectionResults = async (election) => {
 
   const voteMap = new Map(
     voteCounts.map((item) => [
-      `${String(item._id.postId)}:${String(item._id.candidateNominationId)}`,
+      item._id?.isNota
+        ? `${String(item._id.postId)}:${NOTA_OPTION_ID}`
+        : `${String(item._id.postId)}:${String(item._id.candidateNominationId)}`,
       Number(item.count || 0),
     ])
   )
@@ -798,6 +804,7 @@ const buildElectionResults = async (election) => {
 
   const posts = (election.posts || []).map((post) => {
     const postId = String(post._id)
+    const notaVoteCount = voteMap.get(`${postId}:${NOTA_OPTION_ID}`) || 0
     const postNominations = verifiedNominations
       .filter((nomination) => String(nomination.postId) === postId)
       .map((nomination) => ({
@@ -806,17 +813,32 @@ const buildElectionResults = async (election) => {
         candidateEmail: nomination.candidateUserId?.email || "",
         candidateRollNumber: nomination.candidateRollNumber,
         voteCount: voteMap.get(`${postId}:${String(nomination._id)}`) || 0,
+        isNota: false,
       }))
-      .sort((left, right) => {
-        if (right.voteCount !== left.voteCount) return right.voteCount - left.voteCount
-        return String(left.candidateName || "").localeCompare(String(right.candidateName || ""))
+
+    if (postNominations.length > 0 || notaVoteCount > 0) {
+      postNominations.push({
+        nominationId: NOTA_OPTION_ID,
+        candidateName: NOTA_OPTION_LABEL,
+        candidateEmail: "",
+        candidateRollNumber: "",
+        voteCount: notaVoteCount,
+        isNota: true,
       })
+    }
+
+    postNominations.sort((left, right) => {
+      if (right.voteCount !== left.voteCount) return right.voteCount - left.voteCount
+      return String(left.candidateName || "").localeCompare(String(right.candidateName || ""))
+    })
 
     const previewWinner = postNominations[0] || null
     const publishedResult = publishedResultMap.get(postId) || null
     const publishedWinner =
-      postNominations.find(
-        (candidate) => String(candidate.nominationId) === String(publishedResult?.winnerNominationId || "")
+      postNominations.find((candidate) =>
+        publishedResult?.winnerIsNota
+          ? candidate.isNota
+          : String(candidate.nominationId) === String(publishedResult?.winnerNominationId || "")
       ) || null
 
     return {
@@ -826,8 +848,10 @@ const buildElectionResults = async (election) => {
       candidates: postNominations,
       previewWinnerNominationId: previewWinner?.nominationId || null,
       previewWinnerName: previewWinner?.candidateName || "",
+      previewWinnerIsNota: Boolean(previewWinner?.isNota),
       publishedWinnerNominationId: publishedResult?.winnerNominationId || null,
       publishedWinnerName: publishedWinner?.candidateName || "",
+      publishedWinnerIsNota: Boolean(publishedResult?.winnerIsNota),
       notes: publishedResult?.notes || "",
     }
   })
@@ -1083,6 +1107,7 @@ const serializeBallotCandidate = (nomination) => ({
   candidateRollNumber: nomination.candidateRollNumber,
   candidateProfileImage: nomination.candidateUserId?.profileImage || "",
   pitch: nomination.pitch || "",
+  isNota: false,
 })
 
 const buildElectionBallotPayload = async (election, voterUserId) => {
@@ -1115,9 +1140,19 @@ const buildElectionBallotPayload = async (election, voterUserId) => {
     .map((post) => ({
       postId: String(post._id),
       postTitle: post.title,
-      candidates: nominationsByPostId[String(post._id)] || [],
+      candidates: [
+        ...(nominationsByPostId[String(post._id)] || []),
+        {
+          nominationId: NOTA_OPTION_ID,
+          candidateName: NOTA_OPTION_LABEL,
+          candidateRollNumber: "",
+          candidateProfileImage: "",
+          pitch: "",
+          isNota: true,
+        },
+      ],
     }))
-    .filter((post) => (post.candidates || []).length > 0)
+    .filter((post) => (post.candidates || []).some((candidate) => !candidate.isNota))
 
   if (posts.length === 0) {
     return forbidden("No verified ballot options are available for you in this election")
@@ -1930,15 +1965,24 @@ class ElectionsService {
         postId: new mongoose.Types.ObjectId(String(post.postId)),
         voterUserId: tokenDoc.recipientUserId,
         voterRollNumber: ballotResult.data.voter.rollNumber,
-        candidateNominationId: new mongoose.Types.ObjectId(String(selectedCandidate.nominationId)),
+        candidateNominationId: selectedCandidate.isNota
+          ? null
+          : new mongoose.Types.ObjectId(String(selectedCandidate.nominationId)),
         candidateUserId: null,
-        candidateRollNumber: selectedCandidate.candidateRollNumber,
+        candidateRollNumber: selectedCandidate.isNota
+          ? NOTA_OPTION_LABEL
+          : selectedCandidate.candidateRollNumber,
+        isNota: Boolean(selectedCandidate.isNota),
         castAt: new Date(),
       })
     }
 
     const verifiedNominations = await ElectionNomination.find({
-      _id: { $in: voteDocs.map((vote) => vote.candidateNominationId) },
+      _id: {
+        $in: voteDocs
+          .map((vote) => vote.candidateNominationId)
+          .filter(Boolean),
+      },
       electionId: election._id,
       status: NOMINATION_STATUS.VERIFIED,
     }).select("_id candidateUserId")
@@ -1947,6 +1991,8 @@ class ElectionsService {
     )
 
     for (const voteDoc of voteDocs) {
+      if (voteDoc.isNota) continue
+
       const candidateUserId = candidateUserIdMap.get(String(voteDoc.candidateNominationId))
       if (!candidateUserId) {
         return badRequest("One or more selected candidates are no longer available")
@@ -2416,9 +2462,23 @@ class ElectionsService {
     const publicationPosts = []
     for (const postResult of computedResults.posts) {
       const requested = requestedPosts.get(String(postResult.postId)) || {}
-      const winnerNominationId = requested.winnerNominationId
-        ? String(requested.winnerNominationId)
-        : postResult.previewWinnerNominationId
+      const winnerIsNota =
+        Boolean(requested.winnerIsNota) ||
+        (!requested.winnerNominationId && Boolean(postResult.previewWinnerIsNota))
+      const winnerNominationId = winnerIsNota
+        ? null
+        : requested.winnerNominationId
+          ? String(requested.winnerNominationId)
+          : postResult.previewWinnerIsNota
+            ? null
+            : postResult.previewWinnerNominationId
+
+      if (
+        winnerIsNota &&
+        !postResult.candidates.some((candidate) => candidate.isNota)
+      ) {
+        return badRequest(`NOTA is invalid for ${postResult.postTitle}`)
+      }
 
       if (
         winnerNominationId &&
@@ -2430,6 +2490,7 @@ class ElectionsService {
       publicationPosts.push({
         postId: new mongoose.Types.ObjectId(String(postResult.postId)),
         winnerNominationId: winnerNominationId ? new mongoose.Types.ObjectId(winnerNominationId) : null,
+        winnerIsNota,
         notes: String(requested.notes || "").trim(),
       })
     }

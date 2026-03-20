@@ -143,6 +143,10 @@ const ElectionResultPostSchema = new mongoose.Schema(
       ref: "ElectionNomination",
       default: null,
     },
+    winnerIsNota: {
+      type: Boolean,
+      default: false,
+    },
     notes: {
       type: String,
       trim: true,

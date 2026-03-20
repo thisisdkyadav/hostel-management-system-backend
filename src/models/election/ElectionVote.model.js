@@ -28,18 +28,22 @@ const ElectionVoteSchema = new mongoose.Schema(
     candidateNominationId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "ElectionNomination",
-      required: true,
+      default: null,
     },
     candidateUserId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      default: null,
     },
     candidateRollNumber: {
       type: String,
-      required: true,
       trim: true,
       uppercase: true,
+      default: "",
+    },
+    isNota: {
+      type: Boolean,
+      default: false,
     },
     castAt: {
       type: Date,
