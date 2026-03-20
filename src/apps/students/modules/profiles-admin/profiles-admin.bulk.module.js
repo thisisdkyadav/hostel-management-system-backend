@@ -3,11 +3,107 @@ import { Configuration, StudentProfile } from '../../../../models/index.js';
 import { badRequest } from '../../../../services/base/index.js';
 import {
   asyncHandler,
+  buildBatchScopeStudentMatch,
   hasConfiguredBatch,
   MIXED_BATCH_SCOPE_KEY,
   sendStandardResponse,
 } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
+
+const BATCH_ASSIGNMENT_MODE_APPEND = 'append';
+const BATCH_ASSIGNMENT_MODE_REPLACE = 'replace';
+
+const normalizeRollNumber = (value) => (
+  typeof value === 'string' ? value.trim().toUpperCase() : ''
+);
+
+const isNumericRollNumber = (value = '') => /^\d+$/.test(value);
+
+const resolveBatchAssignmentRollNumbers = async ({ session, rollNumbers, rollNumberRange }) => {
+  const normalizedRollNumbers = Array.isArray(rollNumbers)
+    ? [...new Set(rollNumbers.map(normalizeRollNumber).filter(Boolean))]
+    : [];
+
+  if (normalizedRollNumbers.length > 0) {
+    if (normalizedRollNumbers.length > MAX_BULK_RECORDS) {
+      return {
+        success: false,
+        message: `Maximum ${MAX_BULK_RECORDS} records are allowed per request`,
+      };
+    }
+
+    return {
+      success: true,
+      rollNumbers: normalizedRollNumbers,
+      selectionMode: 'csv',
+    };
+  }
+
+  const normalizedRangeStart = normalizeRollNumber(rollNumberRange?.start);
+  const normalizedRangeEnd = normalizeRollNumber(rollNumberRange?.end);
+
+  if (!normalizedRangeStart || !normalizedRangeEnd) {
+    return {
+      success: false,
+      message: 'Please provide either roll numbers or a roll number range',
+    };
+  }
+
+  if (!isNumericRollNumber(normalizedRangeStart) || !isNumericRollNumber(normalizedRangeEnd)) {
+    return {
+      success: false,
+      message: 'Roll number range is supported only for purely numeric roll numbers',
+    };
+  }
+
+  const startValue = BigInt(normalizedRangeStart);
+  const endValue = BigInt(normalizedRangeEnd);
+
+  if (startValue > endValue) {
+    return {
+      success: false,
+      message: 'Range start must be less than or equal to range end',
+    };
+  }
+
+  const numericStudents = await StudentProfile.find({ rollNumber: /^\d+$/ })
+    .select('rollNumber')
+    .session(session)
+    .lean();
+
+  const rangedRollNumbers = numericStudents
+    .filter((student) => {
+      const currentValue = BigInt(student.rollNumber);
+      return currentValue >= startValue && currentValue <= endValue;
+    })
+    .map((student) => student.rollNumber)
+    .sort((left, right) => {
+      const leftValue = BigInt(left);
+      const rightValue = BigInt(right);
+      if (leftValue === rightValue) return 0;
+      return leftValue < rightValue ? -1 : 1;
+    });
+
+  if (rangedRollNumbers.length === 0) {
+    return {
+      success: false,
+      message: 'No numeric students found in the provided roll number range',
+    };
+  }
+
+  if (rangedRollNumbers.length > MAX_BULK_RECORDS) {
+    return {
+      success: false,
+      message: `Range resolved to ${rangedRollNumbers.length} students. Maximum ${MAX_BULK_RECORDS} records are allowed per request`,
+    };
+  }
+
+  return {
+    success: true,
+    rollNumbers: rangedRollNumbers,
+    selectionMode: 'range',
+  };
+};
 
 export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
   const { status, rollNumbers } = req.body;
@@ -175,23 +271,21 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
 });
 
 export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
-  const { degree, department, batch, rollNumbers } = req.body;
-  const normalizedRollNumbers = Array.isArray(rollNumbers)
-    ? [...new Set(rollNumbers.map((rollNumber) => (
-      typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
-    )).filter(Boolean))]
-    : [];
+  const {
+    degree,
+    department,
+    batch,
+    rollNumbers,
+    rollNumberRange,
+    assignmentMode = BATCH_ASSIGNMENT_MODE_APPEND,
+  } = req.body;
 
   if (!degree || !department || !batch) {
     return sendStandardResponse(res, badRequest('degree, department, and batch are required'));
   }
 
-  if (normalizedRollNumbers.length === 0) {
-    return sendStandardResponse(res, badRequest('Please provide at least one roll number'));
-  }
-
-  if (normalizedRollNumbers.length > MAX_BULK_RECORDS) {
-    return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
+  if (![BATCH_ASSIGNMENT_MODE_APPEND, BATCH_ASSIGNMENT_MODE_REPLACE].includes(assignmentMode)) {
+    return sendStandardResponse(res, badRequest('assignmentMode must be either append or replace'));
   }
 
   const session = await mongoose.startSession();
@@ -200,6 +294,18 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
     let responsePayload = null;
 
     await session.withTransaction(async () => {
+      const selectionResult = await resolveBatchAssignmentRollNumbers({
+        session,
+        rollNumbers,
+        rollNumberRange,
+      });
+
+      if (!selectionResult.success) {
+        responsePayload = badRequest(selectionResult.message);
+        return;
+      }
+
+      const normalizedRollNumbers = selectionResult.rollNumbers;
       const studentBatchesConfig = await Configuration.findOne({ key: 'studentBatches' }).session(session);
       const configuredBatches = studentBatchesConfig?.value || {};
 
@@ -214,6 +320,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
       const updateFields = { batch };
+      let clearedCount = 0;
 
       if (degree !== MIXED_BATCH_SCOPE_KEY) {
         updateFields.degree = degree;
@@ -223,13 +330,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         updateFields.department = department;
       }
 
-      const students = await StudentProfile.updateMany(
-        { rollNumber: { $in: existingRollNumbers } },
-        { $set: updateFields },
-        { session }
-      );
-
-      if (students.matchedCount === 0) {
+      if (existingRollNumbers.length === 0) {
         responsePayload = {
           success: false,
           statusCode: 404,
@@ -242,13 +343,31 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         return;
       }
 
+      if (assignmentMode === BATCH_ASSIGNMENT_MODE_REPLACE) {
+        const clearedStudents = await StudentProfile.updateMany(
+          buildBatchScopeStudentMatch({ degree, department, batch }),
+          { $set: { batch: '' } },
+          { session }
+        );
+        clearedCount = clearedStudents.modifiedCount || 0;
+      }
+
+      const students = await StudentProfile.updateMany(
+        { rollNumber: { $in: existingRollNumbers } },
+        { $set: updateFields },
+        { session }
+      );
+
       responsePayload = {
         success: true,
         statusCode: 200,
         data: {
           updatedCount: students.modifiedCount,
           matchedCount: students.matchedCount,
+          clearedCount,
           unsuccessfulRollNumbers,
+          selectionMode: selectionResult.selectionMode,
+          assignmentMode,
           assignment: {
             degree,
             department,
