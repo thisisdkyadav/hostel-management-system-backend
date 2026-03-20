@@ -1,7 +1,12 @@
 import mongoose from 'mongoose';
 import { Configuration, StudentProfile } from '../../../../models/index.js';
 import { badRequest } from '../../../../services/base/index.js';
-import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
+import {
+  asyncHandler,
+  hasConfiguredBatch,
+  MIXED_BATCH_SCOPE_KEY,
+  sendStandardResponse,
+} from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
@@ -199,7 +204,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
       const configuredBatches = studentBatchesConfig?.value || {};
 
       if (!hasConfiguredBatch(configuredBatches, { degree, department, batch })) {
-        responsePayload = badRequest('The selected batch is not configured for the selected degree and department');
+        responsePayload = badRequest('The selected batch is not configured for the selected academic combination');
         return;
       }
 
@@ -208,10 +213,19 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         .session(session);
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
+      const updateFields = { batch };
+
+      if (degree !== MIXED_BATCH_SCOPE_KEY) {
+        updateFields.degree = degree;
+      }
+
+      if (department !== MIXED_BATCH_SCOPE_KEY) {
+        updateFields.department = department;
+      }
 
       const students = await StudentProfile.updateMany(
         { rollNumber: { $in: existingRollNumbers } },
-        { $set: { degree, department, batch } },
+        { $set: updateFields },
         { session }
       );
 
@@ -235,7 +249,13 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
           updatedCount: students.modifiedCount,
           matchedCount: students.matchedCount,
           unsuccessfulRollNumbers,
-          assignment: { degree, department, batch },
+          assignment: {
+            degree,
+            department,
+            batch,
+            appliedDegree: degree !== MIXED_BATCH_SCOPE_KEY ? degree : null,
+            appliedDepartment: department !== MIXED_BATCH_SCOPE_KEY ? department : null,
+          },
         },
         message: 'Students batch updated successfully',
       };

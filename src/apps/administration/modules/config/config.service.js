@@ -7,11 +7,13 @@
 
 import { Configuration } from '../../../../models/index.js';
 import { defaultConfigs, getConfigWithDefault } from '../../../../utils/configDefaults.js';
-import { normalizeStudentBatchesConfig } from '../../../../utils/index.js';
+import { MIXED_BATCH_SCOPE_KEY, normalizeStudentBatchesConfig } from '../../../../utils/index.js';
 import { BaseService, success, notFound, badRequest, error } from '../../../../services/base/index.js';
 
 const ACADEMIC_HOLIDAYS_KEY = "academicHolidays"
 const STUDENT_BATCHES_KEY = "studentBatches"
+const DEGREES_KEY = "degrees"
+const DEPARTMENTS_KEY = "departments"
 const YEAR_KEY_REGEX = /^\d{4}$/
 
 const normalizeHolidayDate = (value) => {
@@ -75,6 +77,10 @@ const normalizeAcademicHolidays = (value) => {
   return { success: true, value: normalized }
 }
 
+const containsReservedBatchScopeKey = (value = []) => (
+  Array.isArray(value) && value.some((item) => String(item || "").trim() === MIXED_BATCH_SCOPE_KEY)
+)
+
 class ConfigService extends BaseService {
   constructor() {
     super(Configuration, 'Configuration');
@@ -133,6 +139,8 @@ class ConfigService extends BaseService {
         return badRequest(normalizedStudentBatches.message)
       }
       normalizedValue = normalizedStudentBatches.value
+    } else if ((key === DEGREES_KEY || key === DEPARTMENTS_KEY) && containsReservedBatchScopeKey(value)) {
+      return badRequest(`'${MIXED_BATCH_SCOPE_KEY}' is reserved for mixed batch scopes and cannot be used as a ${key === DEGREES_KEY ? 'degree' : 'department'} value`)
     }
 
     const result = await this.upsert(

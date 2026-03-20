@@ -2,6 +2,8 @@ import { Configuration, StudentProfile } from '../../../../models/index.js';
 import { badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
 import {
+  MIXED_BATCH_SCOPE_KEY,
+  buildBatchScopeStudentMatch,
   getBatchOptionsFromConfig,
   renameBatchInConfig,
   renameDegreeInConfig,
@@ -27,6 +29,10 @@ export const renameDepartment = asyncHandler(async (req, res) => {
 
   if (!oldName || !newName) {
     return sendStandardResponse(res, badRequest('Both oldName and newName are required'));
+  }
+
+  if (String(newName).trim() === MIXED_BATCH_SCOPE_KEY) {
+    return sendStandardResponse(res, badRequest('This department name is reserved for mixed batch scopes'));
   }
 
   const result = await withTransaction(async (session) => {
@@ -83,6 +89,10 @@ export const renameDegree = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest('Both oldName and newName are required'));
   }
 
+  if (String(newName).trim() === MIXED_BATCH_SCOPE_KEY) {
+    return sendStandardResponse(res, badRequest('This degree name is reserved for mixed batch scopes'));
+  }
+
   const result = await withTransaction(async (session) => {
     const degrees = await Configuration.findOne({ key: 'degrees' }).session(session);
     if (!degrees) {
@@ -136,7 +146,7 @@ export const renameBatch = asyncHandler(async (req, res) => {
   const { degree, department, oldName, newName } = req.body;
 
   if (!degree || !department || !oldName || !newName) {
-    return sendStandardResponse(res, badRequest('degree, department, oldName, and newName are required'));
+    return sendStandardResponse(res, badRequest('degree scope, department scope, oldName, and newName are required'));
   }
 
   const result = await withTransaction(async (session) => {
@@ -145,13 +155,20 @@ export const renameBatch = asyncHandler(async (req, res) => {
       return notFound('Student batches configuration not found');
     }
 
+    const normalizedNewName = String(newName).trim();
+
     await StudentProfile.updateMany(
-      { degree, department, batch: oldName },
-      { $set: { batch: newName } },
+      buildBatchScopeStudentMatch({ degree, department, batch: oldName }),
+      { $set: { batch: normalizedNewName } },
       { session }
     );
 
-    studentBatches.value = renameBatchInConfig(studentBatches.value, { degree, department, oldName, newName });
+    studentBatches.value = renameBatchInConfig(studentBatches.value, {
+      degree,
+      department,
+      oldName,
+      newName: normalizedNewName,
+    });
     await studentBatches.save({ session });
 
     return {

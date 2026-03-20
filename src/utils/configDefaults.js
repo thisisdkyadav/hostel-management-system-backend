@@ -12,7 +12,7 @@ export const defaultConfigs = {
   },
   studentBatches: {
     value: {},
-    description: "Batch options grouped by degree and department. Example: { BTech: { \"Computer Science\": [\"2023\", \"2024\"] } }",
+    description: "Batch options grouped by degree and department scopes. Exact scopes and mixed scopes are both supported.",
   },
   studentEditableFields: {
     value: ["profileImage", "dateOfBirth"],
