@@ -12,6 +12,9 @@ import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.const
 
 const BATCH_ASSIGNMENT_MODE_APPEND = 'append';
 const BATCH_ASSIGNMENT_MODE_REPLACE = 'replace';
+const GROUP_ASSIGNMENT_MODE_ADD = 'add';
+const GROUP_ASSIGNMENT_MODE_REMOVE = 'remove';
+const GROUP_ASSIGNMENT_MODE_REPLACE = 'replace';
 
 const normalizeRollNumber = (value) => (
   typeof value === 'string' ? value.trim().toUpperCase() : ''
@@ -105,6 +108,14 @@ const resolveBatchAssignmentRollNumbers = async ({ session, rollNumbers, rollNum
   };
 };
 
+const normalizeGroupNames = (values = []) => (
+  [...new Set(
+    (Array.isArray(values) ? values : [])
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter(Boolean)
+  )]
+);
+
 export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
   const { status, rollNumbers } = req.body;
 
@@ -148,6 +159,42 @@ export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
       unsuccessfulRollNumbers,
     },
     message: 'Students status updated successfully',
+  });
+});
+
+export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
+  const submittedRollNumbers = Array.isArray(req.body?.rollNumbers) ? req.body.rollNumbers : [];
+  const normalizedRollNumbers = [...new Set(submittedRollNumbers.map(normalizeRollNumber).filter(Boolean))];
+
+  if (normalizedRollNumbers.length === 0) {
+    return sendStandardResponse(res, badRequest('Please provide at least one valid roll number'));
+  }
+
+  if (normalizedRollNumbers.length > MAX_BULK_RECORDS) {
+    return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
+  }
+
+  const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
+    .select('rollNumber')
+    .lean();
+
+  const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
+  const existingRollNumberSet = new Set(existingRollNumbers);
+  const missingRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumberSet.has(rollNumber));
+
+  return sendStandardResponse(res, {
+    success: true,
+    statusCode: 200,
+    data: {
+      submittedCount: submittedRollNumbers.length,
+      uniqueCount: normalizedRollNumbers.length,
+      foundCount: existingRollNumbers.length,
+      missingCount: missingRollNumbers.length,
+      missingRollNumbers,
+    },
+    message: missingRollNumbers.length > 0
+      ? 'Roll number check completed with missing records'
+      : 'All uploaded roll numbers exist in the system',
   });
 });
 
@@ -386,10 +433,120 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
   }
 });
 
+export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
+  const {
+    groupNames,
+    rollNumbers,
+    rollNumberRange,
+    assignmentMode = GROUP_ASSIGNMENT_MODE_ADD,
+  } = req.body;
+
+  const normalizedGroupNames = normalizeGroupNames(groupNames);
+
+  if (normalizedGroupNames.length === 0) {
+    return sendStandardResponse(res, badRequest('Please select at least one group'));
+  }
+
+  if (![GROUP_ASSIGNMENT_MODE_ADD, GROUP_ASSIGNMENT_MODE_REMOVE, GROUP_ASSIGNMENT_MODE_REPLACE].includes(assignmentMode)) {
+    return sendStandardResponse(res, badRequest('assignmentMode must be add, remove, or replace'));
+  }
+
+  const session = await mongoose.startSession();
+
+  try {
+    let responsePayload = null;
+
+    await session.withTransaction(async () => {
+      const selectionResult = await resolveBatchAssignmentRollNumbers({
+        session,
+        rollNumbers,
+        rollNumberRange,
+      });
+
+      if (!selectionResult.success) {
+        responsePayload = badRequest(selectionResult.message);
+        return;
+      }
+
+      const studentGroupsConfig = await Configuration.findOne({ key: 'studentGroups' }).session(session);
+      const configuredGroups = normalizeGroupNames(studentGroupsConfig?.value || []);
+      const configuredGroupsLookup = new Set(configuredGroups);
+      const invalidGroups = normalizedGroupNames.filter((groupName) => !configuredGroupsLookup.has(groupName));
+
+      if (invalidGroups.length > 0) {
+        responsePayload = badRequest(`These groups are not configured: ${invalidGroups.join(', ')}`);
+        return;
+      }
+
+      const normalizedRollNumbers = selectionResult.rollNumbers;
+      const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
+        .select('rollNumber')
+        .session(session);
+      const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
+      const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
+
+      if (existingRollNumbers.length === 0) {
+        responsePayload = {
+          success: false,
+          statusCode: 404,
+          message: 'No students found to update',
+          errors: unsuccessfulRollNumbers.map((rollNumber) => ({
+            rollNumber,
+            message: 'Student not found',
+          })),
+        };
+        return;
+      }
+
+      let students;
+
+      if (assignmentMode === GROUP_ASSIGNMENT_MODE_ADD) {
+        students = await StudentProfile.updateMany(
+          { rollNumber: { $in: existingRollNumbers } },
+          { $addToSet: { groups: { $each: normalizedGroupNames } } },
+          { session }
+        );
+      } else if (assignmentMode === GROUP_ASSIGNMENT_MODE_REMOVE) {
+        students = await StudentProfile.updateMany(
+          { rollNumber: { $in: existingRollNumbers } },
+          { $pull: { groups: { $in: normalizedGroupNames } } },
+          { session }
+        );
+      } else {
+        students = await StudentProfile.updateMany(
+          { rollNumber: { $in: existingRollNumbers } },
+          { $set: { groups: normalizedGroupNames } },
+          { session }
+        );
+      }
+
+      responsePayload = {
+        success: true,
+        statusCode: 200,
+        data: {
+          updatedCount: students.modifiedCount,
+          matchedCount: students.matchedCount,
+          unsuccessfulRollNumbers,
+          selectionMode: selectionResult.selectionMode,
+          assignmentMode,
+          groups: normalizedGroupNames,
+        },
+        message: 'Student groups updated successfully',
+      };
+    });
+
+    return sendStandardResponse(res, responsePayload);
+  } finally {
+    await session.endSession();
+  }
+});
+
 export const profilesAdminBulkModule = {
+  checkMissingRollNumbers,
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
   bulkUpdateStudentsBatch,
+  bulkUpdateStudentsGroups,
 };
 
 export default profilesAdminBulkModule;

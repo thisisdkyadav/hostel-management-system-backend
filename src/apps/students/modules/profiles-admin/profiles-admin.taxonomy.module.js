@@ -142,6 +142,66 @@ export const getBatchesList = asyncHandler(async (req, res) => {
   });
 });
 
+export const renameGroup = asyncHandler(async (req, res) => {
+  const { oldName, newName } = req.body;
+
+  if (!oldName || !newName) {
+    return sendStandardResponse(res, badRequest('Both oldName and newName are required'));
+  }
+
+  const normalizedNewName = String(newName).trim();
+
+  if (!normalizedNewName) {
+    return sendStandardResponse(res, badRequest('newName cannot be empty'));
+  }
+
+  const result = await withTransaction(async (session) => {
+    const studentGroups = await Configuration.findOne({ key: 'studentGroups' }).session(session);
+    if (!studentGroups) {
+      return notFound('Student groups configuration not found');
+    }
+
+    await StudentProfile.updateMany(
+      { groups: oldName },
+      [
+        {
+          $set: {
+            groups: {
+              $setUnion: [
+                {
+                  $map: {
+                    input: { $ifNull: ['$groups', []] },
+                    as: 'group',
+                    in: {
+                      $cond: [{ $eq: ['$$group', oldName] }, normalizedNewName, '$$group'],
+                    },
+                  },
+                },
+                [],
+              ],
+            },
+          },
+        },
+      ],
+      { session }
+    );
+
+    studentGroups.value = studentGroups.value.map((group) => (
+      group === oldName ? normalizedNewName : group
+    ));
+    await studentGroups.save({ session });
+
+    return {
+      success: true,
+      statusCode: 200,
+      data: null,
+      message: 'Group renamed successfully',
+    };
+  });
+
+  return sendStandardResponse(res, result);
+});
+
 export const renameBatch = asyncHandler(async (req, res) => {
   const { degree, department, oldName, newName } = req.body;
 
@@ -189,6 +249,7 @@ export const profilesAdminTaxonomyModule = {
   renameDegree,
   getBatchesList,
   renameBatch,
+  renameGroup,
 };
 
 export default profilesAdminTaxonomyModule;

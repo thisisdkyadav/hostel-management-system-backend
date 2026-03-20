@@ -16,9 +16,11 @@ import {
   updateStudentProfile,
 } from './profiles-admin.profiles.module.js';
 import {
+  checkMissingRollNumbers,
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
   bulkUpdateStudentsBatch,
+  bulkUpdateStudentsGroups,
 } from './profiles-admin.bulk.module.js';
 import {
   getAllocationStudentByRollNumber,
@@ -31,11 +33,14 @@ import {
   renameDegree,
   getBatchesList,
   renameBatch,
+  renameGroup,
 } from './profiles-admin.taxonomy.module.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { validate } from '../../../../middlewares/validate.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
+import { checkMissingRollNumbersSchema } from '../../../../validations/student.validation.js';
 
 const router = express.Router();
 
@@ -103,6 +108,13 @@ router.get(
   getStudentId
 );
 router.post(
+  '/profiles/check-roll-numbers',
+  authorizeRoles(['Admin']),
+  requireStudentsRouteAccess,
+  validate(checkMissingRollNumbersSchema),
+  checkMissingRollNumbers
+);
+router.post(
   '/profiles/status',
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
@@ -119,6 +131,12 @@ router.put(
   authorizeRoles(['Admin']),
   requireStudentsRouteAccess,
   bulkUpdateStudentsBatch
+);
+router.put(
+  '/profiles/groups',
+  authorizeRoles(['Admin']),
+  requireStudentsRouteAccess,
+  bulkUpdateStudentsGroups
 );
 router.put(
   '/hostels/:hostelId/room-allocations',
@@ -164,6 +182,12 @@ router.put(
   authorizeRoles(['Admin']),
   requireAdminSettingsRouteAccess,
   renameBatch
+);
+router.put(
+  '/groups/rename',
+  authorizeRoles(['Admin']),
+  requireAdminSettingsRouteAccess,
+  renameGroup
 );
 
 export default router;

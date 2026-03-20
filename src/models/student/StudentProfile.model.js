@@ -33,6 +33,10 @@ const StudentProfileSchema = new mongoose.Schema({
     type: String,
     trim: true,
   },
+  groups: {
+    type: [String],
+    default: [],
+  },
   admissionDate: {
     type: Date,
   },
@@ -165,6 +169,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         department: studentProfile.department || "",
         degree: studentProfile.degree || "",
         batch: studentProfile.batch || "",
+        groups: Array.isArray(studentProfile.groups) ? studentProfile.groups : [],
         year: year,
         gender: studentProfile.gender || "",
         dateOfBirth: formattedDOB,
@@ -269,6 +274,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
     department,
     degree,
     batch,
+    groups,
     gender,
     hostelId,
     hostelIds = [],
@@ -291,6 +297,14 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   if (department) matchProfile.department = department
   if (degree) matchProfile.degree = degree
   if (batch) matchProfile.batch = batch
+  if (groups) {
+    const normalizedGroups = Array.isArray(groups)
+      ? groups.filter(Boolean)
+      : String(groups).split(",").map((value) => value.trim()).filter(Boolean)
+    if (normalizedGroups.length > 0) {
+      matchProfile.groups = { $in: normalizedGroups }
+    }
+  }
   if (gender) matchProfile.gender = gender
   if (admissionDateFrom || admissionDateTo) {
     matchProfile.admissionDate = {}
@@ -412,7 +426,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
 
     if (missingFields.length > 0) {
       const userFieldSet = new Set(["name", "email", "phone", "profileImage"])
-      const profileFieldSet = new Set(["rollNumber", "department", "degree", "batch", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"])
+      const profileFieldSet = new Set(["rollNumber", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"])
 
       const andConditions = []
       for (const key of missingFields) {
@@ -472,6 +486,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
       department: 1,
       degree: 1,
       batch: 1,
+      groups: 1,
       gender: 1,
       userId: "$user._id",
       name: "$user.name",
@@ -512,7 +527,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
 
 // Expose allowed keys for frontend to build the missing filter UI
 StudentProfileSchema.statics.getMissingFieldOptions = function () {
-  return ["phone", "profileImage", "department", "degree", "batch", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail"]
+  return ["phone", "profileImage", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail"]
   // return ["name", "email", "phone", "profileImage", "rollNumber", "department", "degree", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"]
 }
 
@@ -520,6 +535,7 @@ StudentProfileSchema.index({ userId: 1, rollNumber: 1 })
 StudentProfileSchema.index({ status: 1, gender: 1, isDayScholar: 1 })
 StudentProfileSchema.index({ status: 1, degree: 1, gender: 1 })
 StudentProfileSchema.index({ department: 1, degree: 1, batch: 1 })
+StudentProfileSchema.index({ groups: 1 })
 StudentProfileSchema.index({ admissionDate: 1 })
 StudentProfileSchema.index({ currentRoomAllocation: 1 })
 

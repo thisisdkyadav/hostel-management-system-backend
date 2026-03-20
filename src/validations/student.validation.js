@@ -232,6 +232,14 @@ export const bulkUpdateDayScholarDetailsSchema = Joi.object({
   }),
 });
 
+/**
+ * Check missing roll numbers from a CSV upload
+ * POST /api/v1/students/profiles-admin/profiles/check-roll-numbers
+ */
+export const checkMissingRollNumbersSchema = Joi.object({
+  rollNumbers: Joi.array().items(Joi.string().trim()).min(1).max(MAX_BULK_RECORDS).required(),
+});
+
 export default {
   createStudentsProfilesSchema,
   updateStudentsProfilesSchema,
@@ -246,4 +254,5 @@ export default {
   uploadStudentIdCardSchema,
   bulkUpdateStudentsStatusSchema,
   bulkUpdateDayScholarDetailsSchema,
+  checkMissingRollNumbersSchema,
 };

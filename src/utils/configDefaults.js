@@ -14,6 +14,10 @@ export const defaultConfigs = {
     value: {},
     description: "Batch options grouped by degree and department scopes. Exact scopes and mixed scopes are both supported.",
   },
+  studentGroups: {
+    value: [],
+    description: "Flat list of assignable student groups. Students can belong to multiple groups.",
+  },
   studentEditableFields: {
     value: ["profileImage", "dateOfBirth"],
     description: "Fields that students are allowed to edit in their profile",
