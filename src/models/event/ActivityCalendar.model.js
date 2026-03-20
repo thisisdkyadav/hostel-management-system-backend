@@ -64,6 +64,7 @@ const ActivityCalendarSchema = new mongoose.Schema(
       },
     ],
     currentChainIndex: { type: Number, default: null },
+    allowProposalBeforeApproval: { type: Boolean, default: false },
     events: [CalendarEventSchema],
     rejectionReason: { type: String },
     rejectedBy: {

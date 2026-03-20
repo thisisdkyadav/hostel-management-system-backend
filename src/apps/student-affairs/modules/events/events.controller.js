@@ -130,6 +130,11 @@ export const updateCalendar = asyncHandler(async (req, res) => {
   sendRawResponse(res, result)
 })
 
+export const updateCalendarSettings = asyncHandler(async (req, res) => {
+  const result = await calendarService.updateCalendarSettings(req.params.id, req.body, req.user)
+  sendRawResponse(res, result)
+})
+
 export const submitCalendar = asyncHandler(async (req, res) => {
   const result = await calendarService.submitCalendar(req.params.id, req.user, req.body)
   sendRawResponse(res, result)

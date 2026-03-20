@@ -12,6 +12,7 @@ import { EVENT_CATEGORY, POST_STUDENT_AFFAIRS_APPROVERS } from "./events.constan
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const calendarEventSchema = Joi.object({
+  _id: objectId,
   title: Joi.string().trim().min(2).max(200).required(),
   category: Joi.string().valid(...Object.values(EVENT_CATEGORY)).required(),
   startDate: Joi.date().required(),
@@ -50,11 +51,16 @@ export const createCalendarSchema = Joi.object({
   academicYear: Joi.string().pattern(/^\d{4}-\d{2}$/).required()
     .messages({ "string.pattern.base": "Academic year must be in format YYYY-YY (e.g., 2025-26)" }),
   events: Joi.array().items(calendarEventSchema).default([]),
+  allowProposalBeforeApproval: Joi.boolean().default(false),
 })
 
 export const updateCalendarSchema = Joi.object({
   events: Joi.array().items(calendarEventSchema).min(1),
 }).min(1)
+
+export const updateCalendarSettingsSchema = Joi.object({
+  allowProposalBeforeApproval: Joi.boolean().required(),
+})
 
 export const calendarIdSchema = Joi.object({
   id: objectId.required(),

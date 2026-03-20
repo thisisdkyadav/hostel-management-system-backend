@@ -13,6 +13,7 @@ import {
 } from "../../../../services/base/ServiceResponse.js"
 import EventProposal from "../../../../models/event/EventProposal.model.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
+import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import {
   PROPOSAL_STATUS,
@@ -68,6 +69,22 @@ class ProposalService extends BaseService {
 
     if (event.status === EVENT_STATUS.CANCELLED || event.status === EVENT_STATUS.COMPLETED) {
       return badRequest("Proposal cannot be submitted for cancelled or completed events")
+    }
+
+    if (!isMegaEvent && event.calendarId) {
+      const calendar = await ActivityCalendar.findById(event.calendarId).select(
+        "status allowProposalBeforeApproval academicYear"
+      )
+
+      if (
+        calendar &&
+        calendar.status !== "approved" &&
+        !calendar.allowProposalBeforeApproval
+      ) {
+        return badRequest(
+          `Proposal can be submitted only after the ${calendar.academicYear} activity calendar is approved, unless Admin enables early proposal submission for that calendar`
+        )
+      }
     }
 
     const proposalDueDate = await this._ensureEventProposalDueDate(event)

@@ -45,6 +45,15 @@ const megaEventsCreateAccess = [requireMegaEventsRouteAccess]
 const megaEventsApproveAccess = [requireMegaEventsRouteAccess]
 
 // Get all calendars
+router.post(
+  "/calendar",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsCreateAccess,
+  validate(validation.createCalendarSchema),
+  eventsController.createCalendar
+)
+
+// Get all calendars
 router.get(
   "/calendar",
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
@@ -84,6 +93,16 @@ router.put(
   ...eventsCreateAccess,
   validate(validation.updateCalendarSchema),
   eventsController.updateCalendar
+)
+
+// Update calendar settings (Admin only)
+router.patch(
+  "/calendar/:id/settings",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  validate(validation.calendarIdSchema, "params"),
+  validate(validation.updateCalendarSettingsSchema),
+  eventsController.updateCalendarSettings
 )
 
 // Submit calendar for approval (President only; enforced in service)

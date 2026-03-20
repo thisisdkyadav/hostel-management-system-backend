@@ -54,10 +54,15 @@ class CalendarService extends BaseService {
     const calendar = await this.model.create({
       academicYear: data.academicYear,
       events: data.events || [],
+      allowProposalBeforeApproval: Boolean(data.allowProposalBeforeApproval),
       createdBy: user._id,
       status: CALENDAR_STATUS.DRAFT,
       isLocked: false,
     })
+
+    if (calendar.allowProposalBeforeApproval && Array.isArray(calendar.events) && calendar.events.length > 0) {
+      await this._syncGymkhanaEventsForCalendar(calendar)
+    }
 
     return created({ calendar }, "Activity calendar created")
   }
@@ -170,7 +175,78 @@ class CalendarService extends BaseService {
 
     await calendar.save()
 
+    if (calendar.status === CALENDAR_STATUS.APPROVED || calendar.allowProposalBeforeApproval) {
+      await this._syncGymkhanaEventsForCalendar(calendar)
+    }
+
     return success({ calendar }, 200, "Calendar updated successfully")
+  }
+
+  async updateCalendarSettings(calendarId, data, user) {
+    if (user.role !== ROLES.ADMIN && user.role !== ROLES.SUPER_ADMIN) {
+      return forbidden("Only Admin can update calendar settings")
+    }
+
+    const calendar = await this.model.findById(calendarId)
+    if (!calendar) {
+      return notFound("Activity calendar")
+    }
+
+    const nextAllowProposalBeforeApproval = Boolean(data.allowProposalBeforeApproval)
+    const previousAllowProposalBeforeApproval = Boolean(calendar.allowProposalBeforeApproval)
+
+    if (nextAllowProposalBeforeApproval === previousAllowProposalBeforeApproval) {
+      return success({ calendar }, 200, "Calendar settings updated successfully")
+    }
+
+    calendar.allowProposalBeforeApproval = nextAllowProposalBeforeApproval
+    await calendar.save()
+
+    if (nextAllowProposalBeforeApproval) {
+      await this._syncGymkhanaEventsForCalendar(calendar)
+      return success(
+        { calendar },
+        200,
+        "Early proposal submission enabled for this calendar"
+      )
+    }
+
+    if (calendar.status !== CALENDAR_STATUS.APPROVED) {
+      const linkedEvents = await GymkhanaEvent.find({
+        calendarId: calendar._id,
+        isMegaEvent: false,
+      }).select("_id proposalSubmitted proposalId expenseId")
+
+      const hasWorkflowData = linkedEvents.some(
+        (event) => event.proposalSubmitted || event.proposalId || event.expenseId
+      )
+
+      if (hasWorkflowData) {
+        calendar.allowProposalBeforeApproval = true
+        await calendar.save()
+        return badRequest(
+          "Cannot disable early proposal submission because this calendar already has linked proposal or expense data"
+        )
+      }
+
+      if (linkedEvents.length > 0) {
+        await GymkhanaEvent.deleteMany({
+          calendarId: calendar._id,
+          isMegaEvent: false,
+          proposalSubmitted: false,
+          $or: [
+            { proposalId: { $exists: false }, expenseId: { $exists: false } },
+            { proposalId: null, expenseId: null },
+          ],
+        })
+      }
+    }
+
+    return success(
+      { calendar },
+      200,
+      "Early proposal submission disabled for this calendar"
+    )
   }
 
   /**
@@ -316,7 +392,7 @@ class CalendarService extends BaseService {
       calendar.currentChainIndex = null
       
       // Create individual events from calendar
-      await this._createEventsFromCalendar(calendar)
+      await this._syncGymkhanaEventsForCalendar(calendar)
     }
 
     await calendar.save()
@@ -482,30 +558,75 @@ class CalendarService extends BaseService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Create individual GymkhanaEvent documents from approved calendar
+   * Sync calendar events into GymkhanaEvent documents.
    */
-  async _createEventsFromCalendar(calendar) {
-    const events = calendar.events.map(event => {
-      const scheduledStartDate = new Date(event.startDate)
+  async _syncGymkhanaEventsForCalendar(calendar) {
+    const calendarEvents = Array.isArray(calendar?.events) ? calendar.events : []
+    if (calendarEvents.length === 0) {
+      return
+    }
+
+    const existingEvents = await GymkhanaEvent.find({
+      calendarId: calendar._id,
+      isMegaEvent: false,
+    })
+
+    const existingByCalendarEventId = new Map()
+    const fallbackBuckets = new Map()
+
+    for (const existingEvent of existingEvents) {
+      if (existingEvent.calendarEventId) {
+        existingByCalendarEventId.set(String(existingEvent.calendarEventId), existingEvent)
+        continue
+      }
+
+      const fallbackKey = this._buildCalendarEventSyncKey(existingEvent)
+      if (!fallbackBuckets.has(fallbackKey)) {
+        fallbackBuckets.set(fallbackKey, [])
+      }
+      fallbackBuckets.get(fallbackKey).push(existingEvent)
+    }
+
+    for (const calendarEvent of calendarEvents) {
+      const calendarEventId = calendarEvent?._id ? String(calendarEvent._id) : null
+      let matchingEvent = calendarEventId ? existingByCalendarEventId.get(calendarEventId) : null
+
+      if (!matchingEvent) {
+        const fallbackKey = this._buildCalendarEventSyncKey(calendarEvent)
+        const bucket = fallbackBuckets.get(fallbackKey) || []
+        matchingEvent = bucket.shift() || null
+      }
+
+      const scheduledStartDate = new Date(calendarEvent.startDate)
       const proposalDueDate = new Date(scheduledStartDate)
       proposalDueDate.setDate(proposalDueDate.getDate() - 21)
 
-      return {
-      calendarId: calendar._id,
-      title: event.title,
-      category: event.category,
-      scheduledStartDate,
-      scheduledEndDate: event.endDate,
-      estimatedBudget: event.estimatedBudget,
-      description: event.description,
-      status: "upcoming",
-      proposalDueDate,
-      isMegaEvent: false,
-      megaEventSeriesId: null,
-    }
-    })
+      const payload = {
+        calendarId: calendar._id,
+        ...(calendarEvent._id ? { calendarEventId: calendarEvent._id } : {}),
+        title: calendarEvent.title,
+        category: calendarEvent.category,
+        scheduledStartDate,
+        scheduledEndDate: calendarEvent.endDate,
+        estimatedBudget: calendarEvent.estimatedBudget,
+        description: calendarEvent.description,
+        proposalDueDate,
+        isMegaEvent: false,
+        megaEventSeriesId: null,
+      }
 
-    await GymkhanaEvent.insertMany(events)
+      if (matchingEvent) {
+        await GymkhanaEvent.findByIdAndUpdate(matchingEvent._id, payload, {
+          new: true,
+          runValidators: true,
+        })
+      } else {
+        await GymkhanaEvent.create({
+          ...payload,
+          status: "upcoming",
+        })
+      }
+    }
   }
 
   /**
@@ -584,6 +705,22 @@ class CalendarService extends BaseService {
       endDate: event?.endDate || event?.scheduledEndDate || event?.tentativeDate || event?.scheduledDate,
       estimatedBudget: event?.estimatedBudget || 0,
     }
+  }
+
+  _buildCalendarEventSyncKey(event) {
+    const startDate = event?.startDate || event?.scheduledStartDate
+    const endDate = event?.endDate || event?.scheduledEndDate
+    return [
+      event?.title || "",
+      event?.category || EVENT_CATEGORY.ACADEMIC,
+      this._normalizeSyncDate(startDate),
+      this._normalizeSyncDate(endDate),
+    ].join("|")
+  }
+
+  _normalizeSyncDate(value) {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10)
   }
 
   _validatePostStudentAffairsChain(nextApprovalStages = []) {
