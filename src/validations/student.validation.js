@@ -238,6 +238,27 @@ export const bulkUpdateDayScholarDetailsSchema = Joi.object({
  */
 export const checkMissingRollNumbersSchema = Joi.object({
   rollNumbers: Joi.array().items(Joi.string().trim()).min(1).max(MAX_BULK_RECORDS).required(),
+  scopeType: Joi.string().valid('system', 'group', 'batch').default('system'),
+  groupName: Joi.when('scopeType', {
+    is: 'group',
+    then: Joi.string().trim().required(),
+    otherwise: Joi.string().trim().allow('', null),
+  }),
+  degree: Joi.when('scopeType', {
+    is: 'batch',
+    then: Joi.string().trim().required(),
+    otherwise: Joi.string().trim().allow('', null),
+  }),
+  department: Joi.when('scopeType', {
+    is: 'batch',
+    then: Joi.string().trim().required(),
+    otherwise: Joi.string().trim().allow('', null),
+  }),
+  batch: Joi.when('scopeType', {
+    is: 'batch',
+    then: Joi.string().trim().required(),
+    otherwise: Joi.string().trim().allow('', null),
+  }),
 });
 
 export default {

@@ -164,6 +164,7 @@ export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
 
 export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
   const submittedRollNumbers = Array.isArray(req.body?.rollNumbers) ? req.body.rollNumbers : [];
+  const scopeType = typeof req.body?.scopeType === 'string' ? req.body.scopeType : 'system';
   const normalizedRollNumbers = [...new Set(submittedRollNumbers.map(normalizeRollNumber).filter(Boolean))];
 
   if (normalizedRollNumbers.length === 0) {
@@ -175,12 +176,62 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
   }
 
   const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-    .select('rollNumber')
+    .select('rollNumber degree department batch groups')
     .lean();
 
-  const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
+  const existingStudentMap = new Map(existingStudents.map((student) => [student.rollNumber, student]));
+  const existingRollNumbers = normalizedRollNumbers.filter((rollNumber) => existingStudentMap.has(rollNumber));
   const existingRollNumberSet = new Set(existingRollNumbers);
   const missingRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumberSet.has(rollNumber));
+  let outOfScopeRollNumbers = [];
+  let inScopeCount = existingRollNumbers.length;
+  let scopeLabel = 'System';
+
+  if (scopeType === 'group') {
+    const groupName = typeof req.body?.groupName === 'string' ? req.body.groupName.trim() : '';
+    if (!groupName) {
+      return sendStandardResponse(res, badRequest('groupName is required when checking against a group'));
+    }
+
+    const studentGroupsConfig = await Configuration.findOne({ key: 'studentGroups' }).lean();
+    const configuredGroups = normalizeGroupNames(studentGroupsConfig?.value || []);
+    const normalizedGroupName = configuredGroups.find((group) => group.toLowerCase() === groupName.toLowerCase()) || groupName;
+
+    if (!configuredGroups.some((group) => group.toLowerCase() === normalizedGroupName.toLowerCase())) {
+      return sendStandardResponse(res, badRequest(`Group "${groupName}" is not configured`));
+    }
+
+    outOfScopeRollNumbers = existingRollNumbers.filter((rollNumber) => {
+      const student = existingStudentMap.get(rollNumber);
+      const studentGroups = normalizeGroupNames(student?.groups || []);
+      return !studentGroups.some((group) => group.toLowerCase() === normalizedGroupName.toLowerCase());
+    });
+    inScopeCount = existingRollNumbers.length - outOfScopeRollNumbers.length;
+    scopeLabel = `Group: ${normalizedGroupName}`;
+  } else if (scopeType === 'batch') {
+    const degree = typeof req.body?.degree === 'string' ? req.body.degree.trim() : '';
+    const department = typeof req.body?.department === 'string' ? req.body.department.trim() : '';
+    const batch = typeof req.body?.batch === 'string' ? req.body.batch.trim() : '';
+
+    if (!degree || !department || !batch) {
+      return sendStandardResponse(res, badRequest('degree, department, and batch are required when checking against a batch'));
+    }
+
+    const studentBatchesConfig = await Configuration.findOne({ key: 'studentBatches' }).lean();
+    const configuredBatches = studentBatchesConfig?.value || {};
+
+    if (!hasConfiguredBatch(configuredBatches, { degree, department, batch })) {
+      return sendStandardResponse(res, badRequest('The selected batch is not configured for the selected academic combination'));
+    }
+
+    const batchScopeMatch = buildBatchScopeStudentMatch({ degree, department, batch });
+    outOfScopeRollNumbers = existingRollNumbers.filter((rollNumber) => {
+      const student = existingStudentMap.get(rollNumber) || {};
+      return Object.entries(batchScopeMatch).some(([key, value]) => String(student?.[key] || '').trim() !== value);
+    });
+    inScopeCount = existingRollNumbers.length - outOfScopeRollNumbers.length;
+    scopeLabel = `Batch: ${batch} (${degree === MIXED_BATCH_SCOPE_KEY ? 'Mixed Degree' : degree} / ${department === MIXED_BATCH_SCOPE_KEY ? 'Mixed Department' : department})`;
+  }
 
   return sendStandardResponse(res, {
     success: true,
@@ -191,10 +242,16 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
       foundCount: existingRollNumbers.length,
       missingCount: missingRollNumbers.length,
       missingRollNumbers,
+      scopeType,
+      scopeLabel,
+      inScopeCount,
+      outOfScopeCount: outOfScopeRollNumbers.length,
+      outOfScopeRollNumbers,
     },
-    message: missingRollNumbers.length > 0
-      ? 'Roll number check completed with missing records'
-      : 'All uploaded roll numbers exist in the system',
+    message:
+      missingRollNumbers.length > 0 || outOfScopeRollNumbers.length > 0
+        ? 'Roll number check completed with unmatched records'
+        : 'All uploaded roll numbers matched the selected check',
   });
 });
 
