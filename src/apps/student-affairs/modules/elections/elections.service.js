@@ -44,6 +44,11 @@ const normalizeRollNumbers = (values = []) => {
   return [...new Set(values.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean))]
 }
 
+const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+const buildCaseInsensitiveExactRegexes = (values = []) =>
+  normalizeStringArray(values).map((value) => new RegExp(`^${escapeRegex(value)}$`, "i"))
+
 const toDate = (value) => {
   const date = value instanceof Date ? value : new Date(value)
   return Number.isNaN(date.getTime()) ? null : date
@@ -472,7 +477,7 @@ const getEligibleStudentProfilesForScope = async (scope = {}) => {
     query.$or.push({ batch: { $in: batches } })
   }
   if (groups.length > 0) {
-    query.$or.push({ groups: { $in: groups } })
+    query.$or.push({ groups: { $in: buildCaseInsensitiveExactRegexes(groups) } })
   }
   if (extraRollNumbers.length > 0) {
     query.$or.push({ rollNumber: { $in: extraRollNumbers } })
@@ -512,12 +517,13 @@ const doesProfileMatchScope = (profile, scope = {}) => {
   }
 
   const profileBatch = String(profile.batch || "").trim()
-  const profileGroups = normalizeStringArray(profile.groups)
+  const profileGroups = normalizeStringArray(profile.groups).map((group) => group.toLowerCase())
+  const normalizedScopeGroups = groups.map((group) => group.toLowerCase())
   const profileRollNumber = String(profile.rollNumber || "").trim().toUpperCase()
 
   return (
     batches.includes(profileBatch) ||
-    groups.some((group) => profileGroups.includes(group)) ||
+    normalizedScopeGroups.some((group) => profileGroups.includes(group)) ||
     extraRollNumbers.includes(profileRollNumber)
   )
 }
@@ -653,7 +659,7 @@ const buildStudentScopeQuery = (scope = {}) => {
   }
 
   if (groups.length > 0) {
-    query.$or.push({ groups: { $in: groups } })
+    query.$or.push({ groups: { $in: buildCaseInsensitiveExactRegexes(groups) } })
   }
 
   if (extraRollNumbers.length > 0) {

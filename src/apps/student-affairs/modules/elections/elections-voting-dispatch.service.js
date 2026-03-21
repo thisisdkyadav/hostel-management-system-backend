@@ -51,6 +51,11 @@ const normalizeRollNumbers = (values = []) =>
     ? [...new Set(values.map((item) => String(item || "").trim().toUpperCase()).filter(Boolean))]
     : []
 
+const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+const buildCaseInsensitiveExactRegexes = (values = []) =>
+  normalizeStringArray(values).map((value) => new RegExp(`^${escapeRegex(value)}$`, "i"))
+
 const doesProfileMatchScope = (profile, scope = {}) => {
   const batches = normalizeStringArray(scope?.batches)
   const groups = normalizeStringArray(scope?.groups)
@@ -58,12 +63,13 @@ const doesProfileMatchScope = (profile, scope = {}) => {
   if (batches.length === 0 && groups.length === 0 && extraRollNumbers.length === 0) return false
 
   const profileBatch = String(profile?.batch || "").trim()
-  const profileGroups = normalizeStringArray(profile?.groups)
+  const profileGroups = normalizeStringArray(profile?.groups).map((group) => group.toLowerCase())
+  const normalizedScopeGroups = groups.map((group) => group.toLowerCase())
   const profileRollNumber = String(profile?.rollNumber || "").trim().toUpperCase()
 
   return (
     batches.includes(profileBatch) ||
-    groups.some((group) => profileGroups.includes(group)) ||
+    normalizedScopeGroups.some((group) => profileGroups.includes(group)) ||
     extraRollNumbers.includes(profileRollNumber)
   )
 }
@@ -139,7 +145,7 @@ const collectEligibleVoterProfiles = async (election) => {
     query.$or.push({ batch: { $in: [...allBatches] } })
   }
   if (allGroups.size > 0) {
-    query.$or.push({ groups: { $in: [...allGroups] } })
+    query.$or.push({ groups: { $in: buildCaseInsensitiveExactRegexes([...allGroups]) } })
   }
   if (allExtraRollNumbers.size > 0) {
     query.$or.push({ rollNumber: { $in: [...allExtraRollNumbers] } })
