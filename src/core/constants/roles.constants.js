@@ -23,6 +23,7 @@ export const SUBROLES = {
   // Gymkhana subroles
   GS_GYMKHANA: "GS Gymkhana",
   PRESIDENT_GYMKHANA: "President Gymkhana",
+  ELECTION_OFFICER: "Election Officer",
   // Admin SA subroles
   STUDENT_AFFAIRS: "Student Affairs",
   JOINT_REGISTRAR_SA: "Joint Registrar SA",
@@ -75,4 +76,3 @@ export const ROLE_GROUPS = {
 }
 
 export default ROLES
-

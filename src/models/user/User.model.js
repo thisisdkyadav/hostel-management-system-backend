@@ -48,6 +48,7 @@ const UserSchema = new mongoose.Schema(
         // Gymkhana subroles
         "GS Gymkhana",
         "President Gymkhana",
+        "Election Officer",
         // Admin SA subroles
         "Student Affairs",
         "Joint Registrar SA",

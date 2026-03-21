@@ -13,7 +13,7 @@ import {
   notFound,
   success,
 } from "../../../../services/base/index.js"
-import { ROLES } from "../../../../core/constants/roles.constants.js"
+import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import {
   DEFAULT_POST_REQUIREMENTS_BY_CATEGORY,
   ELECTION_POST_CATEGORY,
@@ -56,6 +56,16 @@ const toDate = (value) => {
 
 const isAdminUser = (user) => {
   return user?.role === ROLES.ADMIN || user?.role === ROLES.SUPER_ADMIN
+}
+
+const normalizeSubRole = (subRole = "") => String(subRole || "").trim().toLowerCase().replace(/\s+/g, " ")
+
+const isGymkhanaElectionOfficer = (user) => {
+  return (
+    user?.role === ROLES.GYMKHANA &&
+    normalizeSubRole(user?.subRole || user?.subrole || user?.sub_role) ===
+      normalizeSubRole(SUBROLES.ELECTION_OFFICER)
+  )
 }
 
 const ACTIVE_NOMINATION_STATUSES = [
@@ -1234,10 +1244,19 @@ const buildElectionBallotPayload = async (election, voterUserId) => {
 }
 
 class ElectionsService {
-  async listAdminElections(query = {}) {
+  async listAdminElections(query = {}, user = null) {
+    const isElectionOfficerUser = isGymkhanaElectionOfficer(user)
+    if (user && !isAdminUser(user) && !isElectionOfficerUser) {
+      return forbidden("You are not allowed to view elections")
+    }
+
     const filter = {}
 
-    if (query.status) filter.status = query.status
+    if (isElectionOfficerUser) {
+      filter.status = ELECTION_STATUS.PUBLISHED
+    } else if (query.status) {
+      filter.status = query.status
+    }
     if (query.phase) filter.phase = query.phase
     if (query.search) {
       filter.$or = [
@@ -1262,6 +1281,15 @@ class ElectionsService {
   async getElectionDetail(id, user) {
     const election = await Election.findById(id)
     if (!election) return notFound("Election")
+
+    const isElectionOfficerUser = isGymkhanaElectionOfficer(user)
+    if (!isAdminUser(user) && !isElectionOfficerUser) {
+      return forbidden("You are not allowed to view election details")
+    }
+
+    if (isElectionOfficerUser && election.status !== ELECTION_STATUS.PUBLISHED) {
+      return forbidden("Election officers can only view published elections")
+    }
 
     const nominationCountsByPost = await getNominationCountsByPost(election._id)
     const voteCountsByPost = await getVoteCountsByPost(election._id)
@@ -1298,7 +1326,7 @@ class ElectionsService {
       results: await buildElectionResults(election),
     }
 
-    if (isAdminUser(user)) {
+    if (isAdminUser(user) || isElectionOfficerUser) {
       const nominations = await ElectionNomination.find({ electionId: election._id })
         .populate({ path: "candidateUserId", select: "name email profileImage" })
         .populate({ path: "candidateProfileId", select: "idCard" })

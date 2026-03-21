@@ -24,6 +24,10 @@ import {
   deleteMaintenanceStaff,
   getTaskStats,
   getMaintenanceStaffStats,
+  createGymkhana,
+  getAllGymkhanaUsers,
+  updateGymkhana,
+  deleteGymkhana,
 } from './adminController.js';
 import {
   createWarden,
@@ -112,6 +116,12 @@ router.get('/hostel-supervisors', requireRouteAccess('route.admin.hostelSupervis
 router.post('/hostel-supervisor', requireRouteAccess('route.admin.hostelSupervisors'), createHostelSupervisor);
 router.put('/hostel-supervisor/:id', requireRouteAccess('route.admin.hostelSupervisors'), updateHostelSupervisor);
 router.delete('/hostel-supervisor/:id', requireRouteAccess('route.admin.hostelSupervisors'), deleteHostelSupervisor);
+
+// Gymkhana user management
+router.get('/gymkhana', requireRouteAccess('route.admin.gymkhana'), getAllGymkhanaUsers);
+router.post('/gymkhana', requireRouteAccess('route.admin.gymkhana'), createGymkhana);
+router.put('/gymkhana/:id', requireRouteAccess('route.admin.gymkhana'), updateGymkhana);
+router.delete('/gymkhana/:id', requireRouteAccess('route.admin.gymkhana'), deleteGymkhana);
 
 // Security staff management
 router.get('/security', requireRouteAccess('route.admin.security'), getAllSecurities);

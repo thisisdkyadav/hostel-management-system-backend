@@ -2,7 +2,7 @@ import { asyncHandler, sendStandardResponse } from "../../../../utils/index.js"
 import { electionsService } from "./elections.service.js"
 
 export const listAdminElections = asyncHandler(async (req, res) => {
-  const result = await electionsService.listAdminElections(req.query)
+  const result = await electionsService.listAdminElections(req.query, req.user)
   return sendStandardResponse(res, result)
 })
 

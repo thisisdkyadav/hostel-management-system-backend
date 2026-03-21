@@ -12,6 +12,13 @@ import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
 import { Task } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
+import { ROLES, SUBROLES } from '../../../../core/constants/roles.constants.js';
+
+const GYMKHANA_SUBROLES = [
+  SUBROLES.GS_GYMKHANA,
+  SUBROLES.PRESIDENT_GYMKHANA,
+  SUBROLES.ELECTION_OFFICER,
+];
 
 class AdminService extends BaseService {
   constructor() {
@@ -159,6 +166,114 @@ class AdminService extends BaseService {
     });
 
     return success(null, 201, 'Maintenance staff created successfully');
+  }
+
+  /**
+   * Create a Gymkhana user
+   */
+  async createGymkhana({ email, password, name, subRole }) {
+    if (!email || !name || !subRole) {
+      return badRequest('Email, name, and subRole are required');
+    }
+
+    if (!GYMKHANA_SUBROLES.includes(subRole)) {
+      return badRequest('Invalid Gymkhana subRole');
+    }
+
+    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    if (existingUser) {
+      return badRequest('User with this email already exists');
+    }
+
+    let hashedPassword;
+
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(password, salt);
+    }
+
+    const userPayload = {
+      name,
+      email,
+      role: ROLES.GYMKHANA,
+      subRole,
+    };
+
+    if (hashedPassword) {
+      userPayload.password = hashedPassword;
+    }
+
+    await User.create(userPayload);
+
+    return success(null, 201, 'Gymkhana user created successfully');
+  }
+
+  /**
+   * Get all Gymkhana users
+   */
+  async getAllGymkhanaUsers() {
+    const gymkhanaUsers = await User.find({ role: ROLES.GYMKHANA })
+      .select('name email role subRole profileImage')
+      .lean();
+
+    const formattedUsers = gymkhanaUsers
+      .map((user) => ({
+        id: user._id,
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        subRole: user.subRole || null,
+        profileImage: user.profileImage || null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return success(formattedUsers);
+  }
+
+  /**
+   * Update a Gymkhana user
+   */
+  async updateGymkhana(id, { name, subRole }) {
+    const updateData = {};
+
+    if (name !== undefined) updateData.name = name;
+
+    if (subRole !== undefined) {
+      if (!GYMKHANA_SUBROLES.includes(subRole)) {
+        return badRequest('Invalid Gymkhana subRole');
+      }
+      updateData.subRole = subRole;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return badRequest('No update data provided');
+    }
+
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: id, role: ROLES.GYMKHANA },
+      updateData,
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return notFound('Gymkhana user');
+    }
+
+    return success(null, 200, 'Gymkhana user updated successfully');
+  }
+
+  /**
+   * Delete a Gymkhana user
+   */
+  async deleteGymkhana(id) {
+    const deletedUser = await User.findOneAndDelete({ _id: id, role: ROLES.GYMKHANA });
+
+    if (!deletedUser) {
+      return notFound('Gymkhana user');
+    }
+
+    return success(null, 200, 'Gymkhana user deleted successfully');
   }
 
   /**

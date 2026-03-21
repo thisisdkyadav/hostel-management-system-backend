@@ -40,6 +40,7 @@ router.use(authenticate)
 const ROUTE_KEY_BY_ROLE = {
   [ROLES.ADMIN]: "route.admin.elections",
   [ROLES.STUDENT]: "route.student.elections",
+  [ROLES.GYMKHANA]: "route.gymkhana.elections",
 }
 
 const requireMappedRouteAccess = (req, res, next) => {
@@ -50,7 +51,7 @@ const requireMappedRouteAccess = (req, res, next) => {
 
 router.get(
   "/admin/selector",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.GYMKHANA]),
   requireMappedRouteAccess,
   validate(validation.listAdminElectionsSchema, "query"),
   controller.listAdminElections
@@ -89,7 +90,7 @@ router.get(
 
 router.get(
   "/:id",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.GYMKHANA]),
   requireMappedRouteAccess,
   validate(validation.electionIdSchema, "params"),
   controller.getElectionDetail
