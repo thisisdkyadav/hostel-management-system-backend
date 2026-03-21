@@ -176,13 +176,18 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
   }
 
   const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-    .select('rollNumber degree department batch groups')
+    .select('rollNumber degree department batch groups status')
     .lean();
 
   const existingStudentMap = new Map(existingStudents.map((student) => [student.rollNumber, student]));
   const existingRollNumbers = normalizedRollNumbers.filter((rollNumber) => existingStudentMap.has(rollNumber));
   const existingRollNumberSet = new Set(existingRollNumbers);
   const missingRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumberSet.has(rollNumber));
+  const statusCounts = existingRollNumbers.reduce((counts, rollNumber) => {
+    const status = String(existingStudentMap.get(rollNumber)?.status || 'Unknown').trim() || 'Unknown';
+    counts[status] = (counts[status] || 0) + 1;
+    return counts;
+  }, {});
   let outOfScopeRollNumbers = [];
   let inScopeCount = existingRollNumbers.length;
   let scopeLabel = 'System';
@@ -240,6 +245,7 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
       submittedCount: submittedRollNumbers.length,
       uniqueCount: normalizedRollNumbers.length,
       foundCount: existingRollNumbers.length,
+      statusCounts,
       missingCount: missingRollNumbers.length,
       missingRollNumbers,
       scopeType,
