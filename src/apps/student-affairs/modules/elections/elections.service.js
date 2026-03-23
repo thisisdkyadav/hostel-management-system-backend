@@ -1284,7 +1284,7 @@ const serializeBallotCandidate = (nomination) => ({
 const buildElectionBallotPayload = async (election, voterUserId) => {
   const voterProfile = await getStudentProfileWithRelations(voterUserId)
   if (!voterProfile) {
-    return forbidden("Only active students can access this ballot")
+    return forbidden("Only active students can access this voting link")
   }
 
   if (Boolean(election?.mockSettings?.enabled)) {
@@ -1333,7 +1333,7 @@ const buildElectionBallotPayload = async (election, voterUserId) => {
     .filter((post) => (post.candidates || []).some((candidate) => !candidate.isNota))
 
   if (posts.length === 0) {
-    return forbidden("No verified ballot options are available for you in this election")
+    return forbidden("No verified voting options are available for you in this election")
   }
 
   return success({
@@ -2088,7 +2088,7 @@ class ElectionsService {
       includeInvalidated: true,
     })
     if (!tokenDoc) {
-      return notFound("Invalid ballot link")
+      return notFound("Invalid voting link")
     }
 
     const election = await Election.findById(tokenDoc.subjectId)
@@ -2101,9 +2101,6 @@ class ElectionsService {
       voterUserId: tokenDoc.recipientUserId,
     })
 
-    const ballotResult = await buildElectionBallotPayload(election, tokenDoc.recipientUserId)
-    if (!ballotResult.success) return ballotResult
-
     const stage = getCurrentStage(election)
     const tokenState = tokenDoc.invalidatedAt
       ? "invalidated"
@@ -2114,6 +2111,15 @@ class ElectionsService {
           : stage !== ELECTION_STAGE.VOTING
             ? "inactive"
             : "active"
+
+    if (tokenState !== "active") {
+      return success({
+        tokenState,
+      })
+    }
+
+    const ballotResult = await buildElectionBallotPayload(election, tokenDoc.recipientUserId)
+    if (!ballotResult.success) return ballotResult
 
     return success({
       tokenState,
@@ -2136,11 +2142,11 @@ class ElectionsService {
       type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
     })
     if (!tokenDoc) {
-      return notFound("Invalid ballot link")
+      return notFound("Invalid voting link")
     }
 
     if (isActionLinkTokenExpired(tokenDoc)) {
-      return badRequest("This ballot link has expired")
+      return badRequest("This voting link has expired")
     }
 
     const election = await Election.findById(tokenDoc.subjectId)
@@ -2157,7 +2163,7 @@ class ElectionsService {
       voterUserId: tokenDoc.recipientUserId,
     })
     if (existingVote) {
-      return badRequest("This ballot has already been submitted")
+      return badRequest("Your vote has already been submitted")
     }
 
     const ballotResult = await buildElectionBallotPayload(election, tokenDoc.recipientUserId)
@@ -2167,7 +2173,7 @@ class ElectionsService {
     const requestedVotes = Array.isArray(payload?.votes) ? payload.votes : []
 
     if (requestedVotes.length !== expectedPosts.length) {
-      return badRequest("Select one candidate for every available post before submitting the ballot")
+      return badRequest("Select one candidate for every available post before submitting your vote")
     }
 
     const voteByPostId = new Map()
@@ -2673,7 +2679,7 @@ class ElectionsService {
   }
 
   async castVote(electionId, postId, payload, user) {
-    return forbidden("Voting is only available through the secure ballot link sent by email")
+    return forbidden("Voting is only available through the secure voting link sent by email")
   }
 
   async publishResults(electionId, payload, user) {

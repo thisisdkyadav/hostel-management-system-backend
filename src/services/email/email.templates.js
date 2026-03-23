@@ -309,11 +309,17 @@ export const electionVotingBallotTemplate = ({
   votingEndAt,
   postCount,
   ballotLink,
+  isMockElection = false,
 }) => {
   const content = `
-    <h2>Your Election Ballot Is Ready</h2>
+    ${isMockElection ? `
+      <div class="warning" style="margin-bottom: 16px;">
+        <strong>Mock Election:</strong> This is a mock election. Please ignore this email if you are not participating in the mock election.
+      </div>
+    ` : ""}
+    <h2>Your Election Voting Link Is Ready</h2>
     <p>Hello ${studentName || "Student"},</p>
-    <p>Your voting ballot for <strong>${electionTitle}</strong> is now ready.</p>
+    <p>Your secure voting link for <strong>${electionTitle}</strong> is now ready.</p>
 
     <div class="info-box">
       <p style="margin: 0 0 8px;"><strong>Available Posts:</strong> ${postCount || 0}</p>
@@ -321,14 +327,14 @@ export const electionVotingBallotTemplate = ({
       <p style="margin: 0;"><strong>Voting Ends:</strong> ${votingEndAt || "—"}</p>
     </div>
 
-    <p>You must submit your ballot in one go. Please choose one candidate for every available post before submitting.</p>
+    <p>You must submit your vote in one go. Please choose one candidate for every available post before submitting.</p>
 
     <div style="text-align: center;">
-      <a href="${ballotLink}" class="button">Open Ballot</a>
+      <a href="${ballotLink}" class="button">Open Voting Page</a>
     </div>
 
     <div class="warning">
-      <strong>Important:</strong> This voting link only works during the voting window and cannot be used again after you submit your ballot.
+      <strong>Important:</strong> This voting link only works during the voting window and cannot be used again after you submit your vote.
     </div>
 
     <p class="muted-text">If the button doesn't work, copy and paste this link into your browser:</p>

@@ -212,6 +212,7 @@ const processDispatchBatch = async (election, recipients = []) => {
       votingEndAt: new Date(election.timeline.votingEndAt).toLocaleString(),
       postCount: eligiblePosts.length,
       ballotToken: rawToken,
+      isMockElection: Boolean(election?.mockSettings?.enabled),
     })
 
     if (!emailResult?.success) {
