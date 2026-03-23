@@ -136,6 +136,20 @@ const ElectionTimelineSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const ElectionMockSettingsSchema = new mongoose.Schema(
+  {
+    enabled: {
+      type: Boolean,
+      default: false,
+    },
+    voterRollNumbers: {
+      type: [String],
+      default: [],
+    },
+  },
+  { _id: false }
+)
+
 const ElectionResultPostSchema = new mongoose.Schema(
   {
     postId: {
@@ -271,6 +285,10 @@ const ElectionSchema = new mongoose.Schema(
     timeline: {
       type: ElectionTimelineSchema,
       required: true,
+    },
+    mockSettings: {
+      type: ElectionMockSettingsSchema,
+      default: () => ({}),
     },
     posts: {
       type: [ElectionPostSchema],

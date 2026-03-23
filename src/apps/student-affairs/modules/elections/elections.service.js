@@ -270,6 +270,24 @@ const normalizeElectionCommission = async (commission = {}) => {
   })
 }
 
+const normalizeMockSettings = async (mockSettings = {}) => {
+  const enabled = Boolean(mockSettings?.enabled)
+  const rollNumberResult = await validateRollNumberUsersExist(
+    mockSettings?.voterRollNumbers,
+    "mock voter roll numbers"
+  )
+  if (!rollNumberResult.success) return rollNumberResult
+
+  if (enabled && rollNumberResult.data.rollNumbers.length === 0) {
+    return badRequest("Upload at least one mock voter before enabling a mock election")
+  }
+
+  return success({
+    enabled,
+    voterRollNumbers: rollNumberResult.data.rollNumbers,
+  })
+}
+
 const normalizePostRequirements = (category, requirements = {}) => {
   const defaults =
     DEFAULT_POST_REQUIREMENTS_BY_CATEGORY[category] ||
@@ -299,6 +317,9 @@ const normalizeElectionPayload = async (payload = {}) => {
 
   const commissionResult = await normalizeElectionCommission(payload.electionCommission)
   if (!commissionResult.success) return commissionResult
+
+  const mockSettingsResult = await normalizeMockSettings(payload.mockSettings)
+  if (!mockSettingsResult.success) return mockSettingsResult
 
   const posts = []
   for (const post of payload.posts || []) {
@@ -333,6 +354,7 @@ const normalizeElectionPayload = async (payload = {}) => {
     description: String(payload.description || "").trim(),
     status: payload.status,
     electionCommission: commissionResult.data,
+    mockSettings: mockSettingsResult.data,
     timeline: {
       announcementAt: toDate(payload.timeline.announcementAt),
       nominationStartAt: toDate(payload.timeline.nominationStartAt),
@@ -635,6 +657,10 @@ const serializeElectionBase = (election) => ({
     chiefElectionOfficerRollNumber: election.electionCommission?.chiefElectionOfficerRollNumber || "",
     officerRollNumbers: election.electionCommission?.officerRollNumbers || [],
   },
+  mockSettings: {
+    enabled: Boolean(election?.mockSettings?.enabled),
+    voterRollNumbers: normalizeRollNumbers(election?.mockSettings?.voterRollNumbers),
+  },
   votingEmailDispatch: {
     dispatchKey: election.votingEmailDispatch?.dispatchKey || "",
     status: election.votingEmailDispatch?.status || "idle",
@@ -689,22 +715,16 @@ const countStudentsForScope = async (scope = {}) => {
 
 const buildElectionVotingLiveStats = async (election) => {
   const electionId = new mongoose.Types.ObjectId(String(election._id))
+  const mockRollNumbers = normalizeRollNumbers(election?.mockSettings?.voterRollNumbers)
+  const isMockElection = Boolean(election?.mockSettings?.enabled)
 
-  const [verifiedNominationCounts, voteCounts, distinctVoterIds] = await Promise.all([
-    ElectionNomination.aggregate([
-      {
-        $match: {
-          electionId,
-          status: NOMINATION_STATUS.VERIFIED,
-        },
-      },
-      {
-        $group: {
-          _id: "$postId",
-          count: { $sum: 1 },
-        },
-      },
-    ]),
+  const [verifiedNominations, voteCounts, candidateVoteCounts, distinctVoterIds] = await Promise.all([
+    ElectionNomination.find({
+      electionId: election._id,
+      status: NOMINATION_STATUS.VERIFIED,
+    })
+      .populate({ path: "candidateUserId", select: "name email profileImage" })
+      .lean(),
     ElectionVote.aggregate([
       {
         $match: {
@@ -719,12 +739,34 @@ const buildElectionVotingLiveStats = async (election) => {
         },
       },
     ]),
+    ElectionVote.aggregate([
+      {
+        $match: {
+          electionId,
+        },
+      },
+      {
+        $group: {
+          _id: {
+            postId: "$postId",
+            candidateNominationId: "$candidateNominationId",
+            isNota: "$isNota",
+          },
+          count: { $sum: 1 },
+        },
+      },
+    ]),
     ElectionVote.distinct("voterUserId", { electionId: election._id }),
   ])
 
-  const verifiedNominationCountMap = new Map(
-    verifiedNominationCounts.map((item) => [String(item._id), Number(item.count || 0)])
-  )
+  const verifiedNominationMap = verifiedNominations.reduce((acc, nomination) => {
+    const postId = String(nomination.postId)
+    if (!acc.has(postId)) {
+      acc.set(postId, [])
+    }
+    acc.get(postId).push(nomination)
+    return acc
+  }, new Map())
   const voteCountMap = new Map(
     voteCounts.map((item) => [
       String(item._id),
@@ -734,20 +776,73 @@ const buildElectionVotingLiveStats = async (election) => {
       },
     ])
   )
+  const candidateVoteCountMap = new Map(
+    candidateVoteCounts.map((item) => [
+      item._id?.isNota
+        ? `${String(item._id.postId)}:${NOTA_OPTION_ID}`
+        : `${String(item._id.postId)}:${String(item._id.candidateNominationId)}`,
+      Number(item.count || 0),
+    ])
+  )
 
   const overallEligibleVoterIds = new Set()
   const posts = await Promise.all(
     (election?.posts || []).map(async (post) => {
       const postId = String(post._id)
       const electorateQuery = buildStudentScopeQuery(post?.voterEligibility)
-      const eligibleVoterIds = electorateQuery
-        ? (await StudentProfile.distinct("userId", electorateQuery)).map((value) => String(value))
+      const eligibleVoterQuery = electorateQuery
+        ? {
+            ...electorateQuery,
+            ...(isMockElection ? { rollNumber: { $in: mockRollNumbers } } : {}),
+          }
+        : null
+      const eligibleVoterIds = eligibleVoterQuery
+        ? (await StudentProfile.distinct("userId", eligibleVoterQuery)).map((value) => String(value))
         : []
       const eligibleVoterCount = eligibleVoterIds.length
-      const verifiedCandidateCount = verifiedNominationCountMap.get(postId) || 0
+      const postVerifiedNominations = verifiedNominationMap.get(postId) || []
+      const verifiedCandidateCount = postVerifiedNominations.length
       const postVoteData = voteCountMap.get(postId) || { count: 0, lastCastAt: null }
       const votedCount = postVoteData.count
       const pendingCount = Math.max(eligibleVoterCount - votedCount, 0)
+      const notaVoteCount = candidateVoteCountMap.get(`${postId}:${NOTA_OPTION_ID}`) || 0
+      const candidates = postVerifiedNominations
+        .map((nomination) => {
+          const voteCount = candidateVoteCountMap.get(`${postId}:${String(nomination._id)}`) || 0
+
+          return {
+            nominationId: String(nomination._id),
+            candidateName: nomination.candidateUserId?.name || nomination.candidateRollNumber,
+            candidateRollNumber: nomination.candidateRollNumber,
+            candidateEmail: nomination.candidateUserId?.email || "",
+            candidateProfileImage: nomination.candidateUserId?.profileImage || "",
+            voteCount,
+            votePercentage:
+              votedCount > 0 ? Number(((voteCount / votedCount) * 100).toFixed(voteCount > 0 ? 1 : 0)) : 0,
+            isNota: false,
+          }
+        })
+
+      if (verifiedCandidateCount > 0 || notaVoteCount > 0) {
+        candidates.push({
+          nominationId: NOTA_OPTION_ID,
+          candidateName: NOTA_OPTION_LABEL,
+          candidateRollNumber: "",
+          candidateEmail: "",
+          candidateProfileImage: "",
+          voteCount: notaVoteCount,
+          votePercentage:
+            votedCount > 0 ? Number(((notaVoteCount / votedCount) * 100).toFixed(notaVoteCount > 0 ? 1 : 0)) : 0,
+          isNota: true,
+        })
+      }
+
+      candidates.sort((left, right) => {
+        if (Number(right.voteCount || 0) !== Number(left.voteCount || 0)) {
+          return Number(right.voteCount || 0) - Number(left.voteCount || 0)
+        }
+        return String(left.candidateName || "").localeCompare(String(right.candidateName || ""))
+      })
 
       if (verifiedCandidateCount > 0) {
         eligibleVoterIds.forEach((userId) => overallEligibleVoterIds.add(userId))
@@ -765,6 +860,7 @@ const buildElectionVotingLiveStats = async (election) => {
             ? Number(((votedCount / eligibleVoterCount) * 100).toFixed(1))
             : 0,
         lastCastAt: postVoteData.lastCastAt,
+        candidates,
       }
     })
   )
@@ -1191,6 +1287,14 @@ const buildElectionBallotPayload = async (election, voterUserId) => {
     return forbidden("Only active students can access this ballot")
   }
 
+  if (Boolean(election?.mockSettings?.enabled)) {
+    const mockVoterRollNumbers = new Set(normalizeRollNumbers(election?.mockSettings?.voterRollNumbers))
+    const voterRollNumber = String(voterProfile?.rollNumber || "").trim().toUpperCase()
+    if (!mockVoterRollNumbers.has(voterRollNumber)) {
+      return forbidden("You are not included in this mock election voter list")
+    }
+  }
+
   const eligiblePosts = (election?.posts || []).filter((post) =>
     doesProfileMatchScope(voterProfile, post.voterEligibility)
   )
@@ -1406,6 +1510,10 @@ class ElectionsService {
         chiefElectionOfficerRollNumber: sourceElection.electionCommission?.chiefElectionOfficerRollNumber || "",
         officerRollNumbers: normalizeRollNumbers(sourceElection.electionCommission?.officerRollNumbers),
       },
+      mockSettings: {
+        enabled: Boolean(sourceElection?.mockSettings?.enabled),
+        voterRollNumbers: normalizeRollNumbers(sourceElection?.mockSettings?.voterRollNumbers),
+      },
       timeline: {
         announcementAt: sourceElection.timeline?.announcementAt,
         nominationStartAt: sourceElection.timeline?.nominationStartAt,
@@ -1568,17 +1676,26 @@ class ElectionsService {
       return badRequest("Voting emails are already being sent")
     }
 
-    const queued = await triggerElectionVotingEmailDispatchForElection(election._id, "manual")
-    if (!queued) {
-      return badRequest("Voting emails could not be queued right now. Please refresh and try again.")
+    const dispatchResult = await triggerElectionVotingEmailDispatchForElection(election._id, "manual")
+    if (!dispatchResult?.queued) {
+      return badRequest(
+        dispatchResult?.error || "Voting emails could not be queued right now. Please refresh and try again."
+      )
     }
 
     return success(
       {
         queued: true,
+        totalRecipients: Number(dispatchResult?.totalRecipients || 0),
+        sentRecipients: Number(dispatchResult?.sentRecipients || 0),
+        failedRecipients: Number(dispatchResult?.failedRecipients || 0),
       },
       200,
-      "Voting emails have been queued"
+      `Voting emails sent to ${Number(dispatchResult?.sentRecipients || 0)} recipient(s)${
+        Number(dispatchResult?.failedRecipients || 0) > 0
+          ? ` with ${Number(dispatchResult.failedRecipients)} failure(s)`
+          : ""
+      }`
     )
   }
 

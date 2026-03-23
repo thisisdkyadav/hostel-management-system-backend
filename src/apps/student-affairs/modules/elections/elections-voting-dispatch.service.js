@@ -117,6 +117,8 @@ const isManualDispatchAllowedNow = (election, now = new Date()) => {
 }
 
 const collectEligibleVoterProfiles = async (election) => {
+  const mockRollNumbers = normalizeRollNumbers(election?.mockSettings?.voterRollNumbers)
+  const isMockElection = Boolean(election?.mockSettings?.enabled)
   const allBatches = new Set()
   const allGroups = new Set()
   const allExtraRollNumbers = new Set()
@@ -140,6 +142,7 @@ const collectEligibleVoterProfiles = async (election) => {
   const query = {
     status: "Active",
     $or: [],
+    ...(isMockElection ? { rollNumber: { $in: mockRollNumbers } } : {}),
   }
   if (allBatches.size > 0) {
     query.$or.push({ batch: { $in: [...allBatches] } })
@@ -251,7 +254,10 @@ const processDispatchBatch = async (election, recipients = []) => {
 export const triggerElectionVotingEmailDispatchForElection = async (electionId, reason = "manual") => {
   const activeDispatchKey = String(electionId || "")
   if (!activeDispatchKey || activeDispatches.has(activeDispatchKey)) {
-    return false
+    return {
+      queued: false,
+      error: "Voting email dispatch is already running",
+    }
   }
 
   activeDispatches.add(activeDispatchKey)
@@ -262,12 +268,18 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
       : isAutomaticDispatchDueNow(election)
 
     if (!election || !canDispatch) {
-      return false
+      return {
+        queued: false,
+        error: "Voting email dispatch is not allowed right now",
+      }
     }
 
     const dispatchKey = getVotingDispatchKey(election)
     if (!dispatchKey) {
-      return false
+      return {
+        queued: false,
+        error: "Voting start time is not configured correctly",
+      }
     }
 
     const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
@@ -280,7 +292,10 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
         (reason !== "manual" && ["completed", "failed"].includes(existingStatus))
       )
     ) {
-      return false
+      return {
+        queued: false,
+        error: "Voting email dispatch is already running for this voting window",
+      }
     }
 
     const eligibleProfiles = await collectEligibleVoterProfiles(election)
@@ -301,6 +316,30 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
         ({ profile, eligiblePosts }) =>
           eligiblePosts.length > 0 && !voterIdsWithVotes.has(String(profile?.userId?._id || ""))
       )
+
+    if (recipients.length === 0) {
+      election.votingEmailDispatch = {
+        dispatchKey,
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: 0,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: "No eligible voters with verified ballot options are available for email dispatch",
+      }
+      await election.save()
+      emitVotingDispatchUpdate(election)
+
+      return {
+        queued: false,
+        error: election.votingEmailDispatch.lastError,
+        totalRecipients: 0,
+        sentRecipients: 0,
+        failedRecipients: 0,
+      }
+    }
 
     election.votingEmailDispatch = {
       dispatchKey,
@@ -355,7 +394,22 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
     await election.save()
     emitVotingDispatchUpdate(election)
 
-    return true
+    if (sentRecipients === 0) {
+      return {
+        queued: false,
+        error: errors[0] || "Voting emails could not be sent",
+        totalRecipients: recipients.length,
+        sentRecipients,
+        failedRecipients,
+      }
+    }
+
+    return {
+      queued: true,
+      totalRecipients: recipients.length,
+      sentRecipients,
+      failedRecipients,
+    }
   } catch (error) {
     const failedElection = await Election.findByIdAndUpdate(
       electionId,
@@ -370,7 +424,10 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
       { new: true }
     )
     emitVotingDispatchUpdate(failedElection)
-    return false
+    return {
+      queued: false,
+      error: error?.message || "Voting email dispatch failed",
+    }
   } finally {
     activeDispatches.delete(activeDispatchKey)
   }

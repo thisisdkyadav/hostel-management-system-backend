@@ -61,6 +61,11 @@ const timelineSchema = Joi.object({
   handoverAt: Joi.date().iso().allow(null),
 })
 
+const mockSettingsSchema = Joi.object({
+  enabled: Joi.boolean().default(false),
+  voterRollNumbers: Joi.array().items(rollNumber).default([]),
+})
+
 export const electionIdSchema = Joi.object({
   id: objectId.required(),
 })
@@ -102,6 +107,7 @@ export const createElectionSchema = Joi.object({
     officerRollNumbers: Joi.array().items(rollNumber).max(12).default([]),
   }).default(),
   timeline: timelineSchema.required(),
+  mockSettings: mockSettingsSchema.default(),
   posts: Joi.array().items(postSchema).min(1).required(),
 })
 
