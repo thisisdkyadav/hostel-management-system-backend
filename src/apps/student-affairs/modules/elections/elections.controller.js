@@ -102,7 +102,7 @@ export const publishResults = asyncHandler(async (req, res) => {
 })
 
 export const sendVotingEmails = asyncHandler(async (req, res) => {
-  const result = await electionsService.sendVotingEmails(req.params.id)
+  const result = await electionsService.sendVotingEmails(req.params.id, req.body)
   return sendStandardResponse(res, result)
 })
 

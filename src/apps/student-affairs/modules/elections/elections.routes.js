@@ -179,6 +179,7 @@ router.post(
   authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   requireMappedRouteAccess,
   validate(validation.electionIdSchema, "params"),
+  validate(validation.sendVotingEmailsSchema),
   controller.sendVotingEmails
 )
 

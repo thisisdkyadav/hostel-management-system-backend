@@ -178,6 +178,10 @@ export const submitBallotSchema = Joi.object({
     .required(),
 })
 
+export const sendVotingEmailsSchema = Joi.object({
+  resendMode: Joi.string().valid("reuse_existing", "generate_new").default("reuse_existing"),
+})
+
 export const publishResultsSchema = Joi.object({
   posts: Joi.array().items(
     Joi.object({
@@ -208,5 +212,6 @@ export default {
   castVoteSchema,
   supporterConfirmationResponseSchema,
   submitBallotSchema,
+  sendVotingEmailsSchema,
   publishResultsSchema,
 }

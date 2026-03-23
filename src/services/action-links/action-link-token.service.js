@@ -1,7 +1,13 @@
 import crypto from "crypto"
 import { ActionLinkToken } from "../../models/index.js"
+import { SESSION_SECRET } from "../../config/env.config.js"
 
 const DEFAULT_TOKEN_BYTES = 48
+const TOKEN_ENCRYPTION_ALGO = "aes-256-gcm"
+const TOKEN_ENCRYPTION_KEY = crypto
+  .createHash("sha256")
+  .update(String(SESSION_SECRET || "hms-action-link-secret"))
+  .digest()
 
 export const ACTION_LINK_TOKEN_TYPE = {
   COMPLAINT_FEEDBACK: "complaint_feedback",
@@ -14,6 +20,37 @@ export const hashActionLinkToken = (rawToken) =>
 
 export const generateRawActionLinkToken = () =>
   crypto.randomBytes(DEFAULT_TOKEN_BYTES).toString("base64url")
+
+export const encryptActionLinkToken = (rawToken) => {
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv(TOKEN_ENCRYPTION_ALGO, TOKEN_ENCRYPTION_KEY, iv)
+  const encrypted = Buffer.concat([cipher.update(String(rawToken || ""), "utf8"), cipher.final()])
+  const tag = cipher.getAuthTag()
+  return `${iv.toString("base64url")}.${tag.toString("base64url")}.${encrypted.toString("base64url")}`
+}
+
+export const decryptActionLinkToken = (tokenCiphertext = "") => {
+  if (!tokenCiphertext) return ""
+
+  const [ivPart, tagPart, encryptedPart] = String(tokenCiphertext || "").split(".")
+  if (!ivPart || !tagPart || !encryptedPart) return ""
+
+  try {
+    const decipher = crypto.createDecipheriv(
+      TOKEN_ENCRYPTION_ALGO,
+      TOKEN_ENCRYPTION_KEY,
+      Buffer.from(ivPart, "base64url")
+    )
+    decipher.setAuthTag(Buffer.from(tagPart, "base64url"))
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(encryptedPart, "base64url")),
+      decipher.final(),
+    ])
+    return decrypted.toString("utf8")
+  } catch {
+    return ""
+  }
+}
 
 export const createActionLinkToken = async ({
   type,
@@ -28,6 +65,7 @@ export const createActionLinkToken = async ({
   const tokenDoc = await ActionLinkToken.create({
     type,
     tokenHash: hashActionLinkToken(rawToken),
+    tokenCiphertext: encryptActionLinkToken(rawToken),
     subjectModel,
     subjectId,
     recipientUserId,
@@ -92,13 +130,18 @@ export const isActionLinkTokenExpired = (tokenDoc) => {
   return new Date(tokenDoc.expiresAt).getTime() < Date.now()
 }
 
+export const getRawActionLinkToken = (tokenDoc) => decryptActionLinkToken(tokenDoc?.tokenCiphertext || "")
+
 export default {
   ACTION_LINK_TOKEN_TYPE,
   hashActionLinkToken,
   generateRawActionLinkToken,
+  encryptActionLinkToken,
+  decryptActionLinkToken,
   createActionLinkToken,
   findActionLinkTokenByRawToken,
   invalidateActionLinkTokens,
   consumeActionLinkToken,
   isActionLinkTokenExpired,
+  getRawActionLinkToken,
 }

@@ -1,4 +1,5 @@
 import {
+  ActionLinkToken,
   Election,
   ElectionNomination,
   ElectionVote,
@@ -9,6 +10,7 @@ import { ROLES } from "../../../../core/constants/roles.constants.js"
 import {
   ACTION_LINK_TOKEN_TYPE,
   createActionLinkToken,
+  getRawActionLinkToken,
   invalidateActionLinkTokens,
 } from "../../../../services/action-links/action-link-token.service.js"
 import { emitToRole } from "../../../../utils/socketHandlers.js"
@@ -168,7 +170,22 @@ const collectEligibleVoterProfiles = async (election) => {
     .filter((item) => item.eligiblePosts.length > 0)
 }
 
-const processDispatchBatch = async (election, recipients = []) => {
+const findReusableVotingLinkToken = async (election, userId, dispatchKey) => {
+  if (!userId || !dispatchKey) return null
+
+  return ActionLinkToken.findOne({
+    type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+    subjectModel: "Election",
+    subjectId: election._id,
+    recipientUserId: userId,
+    usedAt: null,
+    invalidatedAt: null,
+    expiresAt: { $gt: new Date() },
+    "payload.dispatchKey": dispatchKey,
+  }).sort({ createdAt: -1 })
+}
+
+const processDispatchBatch = async (election, recipients = [], { resendMode = "reuse_existing" } = {}) => {
   const results = await Promise.all(recipients.map(async ({ profile, eligiblePosts }) => {
     const userId = profile?.userId?._id || null
     const email = String(profile?.userId?.email || "").trim()
@@ -181,28 +198,40 @@ const processDispatchBatch = async (election, recipients = []) => {
       }
     }
 
-    await invalidateActionLinkTokens(
-      {
+    const dispatchKey = getVotingDispatchKey(election)
+    let rawToken = ""
+
+    if (resendMode === "reuse_existing") {
+      const reusableTokenDoc = await findReusableVotingLinkToken(election, userId, dispatchKey)
+      rawToken = getRawActionLinkToken(reusableTokenDoc)
+    }
+
+    if (!rawToken) {
+      await invalidateActionLinkTokens(
+        {
+          type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+          subjectModel: "Election",
+          subjectId: election._id,
+          recipientUserId: userId,
+        },
+        resendMode === "reuse_existing" ? "Voting link refreshed" : "Voting link reissued"
+      )
+
+      const tokenResult = await createActionLinkToken({
         type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
         subjectModel: "Election",
         subjectId: election._id,
         recipientUserId: userId,
-      },
-      "Voting ballot link reissued"
-    )
+        recipientEmail: email,
+        payload: {
+          electionId: String(election._id),
+          dispatchKey,
+        },
+        expiresAt: new Date(election.timeline.votingEndAt),
+      })
 
-    const { rawToken } = await createActionLinkToken({
-      type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
-      subjectModel: "Election",
-      subjectId: election._id,
-      recipientUserId: userId,
-      recipientEmail: email,
-      payload: {
-        electionId: String(election._id),
-        dispatchKey: getVotingDispatchKey(election),
-      },
-      expiresAt: new Date(election.timeline.votingEndAt),
-    })
+      rawToken = tokenResult.rawToken
+    }
 
     const emailResult = await emailService.sendElectionVotingBallotEmail({
       email,
@@ -252,7 +281,11 @@ const processDispatchBatch = async (election, recipients = []) => {
   )
 }
 
-export const triggerElectionVotingEmailDispatchForElection = async (electionId, reason = "manual") => {
+export const triggerElectionVotingEmailDispatchForElection = async (
+  electionId,
+  reason = "manual",
+  { resendMode = "reuse_existing" } = {}
+) => {
   const activeDispatchKey = String(electionId || "")
   if (!activeDispatchKey || activeDispatches.has(activeDispatchKey)) {
     return {
@@ -362,7 +395,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (electionId, 
 
     for (let index = 0; index < recipients.length; index += EMAIL_BATCH_SIZE) {
       const batch = recipients.slice(index, index + EMAIL_BATCH_SIZE)
-      const batchResult = await processDispatchBatch(election, batch)
+      const batchResult = await processDispatchBatch(election, batch, { resendMode })
       sentRecipients += batchResult.sent
       failedRecipients += batchResult.failed
       errors.push(...batchResult.errors)

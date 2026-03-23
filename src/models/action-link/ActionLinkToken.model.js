@@ -14,6 +14,10 @@ const ActionLinkTokenSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
+    tokenCiphertext: {
+      type: String,
+      default: "",
+    },
     subjectModel: {
       type: String,
       trim: true,

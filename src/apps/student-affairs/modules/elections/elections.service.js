@@ -1655,7 +1655,7 @@ class ElectionsService {
     return success(serializeElectionBase(election), 200, "Election updated successfully")
   }
 
-  async sendVotingEmails(id) {
+  async sendVotingEmails(id, payload = {}) {
     const election = await Election.findById(id)
     if (!election) return notFound("Election")
 
@@ -1676,7 +1676,10 @@ class ElectionsService {
       return badRequest("Voting emails are already being sent")
     }
 
-    const dispatchResult = await triggerElectionVotingEmailDispatchForElection(election._id, "manual")
+    const resendMode = String(payload?.resendMode || "reuse_existing").trim()
+    const dispatchResult = await triggerElectionVotingEmailDispatchForElection(election._id, "manual", {
+      resendMode,
+    })
     if (!dispatchResult?.queued) {
       return badRequest(
         dispatchResult?.error || "Voting emails could not be queued right now. Please refresh and try again."
@@ -1689,13 +1692,14 @@ class ElectionsService {
         totalRecipients: Number(dispatchResult?.totalRecipients || 0),
         sentRecipients: Number(dispatchResult?.sentRecipients || 0),
         failedRecipients: Number(dispatchResult?.failedRecipients || 0),
+        resendMode,
       },
       200,
       `Voting emails sent to ${Number(dispatchResult?.sentRecipients || 0)} recipient(s)${
         Number(dispatchResult?.failedRecipients || 0) > 0
           ? ` with ${Number(dispatchResult.failedRecipients)} failure(s)`
           : ""
-      }`
+      }${resendMode === "generate_new" ? " using new links" : " using existing links where available"}`
     )
   }
 
