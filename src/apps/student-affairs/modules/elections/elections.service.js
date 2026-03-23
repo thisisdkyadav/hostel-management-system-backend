@@ -2618,19 +2618,28 @@ class ElectionsService {
 
     if (!nomination) return notFound("Nomination")
 
+    let reviewMessage = "Nomination reviewed successfully"
     if (payload.status === NOMINATION_STATUS.VERIFIED) {
       const post = resolvePostById(election, nomination.postId)
       if (!post) return notFound("Election post")
 
       const supporterChecks = getSupporterStatusChecks(nomination, post)
-      if (supporterChecks.rejectedSupporters.length > 0) {
-        return badRequest("Nomination cannot be verified while any proposer or seconder has rejected support")
-      }
+      const warningParts = []
       if (supporterChecks.pendingSupporters.length > 0) {
-        return badRequest("Nomination cannot be verified until all proposers and seconders have responded")
+        warningParts.push(`${supporterChecks.pendingSupporters.length} pending`)
       }
-      if (!supporterChecks.allAccepted) {
-        return badRequest("Nomination cannot be verified until all required proposers and seconders have accepted")
+      if (supporterChecks.rejectedSupporters.length > 0) {
+        warningParts.push(`${supporterChecks.rejectedSupporters.length} rejected`)
+      }
+      if (
+        supporterChecks.proposerAcceptedCount < supporterChecks.proposersRequired ||
+        supporterChecks.seconderAcceptedCount < supporterChecks.secondersRequired
+      ) {
+        warningParts.push("required confirmations incomplete")
+      }
+
+      if (warningParts.length > 0) {
+        reviewMessage = `Nomination verified with supporter confirmations still incomplete (${warningParts.join(", ")}).`
       }
     }
 
@@ -2678,7 +2687,7 @@ class ElectionsService {
     return success(
       serializeNomination(nomination),
       200,
-      "Nomination reviewed successfully"
+      reviewMessage
     )
   }
 
