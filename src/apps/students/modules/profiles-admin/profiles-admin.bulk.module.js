@@ -188,6 +188,14 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
     counts[status] = (counts[status] || 0) + 1;
     return counts;
   }, {});
+  const statusRollNumbers = existingRollNumbers.reduce((groups, rollNumber) => {
+    const status = String(existingStudentMap.get(rollNumber)?.status || 'Unknown').trim() || 'Unknown';
+    if (!groups[status]) {
+      groups[status] = [];
+    }
+    groups[status].push(rollNumber);
+    return groups;
+  }, {});
   let outOfScopeRollNumbers = [];
   let inScopeCount = existingRollNumbers.length;
   let scopeLabel = 'System';
@@ -246,6 +254,7 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
       uniqueCount: normalizedRollNumbers.length,
       foundCount: existingRollNumbers.length,
       statusCounts,
+      statusRollNumbers,
       missingCount: missingRollNumbers.length,
       missingRollNumbers,
       scopeType,
