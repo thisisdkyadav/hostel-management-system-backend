@@ -166,6 +166,15 @@ router.post(
 )
 
 router.post(
+  "/:id/votes/submit",
+  authorizeRoles([ROLES.STUDENT]),
+  requireMappedRouteAccess,
+  validate(validation.electionIdSchema, "params"),
+  validate(validation.submitStudentVotesSchema),
+  controller.submitStudentVotes
+)
+
+router.post(
   "/:id/results/publish",
   authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   requireMappedRouteAccess,

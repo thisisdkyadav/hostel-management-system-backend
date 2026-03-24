@@ -96,6 +96,11 @@ export const castVote = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const submitStudentVotes = asyncHandler(async (req, res) => {
+  const result = await electionsService.submitStudentVotes(req.params.id, req.body, req.user)
+  return sendStandardResponse(res, result)
+})
+
 export const publishResults = asyncHandler(async (req, res) => {
   const result = await electionsService.publishResults(req.params.id, req.body, req.user)
   return sendStandardResponse(res, result)
@@ -137,6 +142,7 @@ export default {
   withdrawNomination,
   reviewNomination,
   castVote,
+  submitStudentVotes,
   publishResults,
   sendVotingEmails,
   getSupporterConfirmationByToken,

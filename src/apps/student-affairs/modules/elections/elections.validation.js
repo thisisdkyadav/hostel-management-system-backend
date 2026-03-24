@@ -66,6 +66,10 @@ const mockSettingsSchema = Joi.object({
   voterRollNumbers: Joi.array().items(rollNumber).default([]),
 })
 
+const votingAccessSchema = Joi.object({
+  mode: Joi.string().valid("email", "portal", "both").default("both"),
+})
+
 export const electionIdSchema = Joi.object({
   id: objectId.required(),
 })
@@ -107,6 +111,7 @@ export const createElectionSchema = Joi.object({
     officerRollNumbers: Joi.array().items(rollNumber).max(12).default([]),
   }).default(),
   timeline: timelineSchema.required(),
+  votingAccess: votingAccessSchema.default(),
   mockSettings: mockSettingsSchema.default(),
   posts: Joi.array().items(postSchema).min(1).required(),
 })
@@ -182,6 +187,8 @@ export const sendVotingEmailsSchema = Joi.object({
   resendMode: Joi.string().valid("reuse_existing", "generate_new").default("reuse_existing"),
 })
 
+export const submitStudentVotesSchema = submitBallotSchema
+
 export const publishResultsSchema = Joi.object({
   posts: Joi.array().items(
     Joi.object({
@@ -213,5 +220,6 @@ export default {
   supporterConfirmationResponseSchema,
   submitBallotSchema,
   sendVotingEmailsSchema,
+  submitStudentVotesSchema,
   publishResultsSchema,
 }

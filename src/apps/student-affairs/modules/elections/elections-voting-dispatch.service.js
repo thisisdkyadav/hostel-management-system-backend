@@ -104,6 +104,11 @@ const getVotingDispatchKey = (election) => {
   return Number.isNaN(parsedDate.getTime()) ? "" : parsedDate.toISOString()
 }
 
+const getElectionVotingAccessMode = (election) =>
+  String(election?.votingAccess?.mode || "both").trim().toLowerCase() || "both"
+
+const isEmailVotingEnabled = (election) => ["email", "both"].includes(getElectionVotingAccessMode(election))
+
 const hasValidVotingWindow = (election) => {
   const votingStartAt = new Date(election?.timeline?.votingStartAt)
   const votingEndAt = new Date(election?.timeline?.votingEndAt)
@@ -116,7 +121,7 @@ const hasValidVotingWindow = (election) => {
 }
 
 const isAutomaticDispatchDueNow = (election, now = new Date()) => {
-  if (election?.status !== "published") return false
+  if (election?.status !== "published" || !isEmailVotingEnabled(election)) return false
 
   const votingWindow = hasValidVotingWindow(election)
   if (!votingWindow) return false
@@ -128,7 +133,7 @@ const isAutomaticDispatchDueNow = (election, now = new Date()) => {
 }
 
 const isManualDispatchAllowedNow = (election, now = new Date()) => {
-  if (election?.status !== "published") return false
+  if (election?.status !== "published" || !isEmailVotingEnabled(election)) return false
 
   const votingWindow = hasValidVotingWindow(election)
   if (!votingWindow) return false

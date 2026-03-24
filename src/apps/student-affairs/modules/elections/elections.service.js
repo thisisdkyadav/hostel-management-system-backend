@@ -158,6 +158,13 @@ const getStudentPortalMode = (stage) => {
   return "none"
 }
 
+const getElectionVotingAccessMode = (election) =>
+  String(election?.votingAccess?.mode || "both").trim().toLowerCase() || "both"
+
+const isEmailVotingEnabled = (election) => ["email", "both"].includes(getElectionVotingAccessMode(election))
+
+const isPortalVotingEnabled = (election) => ["portal", "both"].includes(getElectionVotingAccessMode(election))
+
 const validateTimelineOrder = (timeline = {}) => {
   const entries = [
     ["announcementAt", timeline.announcementAt],
@@ -353,6 +360,11 @@ const normalizeElectionPayload = async (payload = {}) => {
     phase: payload.phase,
     description: String(payload.description || "").trim(),
     status: payload.status,
+    votingAccess: {
+      mode: ["email", "portal", "both"].includes(String(payload?.votingAccess?.mode || "").trim())
+        ? String(payload.votingAccess.mode).trim()
+        : "both",
+    },
     electionCommission: commissionResult.data,
     mockSettings: mockSettingsResult.data,
     timeline: {
@@ -653,6 +665,9 @@ const serializeElectionBase = (election) => ({
   status: election.status,
   currentStage: getCurrentStage(election),
   timeline: election.timeline,
+  votingAccess: {
+    mode: getElectionVotingAccessMode(election),
+  },
   electionCommission: {
     chiefElectionOfficerRollNumber: election.electionCommission?.chiefElectionOfficerRollNumber || "",
     officerRollNumbers: election.electionCommission?.officerRollNumbers || [],
@@ -1111,7 +1126,7 @@ const getRelevantPostsForStudent = (election, studentProfile, posts = [], myNomi
     const canStand = canProfileContestForPost(studentProfile, post)
     const canVote = doesProfileMatchScope(studentProfile, post.voterEligibility)
 
-    if (mode === "voting") return canVote || Boolean(myVote)
+    if (mode === "voting") return isPortalVotingEnabled(election) && (canVote || Boolean(myVote))
     if (mode === "participation") return canStand || Boolean(myNomination)
     if (mode === "results") return canStand || canVote || Boolean(myNomination) || Boolean(myVote)
     return false
@@ -1281,10 +1296,18 @@ const serializeBallotCandidate = (nomination) => ({
   isNota: false,
 })
 
-const buildElectionBallotPayload = async (election, voterUserId) => {
+const buildElectionBallotPayload = async (election, voterUserId, { source = "email" } = {}) => {
   const voterProfile = await getStudentProfileWithRelations(voterUserId)
   if (!voterProfile) {
-    return forbidden("Only active students can access this voting link")
+    return forbidden("Only active students can access voting")
+  }
+
+  if (source === "email" && !isEmailVotingEnabled(election)) {
+    return forbidden("Email voting is not enabled for this election")
+  }
+
+  if (source === "portal" && !isPortalVotingEnabled(election)) {
+    return forbidden("Student portal voting is not enabled for this election")
   }
 
   if (Boolean(election?.mockSettings?.enabled)) {
@@ -1345,6 +1368,141 @@ const buildElectionBallotPayload = async (election, voterUserId) => {
     },
     posts,
   })
+}
+
+const submitElectionVotesForUser = async (
+  election,
+  voterUserId,
+  payload,
+  {
+    ballotSource = "portal",
+    tokenDoc = null,
+  } = {}
+) => {
+  const existingVote = await ElectionVote.findOne({
+    electionId: election._id,
+    voterUserId,
+  })
+  if (existingVote) {
+    return badRequest("Your vote has already been submitted")
+  }
+
+  const ballotResult = await buildElectionBallotPayload(election, voterUserId, {
+    source: ballotSource,
+  })
+  if (!ballotResult.success) return ballotResult
+
+  const expectedPosts = ballotResult.data.posts || []
+  const requestedVotes = Array.isArray(payload?.votes) ? payload.votes : []
+
+  if (requestedVotes.length !== expectedPosts.length) {
+    return badRequest("Select one candidate for every available post before submitting your vote")
+  }
+
+  const voteByPostId = new Map()
+  for (const vote of requestedVotes) {
+    const postId = String(vote.postId)
+    if (voteByPostId.has(postId)) {
+      return badRequest("Only one candidate can be selected for each post")
+    }
+    voteByPostId.set(postId, String(vote.candidateNominationId))
+  }
+
+  const voteDocs = []
+  for (const post of expectedPosts) {
+    const selectedNominationId = voteByPostId.get(String(post.postId))
+    if (!selectedNominationId) {
+      return badRequest(`Choose a candidate for ${post.postTitle}`)
+    }
+
+    const selectedCandidate = (post.candidates || []).find(
+      (candidate) => String(candidate.nominationId) === selectedNominationId
+    )
+    if (!selectedCandidate) {
+      return badRequest(`Selected candidate is invalid for ${post.postTitle}`)
+    }
+
+    voteDocs.push({
+      electionId: election._id,
+      postId: new mongoose.Types.ObjectId(String(post.postId)),
+      voterUserId,
+      voterRollNumber: ballotResult.data.voter.rollNumber,
+      candidateNominationId: selectedCandidate.isNota
+        ? null
+        : new mongoose.Types.ObjectId(String(selectedCandidate.nominationId)),
+      candidateUserId: null,
+      candidateRollNumber: selectedCandidate.isNota
+        ? NOTA_OPTION_LABEL
+        : selectedCandidate.candidateRollNumber,
+      isNota: Boolean(selectedCandidate.isNota),
+      castAt: new Date(),
+    })
+  }
+
+  const verifiedNominations = await ElectionNomination.find({
+    _id: {
+      $in: voteDocs
+        .map((vote) => vote.candidateNominationId)
+        .filter(Boolean),
+    },
+    electionId: election._id,
+    status: NOMINATION_STATUS.VERIFIED,
+  }).select("_id candidateUserId")
+  const candidateUserIdMap = new Map(
+    verifiedNominations.map((nomination) => [String(nomination._id), nomination.candidateUserId])
+  )
+
+  for (const voteDoc of voteDocs) {
+    if (voteDoc.isNota) continue
+
+    const candidateUserId = candidateUserIdMap.get(String(voteDoc.candidateNominationId))
+    if (!candidateUserId) {
+      return badRequest("One or more selected candidates are no longer available")
+    }
+    voteDoc.candidateUserId = candidateUserId
+  }
+
+  await ElectionVote.insertMany(voteDocs)
+
+  if (tokenDoc) {
+    await consumeActionLinkToken(tokenDoc, {
+      voteCount: voteDocs.length,
+      electionId: String(election._id),
+    })
+    await invalidateActionLinkTokens(
+      {
+        type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+        subjectModel: "Election",
+        subjectId: election._id,
+        recipientUserId: voterUserId,
+        _id: { $ne: tokenDoc._id },
+      },
+      "Ballot already submitted"
+    )
+  } else {
+    await invalidateActionLinkTokens(
+      {
+        type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+        subjectModel: "Election",
+        subjectId: election._id,
+        recipientUserId: voterUserId,
+      },
+      "Vote already submitted through student portal"
+    )
+  }
+
+  emitElectionVotingLiveUpdate(election).catch((error) => {
+    console.error("Failed to emit election voting live update:", error?.message || error)
+  })
+
+  return success(
+    {
+      electionId: election._id,
+      submittedPosts: voteDocs.length,
+    },
+    200,
+    "Vote submitted successfully"
+  )
 }
 
 class ElectionsService {
@@ -1506,6 +1664,9 @@ class ElectionsService {
       phase: sourceElection.phase,
       description: sourceElection.description || "",
       status: ELECTION_STATUS.DRAFT,
+      votingAccess: {
+        mode: getElectionVotingAccessMode(sourceElection),
+      },
       electionCommission: {
         chiefElectionOfficerRollNumber: sourceElection.electionCommission?.chiefElectionOfficerRollNumber || "",
         officerRollNumbers: normalizeRollNumbers(sourceElection.electionCommission?.officerRollNumbers),
@@ -1659,6 +1820,10 @@ class ElectionsService {
     const election = await Election.findById(id)
     if (!election) return notFound("Election")
 
+    if (!isEmailVotingEnabled(election)) {
+      return forbidden("Voting email delivery is disabled for this election")
+    }
+
     if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
       return forbidden("Voting emails can only be sent while voting is in progress")
     }
@@ -1725,7 +1890,10 @@ class ElectionsService {
     const relevantElections = elections.filter((election) => {
       const stage = getCurrentStage(election)
       if (getStudentPortalMode(stage) === "voting") {
-        return (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.voterEligibility))
+        return (
+          isPortalVotingEnabled(election) &&
+          (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.voterEligibility))
+        )
       }
       if (getStudentPortalMode(stage) === "participation") {
         return (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.candidateEligibility))
@@ -1810,6 +1978,15 @@ class ElectionsService {
         acc[key].push(serializeNomination(nomination))
         return acc
       }, {})
+      const votingBallotResult =
+        electionMode === "voting" && isPortalVotingEnabled(election)
+          ? await buildElectionBallotPayload(election, user._id, { source: "portal" })
+          : null
+      const votingCandidatesByPost = new Map(
+        votingBallotResult?.success
+          ? (votingBallotResult.data.posts || []).map((post) => [String(post.postId), post.candidates || []])
+          : []
+      )
 
       const relevantPosts = getRelevantPostsForStudent(
         election,
@@ -1832,6 +2009,7 @@ class ElectionsService {
           hasVoted: Boolean(myVote),
           votedCandidateNominationId: myVote?.candidateNominationId || null,
           approvedCandidates: approvedByPost[String(post._id)] || [],
+          votingCandidates: votingCandidatesByPost.get(String(post._id)) || [],
           results: resultsByPost.get(String(post._id)) || null,
         }
       })
@@ -2120,7 +2298,9 @@ class ElectionsService {
       })
     }
 
-    const ballotResult = await buildElectionBallotPayload(election, tokenDoc.recipientUserId)
+    const ballotResult = await buildElectionBallotPayload(election, tokenDoc.recipientUserId, {
+      source: "email",
+    })
     if (!ballotResult.success) return ballotResult
 
     return success({
@@ -2160,115 +2340,10 @@ class ElectionsService {
       return forbidden("Voting is not open for this election right now")
     }
 
-    const existingVote = await ElectionVote.findOne({
-      electionId: election._id,
-      voterUserId: tokenDoc.recipientUserId,
+    return submitElectionVotesForUser(election, tokenDoc.recipientUserId, payload, {
+      ballotSource: "email",
+      tokenDoc,
     })
-    if (existingVote) {
-      return badRequest("Your vote has already been submitted")
-    }
-
-    const ballotResult = await buildElectionBallotPayload(election, tokenDoc.recipientUserId)
-    if (!ballotResult.success) return ballotResult
-
-    const expectedPosts = ballotResult.data.posts || []
-    const requestedVotes = Array.isArray(payload?.votes) ? payload.votes : []
-
-    if (requestedVotes.length !== expectedPosts.length) {
-      return badRequest("Select one candidate for every available post before submitting your vote")
-    }
-
-    const voteByPostId = new Map()
-    for (const vote of requestedVotes) {
-      const postId = String(vote.postId)
-      if (voteByPostId.has(postId)) {
-        return badRequest("Only one candidate can be selected for each post")
-      }
-      voteByPostId.set(postId, String(vote.candidateNominationId))
-    }
-
-    const voteDocs = []
-    for (const post of expectedPosts) {
-      const selectedNominationId = voteByPostId.get(String(post.postId))
-      if (!selectedNominationId) {
-        return badRequest(`Choose a candidate for ${post.postTitle}`)
-      }
-
-      const selectedCandidate = (post.candidates || []).find(
-        (candidate) => String(candidate.nominationId) === selectedNominationId
-      )
-      if (!selectedCandidate) {
-        return badRequest(`Selected candidate is invalid for ${post.postTitle}`)
-      }
-
-      voteDocs.push({
-        electionId: election._id,
-        postId: new mongoose.Types.ObjectId(String(post.postId)),
-        voterUserId: tokenDoc.recipientUserId,
-        voterRollNumber: ballotResult.data.voter.rollNumber,
-        candidateNominationId: selectedCandidate.isNota
-          ? null
-          : new mongoose.Types.ObjectId(String(selectedCandidate.nominationId)),
-        candidateUserId: null,
-        candidateRollNumber: selectedCandidate.isNota
-          ? NOTA_OPTION_LABEL
-          : selectedCandidate.candidateRollNumber,
-        isNota: Boolean(selectedCandidate.isNota),
-        castAt: new Date(),
-      })
-    }
-
-    const verifiedNominations = await ElectionNomination.find({
-      _id: {
-        $in: voteDocs
-          .map((vote) => vote.candidateNominationId)
-          .filter(Boolean),
-      },
-      electionId: election._id,
-      status: NOMINATION_STATUS.VERIFIED,
-    }).select("_id candidateUserId")
-    const candidateUserIdMap = new Map(
-      verifiedNominations.map((nomination) => [String(nomination._id), nomination.candidateUserId])
-    )
-
-    for (const voteDoc of voteDocs) {
-      if (voteDoc.isNota) continue
-
-      const candidateUserId = candidateUserIdMap.get(String(voteDoc.candidateNominationId))
-      if (!candidateUserId) {
-        return badRequest("One or more selected candidates are no longer available")
-      }
-      voteDoc.candidateUserId = candidateUserId
-    }
-
-    await ElectionVote.insertMany(voteDocs)
-    await consumeActionLinkToken(tokenDoc, {
-      voteCount: voteDocs.length,
-      electionId: String(election._id),
-    })
-    await invalidateActionLinkTokens(
-      {
-        type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
-        subjectModel: "Election",
-        subjectId: election._id,
-        recipientUserId: tokenDoc.recipientUserId,
-        _id: { $ne: tokenDoc._id },
-      },
-      "Ballot already submitted"
-    )
-
-    emitElectionVotingLiveUpdate(election).catch((error) => {
-      console.error("Failed to emit election voting live update:", error?.message || error)
-    })
-
-    return success(
-      {
-        electionId: election._id,
-        submittedPosts: voteDocs.length,
-      },
-      200,
-      "Ballot submitted successfully"
-    )
   }
 
   async upsertNomination(electionId, postId, payload, user) {
@@ -2689,8 +2764,32 @@ class ElectionsService {
     )
   }
 
+  async submitStudentVotes(electionId, payload, user) {
+    const election = await Election.findById(electionId)
+    if (!election) return notFound("Election")
+
+    if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
+      return forbidden("Voting is not open for this election right now")
+    }
+
+    return submitElectionVotesForUser(election, user._id, payload, {
+      ballotSource: "portal",
+    })
+  }
+
   async castVote(electionId, postId, payload, user) {
-    return forbidden("Voting is only available through the secure voting link sent by email")
+    return this.submitStudentVotes(
+      electionId,
+      {
+        votes: [
+          {
+            postId,
+            candidateNominationId: payload?.candidateNominationId,
+          },
+        ],
+      },
+      user
+    )
   }
 
   async publishResults(electionId, payload, user) {

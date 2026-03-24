@@ -136,6 +136,17 @@ const ElectionTimelineSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const ElectionVotingAccessSchema = new mongoose.Schema(
+  {
+    mode: {
+      type: String,
+      enum: ["email", "portal", "both"],
+      default: "both",
+    },
+  },
+  { _id: false }
+)
+
 const ElectionMockSettingsSchema = new mongoose.Schema(
   {
     enabled: {
@@ -285,6 +296,10 @@ const ElectionSchema = new mongoose.Schema(
     timeline: {
       type: ElectionTimelineSchema,
       required: true,
+    },
+    votingAccess: {
+      type: ElectionVotingAccessSchema,
+      default: () => ({}),
     },
     mockSettings: {
       type: ElectionMockSettingsSchema,
