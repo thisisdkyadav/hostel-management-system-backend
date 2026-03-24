@@ -215,7 +215,7 @@ const ElectionVotingEmailDispatchSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["idle", "running", "completed", "failed"],
+      enum: ["idle", "queued", "running", "completed", "failed"],
       default: "idle",
     },
     startedAt: {

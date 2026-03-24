@@ -1672,8 +1672,8 @@ class ElectionsService {
     const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
     const existingStatus = String(election?.votingEmailDispatch?.status || "idle")
 
-    if (existingDispatchKey === dispatchKey && existingStatus === "running") {
-      return badRequest("Voting emails are already being sent")
+    if (existingDispatchKey === dispatchKey && ["queued", "running"].includes(existingStatus)) {
+      return badRequest("Voting emails are already queued or being sent")
     }
 
     const resendMode = String(payload?.resendMode || "reuse_existing").trim()
@@ -1695,11 +1695,9 @@ class ElectionsService {
         resendMode,
       },
       200,
-      `Voting emails sent to ${Number(dispatchResult?.sentRecipients || 0)} recipient(s)${
-        Number(dispatchResult?.failedRecipients || 0) > 0
-          ? ` with ${Number(dispatchResult.failedRecipients)} failure(s)`
-          : ""
-      }${resendMode === "generate_new" ? " using new links" : " using existing links where available"}`
+      `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} recipient(s)${
+        resendMode === "generate_new" ? " using new links" : " using existing links where available"
+      }`
     )
   }
 

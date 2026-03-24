@@ -27,8 +27,11 @@ const uploadsRoot = path.join(__dirname, '..', '..', '..', 'uploads');
 
 class EmailService {
   constructor() {
-    this.transporter = null;
+    this.transporters = [];
     this.isConfigured = false;
+    this.nextTransporterIndex = 0;
+    this.sendQueue = Promise.resolve();
+    this.lastSendCompletedAt = 0;
     this.initializeTransporter();
   }
 
@@ -36,27 +39,83 @@ class EmailService {
    * Initialize the nodemailer transporter
    */
   initializeTransporter() {
-    if (!env.smtp.user || !env.smtp.pass) {
+    const configuredAccounts = this.getConfiguredAccounts();
+
+    if (configuredAccounts.length === 0) {
       logger.warn('SMTP credentials not configured. Email sending is disabled.');
       return;
     }
 
     try {
-      this.transporter = nodemailer.createTransport({
-        host: env.smtp.host,
-        port: env.smtp.port,
-        secure: env.smtp.secure, // true for 465, false for other ports
-        auth: {
-          user: env.smtp.user,
-          pass: env.smtp.pass,
-        },
-      });
+      this.transporters = configuredAccounts.map((account) => ({
+        user: account.user,
+        transporter: nodemailer.createTransport({
+          host: env.smtp.host,
+          port: env.smtp.port,
+          secure: env.smtp.secure,
+          auth: {
+            user: account.user,
+            pass: account.pass,
+          },
+        }),
+      }));
 
       this.isConfigured = true;
-      logger.info('Email service initialized successfully');
+      logger.info('Email service initialized successfully', {
+        smtpAccounts: this.transporters.length,
+        sendIntervalMs: env.smtp.sendIntervalMs,
+        sendAs: env.smtp.sendAs,
+      });
     } catch (error) {
       logger.error('Failed to initialize email transporter', { error: error.message });
     }
+  }
+
+  getConfiguredAccounts() {
+    if (Array.isArray(env.smtp.accounts) && env.smtp.accounts.length > 0) {
+      return env.smtp.accounts;
+    }
+
+    if (env.smtp.user && env.smtp.pass) {
+      return [
+        {
+          user: env.smtp.user,
+          pass: env.smtp.pass,
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  getNextTransporterEntry() {
+    if (!Array.isArray(this.transporters) || this.transporters.length === 0) {
+      return null;
+    }
+
+    const index = this.nextTransporterIndex % this.transporters.length;
+    this.nextTransporterIndex = (this.nextTransporterIndex + 1) % this.transporters.length;
+    return this.transporters[index];
+  }
+
+  queueEmailSend(task) {
+    const scheduledTask = this.sendQueue.then(async () => {
+      const elapsedSinceLastSend = Date.now() - this.lastSendCompletedAt;
+      const waitMs = Math.max(0, env.smtp.sendIntervalMs - elapsedSinceLastSend);
+
+      if (waitMs > 0) {
+        await this.delay(waitMs);
+      }
+
+      try {
+        return await task();
+      } finally {
+        this.lastSendCompletedAt = Date.now();
+      }
+    });
+
+    this.sendQueue = scheduledTask.catch(() => {});
+    return scheduledTask;
   }
 
   /**
@@ -69,8 +128,10 @@ class EmailService {
     }
 
     try {
-      await this.transporter.verify();
-      logger.info('SMTP connection verified successfully');
+      await Promise.all(this.transporters.map(({ transporter }) => transporter.verify()));
+      logger.info('SMTP connection verified successfully', {
+        smtpAccounts: this.transporters.length,
+      });
       return { success: true };
     } catch (error) {
       logger.error('SMTP connection verification failed', { error: error.message });
@@ -90,6 +151,21 @@ class EmailService {
   async sendEmail({ to, subject, html, text, attachments = [] }) {
     if (!this.isConfigured) {
       logger.warn('Email not sent - SMTP not configured', { to, subject });
+      return { success: false, error: 'Email service not configured' };
+    }
+
+    if (Array.isArray(to) && to.filter(Boolean).length > 1) {
+      return this.sendBulkEmails(to, subject, html, text, attachments);
+    }
+
+    return this.sendSingleEmail({ to, subject, html, text, attachments });
+  }
+
+  async sendSingleEmail({ to, subject, html, text, attachments = [] }) {
+    const transporterEntry = this.getNextTransporterEntry();
+
+    if (!transporterEntry) {
+      logger.warn('Email not sent - no SMTP accounts configured', { to, subject });
       return { success: false, error: 'Email service not configured' };
     }
 
@@ -116,21 +192,25 @@ class EmailService {
           }`
         : text || this.stripHtml(html);
       const normalizedAttachments = this.normalizeAttachments(attachments);
-      const mailOptions = {
-        from: env.smtp.from,
-        to: effectiveRecipients.join(', '),
-        subject,
-        html: effectiveHtml,
-        text: effectiveText,
-        attachments: normalizedAttachments,
-      };
+      const result = await this.queueEmailSend(async () => {
+        const mailOptions = {
+          from: env.smtp.sendAs || env.smtp.from,
+          replyTo: env.smtp.sendAs || env.smtp.from,
+          to: effectiveRecipients.join(', '),
+          subject,
+          html: effectiveHtml,
+          text: effectiveText,
+          attachments: normalizedAttachments,
+        };
 
-      const result = await this.transporter.sendMail(mailOptions);
+        return transporterEntry.transporter.sendMail(mailOptions);
+      });
       
       logger.info('Email sent successfully', {
         to: effectiveRecipients,
         originalRecipients,
         subject,
+        smtpUser: transporterEntry.user,
         messageId: result.messageId,
       });
 
@@ -140,6 +220,7 @@ class EmailService {
         to: effectiveRecipients,
         originalRecipients,
         subject,
+        smtpUser: transporterEntry.user,
         error: error.message,
       });
       return { success: false, error: error.message };
@@ -167,7 +248,7 @@ class EmailService {
 
     // Send emails individually for privacy
     for (const recipient of recipients) {
-      const result = await this.sendEmail({ to: recipient, subject, html, text, attachments });
+      const result = await this.sendSingleEmail({ to: recipient, subject, html, text, attachments });
       
       if (result.success) {
         results.sent++;
@@ -175,9 +256,6 @@ class EmailService {
         results.failed++;
         results.errors.push(`${recipient}: ${result.error}`);
       }
-
-      // Small delay to avoid rate limiting
-      await this.delay(100);
     }
 
     return {

@@ -7,6 +7,29 @@ import dotenv from "dotenv"
 // Load .env file
 dotenv.config()
 
+const parseSmtpAccounts = (rawValue) => {
+  if (!rawValue) {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(rawValue)
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map((account) => ({
+        user: typeof account?.user === "string" ? account.user.trim() : "",
+        pass: typeof account?.pass === "string" ? account.pass : "",
+      }))
+      .filter((account) => account.user && account.pass)
+  } catch (error) {
+    console.error("Invalid SMTP_ACCOUNTS JSON. Falling back to SMTP_USER/SMTP_PASS.")
+    return []
+  }
+}
+
 /**
  * Validate required environment variables
  * @param {string[]} required - List of required env vars
@@ -73,6 +96,13 @@ export const env = {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
     from: process.env.SMTP_FROM || "HMS <saappsupport@iiti.ac.in>",
+    sendAs:
+      process.env.SMTP_SEND_AS ||
+      process.env.SMTP_FROM ||
+      process.env.SMTP_USER ||
+      "HMS <saappsupport@iiti.ac.in>",
+    accounts: parseSmtpAccounts(process.env.SMTP_ACCOUNTS),
+    sendIntervalMs: parseInt(process.env.SMTP_SEND_INTERVAL_MS, 10) || 1000,
     developmentRedirectTo: process.env.SMTP_DEVELOPMENT_REDIRECT_TO || "",
   },
 
