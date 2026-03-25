@@ -1842,8 +1842,10 @@ class ElectionsService {
     }
 
     const resendMode = String(payload?.resendMode || "reuse_existing").trim()
+    const targetRollNumbers = Array.isArray(payload?.targetRollNumbers) ? payload.targetRollNumbers : []
     const dispatchResult = await triggerElectionVotingEmailDispatchForElection(election._id, "manual", {
       resendMode,
+      targetRollNumbers,
     })
     if (!dispatchResult?.queued) {
       return badRequest(
@@ -1854,13 +1856,17 @@ class ElectionsService {
     return success(
       {
         queued: true,
+        requestedRecipients: Number(dispatchResult?.requestedRecipients || 0),
         totalRecipients: Number(dispatchResult?.totalRecipients || 0),
         sentRecipients: Number(dispatchResult?.sentRecipients || 0),
         failedRecipients: Number(dispatchResult?.failedRecipients || 0),
         resendMode,
+        targetRollNumbers,
       },
       200,
-      `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} recipient(s)${
+      `${targetRollNumbers.length > 0
+        ? `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} eligible recipient(s) from ${targetRollNumbers.length} uploaded roll number(s)`
+        : `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} recipient(s)`}${
         resendMode === "generate_new" ? " using new links" : " using existing links where available"
       }`
     )

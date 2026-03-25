@@ -196,8 +196,9 @@ const collectEligibleVoterProfiles = async (election) => {
     .filter((item) => item.eligiblePosts.length > 0)
 }
 
-const resolveDispatchRecipients = async (election) => {
+const resolveDispatchRecipients = async (election, { targetRollNumbers = [] } = {}) => {
   const eligibleProfiles = await collectEligibleVoterProfiles(election)
+  const targetRollNumberSet = new Set(normalizeRollNumbers(targetRollNumbers))
   const verifiedNominations = await ElectionNomination.find({
     electionId: election._id,
     status: "verified",
@@ -214,7 +215,12 @@ const resolveDispatchRecipients = async (election) => {
     }))
     .filter(
       ({ profile, eligiblePosts }) =>
-        eligiblePosts.length > 0 && !voterIdsWithVotes.has(String(profile?.userId?._id || ""))
+        eligiblePosts.length > 0 &&
+        !voterIdsWithVotes.has(String(profile?.userId?._id || "")) &&
+        (
+          targetRollNumberSet.size === 0 ||
+          targetRollNumberSet.has(String(profile?.rollNumber || "").trim().toUpperCase())
+        )
     )
 }
 
@@ -341,6 +347,7 @@ const runQueuedVotingEmailDispatch = async ({
   electionId,
   dispatchKey,
   resendMode = "reuse_existing",
+  targetRollNumbers = [],
 } = {}) => {
   const activeDispatchKey = String(electionId || "")
   if (!activeDispatchKey) {
@@ -380,7 +387,7 @@ const runQueuedVotingEmailDispatch = async ({
       }
     }
 
-    const recipients = await resolveDispatchRecipients(election)
+    const recipients = await resolveDispatchRecipients(election, { targetRollNumbers })
     if (recipients.length === 0) {
       await persistDispatchState(election, {
         dispatchKey,
@@ -506,7 +513,7 @@ const processDispatchQueue = async () => {
 export const triggerElectionVotingEmailDispatchForElection = async (
   electionId,
   reason = "manual",
-  { resendMode = "reuse_existing" } = {}
+  { resendMode = "reuse_existing", targetRollNumbers = [] } = {}
 ) => {
   const activeDispatchKey = String(electionId || "")
   if (
@@ -557,7 +564,10 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       }
     }
 
-    const recipients = await resolveDispatchRecipients(election)
+    const normalizedTargetRollNumbers = normalizeRollNumbers(targetRollNumbers)
+    const recipients = await resolveDispatchRecipients(election, {
+      targetRollNumbers: normalizedTargetRollNumbers,
+    })
 
     if (recipients.length === 0) {
       await persistDispatchState(election, {
@@ -575,6 +585,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       return {
         queued: false,
         error: election.votingEmailDispatch.lastError,
+        requestedRecipients: normalizedTargetRollNumbers.length,
         totalRecipients: 0,
         sentRecipients: 0,
         failedRecipients: 0,
@@ -598,6 +609,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       electionId: String(election._id),
       dispatchKey,
       resendMode,
+      targetRollNumbers: normalizedTargetRollNumbers,
     })
     processDispatchQueue().catch((error) => {
       console.error("Election voting dispatch queue failed:", error?.message || error)
@@ -605,6 +617,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
 
     return {
       queued: true,
+      requestedRecipients: normalizedTargetRollNumbers.length,
       totalRecipients: recipients.length,
       sentRecipients: 0,
       failedRecipients: 0,
