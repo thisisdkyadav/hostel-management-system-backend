@@ -27,11 +27,14 @@ const uploadsRoot = path.join(__dirname, '..', '..', '..', 'uploads');
 
 class EmailService {
   constructor() {
-    this.transporters = [];
+    this.singleTransporterEntry = null;
+    this.multiTransporters = [];
     this.isConfigured = false;
-    this.nextTransporterIndex = 0;
-    this.sendQueue = Promise.resolve();
-    this.lastSendCompletedAt = 0;
+    this.nextMultiTransporterIndex = 0;
+    this.singleSendQueue = Promise.resolve();
+    this.multiSendQueue = Promise.resolve();
+    this.singleLastSendCompletedAt = 0;
+    this.multiLastSendCompletedAt = 0;
     this.initializeTransporter();
   }
 
@@ -39,30 +42,29 @@ class EmailService {
    * Initialize the nodemailer transporter
    */
   initializeTransporter() {
-    const configuredAccounts = this.getConfiguredAccounts();
+    const singleAccount = this.getSingleAccount();
+    const multiAccounts = this.getMultiAccounts();
 
-    if (configuredAccounts.length === 0) {
+    if (!singleAccount && multiAccounts.length === 0) {
       logger.warn('SMTP credentials not configured. Email sending is disabled.');
       return;
     }
 
     try {
-      this.transporters = configuredAccounts.map((account) => ({
-        user: account.user,
-        transporter: nodemailer.createTransport({
-          host: env.smtp.host,
-          port: env.smtp.port,
-          secure: env.smtp.secure,
-          auth: {
-            user: account.user,
-            pass: account.pass,
-          },
-        }),
-      }));
+      if (singleAccount) {
+        this.singleTransporterEntry = this.createTransporterEntry(singleAccount);
+      }
+
+      this.multiTransporters = multiAccounts.map((account) => this.createTransporterEntry(account));
+
+      if (!this.singleTransporterEntry && this.multiTransporters.length > 0) {
+        this.singleTransporterEntry = this.multiTransporters[0];
+      }
 
       this.isConfigured = true;
       logger.info('Email service initialized successfully', {
-        smtpAccounts: this.transporters.length,
+        singleSmtpUser: this.singleTransporterEntry?.user || "",
+        multiSmtpAccounts: this.multiTransporters.length,
         sendIntervalMs: env.smtp.sendIntervalMs,
         sendAs: env.smtp.sendAs,
       });
@@ -71,36 +73,66 @@ class EmailService {
     }
   }
 
-  getConfiguredAccounts() {
+  getSingleAccount() {
+    if (env.smtp.user && env.smtp.pass) {
+      return {
+        user: env.smtp.user,
+        pass: env.smtp.pass,
+      };
+    }
+
+    if (Array.isArray(env.smtp.accounts) && env.smtp.accounts.length > 0) {
+      return env.smtp.accounts[0];
+    }
+
+    return null;
+  }
+
+  getMultiAccounts() {
     if (Array.isArray(env.smtp.accounts) && env.smtp.accounts.length > 0) {
       return env.smtp.accounts;
     }
 
-    if (env.smtp.user && env.smtp.pass) {
-      return [
-        {
-          user: env.smtp.user,
-          pass: env.smtp.pass,
-        },
-      ];
-    }
-
-    return [];
+    const singleAccount = this.getSingleAccount();
+    return singleAccount ? [singleAccount] : [];
   }
 
-  getNextTransporterEntry() {
-    if (!Array.isArray(this.transporters) || this.transporters.length === 0) {
+  createTransporterEntry(account = {}) {
+    return {
+      user: account.user,
+      transporter: nodemailer.createTransport({
+        host: env.smtp.host,
+        port: env.smtp.port,
+        secure: env.smtp.secure,
+        auth: {
+          user: account.user,
+          pass: account.pass,
+        },
+      }),
+    };
+  }
+
+  getTransporterEntry(deliveryMode = 'single') {
+    if (deliveryMode !== 'multi') {
+      return this.singleTransporterEntry;
+    }
+
+    if (!Array.isArray(this.multiTransporters) || this.multiTransporters.length === 0) {
       return null;
     }
 
-    const index = this.nextTransporterIndex % this.transporters.length;
-    this.nextTransporterIndex = (this.nextTransporterIndex + 1) % this.transporters.length;
-    return this.transporters[index];
+    const index = this.nextMultiTransporterIndex % this.multiTransporters.length;
+    this.nextMultiTransporterIndex = (this.nextMultiTransporterIndex + 1) % this.multiTransporters.length;
+    return this.multiTransporters[index];
   }
 
-  queueEmailSend(task) {
-    const scheduledTask = this.sendQueue.then(async () => {
-      const elapsedSinceLastSend = Date.now() - this.lastSendCompletedAt;
+  queueEmailSend(task, { deliveryMode = 'single' } = {}) {
+    const queueKey = deliveryMode === 'multi' ? 'multiSendQueue' : 'singleSendQueue';
+    const lastCompletedAtKey =
+      deliveryMode === 'multi' ? 'multiLastSendCompletedAt' : 'singleLastSendCompletedAt';
+
+    const scheduledTask = this[queueKey].then(async () => {
+      const elapsedSinceLastSend = Date.now() - this[lastCompletedAtKey];
       const waitMs = Math.max(0, env.smtp.sendIntervalMs - elapsedSinceLastSend);
 
       if (waitMs > 0) {
@@ -110,11 +142,11 @@ class EmailService {
       try {
         return await task();
       } finally {
-        this.lastSendCompletedAt = Date.now();
+        this[lastCompletedAtKey] = Date.now();
       }
     });
 
-    this.sendQueue = scheduledTask.catch(() => {});
+    this[queueKey] = scheduledTask.catch(() => {});
     return scheduledTask;
   }
 
@@ -128,9 +160,19 @@ class EmailService {
     }
 
     try {
-      await Promise.all(this.transporters.map(({ transporter }) => transporter.verify()));
+      const transporterEntries = [
+        ...(this.singleTransporterEntry ? [this.singleTransporterEntry] : []),
+        ...this.multiTransporters,
+      ];
+      const uniqueEntries = transporterEntries.filter(
+        (entry, index, collection) =>
+          entry?.user &&
+          collection.findIndex((candidate) => candidate?.user === entry.user) === index
+      );
+
+      await Promise.all(uniqueEntries.map(({ transporter }) => transporter.verify()));
       logger.info('SMTP connection verified successfully', {
-        smtpAccounts: this.transporters.length,
+        smtpAccounts: uniqueEntries.length,
       });
       return { success: true };
     } catch (error) {
@@ -148,21 +190,21 @@ class EmailService {
    * @param {string} [options.text] - Plain text fallback
    * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
    */
-  async sendEmail({ to, subject, html, text, attachments = [] }) {
+  async sendEmail({ to, subject, html, text, attachments = [], deliveryMode = 'single' }) {
     if (!this.isConfigured) {
       logger.warn('Email not sent - SMTP not configured', { to, subject });
       return { success: false, error: 'Email service not configured' };
     }
 
     if (Array.isArray(to) && to.filter(Boolean).length > 1) {
-      return this.sendBulkEmails(to, subject, html, text, attachments);
+      return this.sendBulkEmails(to, subject, html, text, attachments, { deliveryMode });
     }
 
-    return this.sendSingleEmail({ to, subject, html, text, attachments });
+    return this.sendSingleEmail({ to, subject, html, text, attachments, deliveryMode });
   }
 
-  async sendSingleEmail({ to, subject, html, text, attachments = [] }) {
-    const transporterEntry = this.getNextTransporterEntry();
+  async sendSingleEmail({ to, subject, html, text, attachments = [], deliveryMode = 'single' }) {
+    const transporterEntry = this.getTransporterEntry(deliveryMode);
 
     if (!transporterEntry) {
       logger.warn('Email not sent - no SMTP accounts configured', { to, subject });
@@ -204,12 +246,13 @@ class EmailService {
         };
 
         return transporterEntry.transporter.sendMail(mailOptions);
-      });
+      }, { deliveryMode });
       
       logger.info('Email sent successfully', {
         to: effectiveRecipients,
         originalRecipients,
         subject,
+        deliveryMode,
         smtpUser: transporterEntry.user,
         messageId: result.messageId,
       });
@@ -220,6 +263,7 @@ class EmailService {
         to: effectiveRecipients,
         originalRecipients,
         subject,
+        deliveryMode,
         smtpUser: transporterEntry.user,
         error: error.message,
       });
@@ -235,7 +279,7 @@ class EmailService {
    * @param {string} [text] - Plain text fallback
    * @returns {Promise<{success: boolean, sent: number, failed: number, errors: string[]}>}
    */
-  async sendBulkEmails(recipients, subject, html, text, attachments = []) {
+  async sendBulkEmails(recipients, subject, html, text, attachments = [], { deliveryMode = 'single' } = {}) {
     if (!this.isConfigured) {
       return { success: false, sent: 0, failed: recipients.length, errors: ['Email service not configured'] };
     }
@@ -248,7 +292,14 @@ class EmailService {
 
     // Send emails individually for privacy
     for (const recipient of recipients) {
-      const result = await this.sendSingleEmail({ to: recipient, subject, html, text, attachments });
+      const result = await this.sendSingleEmail({
+        to: recipient,
+        subject,
+        html,
+        text,
+        attachments,
+        deliveryMode,
+      });
       
       if (result.success) {
         results.sent++;
@@ -470,6 +521,7 @@ class EmailService {
       to: email,
       subject: `Election Voting Link · ${electionTitle}`,
       html,
+      deliveryMode: 'multi',
     });
   }
 

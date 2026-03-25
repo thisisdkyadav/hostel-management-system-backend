@@ -571,6 +571,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
       }
 
       let students;
+      let clearedCount = 0;
 
       if (assignmentMode === GROUP_ASSIGNMENT_MODE_ADD) {
         students = await StudentProfile.updateMany(
@@ -585,9 +586,16 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
           { session }
         );
       } else {
+        const clearedStudents = await StudentProfile.updateMany(
+          { groups: { $in: normalizedGroupNames } },
+          { $pull: { groups: { $in: normalizedGroupNames } } },
+          { session }
+        );
+        clearedCount = clearedStudents.modifiedCount || 0;
+
         students = await StudentProfile.updateMany(
           { rollNumber: { $in: existingRollNumbers } },
-          { $set: { groups: normalizedGroupNames } },
+          { $addToSet: { groups: { $each: normalizedGroupNames } } },
           { session }
         );
       }
@@ -598,6 +606,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
         data: {
           updatedCount: students.modifiedCount,
           matchedCount: students.matchedCount,
+          clearedCount,
           unsuccessfulRollNumbers,
           selectionMode: selectionResult.selectionMode,
           assignmentMode,
