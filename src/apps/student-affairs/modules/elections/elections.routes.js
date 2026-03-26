@@ -104,6 +104,14 @@ router.get(
   controller.getVotingLiveStats
 )
 
+router.get(
+  "/:id/voting-emails/recipients",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.electionIdSchema, "params"),
+  controller.getVotingEmailRecipients
+)
+
 router.post(
   "/",
   authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),

@@ -32,7 +32,10 @@ import {
   isActionLinkTokenExpired,
 } from "../../../../services/action-links/action-link-token.service.js"
 import { emitToRole } from "../../../../utils/socketHandlers.js"
-import { triggerElectionVotingEmailDispatchForElection } from "./elections-voting-dispatch.service.js"
+import {
+  buildElectionVotingRecipientStatuses,
+  triggerElectionVotingEmailDispatchForElection,
+} from "./elections-voting-dispatch.service.js"
 
 const normalizeStringArray = (values = []) => {
   if (!Array.isArray(values)) return []
@@ -1615,6 +1618,54 @@ class ElectionsService {
 
     const stats = await buildElectionVotingLiveStats(election)
     return success(stats)
+  }
+
+  async getVotingEmailRecipients(id) {
+    const election = await Election.findById(id).select(
+      "title academicYear status timeline posts mockSettings votingEmailDispatch"
+    )
+    if (!election) return notFound("Election")
+
+    const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
+
+    const normalizedRecipients = recipientStatuses.map((entry) => ({
+      userId: entry?.userId || null,
+      name: entry?.name || "",
+      email: entry?.email || "",
+      rollNumber: entry?.rollNumber || "",
+      status: entry?.status || "pending",
+      sentAt: entry?.sentAt || null,
+      lastError: entry?.lastError || "",
+    }))
+
+    const sentRecipients = normalizedRecipients
+      .filter((entry) => entry.status === "sent")
+      .sort((left, right) => String(left.rollNumber || "").localeCompare(String(right.rollNumber || "")))
+
+    const notSentRecipients = normalizedRecipients
+      .filter((entry) => entry.status !== "sent")
+      .sort((left, right) => String(left.rollNumber || "").localeCompare(String(right.rollNumber || "")))
+
+    return success({
+      election: {
+        id: election._id,
+        title: election.title,
+        academicYear: election.academicYear,
+      },
+      dispatch: {
+        dispatchKey: election.votingEmailDispatch?.dispatchKey || "",
+        status: election.votingEmailDispatch?.status || "idle",
+        startedAt: election.votingEmailDispatch?.startedAt || null,
+        completedAt: election.votingEmailDispatch?.completedAt || null,
+        lastTriggeredAt: election.votingEmailDispatch?.lastTriggeredAt || null,
+        totalRecipients: Number(election.votingEmailDispatch?.totalRecipients || 0),
+        sentRecipients: Number(election.votingEmailDispatch?.sentRecipients || 0),
+        failedRecipients: Number(election.votingEmailDispatch?.failedRecipients || 0),
+        lastError: election.votingEmailDispatch?.lastError || "",
+      },
+      sentRecipients,
+      notSentRecipients,
+    })
   }
 
   async createElection(payload, user) {

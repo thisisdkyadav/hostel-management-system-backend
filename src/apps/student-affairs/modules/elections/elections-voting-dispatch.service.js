@@ -58,6 +58,11 @@ const persistDispatchState = async (election, nextDispatchState = {}) => {
     sentRecipients: Number(nextDispatchState.sentRecipients || 0),
     failedRecipients: Number(nextDispatchState.failedRecipients || 0),
     lastError: nextDispatchState.lastError || "",
+    recipientStatuses: Array.isArray(nextDispatchState.recipientStatuses)
+      ? nextDispatchState.recipientStatuses
+      : Array.isArray(election.votingEmailDispatch?.recipientStatuses)
+        ? election.votingEmailDispatch.recipientStatuses
+        : [],
   }
 
   await election.save()
@@ -196,7 +201,10 @@ const collectEligibleVoterProfiles = async (election) => {
     .filter((item) => item.eligiblePosts.length > 0)
 }
 
-const resolveDispatchRecipients = async (election, { targetRollNumbers = [] } = {}) => {
+export const resolveElectionVotingRecipients = async (
+  election,
+  { targetRollNumbers = [], includeVoted = false } = {}
+) => {
   const eligibleProfiles = await collectEligibleVoterProfiles(election)
   const targetRollNumberSet = new Set(normalizeRollNumbers(targetRollNumbers))
   const verifiedNominations = await ElectionNomination.find({
@@ -204,9 +212,13 @@ const resolveDispatchRecipients = async (election, { targetRollNumbers = [] } = 
     status: "verified",
   }).select("postId")
   const verifiedPostIds = new Set(verifiedNominations.map((nomination) => String(nomination.postId)))
-  const voterIdsWithVotes = new Set(
-    (await ElectionVote.distinct("voterUserId", { electionId: election._id })).map((value) => String(value))
-  )
+  const voterIdsWithVotes = includeVoted
+    ? new Set()
+    : new Set(
+        (await ElectionVote.distinct("voterUserId", { electionId: election._id })).map((value) =>
+          String(value)
+        )
+      )
 
   return eligibleProfiles
     .map(({ profile, eligiblePosts }) => ({
@@ -240,6 +252,121 @@ const findReusableVotingLinkToken = async (election, userId, dispatchKey) => {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const buildRecipientDispatchStatuses = (recipients = []) =>
+  recipients.map(({ profile }) => ({
+    userId: profile?.userId?._id || null,
+    name: profile?.userId?.name || "",
+    email: String(profile?.userId?.email || "").trim(),
+    rollNumber: String(profile?.rollNumber || "").trim().toUpperCase(),
+    status: "pending",
+    sentAt: null,
+    lastError: "",
+  }))
+
+const buildRecipientStatusKey = (entry = {}) => {
+  const userId = String(entry?.userId || entry?.profile?.userId?._id || "").trim()
+  if (userId) return `user:${userId}`
+
+  const rollNumber = String(entry?.rollNumber || entry?.profile?.rollNumber || "")
+    .trim()
+    .toUpperCase()
+  return rollNumber ? `roll:${rollNumber}` : ""
+}
+
+const mergeRecipientDispatchStatuses = ({
+  baselineStatuses = [],
+  existingStatuses = [],
+  sentStatusKeys = new Set(),
+} = {}) => {
+  const existingStatusMap = new Map(
+    (Array.isArray(existingStatuses) ? existingStatuses : [])
+      .map((entry) => [buildRecipientStatusKey(entry), entry])
+      .filter(([key]) => Boolean(key))
+  )
+
+  return (Array.isArray(baselineStatuses) ? baselineStatuses : []).map((baselineEntry) => {
+    const statusKey = buildRecipientStatusKey(baselineEntry)
+    const existingEntry = existingStatusMap.get(statusKey)
+    const mergedEntry = existingEntry
+      ? {
+          ...baselineEntry,
+          status: ["pending", "failed"].includes(String(existingEntry?.status || ""))
+            ? existingEntry.status
+            : baselineEntry.status,
+          sentAt: baselineEntry.sentAt || null,
+          lastError: ["pending", "failed"].includes(String(existingEntry?.status || ""))
+            ? existingEntry?.lastError || ""
+            : "",
+        }
+      : baselineEntry
+
+    if (sentStatusKeys.has(statusKey) && mergedEntry.status !== "sent") {
+      return {
+        ...mergedEntry,
+        status: "sent",
+        sentAt: existingEntry?.sentAt || mergedEntry.sentAt || null,
+        lastError: "",
+      }
+    }
+
+    return mergedEntry
+  })
+}
+
+const applyRecipientDispatchResult = (recipientStatuses = [], recipient = {}, result = {}) => {
+  const recipientStatusKey = buildRecipientStatusKey(recipient)
+
+  return (Array.isArray(recipientStatuses) ? recipientStatuses : []).map((entry) => {
+    if (buildRecipientStatusKey(entry) !== recipientStatusKey) {
+      return entry
+    }
+
+    return {
+      ...entry,
+      status: result?.success ? "sent" : "failed",
+      sentAt: result?.success ? new Date() : entry?.sentAt || null,
+      lastError: result?.success ? "" : result?.error || "Failed to send voting email",
+    }
+  })
+}
+
+const getSentRecipientStatusKeys = async (election, dispatchKey) => {
+  if (!election?._id || !dispatchKey) return new Set()
+
+  const sentTokens = await ActionLinkToken.find({
+    type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+    subjectModel: "Election",
+    subjectId: election._id,
+    "payload.dispatchKey": dispatchKey,
+    $or: [
+      { invalidatedAt: null },
+      { usedAt: { $ne: null } },
+    ],
+  }).select("recipientUserId")
+
+  return new Set(
+    sentTokens
+      .map((token) => buildRecipientStatusKey({ userId: token?.recipientUserId }))
+      .filter(Boolean)
+  )
+}
+
+export const buildElectionVotingRecipientStatuses = async (election) => {
+  const dispatchKey = getVotingDispatchKey(election)
+  const allRecipients = await resolveElectionVotingRecipients(election, { includeVoted: true })
+  const baselineStatuses = buildRecipientDispatchStatuses(allRecipients)
+  const existingStatuses = Array.isArray(election?.votingEmailDispatch?.recipientStatuses)
+    ? election.votingEmailDispatch.recipientStatuses
+    : []
+  const sentStatusKeys = await getSentRecipientStatusKeys(election, dispatchKey)
+
+  return mergeRecipientDispatchStatuses({
+    baselineStatuses,
+    existingStatuses,
+    sentStatusKeys,
+  })
+}
 
 const sendVotingEmailToRecipient = async (
   election,
@@ -387,7 +514,7 @@ const runQueuedVotingEmailDispatch = async ({
       }
     }
 
-    const recipients = await resolveDispatchRecipients(election, { targetRollNumbers })
+    const recipients = await resolveElectionVotingRecipients(election, { targetRollNumbers })
     if (recipients.length === 0) {
       await persistDispatchState(election, {
         dispatchKey,
@@ -399,6 +526,7 @@ const runQueuedVotingEmailDispatch = async ({
         sentRecipients: 0,
         failedRecipients: 0,
         lastError: "No eligible voters with verified voting options are available for email dispatch",
+        recipientStatuses: [],
       })
 
       return {
@@ -410,6 +538,8 @@ const runQueuedVotingEmailDispatch = async ({
       }
     }
 
+    const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
+
     await persistDispatchState(election, {
       dispatchKey,
       status: "running",
@@ -420,14 +550,23 @@ const runQueuedVotingEmailDispatch = async ({
       sentRecipients: 0,
       failedRecipients: 0,
       lastError: "",
+      recipientStatuses,
     })
 
     let sentRecipients = 0
     let failedRecipients = 0
     const errors = []
+    let currentRecipientStatuses = Array.isArray(election.votingEmailDispatch?.recipientStatuses)
+      ? election.votingEmailDispatch.recipientStatuses
+      : recipientStatuses
 
     for (const recipient of recipients) {
       const recipientResult = await sendVotingEmailToRecipient(election, recipient, { resendMode })
+      currentRecipientStatuses = applyRecipientDispatchResult(
+        currentRecipientStatuses,
+        recipient,
+        recipientResult
+      )
 
       if (recipientResult.success) {
         sentRecipients += 1
@@ -446,6 +585,7 @@ const runQueuedVotingEmailDispatch = async ({
         sentRecipients,
         failedRecipients,
         lastError: errors[0] || "",
+        recipientStatuses: currentRecipientStatuses,
       })
     }
 
@@ -459,6 +599,7 @@ const runQueuedVotingEmailDispatch = async ({
       sentRecipients,
       failedRecipients,
       lastError: errors[0] || "",
+      recipientStatuses: currentRecipientStatuses,
     })
 
     return {
@@ -565,7 +706,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
     }
 
     const normalizedTargetRollNumbers = normalizeRollNumbers(targetRollNumbers)
-    const recipients = await resolveDispatchRecipients(election, {
+    const recipients = await resolveElectionVotingRecipients(election, {
       targetRollNumbers: normalizedTargetRollNumbers,
     })
 
@@ -592,6 +733,8 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       }
     }
 
+    const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
+
     await persistDispatchState(election, {
       dispatchKey,
       status: "queued",
@@ -602,6 +745,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       sentRecipients: 0,
       failedRecipients: 0,
       lastError: "",
+      recipientStatuses,
     })
 
     queuedDispatches.add(activeDispatchKey)

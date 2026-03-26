@@ -258,6 +258,51 @@ const ElectionVotingEmailDispatchSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    recipientStatuses: {
+      type: [
+        new mongoose.Schema(
+          {
+            userId: {
+              type: mongoose.Schema.Types.ObjectId,
+              ref: "User",
+              default: null,
+            },
+            name: {
+              type: String,
+              trim: true,
+              default: "",
+            },
+            email: {
+              type: String,
+              trim: true,
+              default: "",
+            },
+            rollNumber: {
+              type: String,
+              trim: true,
+              uppercase: true,
+              default: "",
+            },
+            status: {
+              type: String,
+              enum: ["pending", "sent", "failed"],
+              default: "pending",
+            },
+            sentAt: {
+              type: Date,
+              default: null,
+            },
+            lastError: {
+              type: String,
+              trim: true,
+              default: "",
+            },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
   },
   { _id: false }
 )

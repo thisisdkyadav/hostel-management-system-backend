@@ -16,6 +16,11 @@ export const getVotingLiveStats = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const getVotingEmailRecipients = asyncHandler(async (req, res) => {
+  const result = await electionsService.getVotingEmailRecipients(req.params.id)
+  return sendStandardResponse(res, result)
+})
+
 export const getScopeCount = asyncHandler(async (req, res) => {
   const result = await electionsService.getScopeCount(req.body)
   return sendStandardResponse(res, result)
@@ -130,6 +135,7 @@ export default {
   listAdminElections,
   getElectionDetail,
   getVotingLiveStats,
+  getVotingEmailRecipients,
   getScopeCount,
   createElection,
   cloneElection,
