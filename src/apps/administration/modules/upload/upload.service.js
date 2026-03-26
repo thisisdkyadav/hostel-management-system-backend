@@ -1,700 +1,249 @@
 /**
  * Upload Service
- * Contains all business logic for file upload operations.
- * 
- * @module services/upload
+ * Thin orchestration layer that validates HMS upload intent and delegates storage to the
+ * dedicated storage service.
  */
 
-import { BlobServiceClient, StorageSharedKeyCredential, generateBlobSASQueryParameters, BlobSASPermissions } from '@azure/storage-blob';
-import {
-  AZURE_STORAGE_CONNECTION_STRING,
-  AZURE_STORAGE_CONTAINER_NAME,
-  AZURE_STORAGE_ACCOUNT_NAME,
-  AZURE_STORAGE_ACCOUNT_KEY,
-  AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID,
-  USE_LOCAL_STORAGE,
-} from '../../../../config/env.config.js';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { storageClient } from '../../../../services/storage/storage.client.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
+const PDF_MIME_TYPES = ['application/pdf'];
+const MIXED_MIME_TYPES = [...PDF_MIME_TYPES, ...IMAGE_MIME_TYPES];
+const TEN_MB = 10 * 1024 * 1024;
 
-// Azure storage setup
-const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
-const containerClient = blobServiceClient.getContainerClient(AZURE_STORAGE_CONTAINER_NAME);
-const containerClientStudentId = blobServiceClient.getContainerClient(AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID);
+const successResult = (data) => ({
+  success: true,
+  statusCode: 200,
+  data,
+});
 
-// Local storage paths - 5 levels up from src/apps/administration/modules/upload/ to backend/uploads/
-const uploadsBasePath = path.join(__dirname, '..', '..', '..', '..', '..', 'uploads');
-const profileImagesPath = path.join(uploadsBasePath, 'profile-images');
-const studentIdCardsPath = path.join(uploadsBasePath, 'student-id-cards');
-const h2FormsPath = path.join(uploadsBasePath, 'h2-forms');
-const eventProposalDocsPath = path.join(uploadsBasePath, 'event-proposal-docs');
-const eventChiefGuestDocsPath = path.join(uploadsBasePath, 'event-chief-guest-docs');
-const eventBillDocsPath = path.join(uploadsBasePath, 'event-bill-docs');
-const eventReportDocsPath = path.join(uploadsBasePath, 'event-report-docs');
-const disCoProcessDocsPath = path.join(uploadsBasePath, 'disco-process-docs');
-const certificatesPath = path.join(uploadsBasePath, 'certificates');
-const overallBestPerformerProofDocsPath = path.join(uploadsBasePath, 'overall-best-performer-proofs');
-const electionNominationDocsPath = path.join(uploadsBasePath, 'election-nomination-docs');
-const electionNominationDocMaxSizeBytes = 10 * 1024 * 1024;
+const errorResult = (statusCode, message) => ({
+  success: false,
+  statusCode,
+  message,
+});
 
-// Ensure directories exist
-if (USE_LOCAL_STORAGE) {
-  [profileImagesPath, studentIdCardsPath, h2FormsPath, eventProposalDocsPath, eventChiefGuestDocsPath, eventBillDocsPath, eventReportDocsPath, disCoProcessDocsPath, certificatesPath, overallBestPerformerProofDocsPath, electionNominationDocsPath].forEach((dir) => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-  });
-}
+const sanitizeMimeMatch = (file, allowedMimeTypes = []) => {
+  if (!file) {
+    return errorResult(400, 'No file uploaded');
+  }
+
+  const originalName = String(file.originalname || '').toLowerCase();
+  const mimetype = String(file.mimetype || '').toLowerCase();
+  const isPdf = mimetype === 'application/pdf' || originalName.endsWith('.pdf');
+
+  if (allowedMimeTypes.includes('application/pdf') && isPdf) {
+    return { ok: true };
+  }
+
+  if (allowedMimeTypes.includes(mimetype)) {
+    return { ok: true };
+  }
+
+  return errorResult(400, 'Uploaded file type is not allowed');
+};
+
+const validateSize = (file, maxSizeBytes) => {
+  const size = Number(file?.size || file?.buffer?.length || 0);
+  if (size > maxSizeBytes) {
+    return errorResult(400, `Document size must be ${Math.floor(maxSizeBytes / (1024 * 1024))}MB or smaller`);
+  }
+
+  return { ok: true };
+};
 
 class UploadService {
-  _validateMixedDocument(file) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
+  async _uploadWithPolicy({ file, policy, actorId, actorRole, entityHint = '' }) {
+    try {
+      const payload = await storageClient.upload({
+        file,
+        policy,
+        actorId,
+        actorRole,
+        entityHint,
+        sourceService: 'hms-backend',
+      });
+
+      return successResult({
+        fileId: payload.file_id || payload.fileId,
+        fileRef: payload.file_ref || payload.fileRef,
+        url: payload.url,
+        contentType: payload.content_type || payload.contentType,
+        size: payload.size,
+        originalName: payload.original_name || payload.originalName,
+      });
+    } catch (error) {
+      return errorResult(502, error.message || 'Failed to upload file');
     }
-
-    const { originalname, mimetype } = file;
-    const allowedMimeTypes = ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    const isImage = allowedMimeTypes.slice(1).includes(mimetype);
-
-    if (!isPdf && !isImage) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF and image files are allowed',
-      };
-    }
-
-    return {
-      success: true,
-      isPdf,
-    };
   }
 
-  async _uploadMixedDocument({ userId, file, localDirPath, localUrlPrefix, blobPrefix }) {
-    const validation = this._validateMixedDocument(file);
-    if (!validation.success) {
-      return validation;
-    }
-
-    const { originalname, buffer, mimetype } = file;
-    const timestamp = Date.now();
-    const parsed = path.parse(originalname);
-    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, '_');
-    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : validation.isPdf ? '.pdf' : '.png';
-    const blobName = `${blobPrefix}/${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-      const filepath = path.join(localDirPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `${localUrlPrefix}/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    }
-
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-    await blockBlobClient.uploadData(buffer, {
-      blobHTTPHeaders: { blobContentType: mimetype },
-    });
-    const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-    return { success: true, statusCode: 200, data: { url: sasUrl } };
-  }
-
-  /**
-   * Generate SAS URL for Azure blob
-   * @private
-   */
-  _generateSasUrl(blockBlobClient, containerName, blobName) {
-    const sharedKeyCredential = new StorageSharedKeyCredential(
-      AZURE_STORAGE_ACCOUNT_NAME,
-      AZURE_STORAGE_ACCOUNT_KEY
-    );
-    const expiryDate = new Date('2099-12-31');
-
-    const sasToken = generateBlobSASQueryParameters(
-      {
-        containerName,
-        blobName,
-        permissions: BlobSASPermissions.parse('r'),
-        expiresOn: expiryDate,
-      },
-      sharedKeyCredential
-    ).toString();
-
-    return `${blockBlobClient.url}?${sasToken}`;
-  }
-
-  /**
-   * Upload profile image
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
   async uploadProfileImage({ userId, userRole, currentUserId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
     if (userRole === 'Student' && userId !== currentUserId) {
-      return {
-        success: false,
-        statusCode: 403,
-        message: "You don't have permission to upload profile image for this user",
-      };
+      return errorResult(403, "You don't have permission to upload profile image for this user");
     }
 
-    const { originalname, buffer, mimetype } = file;
-    const blobName = `${userId}-${originalname}`;
+    const mimeValidation = sanitizeMimeMatch(file, IMAGE_MIME_TYPES);
+    if (!mimeValidation.ok) return mimeValidation;
 
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${Date.now()}-${originalname}`;
-      const filepath = path.join(profileImagesPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/profile-images/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: mimetype },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload student ID card
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadStudentIdCard({ userId, side, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-    const blobName = `${userId}-${side}-${originalname}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${side}-${Date.now()}-${originalname}`;
-      const filepath = path.join(studentIdCardsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/student-id-cards/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClientStudentId.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: mimetype },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload H2 form PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadH2FormPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for PDF
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `h2-forms/${userId}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(h2FormsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/h2-forms/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload event proposal PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadEventProposalPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for PDF
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `event-proposal-docs/${userId}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(eventProposalDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/event-proposal-docs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload event chief guest PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadEventChiefGuestPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for PDF
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `event-chief-guest-docs/${userId}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(eventChiefGuestDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/event-chief-guest-docs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload event bill PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadEventBillPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for PDF
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `event-bill-docs/${userId}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(eventBillDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/event-bill-docs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload event report PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadEventReportPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for PDF
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `event-report-docs/${userId}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(eventReportDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/event-report-docs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload disciplinary-process PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadDisCoProcessPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `disco-process-docs/${userId}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(disCoProcessDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/disco-process-docs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload payment screenshot
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadPaymentScreenshot({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for image types
-    const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-    if (!allowedMimeTypes.includes(mimetype)) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only image files are allowed (png, jpg, jpeg, webp, gif)',
-      };
-    }
-
-    const timestamp = Date.now();
-    const parsed = path.parse(originalname);
-    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, '_');
-    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : '.png';
-    const blobName = `payment-screenshots/${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const paymentScreenshotsPath = path.join(uploadsBasePath, 'payment-screenshots');
-      if (!fs.existsSync(paymentScreenshotsPath)) {
-        fs.mkdirSync(paymentScreenshotsPath, { recursive: true });
-      }
-      const filename = `${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-      const filepath = path.join(paymentScreenshotsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/payment-screenshots/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: mimetype },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload lost and found image
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadLostAndFoundImage({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
-
-    const { originalname, buffer, mimetype } = file;
-
-    // Basic validation for image types
-    const allowedMimeTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
-    if (!allowedMimeTypes.includes(mimetype)) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only image files are allowed (png, jpg, jpeg, webp, gif)',
-      };
-    }
-
-    const timestamp = Date.now();
-    const parsed = path.parse(originalname);
-    const safeBase = parsed.name.replace(/[^a-zA-Z0-9-_]/g, '_');
-    const safeExt = parsed.ext && parsed.ext.length <= 10 ? parsed.ext : '.png';
-    const blobName = `lost-and-found/${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const lostAndFoundPath = path.join(uploadsBasePath, 'lost-and-found');
-      if (!fs.existsSync(lostAndFoundPath)) {
-        fs.mkdirSync(lostAndFoundPath, { recursive: true });
-      }
-      const filename = `${userId || 'anonymous'}-${timestamp}-${safeBase}${safeExt}`;
-      const filepath = path.join(lostAndFoundPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/lost-and-found/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: mimetype },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
-  }
-
-  /**
-   * Upload certificate
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
-  async uploadCertificate({ userId, file }) {
-    return this._uploadMixedDocument({
-      userId,
+    return this._uploadWithPolicy({
       file,
-      localDirPath: certificatesPath,
-      localUrlPrefix: '/uploads/certificates',
-      blobPrefix: 'certificates',
+      policy: 'profile-image',
+      actorId: currentUserId,
+      actorRole: userRole,
+      entityHint: userId,
     });
   }
 
-  /**
-   * Upload election nomination document
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
+  async uploadStudentIdCard({ userId, side, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, IMAGE_MIME_TYPES);
+    if (!mimeValidation.ok) return mimeValidation;
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'student-id-card',
+      actorId: userId,
+      actorRole: 'Student',
+      entityHint: `${userId}:${side}`,
+    });
+  }
+
+  async uploadH2FormPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'h2-form',
+      actorId: userId,
+      actorRole: 'Student',
+    });
+  }
+
+  async uploadEventProposalPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'event-proposal-pdf',
+      actorId: userId,
+      actorRole: 'Gymkhana',
+    });
+  }
+
+  async uploadEventChiefGuestPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'event-chief-guest-pdf',
+      actorId: userId,
+      actorRole: 'Gymkhana',
+    });
+  }
+
+  async uploadEventBillPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'event-bill-pdf',
+      actorId: userId,
+      actorRole: 'Gymkhana',
+    });
+  }
+
+  async uploadEventReportPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'event-report-pdf',
+      actorId: userId,
+      actorRole: 'Gymkhana',
+    });
+  }
+
+  async uploadDisCoProcessPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'disco-process-pdf',
+      actorId: userId,
+      actorRole: 'Admin',
+    });
+  }
+
+  async uploadPaymentScreenshot({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, IMAGE_MIME_TYPES);
+    if (!mimeValidation.ok) {
+      return errorResult(400, 'Only image files are allowed (png, jpg, jpeg, webp, gif)');
+    }
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'payment-screenshot',
+      actorId: userId,
+      actorRole: 'Student',
+    });
+  }
+
+  async uploadLostAndFoundImage({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, IMAGE_MIME_TYPES);
+    if (!mimeValidation.ok) {
+      return errorResult(400, 'Only image files are allowed (png, jpg, jpeg, webp, gif)');
+    }
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'lost-and-found-image',
+      actorId: userId,
+      actorRole: 'Staff',
+    });
+  }
+
+  async uploadCertificate({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, MIXED_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF and image files are allowed');
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'certificate',
+      actorId: userId,
+      actorRole: 'Admin',
+    });
+  }
+
   async uploadElectionNominationDocument({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
 
-    const { originalname, buffer, mimetype } = file;
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
+    const sizeValidation = validateSize(file, TEN_MB);
+    if (!sizeValidation.ok) return sizeValidation;
 
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    if (Number(file.size || buffer?.length || 0) > electionNominationDocMaxSizeBytes) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Document size must be 10MB or smaller',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `election-nomination-docs/${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(electionNominationDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/election-nomination-docs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    }
-
-    const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-    await blockBlobClient.uploadData(buffer, {
-      blobHTTPHeaders: { blobContentType: 'application/pdf' },
+    return this._uploadWithPolicy({
+      file,
+      policy: 'election-nomination-document',
+      actorId: userId,
+      actorRole: 'Student',
     });
-    const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-    return { success: true, statusCode: 200, data: { url: sasUrl } };
   }
 
-  /**
-   * Upload Overall Best Performer proof PDF
-   * @param {Object} params - Upload params
-   * @returns {Object} Result object
-   */
   async uploadOverallBestPerformerProofPDF({ userId, file }) {
-    if (!file) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'No file uploaded',
-      };
-    }
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
 
-    const { originalname, buffer, mimetype } = file;
-    const isPdf = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
-
-    if (!isPdf) {
-      return {
-        success: false,
-        statusCode: 400,
-        message: 'Only PDF files are allowed',
-      };
-    }
-
-    const timestamp = Date.now();
-    const safeOriginal = path.parse(originalname).name.replace(/[^a-zA-Z0-9-_]/g, '_') + '.pdf';
-    const blobName = `overall-best-performer-proofs/${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
-
-    if (USE_LOCAL_STORAGE) {
-      const filename = `${userId || 'anonymous'}-${timestamp}-${safeOriginal}`;
-      const filepath = path.join(overallBestPerformerProofDocsPath, filename);
-      fs.writeFileSync(filepath, buffer);
-      const url = `/uploads/overall-best-performer-proofs/${filename}`;
-      return { success: true, statusCode: 200, data: { url } };
-    } else {
-      const blockBlobClient = containerClient.getBlockBlobClient(blobName);
-      await blockBlobClient.uploadData(buffer, {
-        blobHTTPHeaders: { blobContentType: 'application/pdf' },
-      });
-      const sasUrl = this._generateSasUrl(blockBlobClient, AZURE_STORAGE_CONTAINER_NAME, blobName);
-      return { success: true, statusCode: 200, data: { url: sasUrl } };
-    }
+    return this._uploadWithPolicy({
+      file,
+      policy: 'overall-best-performer-proof-pdf',
+      actorId: userId,
+      actorRole: 'Student',
+    });
   }
 }
 

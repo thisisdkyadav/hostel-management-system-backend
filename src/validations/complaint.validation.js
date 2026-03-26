@@ -3,7 +3,7 @@
  */
 
 import Joi from 'joi';
-import { objectId, withPagination } from './common.validation.js';
+import { objectId, withPagination, mediaReference } from './common.validation.js';
 
 /**
  * Create complaint
@@ -32,7 +32,7 @@ export const createComplaintSchema = Joi.object({
       'furniture',
       'other'
     ).default('other'),
-    attachments: Joi.array().items(Joi.string().uri()).max(10),
+    attachments: Joi.array().items(mediaReference).max(10),
     priority: Joi.string().valid('low', 'medium', 'high', 'urgent').default('medium'),
   }),
 });

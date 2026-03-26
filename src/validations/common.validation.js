@@ -47,6 +47,22 @@ export const name = Joi.string()
   .max(100)
   .trim();
 
+/**
+ * File/media reference validation
+ * Supports:
+ * - http(s) URLs
+ * - media://<id> refs
+ */
+export const mediaReference = Joi.string()
+  .trim()
+  .custom((value, helpers) => {
+    const normalized = String(value || '').trim();
+    if (!normalized) return normalized;
+    if (/^https?:\/\//i.test(normalized)) return normalized;
+    if (/^media:\/\/[a-zA-Z0-9-]+$/i.test(normalized)) return normalized;
+    return helpers.message('Invalid file reference');
+  });
+
 // ============================================
 // Common Schema Parts
 // ============================================
@@ -143,6 +159,7 @@ export default {
   password,
   phone,
   name,
+  mediaReference,
   idParamSchema,
   paginationSchema,
   searchSchema,

@@ -3,7 +3,7 @@
  */
 
 import Joi from 'joi';
-import { objectId, phone, name } from './common.validation.js';
+import { objectId, phone, name, mediaReference } from './common.validation.js';
 
 /**
  * Visitor info schema
@@ -28,7 +28,7 @@ export const createVisitorRequestSchema = Joi.object({
     reason: Joi.string().max(500).required(),
     fromDate: Joi.date().iso().required(),
     toDate: Joi.date().iso().greater(Joi.ref('fromDate')).required(),
-    h2FormUrl: Joi.string().uri(),
+    h2FormUrl: mediaReference,
   }),
 });
 
@@ -54,7 +54,7 @@ export const updateVisitorRequestSchema = Joi.object({
     reason: Joi.string().max(500),
     fromDate: Joi.date().iso(),
     toDate: Joi.date().iso(),
-    h2FormUrl: Joi.string().uri(),
+    h2FormUrl: mediaReference,
     visitors: Joi.array().items(visitorInfoSchema).min(1).max(10),
   }),
 });
@@ -170,7 +170,7 @@ export const updatePaymentInfoSchema = Joi.object({
   body: Joi.object({
     amount: Joi.number().min(0).required(),
     dateOfPayment: Joi.date().iso(),
-    screenshot: Joi.string().uri(),
+    screenshot: mediaReference,
     additionalInfo: Joi.string().max(500),
     transactionId: Joi.string().max(100),
   }),

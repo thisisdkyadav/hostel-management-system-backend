@@ -6,7 +6,6 @@
 import fs from "fs/promises";
 import path from "path";
 import mongoose from "mongoose";
-import axios from "axios";
 import { fileURLToPath } from "url";
 import { DisCoAction, DisCoProcessCase, StudentProfile } from "../../../../models/index.js";
 import {
@@ -18,6 +17,7 @@ import {
   paginated,
 } from "../../../../services/base/index.js";
 import { emailCustomService } from "../../../administration/modules/email/email.service.js";
+import { fileAccessService } from "../../../../services/storage/file-access.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -41,16 +41,6 @@ const ADMIN_DISCIPLINARY_ROLES = new Set([
   "Associate Warden",
   "Hostel Supervisor",
 ]);
-const LOCAL_UPLOADS_BASE_PATH = path.join(
-  __dirname,
-  "..",
-  "..",
-  "..",
-  "..",
-  "..",
-  "uploads"
-);
-
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
   for (let index = 0; index < 256; index += 1) {
@@ -433,15 +423,8 @@ const downloadFileBuffer = async (fileUrl) => {
   if (!fileUrl || typeof fileUrl !== "string") {
     throw new Error("Invalid file URL");
   }
-
-  if (fileUrl.startsWith("/uploads/")) {
-    const relativePath = fileUrl.replace(/^\/uploads\//, "");
-    const absolutePath = path.join(LOCAL_UPLOADS_BASE_PATH, relativePath);
-    return fs.readFile(absolutePath);
-  }
-
-  const response = await axios.get(fileUrl, { responseType: "arraybuffer" });
-  return Buffer.from(response.data);
+  const { buffer } = await fileAccessService.getBuffer(fileUrl);
+  return buffer;
 };
 
 const formatExportDateTime = (value) => {

@@ -6,11 +6,9 @@
  */
 
 import nodemailer from 'nodemailer';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { env } from '../../config/env.config.js';
 import logger from '../base/Logger.js';
+import { fileAccessService } from '../storage/file-access.service.js';
 import {
   passwordResetTemplate,
   passwordResetSuccessTemplate,
@@ -21,10 +19,6 @@ import {
   electionNominationReviewTemplate,
   electionTestEmailTemplate,
 } from './email.templates.js';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const uploadsRoot = path.join(__dirname, '..', '..', '..', 'uploads');
 
 class EmailService {
   constructor() {
@@ -234,7 +228,7 @@ class EmailService {
             text || this.stripHtml(html)
           }`
         : text || this.stripHtml(html);
-      const normalizedAttachments = this.normalizeAttachments(attachments);
+      const normalizedAttachments = await this.normalizeAttachments(attachments);
       const result = await this.queueEmailSend(async () => {
         const mailOptions = {
           from: env.smtp.sendAs || env.smtp.from,
@@ -377,7 +371,7 @@ class EmailService {
    * - { filename, url }
    * - { filename, fileUrl }
    */
-  normalizeAttachments(rawAttachments = []) {
+  async normalizeAttachments(rawAttachments = []) {
     if (!Array.isArray(rawAttachments) || rawAttachments.length === 0) {
       return [];
     }
@@ -390,22 +384,22 @@ class EmailService {
       const filePath = attachment.path || attachment.url || attachment.fileUrl;
       if (!filePath || typeof filePath !== 'string') continue;
 
-      if (filePath.startsWith('/uploads/')) {
-        const relativePart = filePath.replace(/^\/uploads\//, '');
-        const absolutePath = path.join(uploadsRoot, relativePart);
-        if (fs.existsSync(absolutePath)) {
-          normalized.push({ filename, path: absolutePath });
-        }
-        continue;
-      }
-
       if (/^https?:\/\//i.test(filePath)) {
         normalized.push({ filename, path: filePath });
         continue;
       }
 
-      if (path.isAbsolute(filePath) && fs.existsSync(filePath)) {
-        normalized.push({ filename, path: filePath });
+      try {
+        const signedOrRawUrl = await fileAccessService.createSignedUrl(filePath, {
+          disposition: 'attachment',
+          expiresInSeconds: env.storage.signedUrlTtlSeconds,
+        });
+
+        if (signedOrRawUrl) {
+          normalized.push({ filename, path: signedOrRawUrl });
+        }
+      } catch {
+        // Ignore invalid attachments rather than failing the whole email send path.
       }
     }
 

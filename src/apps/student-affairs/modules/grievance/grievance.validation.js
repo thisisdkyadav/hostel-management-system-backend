@@ -10,10 +10,10 @@ import {
   name as title,
   paginationSchema,
 } from '../../../../validations/common.validation.js';
+import { GRIEVANCE_STATUS, GRIEVANCE_CATEGORY, GRIEVANCE_PRIORITY } from './grievance.constants.js';
 
 // Description schema (not in common, define locally)
 const description = Joi.string().trim().min(10).max(5000);
-import { GRIEVANCE_STATUS, GRIEVANCE_CATEGORY, GRIEVANCE_PRIORITY } from './grievance.constants.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PARAM SCHEMAS
@@ -65,7 +65,13 @@ export const createGrievanceSchema = Joi.object({
     .items(
       Joi.object({
         filename: Joi.string().required(),
-        url: Joi.string().uri().required(),
+        url: Joi.string().trim().custom((value, helpers) => {
+          const normalized = String(value || '').trim()
+          if (/^https?:\/\//i.test(normalized) || /^media:\/\/[a-zA-Z0-9-]+$/i.test(normalized)) {
+            return normalized
+          }
+          return helpers.message('Invalid attachment URL')
+        }).required(),
       })
     )
     .max(5)

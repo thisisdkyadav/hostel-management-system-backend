@@ -18,6 +18,7 @@ import express from 'express';
 import familyRoutes from './modules/family/family.routes.js';
 import configRoutes from './modules/config/config.routes.js';
 import emailRoutes from './modules/email/email.routes.js';
+import mediaRoutes from './modules/media/media.routes.js';
 import uploadRoutes from './modules/upload/upload.routes.js';
 import superAdminRoutes from './modules/super-admin/super-admin.routes.js';
 import wardenRoutes from './modules/warden/warden.routes.js';
@@ -38,6 +39,7 @@ router.get('/health', (req, res) => {
 router.use('/family', familyRoutes);
 router.use('/config', configRoutes);
 router.use('/email', emailRoutes);
+router.use('/media', mediaRoutes);
 router.use('/upload', uploadRoutes);
 router.use('/super-admin', superAdminRoutes);
 router.use('/warden', wardenRoutes);

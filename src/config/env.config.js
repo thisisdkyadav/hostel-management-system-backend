@@ -87,6 +87,13 @@ export const env = {
 
   // Storage
   USE_LOCAL_STORAGE: process.env.USE_LOCAL_STORAGE === "true",
+  storage: {
+    serviceUrl: process.env.STORAGE_SERVICE_URL || '',
+    internalApiKey: process.env.STORAGE_INTERNAL_API_KEY || '',
+    signingSecret: process.env.STORAGE_SIGNING_SECRET || '',
+    dataRoot: process.env.STORAGE_DATA_ROOT || '',
+    signedUrlTtlSeconds: parseInt(process.env.STORAGE_SIGNED_URL_TTL_SECONDS, 10) || 300,
+  },
 
   // Email/SMTP
   smtp: {
@@ -132,5 +139,10 @@ export const QR_PRIVATE_KEY = env.QR_PRIVATE_KEY
 export const AZURE_STORAGE_CONTAINER_NAME_STUDENT_ID = env.azure.studentIdContainer
 export const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS // Keep as string for legacy
 export const USE_LOCAL_STORAGE = env.USE_LOCAL_STORAGE
+export const STORAGE_SERVICE_URL = env.storage.serviceUrl
+export const STORAGE_INTERNAL_API_KEY = env.storage.internalApiKey
+export const STORAGE_SIGNING_SECRET = env.storage.signingSecret
+export const STORAGE_DATA_ROOT = env.storage.dataRoot
+export const STORAGE_SIGNED_URL_TTL_SECONDS = env.storage.signedUrlTtlSeconds
 
 export default env

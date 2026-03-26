@@ -3,7 +3,7 @@
  */
 
 import Joi from 'joi';
-import { objectId, email, phone, name } from './common.validation.js';
+import { objectId, email, phone, name, mediaReference } from './common.validation.js';
 import { MAX_BULK_RECORDS } from '../core/constants/system-limits.constants.js';
 
 /**
@@ -25,7 +25,7 @@ const studentProfileBody = Joi.object({
   guardianEmail: email,
   hostel: objectId,
   room: objectId,
-  profileImage: Joi.string().uri(),
+  profileImage: mediaReference,
 });
 
 /**
@@ -141,7 +141,7 @@ export const updateStudentProfileSchema = Joi.object({
     guardian: Joi.string().max(100),
     guardianPhone: phone,
     guardianEmail: email,
-    profileImage: Joi.string().uri(),
+    profileImage: mediaReference,
   }),
 });
 
@@ -158,7 +158,7 @@ export const fileComplaintSchema = Joi.object({
     description: Joi.string().min(10).max(2000).required(),
     complaintType: Joi.string().max(50),
     priority: Joi.string().valid('low', 'medium', 'high', 'urgent'),
-    attachments: Joi.array().items(Joi.string().uri()),
+    attachments: Joi.array().items(mediaReference),
     location: Joi.string().max(200),
     hostel: objectId,
     roomNumber: Joi.string().max(20),

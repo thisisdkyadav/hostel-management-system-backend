@@ -12,7 +12,7 @@ const nominationSelection = Joi.alternatives().try(objectId, Joi.string().valid(
 const uploadedPdfPath = Joi.string()
   .trim()
   .max(2000)
-  .pattern(/^(\/uploads\/|https?:\/\/).+\.pdf(\?.*)?$/i, "uploaded PDF path")
+  .pattern(/^(media:\/\/[a-zA-Z0-9-]+|\/uploads\/.+\.pdf(\?.*)?|https?:\/\/.+\.pdf(\?.*)?)$/i, "uploaded PDF path")
 
 const eligibilityScopeSchema = Joi.object({
   batches: Joi.array().items(Joi.string().trim().max(100)).default([]),
@@ -143,7 +143,7 @@ export const upsertNominationSchema = Joi.object({
   attachments: Joi.array().items(
     Joi.object({
       label: Joi.string().trim().min(1).max(120).required(),
-      url: Joi.string().uri().required(),
+      url: uploadedPdfPath.required(),
     })
   ).max(10).default([]),
 })
