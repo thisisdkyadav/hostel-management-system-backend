@@ -19,6 +19,7 @@ const PRE_VOTING_EMAIL_WINDOW_MS = 30 * 60 * 1000
 const DISPATCH_INTERVAL_MS = 60 * 1000
 const EMAIL_RETRY_ATTEMPTS = 3
 const EMAIL_RETRY_DELAY_MS = 3000
+const MAX_EMAIL_DISPATCH_RECIPIENTS = 10000
 const activeDispatches = new Set()
 const queuedDispatches = new Set()
 const dispatchQueue = []
@@ -639,6 +640,27 @@ const runQueuedVotingEmailDispatch = async ({
       }
     }
 
+    if (recipients.length > MAX_EMAIL_DISPATCH_RECIPIENTS) {
+      await persistDispatchState(election, {
+        dispatchKey,
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: recipients.length,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: `Voting email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        recipientStatuses: await buildElectionVotingRecipientStatuses(election),
+      })
+
+      return {
+        queued: false,
+        error: `Voting email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        totalRecipients: recipients.length,
+      }
+    }
+
     const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
 
     await persistDispatchState(election, {
@@ -774,6 +796,27 @@ const runQueuedElectionTestEmailDispatch = async ({
       return {
         queued: false,
         error: "No eligible students matched the selected roll numbers",
+      }
+    }
+
+    if (recipients.length > MAX_EMAIL_DISPATCH_RECIPIENTS) {
+      await persistTestDispatchState(election, {
+        dispatchKey: new Date().toISOString(),
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: recipients.length,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: `Test email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        recipientStatuses: await buildElectionTestRecipientStatuses(election),
+      })
+
+      return {
+        queued: false,
+        error: `Test email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        totalRecipients: recipients.length,
       }
     }
 
@@ -989,6 +1032,28 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       }
     }
 
+    if (recipients.length > MAX_EMAIL_DISPATCH_RECIPIENTS) {
+      await persistDispatchState(election, {
+        dispatchKey,
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: recipients.length,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: `Voting email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        recipientStatuses: await buildElectionVotingRecipientStatuses(election),
+      })
+
+      return {
+        queued: false,
+        error: `Voting email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        requestedRecipients: normalizedTargetRollNumbers.length,
+        totalRecipients: recipients.length,
+      }
+    }
+
     const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
 
     await persistDispatchState(election, {
@@ -1092,6 +1157,28 @@ export const triggerElectionTestEmailDispatchForElection = async (
         queued: false,
         error: "No eligible students matched the selected roll numbers",
         requestedRecipients: normalizedTargetRollNumbers.length,
+      }
+    }
+
+    if (recipients.length > MAX_EMAIL_DISPATCH_RECIPIENTS) {
+      await persistTestDispatchState(election, {
+        dispatchKey: new Date().toISOString(),
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: recipients.length,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: `Test email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        recipientStatuses: await buildElectionTestRecipientStatuses(election),
+      })
+
+      return {
+        queued: false,
+        error: `Test email sending is limited to ${MAX_EMAIL_DISPATCH_RECIPIENTS} recipients per dispatch`,
+        requestedRecipients: normalizedTargetRollNumbers.length,
+        totalRecipients: recipients.length,
       }
     }
 
