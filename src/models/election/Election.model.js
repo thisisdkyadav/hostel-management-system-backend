@@ -362,6 +362,10 @@ const ElectionSchema = new mongoose.Schema(
       type: ElectionVotingEmailDispatchSchema,
       default: () => ({}),
     },
+    testEmailDispatch: {
+      type: ElectionVotingEmailDispatchSchema,
+      default: () => ({}),
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

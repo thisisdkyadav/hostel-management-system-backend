@@ -188,6 +188,10 @@ export const sendVotingEmailsSchema = Joi.object({
   targetRollNumbers: Joi.array().items(rollNumber).default([]),
 })
 
+export const sendTestEmailsSchema = Joi.object({
+  targetRollNumbers: Joi.array().items(rollNumber).min(1).required(),
+})
+
 export const submitStudentVotesSchema = submitBallotSchema
 
 export const publishResultsSchema = Joi.object({
@@ -221,6 +225,7 @@ export default {
   supporterConfirmationResponseSchema,
   submitBallotSchema,
   sendVotingEmailsSchema,
+  sendTestEmailsSchema,
   submitStudentVotesSchema,
   publishResultsSchema,
 }

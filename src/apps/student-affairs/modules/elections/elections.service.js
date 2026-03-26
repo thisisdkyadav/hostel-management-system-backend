@@ -33,7 +33,9 @@ import {
 } from "../../../../services/action-links/action-link-token.service.js"
 import { emitToRole } from "../../../../utils/socketHandlers.js"
 import {
+  buildElectionTestRecipientStatuses,
   buildElectionVotingRecipientStatuses,
+  triggerElectionTestEmailDispatchForElection,
   triggerElectionVotingEmailDispatchForElection,
 } from "./elections-voting-dispatch.service.js"
 
@@ -689,6 +691,17 @@ const serializeElectionBase = (election) => ({
     sentRecipients: Number(election.votingEmailDispatch?.sentRecipients || 0),
     failedRecipients: Number(election.votingEmailDispatch?.failedRecipients || 0),
     lastError: election.votingEmailDispatch?.lastError || "",
+  },
+  testEmailDispatch: {
+    dispatchKey: election.testEmailDispatch?.dispatchKey || "",
+    status: election.testEmailDispatch?.status || "idle",
+    startedAt: election.testEmailDispatch?.startedAt || null,
+    completedAt: election.testEmailDispatch?.completedAt || null,
+    lastTriggeredAt: election.testEmailDispatch?.lastTriggeredAt || null,
+    totalRecipients: Number(election.testEmailDispatch?.totalRecipients || 0),
+    sentRecipients: Number(election.testEmailDispatch?.sentRecipients || 0),
+    failedRecipients: Number(election.testEmailDispatch?.failedRecipients || 0),
+    lastError: election.testEmailDispatch?.lastError || "",
   },
   createdAt: election.createdAt,
   updatedAt: election.updatedAt,
@@ -1668,6 +1681,54 @@ class ElectionsService {
     })
   }
 
+  async getTestEmailRecipients(id) {
+    const election = await Election.findById(id).select(
+      "title academicYear status timeline posts mockSettings testEmailDispatch"
+    )
+    if (!election) return notFound("Election")
+
+    const recipientStatuses = await buildElectionTestRecipientStatuses(election)
+
+    const normalizedRecipients = recipientStatuses.map((entry) => ({
+      userId: entry?.userId || null,
+      name: entry?.name || "",
+      email: entry?.email || "",
+      rollNumber: entry?.rollNumber || "",
+      status: entry?.status || "pending",
+      sentAt: entry?.sentAt || null,
+      lastError: entry?.lastError || "",
+    }))
+
+    const sentRecipients = normalizedRecipients
+      .filter((entry) => entry.status === "sent")
+      .sort((left, right) => String(left.rollNumber || "").localeCompare(String(right.rollNumber || "")))
+
+    const notSentRecipients = normalizedRecipients
+      .filter((entry) => entry.status !== "sent")
+      .sort((left, right) => String(left.rollNumber || "").localeCompare(String(right.rollNumber || "")))
+
+    return success({
+      election: {
+        id: election._id,
+        title: election.title,
+        academicYear: election.academicYear,
+      },
+      dispatch: {
+        dispatchKey: election.testEmailDispatch?.dispatchKey || "",
+        status: election.testEmailDispatch?.status || "idle",
+        startedAt: election.testEmailDispatch?.startedAt || null,
+        completedAt: election.testEmailDispatch?.completedAt || null,
+        lastTriggeredAt: election.testEmailDispatch?.lastTriggeredAt || null,
+        totalRecipients: Number(election.testEmailDispatch?.totalRecipients || 0),
+        sentRecipients: Number(election.testEmailDispatch?.sentRecipients || 0),
+        failedRecipients: Number(election.testEmailDispatch?.failedRecipients || 0),
+        lastError: election.testEmailDispatch?.lastError || "",
+      },
+      sentRecipients,
+      notSentRecipients,
+    })
+  }
+
   async createElection(payload, user) {
     const normalizedResult = await normalizeElectionPayload(payload)
     if (!normalizedResult.success) return normalizedResult
@@ -1920,6 +1981,43 @@ class ElectionsService {
         : `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} recipient(s)`}${
         resendMode === "generate_new" ? " using new links" : " using existing links where available"
       }`
+    )
+  }
+
+  async sendTestEmails(id, payload = {}) {
+    const election = await Election.findById(id)
+    if (!election) return notFound("Election")
+
+    const existingStatus = String(election?.testEmailDispatch?.status || "idle")
+    if (["queued", "running"].includes(existingStatus)) {
+      return badRequest("Test emails are already queued or being sent")
+    }
+
+    const targetRollNumbers = Array.isArray(payload?.targetRollNumbers) ? payload.targetRollNumbers : []
+    if (targetRollNumbers.length === 0) {
+      return badRequest("Select at least one student to send a test email")
+    }
+
+    const dispatchResult = await triggerElectionTestEmailDispatchForElection(election._id, {
+      targetRollNumbers,
+    })
+    if (!dispatchResult?.queued) {
+      return badRequest(
+        dispatchResult?.error || "Test emails could not be queued right now. Please refresh and try again."
+      )
+    }
+
+    return success(
+      {
+        queued: true,
+        requestedRecipients: Number(dispatchResult?.requestedRecipients || 0),
+        totalRecipients: Number(dispatchResult?.totalRecipients || 0),
+        sentRecipients: Number(dispatchResult?.sentRecipients || 0),
+        failedRecipients: Number(dispatchResult?.failedRecipients || 0),
+        targetRollNumbers,
+      },
+      200,
+      `Test emails queued for ${Number(dispatchResult?.totalRecipients || 0)} eligible recipient(s) from ${targetRollNumbers.length} selected roll number(s)`
     )
   }
 

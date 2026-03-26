@@ -21,6 +21,11 @@ export const getVotingEmailRecipients = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const getTestEmailRecipients = asyncHandler(async (req, res) => {
+  const result = await electionsService.getTestEmailRecipients(req.params.id)
+  return sendStandardResponse(res, result)
+})
+
 export const getScopeCount = asyncHandler(async (req, res) => {
   const result = await electionsService.getScopeCount(req.body)
   return sendStandardResponse(res, result)
@@ -116,6 +121,11 @@ export const sendVotingEmails = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const sendTestEmails = asyncHandler(async (req, res) => {
+  const result = await electionsService.sendTestEmails(req.params.id, req.body)
+  return sendStandardResponse(res, result)
+})
+
 export const getSupporterConfirmationByToken = asyncHandler(async (req, res) => {
   const result = await electionsService.getSupporterConfirmationByToken(req.params.token)
   return sendStandardResponse(res, result)
@@ -136,6 +146,7 @@ export default {
   getElectionDetail,
   getVotingLiveStats,
   getVotingEmailRecipients,
+  getTestEmailRecipients,
   getScopeCount,
   createElection,
   cloneElection,
@@ -151,6 +162,7 @@ export default {
   submitStudentVotes,
   publishResults,
   sendVotingEmails,
+  sendTestEmails,
   getSupporterConfirmationByToken,
   respondToSupporterConfirmation,
   submitBallotByToken,

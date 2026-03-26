@@ -213,6 +213,22 @@ export const customEmailTemplate = (body, subject = 'Notification') => {
   return baseEmailTemplate(content);
 };
 
+export const electionTestEmailTemplate = ({
+  studentName,
+  electionTitle,
+}) => {
+  const content = `
+    <h2>Test Email</h2>
+    <p>Hello ${studentName || 'Student'},</p>
+    <p>This is a test email for the election communication system${electionTitle ? ` for <strong>${electionTitle}</strong>` : ''}.</p>
+    <div class="warning">
+      <strong>Please ignore this email.</strong> This is only for testing the election email system.
+    </div>
+    <p class="muted-text">No action is required from your side.</p>
+  `;
+  return baseEmailTemplate(content);
+};
+
 /**
  * Complaint resolved email template
  * Sent to student when their complaint is marked as resolved

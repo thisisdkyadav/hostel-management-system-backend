@@ -112,6 +112,14 @@ router.get(
   controller.getVotingEmailRecipients
 )
 
+router.get(
+  "/:id/test-emails/recipients",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.electionIdSchema, "params"),
+  controller.getTestEmailRecipients
+)
+
 router.post(
   "/",
   authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
@@ -198,6 +206,15 @@ router.post(
   validate(validation.electionIdSchema, "params"),
   validate(validation.sendVotingEmailsSchema),
   controller.sendVotingEmails
+)
+
+router.post(
+  "/:id/test-emails/send",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.electionIdSchema, "params"),
+  validate(validation.sendTestEmailsSchema),
+  controller.sendTestEmails
 )
 
 export default router

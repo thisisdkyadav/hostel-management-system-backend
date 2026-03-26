@@ -24,6 +24,10 @@ const queuedDispatches = new Set()
 const dispatchQueue = []
 let schedulerIntervalId = null
 let isDispatchWorkerActive = false
+const activeTestDispatches = new Set()
+const queuedTestDispatches = new Set()
+const testDispatchQueue = []
+let isTestDispatchWorkerActive = false
 
 const emitVotingDispatchUpdate = (election) => {
   if (!election?._id) return
@@ -67,6 +71,27 @@ const persistDispatchState = async (election, nextDispatchState = {}) => {
 
   await election.save()
   emitVotingDispatchUpdate(election)
+}
+
+const persistTestDispatchState = async (election, nextDispatchState = {}) => {
+  election.testEmailDispatch = {
+    dispatchKey: nextDispatchState.dispatchKey || "",
+    status: nextDispatchState.status || "idle",
+    startedAt: nextDispatchState.startedAt || null,
+    completedAt: nextDispatchState.completedAt || null,
+    lastTriggeredAt: nextDispatchState.lastTriggeredAt || null,
+    totalRecipients: Number(nextDispatchState.totalRecipients || 0),
+    sentRecipients: Number(nextDispatchState.sentRecipients || 0),
+    failedRecipients: Number(nextDispatchState.failedRecipients || 0),
+    lastError: nextDispatchState.lastError || "",
+    recipientStatuses: Array.isArray(nextDispatchState.recipientStatuses)
+      ? nextDispatchState.recipientStatuses
+      : Array.isArray(election.testEmailDispatch?.recipientStatuses)
+        ? election.testEmailDispatch.recipientStatuses
+        : [],
+  }
+
+  await election.save()
 }
 
 const normalizeStringArray = (values = []) =>
@@ -368,6 +393,43 @@ export const buildElectionVotingRecipientStatuses = async (election) => {
   })
 }
 
+const resolveElectionTestEmailRecipients = async (election, { targetRollNumbers = [] } = {}) => {
+  const eligibleProfiles = await collectEligibleVoterProfiles(election)
+  const targetRollNumberSet = new Set(normalizeRollNumbers(targetRollNumbers))
+
+  return eligibleProfiles.filter(
+    ({ profile }) =>
+      targetRollNumberSet.size === 0 ||
+      targetRollNumberSet.has(String(profile?.rollNumber || "").trim().toUpperCase())
+  )
+}
+
+export const buildElectionTestRecipientStatuses = async (election) => {
+  const allRecipients = await collectEligibleVoterProfiles(election)
+  const baselineStatuses = buildRecipientDispatchStatuses(allRecipients)
+  const existingStatuses = Array.isArray(election?.testEmailDispatch?.recipientStatuses)
+    ? election.testEmailDispatch.recipientStatuses
+    : []
+  const existingStatusMap = new Map(
+    existingStatuses
+      .map((entry) => [buildRecipientStatusKey(entry), entry])
+      .filter(([key]) => Boolean(key))
+  )
+
+  return baselineStatuses.map((baselineEntry) => {
+    const statusKey = buildRecipientStatusKey(baselineEntry)
+    const existingEntry = existingStatusMap.get(statusKey)
+    if (!existingEntry) return baselineEntry
+
+    return {
+      ...baselineEntry,
+      status: existingEntry?.status || baselineEntry.status,
+      sentAt: existingEntry?.sentAt || null,
+      lastError: existingEntry?.lastError || "",
+    }
+  })
+}
+
 const sendVotingEmailToRecipient = async (
   election,
   { profile, eligiblePosts },
@@ -467,6 +529,45 @@ const sendVotingEmailToRecipient = async (
   return {
     success: false,
     error: `${rollNumber || "Unknown voter"}: ${lastEmailError}`,
+  }
+}
+
+const sendTestEmailToRecipient = async (election, { profile }) => {
+  const email = String(profile?.userId?.email || "").trim()
+  const rollNumber = String(profile?.rollNumber || "").trim().toUpperCase()
+
+  if (!email) {
+    return {
+      success: false,
+      error: `${rollNumber || "Unknown student"} is missing an email address`,
+    }
+  }
+
+  let lastEmailError = ""
+  for (let attempt = 1; attempt <= EMAIL_RETRY_ATTEMPTS; attempt += 1) {
+    const emailResult = await emailService.sendElectionTestEmail({
+      email,
+      studentName: profile?.userId?.name || "",
+      electionTitle: election.title,
+    })
+
+    if (emailResult?.success) {
+      return {
+        success: true,
+        attemptsUsed: attempt,
+      }
+    }
+
+    lastEmailError = emailResult?.error || "Failed to send test email"
+
+    if (attempt < EMAIL_RETRY_ATTEMPTS) {
+      await sleep(EMAIL_RETRY_DELAY_MS)
+    }
+  }
+
+  return {
+    success: false,
+    error: `${rollNumber || "Unknown student"}: ${lastEmailError}`,
   }
 }
 
@@ -631,6 +732,141 @@ const runQueuedVotingEmailDispatch = async ({
   }
 }
 
+const runQueuedElectionTestEmailDispatch = async ({
+  electionId,
+  targetRollNumbers = [],
+} = {}) => {
+  const activeDispatchKey = String(electionId || "")
+  if (!activeDispatchKey) {
+    return {
+      queued: false,
+      error: "Election id is required",
+    }
+  }
+
+  activeTestDispatches.add(activeDispatchKey)
+
+  try {
+    const election = await Election.findById(electionId)
+    if (!election) {
+      return {
+        queued: false,
+        error: "Election not found",
+      }
+    }
+
+    const recipients = await resolveElectionTestEmailRecipients(election, { targetRollNumbers })
+    if (recipients.length === 0) {
+      const recipientStatuses = await buildElectionTestRecipientStatuses(election)
+      await persistTestDispatchState(election, {
+        dispatchKey: new Date().toISOString(),
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: 0,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: "No eligible students matched the selected roll numbers",
+        recipientStatuses,
+      })
+
+      return {
+        queued: false,
+        error: "No eligible students matched the selected roll numbers",
+      }
+    }
+
+    const recipientStatuses = await buildElectionTestRecipientStatuses(election)
+    await persistTestDispatchState(election, {
+      dispatchKey: new Date().toISOString(),
+      status: "running",
+      startedAt: new Date(),
+      completedAt: null,
+      lastTriggeredAt: new Date(),
+      totalRecipients: recipients.length,
+      sentRecipients: 0,
+      failedRecipients: 0,
+      lastError: "",
+      recipientStatuses,
+    })
+
+    let sentRecipients = 0
+    let failedRecipients = 0
+    const errors = []
+    let currentRecipientStatuses = Array.isArray(election.testEmailDispatch?.recipientStatuses)
+      ? election.testEmailDispatch.recipientStatuses
+      : recipientStatuses
+
+    for (const recipient of recipients) {
+      const recipientResult = await sendTestEmailToRecipient(election, recipient)
+      currentRecipientStatuses = applyRecipientDispatchResult(
+        currentRecipientStatuses,
+        recipient,
+        recipientResult
+      )
+
+      if (recipientResult.success) {
+        sentRecipients += 1
+      } else {
+        failedRecipients += 1
+        errors.push(recipientResult.error)
+      }
+
+      await persistTestDispatchState(election, {
+        dispatchKey: election.testEmailDispatch?.dispatchKey || new Date().toISOString(),
+        status: "running",
+        startedAt: election.testEmailDispatch?.startedAt || new Date(),
+        completedAt: null,
+        lastTriggeredAt: new Date(),
+        totalRecipients: recipients.length,
+        sentRecipients,
+        failedRecipients,
+        lastError: errors[0] || "",
+        recipientStatuses: currentRecipientStatuses,
+      })
+    }
+
+    await persistTestDispatchState(election, {
+      dispatchKey: election.testEmailDispatch?.dispatchKey || new Date().toISOString(),
+      status: failedRecipients > 0 ? "failed" : "completed",
+      startedAt: election.testEmailDispatch?.startedAt || new Date(),
+      completedAt: new Date(),
+      lastTriggeredAt: new Date(),
+      totalRecipients: recipients.length,
+      sentRecipients,
+      failedRecipients,
+      lastError: errors[0] || "",
+      recipientStatuses: currentRecipientStatuses,
+    })
+
+    return {
+      queued: true,
+      totalRecipients: recipients.length,
+      sentRecipients,
+      failedRecipients,
+    }
+  } catch (error) {
+    await Election.findByIdAndUpdate(
+      electionId,
+      {
+        $set: {
+          "testEmailDispatch.status": "failed",
+          "testEmailDispatch.completedAt": new Date(),
+          "testEmailDispatch.lastTriggeredAt": new Date(),
+          "testEmailDispatch.lastError": error?.message || "Test email dispatch failed",
+        },
+      }
+    )
+    return {
+      queued: false,
+      error: error?.message || "Test email dispatch failed",
+    }
+  } finally {
+    activeTestDispatches.delete(activeDispatchKey)
+  }
+}
+
 const processDispatchQueue = async () => {
   if (isDispatchWorkerActive) return
 
@@ -648,6 +884,26 @@ const processDispatchQueue = async () => {
     }
   } finally {
     isDispatchWorkerActive = false
+  }
+}
+
+const processTestDispatchQueue = async () => {
+  if (isTestDispatchWorkerActive) return
+
+  isTestDispatchWorkerActive = true
+
+  try {
+    while (testDispatchQueue.length > 0) {
+      const nextJob = testDispatchQueue.shift()
+      if (!nextJob?.electionId) {
+        continue
+      }
+
+      queuedTestDispatches.delete(String(nextJob.electionId))
+      await runQueuedElectionTestEmailDispatch(nextJob)
+    }
+  } finally {
+    isTestDispatchWorkerActive = false
   }
 }
 
@@ -787,6 +1043,106 @@ export const triggerElectionVotingEmailDispatchForElection = async (
   }
 }
 
+export const triggerElectionTestEmailDispatchForElection = async (
+  electionId,
+  { targetRollNumbers = [] } = {}
+) => {
+  const activeDispatchKey = String(electionId || "")
+  if (
+    !activeDispatchKey ||
+    activeTestDispatches.has(activeDispatchKey) ||
+    queuedTestDispatches.has(activeDispatchKey)
+  ) {
+    return {
+      queued: false,
+      error: "Test email dispatch is already queued or running",
+    }
+  }
+
+  try {
+    const election = await Election.findById(electionId)
+    if (!election) {
+      return {
+        queued: false,
+        error: "Election not found",
+      }
+    }
+
+    const normalizedTargetRollNumbers = normalizeRollNumbers(targetRollNumbers)
+    const recipients = await resolveElectionTestEmailRecipients(election, {
+      targetRollNumbers: normalizedTargetRollNumbers,
+    })
+    const recipientStatuses = await buildElectionTestRecipientStatuses(election)
+
+    if (recipients.length === 0) {
+      await persistTestDispatchState(election, {
+        dispatchKey: new Date().toISOString(),
+        status: "failed",
+        startedAt: new Date(),
+        completedAt: new Date(),
+        lastTriggeredAt: new Date(),
+        totalRecipients: 0,
+        sentRecipients: 0,
+        failedRecipients: 0,
+        lastError: "No eligible students matched the selected roll numbers",
+        recipientStatuses,
+      })
+
+      return {
+        queued: false,
+        error: "No eligible students matched the selected roll numbers",
+        requestedRecipients: normalizedTargetRollNumbers.length,
+      }
+    }
+
+    await persistTestDispatchState(election, {
+      dispatchKey: new Date().toISOString(),
+      status: "queued",
+      startedAt: null,
+      completedAt: null,
+      lastTriggeredAt: new Date(),
+      totalRecipients: recipients.length,
+      sentRecipients: 0,
+      failedRecipients: 0,
+      lastError: "",
+      recipientStatuses,
+    })
+
+    queuedTestDispatches.add(activeDispatchKey)
+    testDispatchQueue.push({
+      electionId: String(election._id),
+      targetRollNumbers: normalizedTargetRollNumbers,
+    })
+    processTestDispatchQueue().catch((error) => {
+      console.error("Election test email dispatch queue failed:", error?.message || error)
+    })
+
+    return {
+      queued: true,
+      requestedRecipients: normalizedTargetRollNumbers.length,
+      totalRecipients: recipients.length,
+      sentRecipients: 0,
+      failedRecipients: 0,
+    }
+  } catch (error) {
+    await Election.findByIdAndUpdate(
+      electionId,
+      {
+        $set: {
+          "testEmailDispatch.status": "failed",
+          "testEmailDispatch.completedAt": new Date(),
+          "testEmailDispatch.lastTriggeredAt": new Date(),
+          "testEmailDispatch.lastError": error?.message || "Test email dispatch failed",
+        },
+      }
+    )
+    return {
+      queued: false,
+      error: error?.message || "Test email dispatch failed",
+    }
+  }
+}
+
 export const scanAndTriggerElectionVotingEmailDispatches = async () => {
   const elections = await Election.find({ status: "published" }).select("_id timeline status votingEmailDispatch posts title")
   for (const election of elections) {
@@ -822,4 +1178,5 @@ export default {
   stopElectionVotingEmailScheduler,
   scanAndTriggerElectionVotingEmailDispatches,
   triggerElectionVotingEmailDispatchForElection,
+  triggerElectionTestEmailDispatchForElection,
 }

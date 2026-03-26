@@ -19,6 +19,7 @@ import {
   electionSupportConfirmationTemplate,
   electionVotingBallotTemplate,
   electionNominationReviewTemplate,
+  electionTestEmailTemplate,
 } from './email.templates.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -570,6 +571,24 @@ class EmailService {
       to: email,
       subject: currentDecision.subject,
       html,
+    })
+  }
+
+  async sendElectionTestEmail({
+    email,
+    studentName,
+    electionTitle,
+  }) {
+    const html = electionTestEmailTemplate({
+      studentName,
+      electionTitle,
+    })
+
+    return this.sendEmail({
+      to: email,
+      subject: `Test Email · ${electionTitle || "Election"}`,
+      html,
+      deliveryMode: 'multi',
     })
   }
 }
