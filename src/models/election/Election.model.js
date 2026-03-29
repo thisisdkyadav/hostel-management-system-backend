@@ -128,6 +128,7 @@ const ElectionTimelineSchema = new mongoose.Schema(
     withdrawalEndAt: { type: Date, required: true },
     campaigningStartAt: { type: Date, required: true },
     campaigningEndAt: { type: Date, required: true },
+    votingEmailStartAt: { type: Date, default: null },
     votingStartAt: { type: Date, required: true },
     votingEndAt: { type: Date, required: true },
     resultsAnnouncedAt: { type: Date, required: true },
@@ -142,6 +143,10 @@ const ElectionVotingAccessSchema = new mongoose.Schema(
       type: String,
       enum: ["email", "portal", "both"],
       default: "both",
+    },
+    autoSendEnabled: {
+      type: Boolean,
+      default: true,
     },
   },
   { _id: false }

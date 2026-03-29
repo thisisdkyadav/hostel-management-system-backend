@@ -55,6 +55,7 @@ const timelineSchema = Joi.object({
   withdrawalEndAt: Joi.date().iso().required(),
   campaigningStartAt: Joi.date().iso().required(),
   campaigningEndAt: Joi.date().iso().required(),
+  votingEmailStartAt: Joi.date().iso().allow(null),
   votingStartAt: Joi.date().iso().required(),
   votingEndAt: Joi.date().iso().required(),
   resultsAnnouncedAt: Joi.date().iso().required(),
@@ -68,6 +69,7 @@ const mockSettingsSchema = Joi.object({
 
 const votingAccessSchema = Joi.object({
   mode: Joi.string().valid("email", "portal", "both").default("both"),
+  autoSendEnabled: Joi.boolean().default(true),
 })
 
 export const electionIdSchema = Joi.object({

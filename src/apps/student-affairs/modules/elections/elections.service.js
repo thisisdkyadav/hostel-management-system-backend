@@ -163,10 +163,37 @@ const getStudentPortalMode = (stage) => {
   return "none"
 }
 
+const DEFAULT_VOTING_EMAIL_AUTO_SEND_LEAD_MS = 6 * 60 * 60 * 1000
+
 const getElectionVotingAccessMode = (election) =>
   String(election?.votingAccess?.mode || "both").trim().toLowerCase() || "both"
 
 const isEmailVotingEnabled = (election) => ["email", "both"].includes(getElectionVotingAccessMode(election))
+
+const isVotingEmailAutoSendEnabled = (election) =>
+  isEmailVotingEnabled(election) && Boolean(election?.votingAccess?.autoSendEnabled !== false)
+
+const getVotingEmailAutoSendStartAt = (election) => {
+  const votingStartAt = toDate(election?.timeline?.votingStartAt)
+  if (!votingStartAt || !isEmailVotingEnabled(election)) return null
+
+  const configuredStartAt = toDate(election?.timeline?.votingEmailStartAt)
+  if (configuredStartAt) {
+    return configuredStartAt
+  }
+
+  return new Date(votingStartAt.getTime() - DEFAULT_VOTING_EMAIL_AUTO_SEND_LEAD_MS)
+}
+
+const isAdminVotingWindowOpen = (election, currentTime = new Date()) => {
+  const votingEndAt = toDate(election?.timeline?.votingEndAt)
+  if (!votingEndAt) return false
+
+  const windowStartAt = getVotingEmailAutoSendStartAt(election)
+  if (!windowStartAt) return false
+
+  return currentTime >= windowStartAt && currentTime < votingEndAt
+}
 
 const isPortalVotingEnabled = (election) => ["portal", "both"].includes(getElectionVotingAccessMode(election))
 
@@ -195,6 +222,17 @@ const validateTimelineOrder = (timeline = {}) => {
     const [nextKey, nextValue] = parsed[index + 1]
     if (currentValue > nextValue) {
       return badRequest(`Timeline order is invalid: ${currentKey} must be before ${nextKey}`)
+    }
+  }
+
+  if (timeline.votingEmailStartAt) {
+    const votingEmailStartAt = toDate(timeline.votingEmailStartAt)
+    if (!votingEmailStartAt) {
+      return badRequest("Invalid timeline date for votingEmailStartAt")
+    }
+    const votingStartAt = parsed.find(([key]) => key === "votingStartAt")?.[1]
+    if (votingStartAt && votingEmailStartAt > votingStartAt) {
+      return badRequest("votingEmailStartAt must be on or before votingStartAt")
     }
   }
 
@@ -359,6 +397,18 @@ const normalizeElectionPayload = async (payload = {}) => {
     })
   }
 
+  const votingMode = ["email", "portal", "both"].includes(String(payload?.votingAccess?.mode || "").trim())
+    ? String(payload.votingAccess.mode).trim()
+    : "both"
+  const autoSendEnabled = Boolean(payload?.votingAccess?.autoSendEnabled !== false)
+  const votingStartAt = toDate(payload.timeline.votingStartAt)
+  const shouldPersistVotingEmailStartAt = ["email", "both"].includes(votingMode)
+  const votingEmailStartAt = shouldPersistVotingEmailStartAt
+    ? (payload.timeline.votingEmailStartAt
+      ? toDate(payload.timeline.votingEmailStartAt)
+      : (votingStartAt ? new Date(votingStartAt.getTime() - DEFAULT_VOTING_EMAIL_AUTO_SEND_LEAD_MS) : null))
+    : null
+
   return success({
     title: String(payload.title || "").trim(),
     academicYear: String(payload.academicYear || "").trim(),
@@ -366,9 +416,8 @@ const normalizeElectionPayload = async (payload = {}) => {
     description: String(payload.description || "").trim(),
     status: payload.status,
     votingAccess: {
-      mode: ["email", "portal", "both"].includes(String(payload?.votingAccess?.mode || "").trim())
-        ? String(payload.votingAccess.mode).trim()
-        : "both",
+      mode: votingMode,
+      autoSendEnabled,
     },
     electionCommission: commissionResult.data,
     mockSettings: mockSettingsResult.data,
@@ -379,7 +428,8 @@ const normalizeElectionPayload = async (payload = {}) => {
       withdrawalEndAt: toDate(payload.timeline.withdrawalEndAt),
       campaigningStartAt: toDate(payload.timeline.campaigningStartAt),
       campaigningEndAt: toDate(payload.timeline.campaigningEndAt),
-      votingStartAt: toDate(payload.timeline.votingStartAt),
+      votingEmailStartAt,
+      votingStartAt,
       votingEndAt: toDate(payload.timeline.votingEndAt),
       resultsAnnouncedAt: toDate(payload.timeline.resultsAnnouncedAt),
       handoverAt: payload.timeline.handoverAt ? toDate(payload.timeline.handoverAt) : null,
@@ -672,6 +722,7 @@ const serializeElectionBase = (election) => ({
   timeline: election.timeline,
   votingAccess: {
     mode: getElectionVotingAccessMode(election),
+    autoSendEnabled: Boolean(election?.votingAccess?.autoSendEnabled !== false),
   },
   electionCommission: {
     chiefElectionOfficerRollNumber: election.electionCommission?.chiefElectionOfficerRollNumber || "",
@@ -681,6 +732,7 @@ const serializeElectionBase = (election) => ({
     enabled: Boolean(election?.mockSettings?.enabled),
     voterRollNumbers: normalizeRollNumbers(election?.mockSettings?.voterRollNumbers),
   },
+  votingControlWindowOpen: isAdminVotingWindowOpen(election),
   votingEmailDispatch: {
     dispatchKey: election.votingEmailDispatch?.dispatchKey || "",
     status: election.votingEmailDispatch?.status || "idle",
@@ -1625,8 +1677,8 @@ class ElectionsService {
     const election = await Election.findById(id)
     if (!election) return notFound("Election")
 
-    if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
-      return forbidden("Live voting data is only available while voting is in progress")
+    if (!isAdminVotingWindowOpen(election)) {
+      return forbidden("Live voting data is only available after the configured voting window opens")
     }
 
     const stats = await buildElectionVotingLiveStats(election)
@@ -1778,6 +1830,7 @@ class ElectionsService {
       status: ELECTION_STATUS.DRAFT,
       votingAccess: {
         mode: getElectionVotingAccessMode(sourceElection),
+        autoSendEnabled: Boolean(sourceElection?.votingAccess?.autoSendEnabled !== false),
       },
       electionCommission: {
         chiefElectionOfficerRollNumber: sourceElection.electionCommission?.chiefElectionOfficerRollNumber || "",
@@ -1794,6 +1847,7 @@ class ElectionsService {
         withdrawalEndAt: sourceElection.timeline?.withdrawalEndAt,
         campaigningStartAt: sourceElection.timeline?.campaigningStartAt,
         campaigningEndAt: sourceElection.timeline?.campaigningEndAt,
+        votingEmailStartAt: sourceElection.timeline?.votingEmailStartAt || null,
         votingStartAt: sourceElection.timeline?.votingStartAt,
         votingEndAt: sourceElection.timeline?.votingEndAt,
         resultsAnnouncedAt: sourceElection.timeline?.resultsAnnouncedAt,
@@ -1936,8 +1990,8 @@ class ElectionsService {
       return forbidden("Voting email delivery is disabled for this election")
     }
 
-    if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
-      return forbidden("Voting emails can only be sent while voting is in progress")
+    if (!isAdminVotingWindowOpen(election)) {
+      return forbidden("Voting emails can only be sent after the configured auto-send time starts")
     }
 
     const votingStartAt = toDate(election?.timeline?.votingStartAt)
@@ -2450,6 +2504,12 @@ class ElectionsService {
     if (tokenState !== "active") {
       return success({
         tokenState,
+        election: ["inactive", "expired"].includes(tokenState)
+          ? {
+              votingStartAt: election.timeline?.votingStartAt || null,
+              votingEndAt: election.timeline?.votingEndAt || null,
+            }
+          : undefined,
       })
     }
 

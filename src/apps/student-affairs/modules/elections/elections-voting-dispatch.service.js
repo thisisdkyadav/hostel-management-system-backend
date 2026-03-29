@@ -15,7 +15,7 @@ import {
 } from "../../../../services/action-links/action-link-token.service.js"
 import { emitToRole } from "../../../../utils/socketHandlers.js"
 
-const PRE_VOTING_EMAIL_WINDOW_MS = 30 * 60 * 1000
+const DEFAULT_VOTING_EMAIL_AUTO_SEND_LEAD_MS = 6 * 60 * 60 * 1000
 const DISPATCH_INTERVAL_MS = 60 * 1000
 const EMAIL_RETRY_ATTEMPTS = 3
 const EMAIL_RETRY_DELAY_MS = 3000
@@ -140,6 +140,21 @@ const getElectionVotingAccessMode = (election) =>
 
 const isEmailVotingEnabled = (election) => ["email", "both"].includes(getElectionVotingAccessMode(election))
 
+const isVotingEmailAutoSendEnabled = (election) =>
+  isEmailVotingEnabled(election) && Boolean(election?.votingAccess?.autoSendEnabled !== false)
+
+const getVotingEmailAutoSendStartAt = (election) => {
+  const votingStartAt = new Date(election?.timeline?.votingStartAt)
+  if (Number.isNaN(votingStartAt.getTime()) || !isEmailVotingEnabled(election)) return null
+
+  const configuredStartAt = new Date(election?.timeline?.votingEmailStartAt)
+  if (!Number.isNaN(configuredStartAt.getTime())) {
+    return configuredStartAt
+  }
+
+  return new Date(votingStartAt.getTime() - DEFAULT_VOTING_EMAIL_AUTO_SEND_LEAD_MS)
+}
+
 const hasValidVotingWindow = (election) => {
   const votingStartAt = new Date(election?.timeline?.votingStartAt)
   const votingEndAt = new Date(election?.timeline?.votingEndAt)
@@ -152,15 +167,16 @@ const hasValidVotingWindow = (election) => {
 }
 
 const isAutomaticDispatchDueNow = (election, now = new Date()) => {
-  if (election?.status !== "published" || !isEmailVotingEnabled(election)) return false
+  if (election?.status !== "published" || !isVotingEmailAutoSendEnabled(election)) return false
 
   const votingWindow = hasValidVotingWindow(election)
   if (!votingWindow) return false
 
   const { votingStartAt } = votingWindow
+  const autoSendStartAt = getVotingEmailAutoSendStartAt(election)
+  if (!autoSendStartAt) return false
 
-  return now.getTime() >= votingStartAt.getTime() - PRE_VOTING_EMAIL_WINDOW_MS &&
-    now.getTime() < votingStartAt.getTime()
+  return now.getTime() >= autoSendStartAt.getTime() && now.getTime() < votingStartAt.getTime()
 }
 
 const isManualDispatchAllowedNow = (election, now = new Date()) => {
@@ -169,10 +185,11 @@ const isManualDispatchAllowedNow = (election, now = new Date()) => {
   const votingWindow = hasValidVotingWindow(election)
   if (!votingWindow) return false
 
-  const { votingStartAt, votingEndAt } = votingWindow
+  const { votingEndAt } = votingWindow
+  const manualWindowStartAt = getVotingEmailAutoSendStartAt(election)
+  if (!manualWindowStartAt) return false
 
-  return now.getTime() >= votingStartAt.getTime() &&
-    now.getTime() < votingEndAt.getTime()
+  return now.getTime() >= manualWindowStartAt.getTime() && now.getTime() < votingEndAt.getTime()
 }
 
 const collectEligibleVoterProfiles = async (election) => {
@@ -1231,7 +1248,7 @@ export const triggerElectionTestEmailDispatchForElection = async (
 }
 
 export const scanAndTriggerElectionVotingEmailDispatches = async () => {
-  const elections = await Election.find({ status: "published" }).select("_id timeline status votingEmailDispatch posts title")
+  const elections = await Election.find({ status: "published" }).select("_id timeline status votingAccess votingEmailDispatch posts title")
   for (const election of elections) {
     if (!isAutomaticDispatchDueNow(election)) continue
     triggerElectionVotingEmailDispatchForElection(election._id, "scheduler").catch((error) => {
