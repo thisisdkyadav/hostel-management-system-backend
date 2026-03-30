@@ -146,17 +146,25 @@ const getCurrentStage = (election, currentTime = new Date()) => {
   return ELECTION_STAGE.ANNOUNCED
 }
 
-const isStudentPortalVisibleStage = (stage) => {
+const isStudentVotingUpcomingWindow = (election, currentTime = new Date()) => {
+  const campaigningEndAt = toDate(election?.timeline?.campaigningEndAt)
+  const votingStartAt = toDate(election?.timeline?.votingStartAt)
+  if (!campaigningEndAt || !votingStartAt) return false
+  return currentTime > campaigningEndAt && currentTime < votingStartAt
+}
+
+const isStudentPortalVisibleStage = (stage, election = null, currentTime = new Date()) => {
   return [
     ELECTION_STAGE.NOMINATION,
     ELECTION_STAGE.WITHDRAWAL,
     ELECTION_STAGE.VOTING,
     ELECTION_STAGE.RESULTS,
     ELECTION_STAGE.HANDOVER,
-  ].includes(stage)
+  ].includes(stage) || isStudentVotingUpcomingWindow(election, currentTime)
 }
 
-const getStudentPortalMode = (stage) => {
+const getStudentPortalMode = (stage, election = null, currentTime = new Date()) => {
+  if (isStudentVotingUpcomingWindow(election, currentTime)) return "upcoming"
   if (stage === ELECTION_STAGE.VOTING) return "voting"
   if ([ELECTION_STAGE.NOMINATION, ELECTION_STAGE.WITHDRAWAL].includes(stage)) return "participation"
   if ([ELECTION_STAGE.RESULTS, ELECTION_STAGE.HANDOVER].includes(stage)) return "results"
@@ -1180,12 +1188,12 @@ const getVisiblePublishedElections = async () => {
     createdAt: -1,
   })
 
-  return elections.filter((election) => isStudentPortalVisibleStage(getCurrentStage(election)))
+  return elections.filter((election) => isStudentPortalVisibleStage(getCurrentStage(election), election))
 }
 
 const getRelevantPostsForStudent = (election, studentProfile, posts = [], myNominationMap = new Map(), myVoteMap = new Map()) => {
   const stage = getCurrentStage(election)
-  const mode = getStudentPortalMode(stage)
+  const mode = getStudentPortalMode(stage, election)
 
   return posts.filter((post) => {
     const postKey = `${String(election._id)}:${String(post._id)}`
@@ -1195,6 +1203,7 @@ const getRelevantPostsForStudent = (election, studentProfile, posts = [], myNomi
     const canVote = doesProfileMatchScope(studentProfile, post.voterEligibility)
 
     if (mode === "voting") return isPortalVotingEnabled(election) && (canVote || Boolean(myVote))
+    if (mode === "upcoming") return canVote || canStand || Boolean(myNomination)
     if (mode === "participation") return canStand || Boolean(myNomination)
     if (mode === "results") return canStand || canVote || Boolean(myNomination) || Boolean(myVote)
     return false
@@ -2098,16 +2107,22 @@ class ElectionsService {
     const voteElectionIdSet = new Set(voteElectionIds.map((value) => String(value)))
     const relevantElections = elections.filter((election) => {
       const stage = getCurrentStage(election)
-      if (getStudentPortalMode(stage) === "voting") {
+      if (getStudentPortalMode(stage, election) === "voting") {
         return (
           isPortalVotingEnabled(election) &&
           (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.voterEligibility))
         )
       }
-      if (getStudentPortalMode(stage) === "participation") {
+      if (getStudentPortalMode(stage, election) === "upcoming") {
+        return (election.posts || []).some((post) =>
+          doesProfileMatchScope(studentProfile, post.candidateEligibility) ||
+          doesProfileMatchScope(studentProfile, post.voterEligibility)
+        )
+      }
+      if (getStudentPortalMode(stage, election) === "participation") {
         return (election.posts || []).some((post) => doesProfileMatchScope(studentProfile, post.candidateEligibility))
       }
-      if (getStudentPortalMode(stage) === "results") {
+      if (getStudentPortalMode(stage, election) === "results") {
         return (
           nominationElectionIdSet.has(String(election._id)) ||
           voteElectionIdSet.has(String(election._id)) ||
@@ -2119,15 +2134,17 @@ class ElectionsService {
       }
       return false
     })
-    const modes = relevantElections.map((election) => getStudentPortalMode(getCurrentStage(election)))
+    const modes = relevantElections.map((election) => getStudentPortalMode(getCurrentStage(election), election))
 
     const mode = modes.includes("voting")
       ? "voting"
-      : modes.includes("participation")
-        ? "participation"
-        : modes.includes("results")
-          ? "results"
-        : "none"
+      : modes.includes("upcoming")
+        ? "upcoming"
+        : modes.includes("participation")
+          ? "participation"
+          : modes.includes("results")
+            ? "results"
+            : "none"
 
     return success({
       canAccessPortal: mode !== "none",
@@ -2169,7 +2186,7 @@ class ElectionsService {
     const currentElections = []
     for (const election of elections) {
       const stage = getCurrentStage(election)
-      const electionMode = getStudentPortalMode(stage)
+      const electionMode = getStudentPortalMode(stage, election)
       const electionResults = await buildElectionResults(election)
       const resultsByPost = new Map(
         (electionResults.posts || []).map((item) => [String(item.postId), item])
