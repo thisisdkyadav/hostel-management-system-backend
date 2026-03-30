@@ -120,11 +120,26 @@ class AdminService extends BaseService {
    * Update user password
    */
   async updateUserPassword(email, newPassword) {
+    const normalizedEmail = typeof email === 'string' ? email.trim() : '';
+    const normalizedPassword = typeof newPassword === 'string' ? newPassword : '';
+
+    if (!normalizedEmail) {
+      return badRequest('Email is required');
+    }
+
+    if (!normalizedPassword.trim()) {
+      return badRequest('New password is required');
+    }
+
+    if (normalizedPassword.length < 6) {
+      return badRequest('Password must be at least 6 characters long');
+    }
+
     const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    const hashedPassword = await bcrypt.hash(normalizedPassword, salt);
 
     const updatedUser = await User.findOneAndUpdate(
-      { email: { $regex: new RegExp(`^${email}$`, 'i') } },
+      { email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } },
       { password: hashedPassword },
       { new: true }
     );
