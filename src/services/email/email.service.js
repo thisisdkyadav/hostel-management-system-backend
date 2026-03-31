@@ -501,9 +501,6 @@ class EmailService {
     ballotToken,
     isMockElection = false,
     reminder = false,
-    turnoutPercentage = 0,
-    ballotsSubmitted = 0,
-    totalEligibleVoters = 0,
   }) {
     const ballotLink = `${env.FRONTEND_URL}/election-ballot/${ballotToken}`;
     const html = electionVotingBallotTemplate({
@@ -515,9 +512,6 @@ class EmailService {
       ballotLink,
       isMockElection,
       reminder,
-      turnoutPercentage,
-      ballotsSubmitted,
-      totalEligibleVoters,
     });
 
     return this.sendEmail({

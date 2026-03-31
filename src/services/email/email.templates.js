@@ -327,9 +327,6 @@ export const electionVotingBallotTemplate = ({
   ballotLink,
   isMockElection = false,
   reminder = false,
-  turnoutPercentage = 0,
-  ballotsSubmitted = 0,
-  totalEligibleVoters = 0,
 }) => {
   const content = `
     ${isMockElection ? `
@@ -354,11 +351,6 @@ export const electionVotingBallotTemplate = ({
     ${reminder ? `
       <div class="warning" style="margin-top: 16px;">
         <strong>Gentle Reminder:</strong> Voting will end at <strong>${votingEndAt || "—"}</strong>.
-      </div>
-
-      <div class="info-box" style="margin-top: 16px;">
-        <p style="margin: 0 0 8px;"><strong>Current Voter Turnout:</strong> ${turnoutPercentage || 0}%</p>
-        <p style="margin: 0;"><strong>Students Voted So Far:</strong> ${ballotsSubmitted || 0} out of ${totalEligibleVoters || 0}</p>
       </div>
     ` : ""}
 
