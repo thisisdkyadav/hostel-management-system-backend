@@ -2187,6 +2187,7 @@ class ElectionsService {
     for (const election of elections) {
       const stage = getCurrentStage(election)
       const electionMode = getStudentPortalMode(stage, election)
+      const hasElectionVote = myVotes.some((vote) => String(vote.electionId) === String(election._id))
       const electionResults = await buildElectionResults(election)
       const resultsByPost = new Map(
         (electionResults.posts || []).map((item) => [String(item.postId), item])
@@ -2235,11 +2236,11 @@ class ElectionsService {
           canVote: doesProfileMatchScope(studentProfile, post.voterEligibility),
           myNomination: myNomination ? serializeNomination(myNomination) : null,
           hasVoted: Boolean(myVote),
-          votedCandidateNominationId: myVote?.candidateNominationId || null,
-          votedCandidateLabel: myVote?.candidateRollNumber || "",
-          votedIsNota: Boolean(myVote?.isNota),
           approvedCandidates: approvedByPost[String(post._id)] || [],
-          votingCandidates: votingCandidatesByPost.get(String(post._id)) || [],
+          votingCandidates:
+            electionMode === "voting" && !hasElectionVote
+              ? votingCandidatesByPost.get(String(post._id)) || []
+              : [],
           results: resultsByPost.get(String(post._id)) || null,
         }
       })
