@@ -2236,6 +2236,8 @@ class ElectionsService {
           myNomination: myNomination ? serializeNomination(myNomination) : null,
           hasVoted: Boolean(myVote),
           votedCandidateNominationId: myVote?.candidateNominationId || null,
+          votedCandidateLabel: myVote?.candidateRollNumber || "",
+          votedIsNota: Boolean(myVote?.isNota),
           approvedCandidates: approvedByPost[String(post._id)] || [],
           votingCandidates: votingCandidatesByPost.get(String(post._id)) || [],
           results: resultsByPost.get(String(post._id)) || null,
