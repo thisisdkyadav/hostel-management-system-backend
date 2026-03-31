@@ -500,6 +500,10 @@ class EmailService {
     postCount,
     ballotToken,
     isMockElection = false,
+    reminder = false,
+    turnoutPercentage = 0,
+    ballotsSubmitted = 0,
+    totalEligibleVoters = 0,
   }) {
     const ballotLink = `${env.FRONTEND_URL}/election-ballot/${ballotToken}`;
     const html = electionVotingBallotTemplate({
@@ -510,11 +514,15 @@ class EmailService {
       postCount,
       ballotLink,
       isMockElection,
+      reminder,
+      turnoutPercentage,
+      ballotsSubmitted,
+      totalEligibleVoters,
     });
 
     return this.sendEmail({
       to: email,
-      subject: `Election Voting Link · ${electionTitle}`,
+      subject: `${reminder ? "Voting Reminder" : "Election Voting Link"} · ${electionTitle}`,
       html,
       deliveryMode: 'multi',
     });

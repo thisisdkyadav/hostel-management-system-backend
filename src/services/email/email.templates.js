@@ -326,6 +326,10 @@ export const electionVotingBallotTemplate = ({
   postCount,
   ballotLink,
   isMockElection = false,
+  reminder = false,
+  turnoutPercentage = 0,
+  ballotsSubmitted = 0,
+  totalEligibleVoters = 0,
 }) => {
   const content = `
     ${isMockElection ? `
@@ -333,15 +337,30 @@ export const electionVotingBallotTemplate = ({
         <strong>Mock Election:</strong> This is a mock election. Please ignore this email if you are not participating in the mock election.
       </div>
     ` : ""}
-    <h2>Your Election Voting Link Is Ready</h2>
+    <h2>${reminder ? "Voting Reminder" : "Your Election Voting Link Is Ready"}</h2>
     <p>Hello ${studentName || "Student"},</p>
-    <p>Your secure voting link for <strong>${electionTitle}</strong> is now ready.</p>
+    <p>
+      ${reminder
+        ? `This is a gentle reminder to cast your vote for <strong>${electionTitle}</strong>.`
+        : `Your secure voting link for <strong>${electionTitle}</strong> is now ready.`}
+    </p>
 
     <div class="info-box">
       <p style="margin: 0 0 8px;"><strong>Available Posts:</strong> ${postCount || 0}</p>
       <p style="margin: 0 0 8px;"><strong>Voting Starts:</strong> ${votingStartAt || "—"}</p>
       <p style="margin: 0;"><strong>Voting Ends:</strong> ${votingEndAt || "—"}</p>
     </div>
+
+    ${reminder ? `
+      <div class="warning" style="margin-top: 16px;">
+        <strong>Gentle Reminder:</strong> Voting will end at <strong>${votingEndAt || "—"}</strong>.
+      </div>
+
+      <div class="info-box" style="margin-top: 16px;">
+        <p style="margin: 0 0 8px;"><strong>Current Voter Turnout:</strong> ${turnoutPercentage || 0}%</p>
+        <p style="margin: 0;"><strong>Students Voted So Far:</strong> ${ballotsSubmitted || 0} out of ${totalEligibleVoters || 0}</p>
+      </div>
+    ` : ""}
 
     <p>You must submit your vote in one go. Please choose one candidate for every available post before submitting.</p>
 

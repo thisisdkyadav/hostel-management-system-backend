@@ -2008,6 +2008,11 @@ class ElectionsService {
       return badRequest("Voting start time is not configured correctly")
     }
 
+    const reminder = Boolean(payload?.reminder)
+    if (reminder && getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
+      return badRequest("Reminder emails can only be sent while voting is live")
+    }
+
     const dispatchKey = votingStartAt.toISOString()
     const existingDispatchKey = String(election?.votingEmailDispatch?.dispatchKey || "")
     const existingStatus = String(election?.votingEmailDispatch?.status || "idle")
@@ -2021,6 +2026,7 @@ class ElectionsService {
     const dispatchResult = await triggerElectionVotingEmailDispatchForElection(election._id, "manual", {
       resendMode,
       targetRollNumbers,
+      reminder,
     })
     if (!dispatchResult?.queued) {
       return badRequest(
@@ -2036,12 +2042,13 @@ class ElectionsService {
         sentRecipients: Number(dispatchResult?.sentRecipients || 0),
         failedRecipients: Number(dispatchResult?.failedRecipients || 0),
         resendMode,
+        reminder,
         targetRollNumbers,
       },
       200,
       `${targetRollNumbers.length > 0
-        ? `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} eligible recipient(s) from ${targetRollNumbers.length} uploaded roll number(s)`
-        : `Voting emails queued for ${Number(dispatchResult?.totalRecipients || 0)} recipient(s)`}${
+        ? `${reminder ? "Voting reminder emails" : "Voting emails"} queued for ${Number(dispatchResult?.totalRecipients || 0)} eligible recipient(s) from ${targetRollNumbers.length} uploaded roll number(s)`
+        : `${reminder ? "Voting reminder emails" : "Voting emails"} queued for ${Number(dispatchResult?.totalRecipients || 0)} recipient(s)`}${
         resendMode === "generate_new" ? " using new links" : " using existing links where available"
       }`
     )

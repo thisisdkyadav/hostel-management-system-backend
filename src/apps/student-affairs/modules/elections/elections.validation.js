@@ -187,6 +187,7 @@ export const submitBallotSchema = Joi.object({
 
 export const sendVotingEmailsSchema = Joi.object({
   resendMode: Joi.string().valid("reuse_existing", "generate_new").default("reuse_existing"),
+  reminder: Joi.boolean().default(false),
   targetRollNumbers: Joi.array().items(rollNumber).max(10000).default([]),
 })
 

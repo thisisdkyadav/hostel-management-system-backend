@@ -429,6 +429,25 @@ const resolveElectionTestEmailRecipients = async (election, { targetRollNumbers 
   )
 }
 
+const buildVotingReminderStats = async (election) => {
+  const [eligibleRecipients, votedUserIds] = await Promise.all([
+    resolveElectionVotingRecipients(election, { includeVoted: true }),
+    ElectionVote.distinct("voterUserId", { electionId: election._id }),
+  ])
+
+  const totalEligibleVoters = eligibleRecipients.length
+  const ballotsSubmitted = votedUserIds.length
+
+  return {
+    totalEligibleVoters,
+    ballotsSubmitted,
+    turnoutPercentage:
+      totalEligibleVoters > 0
+        ? Number(((ballotsSubmitted / totalEligibleVoters) * 100).toFixed(1))
+        : 0,
+  }
+}
+
 export const buildElectionTestRecipientStatuses = async (election) => {
   const allRecipients = await collectEligibleVoterProfiles(election)
   const baselineStatuses = buildRecipientDispatchStatuses(allRecipients)
@@ -458,7 +477,11 @@ export const buildElectionTestRecipientStatuses = async (election) => {
 const sendVotingEmailToRecipient = async (
   election,
   { profile, eligiblePosts },
-  { resendMode = "reuse_existing" } = {}
+  {
+    resendMode = "reuse_existing",
+    reminder = false,
+    reminderStats = null,
+  } = {}
 ) => {
   const userId = profile?.userId?._id || null
   const email = String(profile?.userId?.email || "").trim()
@@ -520,6 +543,10 @@ const sendVotingEmailToRecipient = async (
       postCount: eligiblePosts.length,
       ballotToken: rawToken,
       isMockElection: Boolean(election?.mockSettings?.enabled),
+      reminder,
+      turnoutPercentage: Number(reminderStats?.turnoutPercentage || 0),
+      ballotsSubmitted: Number(reminderStats?.ballotsSubmitted || 0),
+      totalEligibleVoters: Number(reminderStats?.totalEligibleVoters || 0),
     })
 
     if (emailResult?.success) {
@@ -601,6 +628,7 @@ const runQueuedVotingEmailDispatch = async ({
   dispatchKey,
   resendMode = "reuse_existing",
   targetRollNumbers = [],
+  reminder = false,
 } = {}) => {
   const activeDispatchKey = String(electionId || "")
   if (!activeDispatchKey) {
@@ -686,6 +714,7 @@ const runQueuedVotingEmailDispatch = async ({
     }
 
     const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
+    const reminderStats = reminder ? await buildVotingReminderStats(election) : null
 
     await persistDispatchState(election, {
       dispatchKey,
@@ -708,7 +737,11 @@ const runQueuedVotingEmailDispatch = async ({
       : recipientStatuses
 
     for (const recipient of recipients) {
-      const recipientResult = await sendVotingEmailToRecipient(election, recipient, { resendMode })
+      const recipientResult = await sendVotingEmailToRecipient(election, recipient, {
+        resendMode,
+        reminder,
+        reminderStats,
+      })
       currentRecipientStatuses = applyRecipientDispatchResult(
         currentRecipientStatuses,
         recipient,
@@ -977,7 +1010,7 @@ const processTestDispatchQueue = async () => {
 export const triggerElectionVotingEmailDispatchForElection = async (
   electionId,
   reason = "manual",
-  { resendMode = "reuse_existing", targetRollNumbers = [] } = {}
+  { resendMode = "reuse_existing", targetRollNumbers = [], reminder = false } = {}
 ) => {
   const activeDispatchKey = String(electionId || "")
   if (
@@ -1001,6 +1034,28 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       return {
         queued: false,
         error: "Voting email dispatch is not allowed right now",
+      }
+    }
+
+    if (reminder && reason !== "manual") {
+      return {
+        queued: false,
+        error: "Voting reminders can only be sent manually",
+      }
+    }
+
+    if (reminder) {
+      const votingWindow = hasValidVotingWindow(election)
+      const now = new Date()
+      if (
+        !votingWindow ||
+        now.getTime() < votingWindow.votingStartAt.getTime() ||
+        now.getTime() >= votingWindow.votingEndAt.getTime()
+      ) {
+        return {
+          queued: false,
+          error: "Voting reminders can only be sent while voting is live",
+        }
       }
     }
 
@@ -1099,6 +1154,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       dispatchKey,
       resendMode,
       targetRollNumbers: normalizedTargetRollNumbers,
+      reminder,
     })
     processDispatchQueue().catch((error) => {
       console.error("Election voting dispatch queue failed:", error?.message || error)
