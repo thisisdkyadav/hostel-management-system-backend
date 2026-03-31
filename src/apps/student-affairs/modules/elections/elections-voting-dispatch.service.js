@@ -374,35 +374,42 @@ const applyRecipientDispatchResult = (recipientStatuses = [], recipient = {}, re
   })
 }
 
-const getSentRecipientStatusKeys = async (election, dispatchKey) => {
-  if (!election?._id || !dispatchKey) return new Set()
+const getReceivedVotingRecipientStatusKeys = async (election) => {
+  if (!election?._id) return new Set()
 
-  const sentTokens = await ActionLinkToken.find({
-    type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
-    subjectModel: "Election",
-    subjectId: election._id,
-    "payload.dispatchKey": dispatchKey,
-    $or: [
-      { invalidatedAt: null },
-      { usedAt: { $ne: null } },
-    ],
-  }).select("recipientUserId")
+  const [usableTokens, votedUserIds] = await Promise.all([
+    ActionLinkToken.find({
+      type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+      subjectModel: "Election",
+      subjectId: election._id,
+      $or: [
+        { usedAt: { $ne: null } },
+        {
+          invalidatedAt: null,
+          expiresAt: { $gt: new Date() },
+        },
+      ],
+    }).select("recipientUserId"),
+    ElectionVote.distinct("voterUserId", {
+      electionId: election._id,
+    }),
+  ])
 
   return new Set(
-    sentTokens
-      .map((token) => buildRecipientStatusKey({ userId: token?.recipientUserId }))
-      .filter(Boolean)
+    [
+      ...usableTokens.map((token) => buildRecipientStatusKey({ userId: token?.recipientUserId })),
+      ...votedUserIds.map((userId) => buildRecipientStatusKey({ userId })),
+    ].filter(Boolean)
   )
 }
 
 export const buildElectionVotingRecipientStatuses = async (election) => {
-  const dispatchKey = getVotingDispatchKey(election)
   const allRecipients = await resolveElectionVotingRecipients(election, { includeVoted: true })
   const baselineStatuses = buildRecipientDispatchStatuses(allRecipients)
   const existingStatuses = Array.isArray(election?.votingEmailDispatch?.recipientStatuses)
     ? election.votingEmailDispatch.recipientStatuses
     : []
-  const sentStatusKeys = await getSentRecipientStatusKeys(election, dispatchKey)
+  const sentStatusKeys = await getReceivedVotingRecipientStatusKeys(election)
 
   return mergeRecipientDispatchStatuses({
     baselineStatuses,
