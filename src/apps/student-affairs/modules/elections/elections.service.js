@@ -2222,7 +2222,9 @@ class ElectionsService {
         myVoteMap
       )
 
-      const posts = relevantPosts.map((post) => {
+      const posts = relevantPosts
+        .filter((post) => electionMode !== "voting" || votingCandidatesByPost.has(String(post._id)))
+        .map((post) => {
         const postKey = `${String(election._id)}:${String(post._id)}`
         const myNomination = myNominationMap.get(postKey)
         const myVote = myVoteMap.get(postKey)
