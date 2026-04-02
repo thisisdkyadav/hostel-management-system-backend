@@ -144,30 +144,31 @@ class CalendarService extends BaseService {
       return forbidden("Calendar is locked. Please request edit permission through an amendment.")
     }
 
-    if (isGS) {
-      if (calendar.status !== CALENDAR_STATUS.DRAFT && calendar.status !== CALENDAR_STATUS.REJECTED) {
-        return badRequest("GS can only update draft or rejected calendars")
-      }
-    }
+    const editableStatuses = [
+      CALENDAR_STATUS.DRAFT,
+      CALENDAR_STATUS.REJECTED,
+      CALENDAR_STATUS.PENDING_PRESIDENT,
+      CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS,
+      CALENDAR_STATUS.PENDING_JOINT_REGISTRAR,
+      CALENDAR_STATUS.PENDING_ASSOCIATE_DEAN,
+      CALENDAR_STATUS.PENDING_DEAN,
+      CALENDAR_STATUS.APPROVED,
+    ]
 
-    if (
-      isPresident &&
-      ![
-        CALENDAR_STATUS.DRAFT,
-        CALENDAR_STATUS.REJECTED,
-        // Backward compatibility for calendars already submitted in old flow.
-        CALENDAR_STATUS.PENDING_PRESIDENT,
-      ].includes(calendar.status)
-    ) {
-      return badRequest("President can only update calendars before Student Affairs review")
+    if (!editableStatuses.includes(calendar.status)) {
+      return badRequest("This calendar cannot be edited in its current status")
     }
 
     if (data.events) {
       calendar.events = data.events
     }
 
-    if ((isGS || isPresident) && calendar.status === CALENDAR_STATUS.REJECTED) {
+    if ((isGS || isPresident) && calendar.status !== CALENDAR_STATUS.DRAFT) {
       calendar.status = CALENDAR_STATUS.DRAFT
+      calendar.currentApprovalStage = null
+      calendar.customApprovalChain = []
+      calendar.currentChainIndex = null
+      calendar.approvedAt = null
       calendar.rejectionReason = null
       calendar.rejectedBy = null
       calendar.rejectedAt = null
@@ -268,8 +269,19 @@ class CalendarService extends BaseService {
       return forbidden("Calendar is locked. Cannot submit.")
     }
 
-    if (calendar.status !== CALENDAR_STATUS.DRAFT) {
-      return badRequest("Only draft calendars can be submitted")
+    const submittableStatuses = [
+      CALENDAR_STATUS.DRAFT,
+      CALENDAR_STATUS.REJECTED,
+      CALENDAR_STATUS.PENDING_PRESIDENT,
+      CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS,
+      CALENDAR_STATUS.PENDING_JOINT_REGISTRAR,
+      CALENDAR_STATUS.PENDING_ASSOCIATE_DEAN,
+      CALENDAR_STATUS.PENDING_DEAN,
+      CALENDAR_STATUS.APPROVED,
+    ]
+
+    if (!submittableStatuses.includes(calendar.status)) {
+      return badRequest("This calendar cannot be submitted in its current status")
     }
 
     if (!calendar.events || calendar.events.length === 0) {
@@ -286,11 +298,20 @@ class CalendarService extends BaseService {
       })
     }
 
+    const previousStatus = calendar.status
+
     // President submits calendar directly to Student Affairs.
     calendar.status = CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
     calendar.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
     calendar.customApprovalChain = []
     calendar.currentChainIndex = null
+    calendar.approvedAt = null
+    calendar.rejectionReason = null
+    calendar.rejectedBy = null
+    calendar.rejectedAt = null
+    calendar.isLocked = true
+    calendar.lockedBy = user._id
+    calendar.lockedAt = new Date()
     await calendar.save()
 
     // Log the submission
@@ -300,6 +321,10 @@ class CalendarService extends BaseService {
       stage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
       action: APPROVAL_ACTIONS.SUBMITTED,
       performedBy: user._id,
+      comments:
+        previousStatus === CALENDAR_STATUS.DRAFT
+          ? undefined
+          : `Resubmitted after edits from ${String(previousStatus).replace(/_/g, " ")}`,
     })
 
     return success({
@@ -390,9 +415,16 @@ class CalendarService extends BaseService {
       calendar.approvedAt = new Date()
       calendar.currentApprovalStage = null
       calendar.currentChainIndex = null
+      calendar.isLocked = true
+      calendar.lockedBy = user._id
+      calendar.lockedAt = new Date()
       
       // Create individual events from calendar
       await this._syncGymkhanaEventsForCalendar(calendar)
+    } else {
+      calendar.isLocked = true
+      calendar.lockedBy = user._id
+      calendar.lockedAt = new Date()
     }
 
     await calendar.save()
