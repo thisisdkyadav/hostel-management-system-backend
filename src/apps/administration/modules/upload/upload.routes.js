@@ -79,9 +79,27 @@ const electionNominationUpload = multer({
   storage,
   limits: { fileSize: TEN_MB },
 });
+const disCoProcessUpload = multer({
+  storage,
+  limits: { fileSize: TEN_MB },
+});
 
 const handleElectionNominationUpload = (req, res, next) => {
   electionNominationUpload.any()(req, res, (error) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Document size must be 10MB or smaller' });
+    }
+
+    if (error) {
+      return next(error);
+    }
+
+    return next();
+  });
+};
+
+const handleDisCoProcessUpload = (req, res, next) => {
+  disCoProcessUpload.any()(req, res, (error) => {
     if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ error: 'Document size must be 10MB or smaller' });
     }
@@ -153,7 +171,7 @@ router.post(
 router.post(
   '/disco-process-pdf',
   authorizeRoles(['Admin', 'Super Admin']),
-  upload.any(),
+  handleDisCoProcessUpload,
   uploadDisCoProcessPDF
 );
 
