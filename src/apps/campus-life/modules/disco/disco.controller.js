@@ -89,6 +89,11 @@ export const sendCaseEmail = asyncHandler(async (req, res) => {
   sendWithError(res, result);
 });
 
+export const skipCaseEmail = asyncHandler(async (req, res) => {
+  const result = await disCoService.skipCaseEmail(req.params.caseId, req.body, req.user);
+  sendWithError(res, result);
+});
+
 export const uploadCommitteeMinutes = asyncHandler(async (req, res) => {
   const result = await disCoService.uploadCommitteeMinutes(req.params.caseId, req.body, req.user);
   sendWithError(res, result);

@@ -18,6 +18,7 @@ import {
   exportProcessCaseBundle,
   saveCaseStageTwo,
   sendCaseEmail,
+  skipCaseEmail,
   uploadCommitteeMinutes,
   finalizeProcessCase,
 } from './disco.controller.js';
@@ -121,6 +122,12 @@ router.post(
   authorizeRoles(['Admin', 'Super Admin']),
   requireDiscoProcessRouteAccess,
   sendCaseEmail
+);
+router.post(
+  '/process/cases/:caseId/skip-email',
+  authorizeRoles(['Admin', 'Super Admin']),
+  requireDiscoProcessRouteAccess,
+  skipCaseEmail
 );
 router.patch(
   '/process/cases/:caseId/committee-minutes',

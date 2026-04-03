@@ -1223,6 +1223,63 @@ class DisCoService extends BaseService {
   }
 
   /**
+   * Admin explicitly skips committee email stage and proceeds.
+   */
+  async skipCaseEmail(caseId, payload = {}, adminUser) {
+    const reason = String(payload?.reason || "").trim();
+
+    const caseDoc = await DisCoProcessCase.findById(caseId);
+    if (!caseDoc) return notFound("Disciplinary process case");
+
+    if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
+      return badRequest("Cannot skip committee email after final decision");
+    }
+
+    if (!isStageTwoComplete(caseDoc)) {
+      return badRequest("Complete stage 2 documents before skipping committee email");
+    }
+
+    if ((caseDoc.emailLogs || []).length > 0) {
+      return badRequest("Committee email step is already completed");
+    }
+
+    const defaultSubject = "Committee email step skipped";
+    const defaultBody =
+      reason ||
+      "Email stage intentionally skipped by admin. Proceeding directly to committee minutes.";
+
+    caseDoc.emailLogs.push({
+      to: [],
+      subject: defaultSubject,
+      body: defaultBody,
+      attachments: [],
+      sentBy: adminUser._id,
+      sentAt: new Date(),
+      result: {
+        sent: 0,
+        failed: 0,
+        total: 0,
+        errors: [],
+      },
+    });
+    caseDoc.timeline.push(
+      buildTimelineEntry(
+        "committee_email_skipped",
+        adminUser._id,
+        "Committee email stage skipped",
+        { reason: defaultBody }
+      )
+    );
+
+    await caseDoc.save();
+
+    return success({
+      message: "Committee email step skipped",
+      case: toAdminCaseView(caseDoc),
+    });
+  }
+
+  /**
    * Admin uploads committee meeting minutes PDF metadata.
    */
   async uploadCommitteeMinutes(caseId, { pdfUrl, pdfName }, adminUser) {
