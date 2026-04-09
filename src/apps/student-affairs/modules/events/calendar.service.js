@@ -26,6 +26,7 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
+import { normalizeCategoryBudgetCaps, validateCategoryBudgetCaps } from "./budget-caps.utils.js"
 
 class CalendarService extends BaseService {
   constructor() {
@@ -51,10 +52,17 @@ class CalendarService extends BaseService {
       return badRequest(`Activity calendar for ${data.academicYear} already exists`)
     }
 
+    const normalizedBudgetCaps = normalizeCategoryBudgetCaps(data.budgetCaps)
+    const budgetCapValidation = validateCategoryBudgetCaps(data.events || [], normalizedBudgetCaps)
+    if (!budgetCapValidation.success) {
+      return badRequest(budgetCapValidation.message)
+    }
+
     const calendar = await this.model.create({
       academicYear: data.academicYear,
       events: data.events || [],
       allowProposalBeforeApproval: Boolean(data.allowProposalBeforeApproval),
+      budgetCaps: normalizedBudgetCaps,
       createdBy: user._id,
       status: CALENDAR_STATUS.DRAFT,
       isLocked: false,
@@ -160,6 +168,11 @@ class CalendarService extends BaseService {
     }
 
     if (data.events) {
+      const budgetCapValidation = validateCategoryBudgetCaps(data.events, calendar.budgetCaps)
+      if (!budgetCapValidation.success) {
+        return badRequest(budgetCapValidation.message)
+      }
+
       calendar.events = data.events
     }
 
@@ -193,26 +206,34 @@ class CalendarService extends BaseService {
       return notFound("Activity calendar")
     }
 
-    const nextAllowProposalBeforeApproval = Boolean(data.allowProposalBeforeApproval)
     const previousAllowProposalBeforeApproval = Boolean(calendar.allowProposalBeforeApproval)
+    const nextAllowProposalBeforeApproval =
+      typeof data.allowProposalBeforeApproval === "boolean"
+        ? data.allowProposalBeforeApproval
+        : previousAllowProposalBeforeApproval
+    const previousBudgetCaps = normalizeCategoryBudgetCaps(calendar.budgetCaps)
+    const nextBudgetCaps = normalizeCategoryBudgetCaps(
+      data.budgetCaps === undefined ? calendar.budgetCaps : data.budgetCaps
+    )
+    const allowProposalSettingChanged =
+      nextAllowProposalBeforeApproval !== previousAllowProposalBeforeApproval
+    const budgetCapsChanged =
+      JSON.stringify(previousBudgetCaps) !== JSON.stringify(nextBudgetCaps)
 
-    if (nextAllowProposalBeforeApproval === previousAllowProposalBeforeApproval) {
+    if (!allowProposalSettingChanged && !budgetCapsChanged) {
       return success({ calendar }, 200, "Calendar settings updated successfully")
     }
 
-    calendar.allowProposalBeforeApproval = nextAllowProposalBeforeApproval
-    await calendar.save()
-
-    if (nextAllowProposalBeforeApproval) {
-      await this._syncGymkhanaEventsForCalendar(calendar)
-      return success(
-        { calendar },
-        200,
-        "Early proposal submission enabled for this calendar"
-      )
+    const budgetCapValidation = validateCategoryBudgetCaps(calendar.events || [], nextBudgetCaps)
+    if (!budgetCapValidation.success) {
+      return badRequest(`Cannot update calendar settings. ${budgetCapValidation.message}`)
     }
 
-    if (calendar.status !== CALENDAR_STATUS.APPROVED) {
+    if (
+      allowProposalSettingChanged &&
+      !nextAllowProposalBeforeApproval &&
+      calendar.status !== CALENDAR_STATUS.APPROVED
+    ) {
       const linkedEvents = await GymkhanaEvent.find({
         calendarId: calendar._id,
         isMegaEvent: false,
@@ -223,8 +244,6 @@ class CalendarService extends BaseService {
       )
 
       if (hasWorkflowData) {
-        calendar.allowProposalBeforeApproval = true
-        await calendar.save()
         return badRequest(
           "Cannot disable early proposal submission because this calendar already has linked proposal or expense data"
         )
@@ -243,11 +262,15 @@ class CalendarService extends BaseService {
       }
     }
 
-    return success(
-      { calendar },
-      200,
-      "Early proposal submission disabled for this calendar"
-    )
+    calendar.allowProposalBeforeApproval = nextAllowProposalBeforeApproval
+    calendar.budgetCaps = nextBudgetCaps
+    await calendar.save()
+
+    if (allowProposalSettingChanged && nextAllowProposalBeforeApproval) {
+      await this._syncGymkhanaEventsForCalendar(calendar)
+    }
+
+    return success({ calendar }, 200, "Calendar settings updated successfully")
   }
 
   /**

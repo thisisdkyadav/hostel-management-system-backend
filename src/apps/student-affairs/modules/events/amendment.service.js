@@ -17,6 +17,7 @@ import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import { AMENDMENT_STATUS, CALENDAR_STATUS, APPROVAL_ACTIONS, APPROVAL_STAGES } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
+import { validateCategoryBudgetCaps } from "./budget-caps.utils.js"
 
 class AmendmentService extends BaseService {
   constructor() {
@@ -83,25 +84,69 @@ class AmendmentService extends BaseService {
       return badRequest("Amendment is not pending")
     }
 
-    amendment.status = AMENDMENT_STATUS.APPROVED
-    amendment.reviewedBy = user._id
-    amendment.reviewedAt = new Date()
-    amendment.reviewComments = reviewComments
-    await amendment.save()
+    const calendar = await ActivityCalendar.findById(amendment.calendarId)
+    if (!calendar) {
+      return notFound("Activity calendar")
+    }
 
-    // Apply the amendment
+    let linkedEvent = null
+
     if (amendment.type === "edit") {
-      await GymkhanaEvent.findByIdAndUpdate(amendment.eventId, {
+      linkedEvent = await GymkhanaEvent.findById(amendment.eventId)
+      if (!linkedEvent) {
+        return notFound("Event to edit")
+      }
+
+      const currentEvents = Array.isArray(calendar.events) ? [...calendar.events] : []
+      const targetIndex = currentEvents.findIndex((event) =>
+        this._matchesCalendarEventForAmendment(event, linkedEvent)
+      )
+
+      if (targetIndex === -1) {
+        return badRequest("Linked calendar event could not be found for this amendment")
+      }
+
+      const updatedEvents = [...currentEvents]
+      updatedEvents[targetIndex] = {
+        ...updatedEvents[targetIndex].toObject(),
         title: amendment.proposedChanges.title,
         category: amendment.proposedChanges.category,
-        scheduledStartDate: amendment.proposedChanges.startDate,
-        scheduledEndDate: amendment.proposedChanges.endDate,
+        startDate: amendment.proposedChanges.startDate,
+        endDate: amendment.proposedChanges.endDate,
         estimatedBudget: amendment.proposedChanges.estimatedBudget,
         description: amendment.proposedChanges.description,
-      })
+      }
+
+      const budgetCapValidation = validateCategoryBudgetCaps(updatedEvents, calendar.budgetCaps)
+      if (!budgetCapValidation.success) {
+        return badRequest(budgetCapValidation.message)
+      }
+
+      calendar.events = updatedEvents
+      await calendar.save()
+
+      linkedEvent.title = amendment.proposedChanges.title
+      linkedEvent.category = amendment.proposedChanges.category
+      linkedEvent.scheduledStartDate = amendment.proposedChanges.startDate
+      linkedEvent.scheduledEndDate = amendment.proposedChanges.endDate
+      linkedEvent.estimatedBudget = amendment.proposedChanges.estimatedBudget
+      linkedEvent.description = amendment.proposedChanges.description
+      linkedEvent.calendarEventId = calendar.events[targetIndex]?._id || linkedEvent.calendarEventId || null
+      await linkedEvent.save()
     } else if (amendment.type === "new_event") {
+      const updatedEvents = [...(calendar.events || []).map((event) => event.toObject()), amendment.proposedChanges]
+      const budgetCapValidation = validateCategoryBudgetCaps(updatedEvents, calendar.budgetCaps)
+      if (!budgetCapValidation.success) {
+        return badRequest(budgetCapValidation.message)
+      }
+
+      calendar.events.push(amendment.proposedChanges)
+      await calendar.save()
+      const addedCalendarEvent = calendar.events[calendar.events.length - 1]
+
       await GymkhanaEvent.create({
         calendarId: amendment.calendarId,
+        calendarEventId: addedCalendarEvent?._id || null,
         title: amendment.proposedChanges.title,
         category: amendment.proposedChanges.category,
         scheduledStartDate: amendment.proposedChanges.startDate,
@@ -111,6 +156,12 @@ class AmendmentService extends BaseService {
         status: "upcoming",
       })
     }
+
+    amendment.status = AMENDMENT_STATUS.APPROVED
+    amendment.reviewedBy = user._id
+    amendment.reviewedAt = new Date()
+    amendment.reviewComments = reviewComments
+    await amendment.save()
 
     const reviewStage = user.subRole || APPROVAL_STAGES.STUDENT_AFFAIRS
 
@@ -187,6 +238,25 @@ class AmendmentService extends BaseService {
       .sort({ createdAt: -1 })
 
     return success({ amendments })
+  }
+
+  _matchesCalendarEventForAmendment(calendarEvent, linkedEvent) {
+    const targetCalendarEventId = linkedEvent?.calendarEventId ? String(linkedEvent.calendarEventId) : null
+    if (targetCalendarEventId && String(calendarEvent?._id) === targetCalendarEventId) {
+      return true
+    }
+
+    return (
+      String(calendarEvent?.title || "") === String(linkedEvent?.title || "") &&
+      String(calendarEvent?.category || "") === String(linkedEvent?.category || "") &&
+      this._normalizeDateKey(calendarEvent?.startDate) === this._normalizeDateKey(linkedEvent?.scheduledStartDate) &&
+      this._normalizeDateKey(calendarEvent?.endDate) === this._normalizeDateKey(linkedEvent?.scheduledEndDate)
+    )
+  }
+
+  _normalizeDateKey(value) {
+    const parsed = new Date(value)
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10)
   }
 }
 

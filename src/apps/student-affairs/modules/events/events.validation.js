@@ -26,6 +26,13 @@ const calendarEventSchema = Joi.object({
   return value
 })
 
+const categoryBudgetCapSchema = Joi.object({
+  academic: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
+  cultural: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
+  sports: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
+  technical: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
+})
+
 const billSchema = Joi.object({
   description: Joi.string().trim().max(500).required(),
   amount: Joi.number().min(0).required(),
@@ -52,6 +59,7 @@ export const createCalendarSchema = Joi.object({
     .messages({ "string.pattern.base": "Academic year must be in format YYYY-YY (e.g., 2025-26)" }),
   events: Joi.array().items(calendarEventSchema).default([]),
   allowProposalBeforeApproval: Joi.boolean().default(false),
+  budgetCaps: categoryBudgetCapSchema.default({}),
 })
 
 export const updateCalendarSchema = Joi.object({
@@ -59,8 +67,9 @@ export const updateCalendarSchema = Joi.object({
 }).min(1)
 
 export const updateCalendarSettingsSchema = Joi.object({
-  allowProposalBeforeApproval: Joi.boolean().required(),
-})
+  allowProposalBeforeApproval: Joi.boolean(),
+  budgetCaps: categoryBudgetCapSchema,
+}).min(1)
 
 export const calendarIdSchema = Joi.object({
   id: objectId.required(),

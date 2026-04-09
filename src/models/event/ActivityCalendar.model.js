@@ -5,6 +5,16 @@
 
 import mongoose from "mongoose"
 
+const CATEGORY_BUDGET_CAP_SCHEMA = new mongoose.Schema(
+  {
+    academic: { type: Number, min: 0, default: null },
+    cultural: { type: Number, min: 0, default: null },
+    sports: { type: Number, min: 0, default: null },
+    technical: { type: Number, min: 0, default: null },
+  },
+  { _id: false }
+)
+
 const CalendarEventSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
   category: {
@@ -65,6 +75,10 @@ const ActivityCalendarSchema = new mongoose.Schema(
     ],
     currentChainIndex: { type: Number, default: null },
     allowProposalBeforeApproval: { type: Boolean, default: false },
+    budgetCaps: {
+      type: CATEGORY_BUDGET_CAP_SCHEMA,
+      default: () => ({}),
+    },
     events: [CalendarEventSchema],
     rejectionReason: { type: String },
     rejectedBy: {
