@@ -151,6 +151,8 @@ export const getAllComplaintsSchema = Joi.object({
     sortBy: Joi.string().valid('createdAt', 'updatedAt', 'priority', 'status'),
     sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
     search: Joi.string().max(200),
+    resolvedToday: Joi.boolean(),
+    overdue: Joi.boolean(),
   }),
 });
 

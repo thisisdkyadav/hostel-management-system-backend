@@ -241,7 +241,17 @@ class ComplaintService extends BaseService {
    * Build query for fetching complaints based on user role and filters
    */
   buildComplaintsQuery(user, filters) {
-    const { category, status, hostelId, startDate, endDate, feedbackRating, satisfactionStatus } = filters;
+    const {
+      category,
+      status,
+      hostelId,
+      startDate,
+      endDate,
+      feedbackRating,
+      satisfactionStatus,
+      resolvedToday,
+      overdue,
+    } = filters;
     const query = {};
     const scopeContext = this.getComplaintScopeContext(user);
 
@@ -260,8 +270,31 @@ class ComplaintService extends BaseService {
     if (feedbackRating) query.feedbackRating = Number(feedbackRating);
     if (satisfactionStatus) query.satisfactionStatus = satisfactionStatus;
 
+    const isResolvedToday = resolvedToday === true || resolvedToday === "true";
+    if (isResolvedToday) {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const tomorrowStart = new Date(todayStart);
+      tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+      query.status = "Resolved";
+      query.resolutionDate = {
+        $gte: todayStart,
+        $lt: tomorrowStart,
+      };
+    }
+
+    const isOverdue = overdue === true || overdue === "true";
+    if (isOverdue) {
+      query.status = { $nin: ["Resolved", "Rejected"] };
+      query.createdAt = {
+        ...(query.createdAt || {}),
+        $lt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+      };
+    }
+
     if (startDate || endDate) {
-      query.createdAt = {};
+      query.createdAt = query.createdAt || {};
       if (startDate) query.createdAt.$gte = new Date(startDate);
       if (endDate) {
         const endDateObj = new Date(endDate);
