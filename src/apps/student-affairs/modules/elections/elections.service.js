@@ -1015,10 +1015,34 @@ const buildPublishedResultMap = (election) =>
             : [],
         winnerIsNota: Boolean(item.winnerIsNota),
         winnerIsTie: Boolean(item.winnerIsTie),
+        showVoteCountToStudents: item?.showVoteCountToStudents !== false,
         notes: item.notes || "",
       },
     ])
   )
+
+const sanitizeElectionResultsForStudent = (results = {}) => ({
+  ...results,
+  posts: (results?.posts || []).map((post) => {
+    const showVoteCountToStudents = post?.showVoteCountToStudents !== false
+    if (showVoteCountToStudents) {
+      return {
+        ...post,
+        showVoteCountToStudents,
+      }
+    }
+
+    return {
+      ...post,
+      showVoteCountToStudents: false,
+      totalVotes: null,
+      candidates: (post?.candidates || []).map((candidate) => ({
+        ...candidate,
+        voteCount: null,
+      })),
+    }
+  }),
+})
 
 const buildElectionResults = async (election) => {
   const verifiedNominations = await ElectionNomination.find({
@@ -1115,6 +1139,7 @@ const buildElectionResults = async (election) => {
       publishedWinnerNames: publishedWinners.map((candidate) => candidate.candidateName),
       publishedWinnerIsTie: Boolean(publishedResult?.winnerIsTie),
       publishedWinnerIsNota: Boolean(publishedResult?.winnerIsNota),
+      showVoteCountToStudents: publishedResult?.showVoteCountToStudents !== false,
       notes: publishedResult?.notes || "",
     }
   })
@@ -2195,7 +2220,8 @@ class ElectionsService {
       const stage = getCurrentStage(election)
       const electionMode = getStudentPortalMode(stage, election)
       const hasElectionVote = myVotes.some((vote) => String(vote.electionId) === String(election._id))
-      const electionResults = await buildElectionResults(election)
+      const rawElectionResults = await buildElectionResults(election)
+      const electionResults = sanitizeElectionResultsForStudent(rawElectionResults)
       const resultsByPost = new Map(
         (electionResults.posts || []).map((item) => [String(item.postId), item])
       )
@@ -3115,6 +3141,7 @@ class ElectionsService {
         winnerNominationIds: winnerNominationIds.map((winnerId) => new mongoose.Types.ObjectId(winnerId)),
         winnerIsNota,
         winnerIsTie,
+        showVoteCountToStudents: requested?.showVoteCountToStudents !== false,
         notes: String(requested.notes || "").trim(),
       })
     }

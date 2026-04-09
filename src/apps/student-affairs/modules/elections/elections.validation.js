@@ -205,6 +205,7 @@ export const publishResultsSchema = Joi.object({
       winnerNominationIds: Joi.array().items(nominationSelection).default([]),
       winnerIsNota: Joi.boolean().default(false),
       winnerIsTie: Joi.boolean().default(false),
+      showVoteCountToStudents: Joi.boolean().default(true),
       notes: Joi.string().trim().max(3000).allow("").default(""),
     })
   ).default([]),
