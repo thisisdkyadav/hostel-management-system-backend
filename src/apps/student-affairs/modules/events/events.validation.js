@@ -33,6 +33,11 @@ const categoryBudgetCapSchema = Joi.object({
   technical: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
 })
 
+const nextApproverSchema = Joi.object({
+  stage: Joi.string().valid(...POST_STUDENT_AFFAIRS_APPROVERS).required(),
+  userId: objectId.required(),
+})
+
 const billSchema = Joi.object({
   description: Joi.string().trim().max(500).required(),
   amount: Joi.number().min(0).required(),
@@ -86,6 +91,10 @@ export const approvalActionSchema = Joi.object({
     .min(1)
     .max(POST_STUDENT_AFFAIRS_APPROVERS.length)
     .unique(),
+  nextApprovers: Joi.array()
+    .items(nextApproverSchema)
+    .min(1)
+    .max(POST_STUDENT_AFFAIRS_APPROVERS.length),
 })
 
 export const submitCalendarSchema = Joi.object({

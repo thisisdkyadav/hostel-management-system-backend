@@ -5,6 +5,22 @@
 
 import mongoose from "mongoose"
 
+const APPROVER_ASSIGNMENT_SCHEMA = new mongoose.Schema(
+  {
+    stage: {
+      type: String,
+      enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      required: true,
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+  },
+  { _id: false }
+)
+
 const EventProposalSchema = new mongoose.Schema(
   {
     eventId: {
@@ -51,6 +67,15 @@ const EventProposalSchema = new mongoose.Schema(
       },
     ],
     currentChainIndex: { type: Number, default: null },
+    customApprovalAssignments: {
+      type: [APPROVER_ASSIGNMENT_SCHEMA],
+      default: [],
+    },
+    currentApproverUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     // Proposal details
     proposalText: { type: String, trim: true, required: true },
     proposalDocumentUrl: { type: String, trim: true },

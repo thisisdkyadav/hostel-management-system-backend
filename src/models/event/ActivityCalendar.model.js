@@ -5,6 +5,22 @@
 
 import mongoose from "mongoose"
 
+const APPROVER_ASSIGNMENT_SCHEMA = new mongoose.Schema(
+  {
+    stage: {
+      type: String,
+      enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      required: true,
+    },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+  },
+  { _id: false }
+)
+
 const CATEGORY_BUDGET_CAP_SCHEMA = new mongoose.Schema(
   {
     academic: { type: Number, min: 0, default: null },
@@ -74,6 +90,15 @@ const ActivityCalendarSchema = new mongoose.Schema(
       },
     ],
     currentChainIndex: { type: Number, default: null },
+    customApprovalAssignments: {
+      type: [APPROVER_ASSIGNMENT_SCHEMA],
+      default: [],
+    },
+    currentApproverUser: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
     allowProposalBeforeApproval: { type: Boolean, default: false },
     budgetCaps: {
       type: CATEGORY_BUDGET_CAP_SCHEMA,

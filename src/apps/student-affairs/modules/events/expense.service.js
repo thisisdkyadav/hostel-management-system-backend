@@ -26,6 +26,13 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
+import {
+  clearCustomApprovalAssignments,
+  getCustomAssignmentState,
+  normalizeObjectId,
+  resolvePostStudentAffairsAssignments,
+} from "./approval-assignments.utils.js"
+import { notifyAssignedApproverByEmail } from "./approval-email.utils.js"
 
 class ExpenseService extends BaseService {
   constructor() {
@@ -68,6 +75,8 @@ class ExpenseService extends BaseService {
       currentApprovalStage: APPROVAL_STAGES.STUDENT_AFFAIRS,
       customApprovalChain: [],
       currentChainIndex: null,
+      customApprovalAssignments: [],
+      currentApproverUser: null,
       rejectionReason: "",
       rejectedBy: null,
       rejectedAt: null,
@@ -114,6 +123,7 @@ class ExpenseService extends BaseService {
     expense.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
     expense.customApprovalChain = []
     expense.currentChainIndex = null
+    clearCustomApprovalAssignments(expense)
     expense.rejectionReason = ""
     expense.rejectedBy = null
     expense.rejectedAt = null
@@ -128,7 +138,7 @@ class ExpenseService extends BaseService {
   /**
    * Approve expense submission (Admin approval chain)
    */
-  async approveExpense(expenseId, comments, user, nextApprovalStages = []) {
+  async approveExpense(expenseId, comments, user, nextApprovalStages = [], nextApprovers = []) {
     if (user.role !== ROLES.ADMIN && user.role !== ROLES.SUPER_ADMIN) {
       return forbidden("Only admins can approve expenses")
     }
@@ -152,7 +162,16 @@ class ExpenseService extends BaseService {
       return badRequest("Expense is not pending approval")
     }
 
+    let notifyNextApprover = false
+    let nextApproverUserId = null
+    let nextApproverStage = null
+
     const isSuperAdmin = user.role === ROLES.SUPER_ADMIN
+    const assignedApproverUserId = normalizeObjectId(expense.currentApproverUser)
+    if (assignedApproverUserId && !isSuperAdmin && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can approve at this stage")
+    }
+
     if (!isSuperAdmin && user.subRole !== requiredSubRole) {
       return forbidden(`Only ${requiredSubRole} can approve at this stage`)
     }
@@ -164,53 +183,91 @@ class ExpenseService extends BaseService {
         expense.approvalStatus === "pending")
 
     if (isStudentAffairsReview) {
-      const chainValidation = this._validatePostStudentAffairsChain(nextApprovalStages)
-      if (!chainValidation.success) {
-        return badRequest(chainValidation.message)
+      const assignmentResolution = await resolvePostStudentAffairsAssignments(
+        nextApprovers,
+        nextApprovalStages
+      )
+      if (!assignmentResolution.success) {
+        return badRequest(assignmentResolution.message)
       }
-      const chain = chainValidation.chain
+      const chain = assignmentResolution.chain
       const firstStage = chain[0]
       const nextStatus = APPROVER_TO_STATUS[firstStage]
 
       expense.customApprovalChain = chain
+      expense.customApprovalAssignments = assignmentResolution.assignments
       expense.currentChainIndex = 0
       expense.approvalStatus = nextStatus
       expense.currentApprovalStage = firstStage
+      expense.currentApproverUser = assignmentResolution.currentApproverUser
       expense.approvedBy = null
       expense.approvedAt = null
+      notifyNextApprover = assignmentResolution.assignments.length > 0
+      nextApproverUserId = assignmentResolution.currentApproverUser
+      nextApproverStage = firstStage
     } else {
-      const chain = Array.isArray(expense.customApprovalChain)
-        ? expense.customApprovalChain
-        : []
-      const hasCustomChain = chain.length > 0
+      const assignmentState = getCustomAssignmentState(expense, effectiveStage)
+      const hasAssignedApprovers = assignmentState.hasAssignments
 
-      if (hasCustomChain) {
-        const currentIndex = chain.findIndex((stage) => stage === effectiveStage)
-        if (currentIndex === -1) {
-          return badRequest("Approval chain is misconfigured for this expense")
+      if (hasAssignedApprovers) {
+        if (assignmentState.currentIndex === -1 || !assignmentState.currentAssignment) {
+          return badRequest("Assigned approval flow is misconfigured for this expense")
         }
 
-        const nextStage = chain[currentIndex + 1]
-        if (!nextStage) {
+        const nextAssignment = assignmentState.nextAssignment
+        if (!nextAssignment) {
           expense.approvalStatus = EXPENSE_APPROVAL_STATUS.APPROVED
           expense.currentApprovalStage = null
           expense.currentChainIndex = null
+          expense.currentApproverUser = null
         } else {
-          const nextStatus = APPROVER_TO_STATUS[nextStage]
+          const nextStatus = APPROVER_TO_STATUS[nextAssignment.stage]
           expense.approvalStatus = nextStatus
-          expense.currentApprovalStage = nextStage
-          expense.currentChainIndex = currentIndex + 1
+          expense.currentApprovalStage = nextAssignment.stage
+          expense.currentChainIndex = assignmentState.currentIndex + 1
+          expense.currentApproverUser = normalizeObjectId(nextAssignment.userId)
+          notifyNextApprover = true
+          nextApproverUserId = normalizeObjectId(nextAssignment.userId)
+          nextApproverStage = nextAssignment.stage
         }
       } else {
-        // Legacy/default fallback
-        const nextStatus = STAGE_TO_STATUS[effectiveStage]
-        if (!nextStatus || nextStatus === EXPENSE_APPROVAL_STATUS.APPROVED) {
-          expense.approvalStatus = EXPENSE_APPROVAL_STATUS.APPROVED
-          expense.currentApprovalStage = null
-          expense.currentChainIndex = null
+        const chain = Array.isArray(expense.customApprovalChain)
+          ? expense.customApprovalChain
+          : []
+        const hasCustomChain = chain.length > 0
+
+        if (hasCustomChain) {
+          const currentIndex = chain.findIndex((stage) => stage === effectiveStage)
+          if (currentIndex === -1) {
+            return badRequest("Approval chain is misconfigured for this expense")
+          }
+
+          const nextStage = chain[currentIndex + 1]
+          if (!nextStage) {
+            expense.approvalStatus = EXPENSE_APPROVAL_STATUS.APPROVED
+            expense.currentApprovalStage = null
+            expense.currentChainIndex = null
+            expense.currentApproverUser = null
+          } else {
+            const nextStatus = APPROVER_TO_STATUS[nextStage]
+            expense.approvalStatus = nextStatus
+            expense.currentApprovalStage = nextStage
+            expense.currentChainIndex = currentIndex + 1
+            expense.currentApproverUser = null
+          }
         } else {
-          expense.approvalStatus = nextStatus
-          expense.currentApprovalStage = STATUS_TO_APPROVER[nextStatus] || null
+          // Legacy/default fallback
+          const nextStatus = STAGE_TO_STATUS[effectiveStage]
+          if (!nextStatus || nextStatus === EXPENSE_APPROVAL_STATUS.APPROVED) {
+            expense.approvalStatus = EXPENSE_APPROVAL_STATUS.APPROVED
+            expense.currentApprovalStage = null
+            expense.currentChainIndex = null
+            expense.currentApproverUser = null
+          } else {
+            expense.approvalStatus = nextStatus
+            expense.currentApprovalStage = STATUS_TO_APPROVER[nextStatus] || null
+            expense.currentApproverUser = null
+          }
         }
       }
     }
@@ -231,6 +288,20 @@ class ExpenseService extends BaseService {
       performedBy: user._id,
       comments: comments?.trim() || "",
     })
+
+    if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
+      const eventForNotification = await GymkhanaEvent.findById(expense.eventId).select("title")
+      await notifyAssignedApproverByEmail({
+        entityType: "EventExpense",
+        entityId: expense._id,
+        entityLabel: eventForNotification?.title || "Gymkhana Event Bills",
+        nextApproverUserId,
+        nextApproverStage,
+        approvedBy: user.name,
+        approvedByStage: effectiveStage,
+        comments,
+      })
+    }
 
     if (expense.approvalStatus === EXPENSE_APPROVAL_STATUS.APPROVED) {
       await GymkhanaEvent.findByIdAndUpdate(expense.eventId, {
@@ -274,6 +345,11 @@ class ExpenseService extends BaseService {
     }
 
     const isSuperAdmin = user.role === ROLES.SUPER_ADMIN
+    const assignedApproverUserId = normalizeObjectId(expense.currentApproverUser)
+    if (assignedApproverUserId && !isSuperAdmin && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can reject at this stage")
+    }
+
     if (!isSuperAdmin && user.subRole !== requiredSubRole) {
       return forbidden(`Only ${requiredSubRole} can reject at this stage`)
     }
@@ -284,6 +360,7 @@ class ExpenseService extends BaseService {
     expense.currentApprovalStage = null
     expense.customApprovalChain = []
     expense.currentChainIndex = null
+    clearCustomApprovalAssignments(expense)
     expense.rejectionReason = reason
     expense.rejectedBy = user._id
     expense.rejectedAt = new Date()
@@ -370,6 +447,20 @@ class ExpenseService extends BaseService {
         } else {
           filter.approvalStatus = assignedStatus
         }
+      }
+
+      const shouldApplyAssignedApproverFilter =
+        assignedStatus &&
+        (!query.status ||
+          query.status === assignedStatus ||
+          (assignedStatus === EXPENSE_APPROVAL_STATUS.PENDING_STUDENT_AFFAIRS && query.status === "pending"))
+
+      if (shouldApplyAssignedApproverFilter) {
+        filter.$or = [
+          { currentApproverUser: user._id },
+          { currentApproverUser: null },
+          { currentApproverUser: { $exists: false } },
+        ]
       }
     }
 

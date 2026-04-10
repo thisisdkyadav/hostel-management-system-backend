@@ -26,6 +26,13 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES } from "../../../../core/constants/roles.constants.js"
+import {
+  clearCustomApprovalAssignments,
+  getCustomAssignmentState,
+  normalizeObjectId,
+  resolvePostStudentAffairsAssignments,
+} from "./approval-assignments.utils.js"
+import { notifyAssignedApproverByEmail } from "./approval-email.utils.js"
 
 class ProposalService extends BaseService {
   constructor() {
@@ -113,6 +120,8 @@ class ProposalService extends BaseService {
         : APPROVAL_STAGES.PRESIDENT_GYMKHANA,
       customApprovalChain: [],
       currentChainIndex: null,
+      customApprovalAssignments: [],
+      currentApproverUser: null,
     })
 
     // Update event
@@ -190,6 +199,7 @@ class ProposalService extends BaseService {
       proposal.currentApprovalStage = APPROVAL_STAGES.PRESIDENT_GYMKHANA
       proposal.customApprovalChain = []
       proposal.currentChainIndex = null
+      clearCustomApprovalAssignments(proposal)
       proposal.revisionCount += 1
       proposal.rejectionReason = null
       proposal.rejectedBy = null
@@ -203,6 +213,7 @@ class ProposalService extends BaseService {
         : APPROVAL_STAGES.PRESIDENT_GYMKHANA
       proposal.customApprovalChain = []
       proposal.currentChainIndex = null
+      clearCustomApprovalAssignments(proposal)
       if (previousStatus === PROPOSAL_STATUS.REVISION_REQUESTED || previousStatus === PROPOSAL_STATUS.REJECTED) {
         proposal.revisionCount += 1
       }
@@ -239,15 +250,24 @@ class ProposalService extends BaseService {
   /**
    * Approve proposal
    */
-  async approveProposal(proposalId, comments, user, nextApprovalStages = []) {
+  async approveProposal(proposalId, comments, user, nextApprovalStages = [], nextApprovers = []) {
     const proposal = await this.model.findById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
 
+    let notifyNextApprover = false
+    let nextApproverUserId = null
+    let nextApproverStage = null
+
     const requiredSubRole = STATUS_TO_APPROVER[proposal.status]
     if (!requiredSubRole) {
       return badRequest("Proposal is not pending approval")
+    }
+
+    const assignedApproverUserId = normalizeObjectId(proposal.currentApproverUser)
+    if (assignedApproverUserId && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can approve at this stage")
     }
 
     if (user.subRole !== requiredSubRole) {
@@ -261,49 +281,86 @@ class ProposalService extends BaseService {
         proposal.status === ProposalService.LEGACY_PENDING_STATUS)
 
     if (isStudentAffairsReview) {
-      const chainValidation = this._validatePostStudentAffairsChain(nextApprovalStages)
-      if (!chainValidation.success) {
-        return badRequest(chainValidation.message)
+      const assignmentResolution = await resolvePostStudentAffairsAssignments(
+        nextApprovers,
+        nextApprovalStages
+      )
+      if (!assignmentResolution.success) {
+        return badRequest(assignmentResolution.message)
       }
-      const chain = chainValidation.chain
+      const chain = assignmentResolution.chain
       const firstStage = chain[0]
       const nextStatus = APPROVER_TO_STATUS[firstStage]
 
       proposal.customApprovalChain = chain
+      proposal.customApprovalAssignments = assignmentResolution.assignments
       proposal.currentChainIndex = 0
       proposal.status = nextStatus
       proposal.currentApprovalStage = firstStage
+      proposal.currentApproverUser = assignmentResolution.currentApproverUser
+      notifyNextApprover = assignmentResolution.assignments.length > 0
+      nextApproverUserId = assignmentResolution.currentApproverUser
+      nextApproverStage = firstStage
     } else {
-      const chain = Array.isArray(proposal.customApprovalChain)
-        ? proposal.customApprovalChain
-        : []
-      const hasCustomChain = chain.length > 0
+      const assignmentState = getCustomAssignmentState(proposal, currentStage)
+      const hasAssignedApprovers = assignmentState.hasAssignments
 
-      if (hasCustomChain) {
-        const currentIndex = chain.findIndex((stage) => stage === currentStage)
-        if (currentIndex === -1) {
-          return badRequest("Approval chain is misconfigured for this proposal")
+      if (hasAssignedApprovers) {
+        if (assignmentState.currentIndex === -1 || !assignmentState.currentAssignment) {
+          return badRequest("Assigned approval flow is misconfigured for this proposal")
         }
 
-        const nextStage = chain[currentIndex + 1]
-        if (!nextStage) {
+        const nextAssignment = assignmentState.nextAssignment
+        if (!nextAssignment) {
           proposal.status = PROPOSAL_STATUS.APPROVED
           proposal.currentApprovalStage = null
           proposal.currentChainIndex = null
+          proposal.currentApproverUser = null
         } else {
-          const nextStatus = APPROVER_TO_STATUS[nextStage]
+          const nextStatus = APPROVER_TO_STATUS[nextAssignment.stage]
           proposal.status = nextStatus
-          proposal.currentApprovalStage = nextStage
-          proposal.currentChainIndex = currentIndex + 1
+          proposal.currentApprovalStage = nextAssignment.stage
+          proposal.currentChainIndex = assignmentState.currentIndex + 1
+          proposal.currentApproverUser = normalizeObjectId(nextAssignment.userId)
+          notifyNextApprover = true
+          nextApproverUserId = normalizeObjectId(nextAssignment.userId)
+          nextApproverStage = nextAssignment.stage
         }
       } else {
-        // Legacy/default flow fallback
-        const nextStatus = STAGE_TO_STATUS[user.subRole]
-        proposal.status = nextStatus
-        if (nextStatus === PROPOSAL_STATUS.APPROVED) {
-          proposal.currentApprovalStage = null
+        const chain = Array.isArray(proposal.customApprovalChain)
+          ? proposal.customApprovalChain
+          : []
+        const hasCustomChain = chain.length > 0
+
+        if (hasCustomChain) {
+          const currentIndex = chain.findIndex((stage) => stage === currentStage)
+          if (currentIndex === -1) {
+            return badRequest("Approval chain is misconfigured for this proposal")
+          }
+
+          const nextStage = chain[currentIndex + 1]
+          if (!nextStage) {
+            proposal.status = PROPOSAL_STATUS.APPROVED
+            proposal.currentApprovalStage = null
+            proposal.currentChainIndex = null
+            proposal.currentApproverUser = null
+          } else {
+            const nextStatus = APPROVER_TO_STATUS[nextStage]
+            proposal.status = nextStatus
+            proposal.currentApprovalStage = nextStage
+            proposal.currentChainIndex = currentIndex + 1
+            proposal.currentApproverUser = null
+          }
         } else {
-          proposal.currentApprovalStage = STATUS_TO_APPROVER[nextStatus]
+          // Legacy/default flow fallback
+          const nextStatus = STAGE_TO_STATUS[user.subRole]
+          proposal.status = nextStatus
+          proposal.currentApproverUser = null
+          if (nextStatus === PROPOSAL_STATUS.APPROVED) {
+            proposal.currentApprovalStage = null
+          } else {
+            proposal.currentApprovalStage = STATUS_TO_APPROVER[nextStatus]
+          }
         }
       }
     }
@@ -312,6 +369,7 @@ class ProposalService extends BaseService {
       proposal.approvedAt = new Date()
       proposal.currentApprovalStage = null
       proposal.currentChainIndex = null
+      proposal.currentApproverUser = null
 
       // Update event status
       await GymkhanaEvent.findByIdAndUpdate(proposal.eventId, {
@@ -331,6 +389,20 @@ class ProposalService extends BaseService {
       comments,
     })
 
+    if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
+      const eventForNotification = await GymkhanaEvent.findById(proposal.eventId).select("title")
+      await notifyAssignedApproverByEmail({
+        entityType: "EventProposal",
+        entityId: proposal._id,
+        entityLabel: eventForNotification?.title || "Gymkhana Event Proposal",
+        nextApproverUserId,
+        nextApproverStage,
+        approvedBy: user.name,
+        approvedByStage: currentStage,
+        comments,
+      })
+    }
+
     return success({ proposal }, 200, "Proposal approved")
   }
 
@@ -348,6 +420,11 @@ class ProposalService extends BaseService {
       return badRequest("Proposal is not pending approval")
     }
 
+    const assignedApproverUserId = normalizeObjectId(proposal.currentApproverUser)
+    if (assignedApproverUserId && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can reject at this stage")
+    }
+
     if (user.subRole !== requiredSubRole) {
       return forbidden(`Only ${requiredSubRole} can reject at this stage`)
     }
@@ -361,6 +438,7 @@ class ProposalService extends BaseService {
     proposal.currentApprovalStage = null
     proposal.customApprovalChain = []
     proposal.currentChainIndex = null
+    clearCustomApprovalAssignments(proposal)
     await proposal.save()
 
     // Log rejection
@@ -390,6 +468,11 @@ class ProposalService extends BaseService {
       return badRequest("Proposal is not pending approval")
     }
 
+    const assignedApproverUserId = normalizeObjectId(proposal.currentApproverUser)
+    if (assignedApproverUserId && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can request revision at this stage")
+    }
+
     if (user.subRole !== requiredSubRole) {
       return forbidden(`Only ${requiredSubRole} can request revision at this stage`)
     }
@@ -407,6 +490,7 @@ class ProposalService extends BaseService {
       : APPROVAL_STAGES.GS_GYMKHANA
     proposal.customApprovalChain = []
     proposal.currentChainIndex = null
+    clearCustomApprovalAssignments(proposal)
     await proposal.save()
 
     // Log revision request
@@ -514,7 +598,14 @@ class ProposalService extends BaseService {
         ? { status: { $in: [ProposalService.LEGACY_PENDING_STATUS, assignedStatus] } }
         : { status: assignedStatus }
 
-    const proposals = await this.model.find(filter)
+    const proposals = await this.model.find({
+      ...filter,
+      $or: [
+        { currentApproverUser: user._id },
+        { currentApproverUser: null },
+        { currentApproverUser: { $exists: false } },
+      ],
+    })
       .populate("eventId")
       .populate("submittedBy", "name email")
       .sort({ createdAt: -1 })

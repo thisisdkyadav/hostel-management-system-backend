@@ -150,7 +150,8 @@ export const approveCalendar = asyncHandler(async (req, res) => {
     req.params.id,
     req.body.comments,
     req.user,
-    req.body.nextApprovalStages
+    req.body.nextApprovalStages,
+    req.body.nextApprovers
   )
   sendRawResponse(res, result)
 })
@@ -268,7 +269,8 @@ export const approveProposal = asyncHandler(async (req, res) => {
     req.params.id,
     req.body.comments,
     req.user,
-    req.body.nextApprovalStages
+    req.body.nextApprovalStages,
+    req.body.nextApprovers
   )
   sendRawResponse(res, result)
 })
@@ -348,7 +350,8 @@ export const approveExpense = asyncHandler(async (req, res) => {
     req.params.id,
     req.body.comments,
     req.user,
-    req.body.nextApprovalStages
+    req.body.nextApprovalStages,
+    req.body.nextApprovers
   )
   sendRawResponse(res, result)
 })
@@ -434,7 +437,8 @@ export const approveMegaOccurrenceProposal = asyncHandler(async (req, res) => {
     req.params.occurrenceId,
     req.body.comments,
     req.user,
-    req.body.nextApprovalStages
+    req.body.nextApprovalStages,
+    req.body.nextApprovers
   )
   sendRawResponse(res, result)
 })
@@ -490,7 +494,8 @@ export const approveMegaOccurrenceExpense = asyncHandler(async (req, res) => {
     req.params.occurrenceId,
     req.body.comments,
     req.user,
-    req.body.nextApprovalStages
+    req.body.nextApprovalStages,
+    req.body.nextApprovers
   )
   sendRawResponse(res, result)
 })

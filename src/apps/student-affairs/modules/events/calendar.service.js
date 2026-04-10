@@ -27,6 +27,13 @@ import {
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
 import { normalizeCategoryBudgetCaps, validateCategoryBudgetCaps } from "./budget-caps.utils.js"
+import {
+  clearCustomApprovalAssignments,
+  getCustomAssignmentState,
+  normalizeObjectId,
+  resolvePostStudentAffairsAssignments,
+} from "./approval-assignments.utils.js"
+import { notifyAssignedApproverByEmail } from "./approval-email.utils.js"
 
 class CalendarService extends BaseService {
   constructor() {
@@ -65,6 +72,10 @@ class CalendarService extends BaseService {
       budgetCaps: normalizedBudgetCaps,
       createdBy: user._id,
       status: CALENDAR_STATUS.DRAFT,
+      customApprovalChain: [],
+      currentChainIndex: null,
+      customApprovalAssignments: [],
+      currentApproverUser: null,
       isLocked: false,
     })
 
@@ -181,6 +192,7 @@ class CalendarService extends BaseService {
       calendar.currentApprovalStage = null
       calendar.customApprovalChain = []
       calendar.currentChainIndex = null
+      clearCustomApprovalAssignments(calendar)
       calendar.approvedAt = null
       calendar.rejectionReason = null
       calendar.rejectedBy = null
@@ -328,6 +340,7 @@ class CalendarService extends BaseService {
     calendar.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
     calendar.customApprovalChain = []
     calendar.currentChainIndex = null
+    clearCustomApprovalAssignments(calendar)
     calendar.approvedAt = null
     calendar.rejectionReason = null
     calendar.rejectedBy = null
@@ -363,16 +376,25 @@ class CalendarService extends BaseService {
   /**
    * Approve calendar (by appropriate stage approver)
    */
-  async approveCalendar(calendarId, comments, user, nextApprovalStages = []) {
+  async approveCalendar(calendarId, comments, user, nextApprovalStages = [], nextApprovers = []) {
     const calendar = await this.model.findById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
 
+    let notifyNextApprover = false
+    let nextApproverUserId = null
+    let nextApproverStage = null
+
     // Check if user can approve at current stage
     const requiredSubRole = STATUS_TO_APPROVER[calendar.status]
     if (!requiredSubRole) {
       return badRequest("Calendar is not pending approval")
+    }
+
+    const assignedApproverUserId = normalizeObjectId(calendar.currentApproverUser)
+    if (assignedApproverUserId && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can approve at this stage")
     }
 
     if (user.subRole !== requiredSubRole) {
@@ -385,51 +407,88 @@ class CalendarService extends BaseService {
       calendar.status === CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
 
     if (isStudentAffairsReview) {
-      const chainValidation = this._validatePostStudentAffairsChain(nextApprovalStages)
-      if (!chainValidation.success) {
-        return badRequest(chainValidation.message)
+      const assignmentResolution = await resolvePostStudentAffairsAssignments(
+        nextApprovers,
+        nextApprovalStages
+      )
+      if (!assignmentResolution.success) {
+        return badRequest(assignmentResolution.message)
       }
-      const chain = chainValidation.chain
+      const chain = assignmentResolution.chain
       const firstStage = chain[0]
       const nextStatus = APPROVER_TO_STATUS[firstStage]
 
       calendar.customApprovalChain = chain
+      calendar.customApprovalAssignments = assignmentResolution.assignments
       calendar.currentChainIndex = 0
       calendar.status = nextStatus
       calendar.currentApprovalStage = firstStage
+      calendar.currentApproverUser = assignmentResolution.currentApproverUser
+      notifyNextApprover = assignmentResolution.assignments.length > 0
+      nextApproverUserId = assignmentResolution.currentApproverUser
+      nextApproverStage = firstStage
     } else {
-      const chain = Array.isArray(calendar.customApprovalChain)
-        ? calendar.customApprovalChain
-        : []
-      const hasCustomChain = chain.length > 0
+      const assignmentState = getCustomAssignmentState(calendar, currentStage)
+      const hasAssignedApprovers = assignmentState.hasAssignments
 
-      if (hasCustomChain) {
-        const currentIndex = chain.findIndex((stage) => stage === currentStage)
-        if (currentIndex === -1) {
-          return badRequest("Approval chain is misconfigured for this calendar")
+      if (hasAssignedApprovers) {
+        if (assignmentState.currentIndex === -1 || !assignmentState.currentAssignment) {
+          return badRequest("Assigned approval flow is misconfigured for this calendar")
         }
 
-        const nextStage = chain[currentIndex + 1]
-        if (!nextStage) {
+        const nextAssignment = assignmentState.nextAssignment
+        if (!nextAssignment) {
           calendar.status = CALENDAR_STATUS.APPROVED
           calendar.currentApprovalStage = null
           calendar.currentChainIndex = null
+          calendar.currentApproverUser = null
         } else {
-          const nextStatus = APPROVER_TO_STATUS[nextStage]
+          const nextStatus = APPROVER_TO_STATUS[nextAssignment.stage]
           calendar.status = nextStatus
-          calendar.currentApprovalStage = nextStage
-          calendar.currentChainIndex = currentIndex + 1
+          calendar.currentApprovalStage = nextAssignment.stage
+          calendar.currentChainIndex = assignmentState.currentIndex + 1
+          calendar.currentApproverUser = normalizeObjectId(nextAssignment.userId)
+          notifyNextApprover = true
+          nextApproverUserId = normalizeObjectId(nextAssignment.userId)
+          nextApproverStage = nextAssignment.stage
         }
       } else {
-        // Legacy/default flow fallback
-        const nextStatus = STAGE_TO_STATUS[user.subRole]
-        calendar.status = nextStatus
+        const chain = Array.isArray(calendar.customApprovalChain)
+          ? calendar.customApprovalChain
+          : []
+        const hasCustomChain = chain.length > 0
 
-        if (nextStatus === CALENDAR_STATUS.APPROVED) {
-          calendar.currentApprovalStage = null
+        if (hasCustomChain) {
+          const currentIndex = chain.findIndex((stage) => stage === currentStage)
+          if (currentIndex === -1) {
+            return badRequest("Approval chain is misconfigured for this calendar")
+          }
+
+          const nextStage = chain[currentIndex + 1]
+          if (!nextStage) {
+            calendar.status = CALENDAR_STATUS.APPROVED
+            calendar.currentApprovalStage = null
+            calendar.currentChainIndex = null
+            calendar.currentApproverUser = null
+          } else {
+            const nextStatus = APPROVER_TO_STATUS[nextStage]
+            calendar.status = nextStatus
+            calendar.currentApprovalStage = nextStage
+            calendar.currentChainIndex = currentIndex + 1
+            calendar.currentApproverUser = null
+          }
         } else {
-          const nextApprover = STATUS_TO_APPROVER[nextStatus]
-          calendar.currentApprovalStage = nextApprover
+          // Legacy/default flow fallback
+          const nextStatus = STAGE_TO_STATUS[user.subRole]
+          calendar.status = nextStatus
+          calendar.currentApproverUser = null
+
+          if (nextStatus === CALENDAR_STATUS.APPROVED) {
+            calendar.currentApprovalStage = null
+          } else {
+            const nextApprover = STATUS_TO_APPROVER[nextStatus]
+            calendar.currentApprovalStage = nextApprover
+          }
         }
       }
     }
@@ -438,6 +497,7 @@ class CalendarService extends BaseService {
       calendar.approvedAt = new Date()
       calendar.currentApprovalStage = null
       calendar.currentChainIndex = null
+      calendar.currentApproverUser = null
       calendar.isLocked = true
       calendar.lockedBy = user._id
       calendar.lockedAt = new Date()
@@ -462,6 +522,19 @@ class CalendarService extends BaseService {
       comments,
     })
 
+    if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
+      await notifyAssignedApproverByEmail({
+        entityType: "ActivityCalendar",
+        entityId: calendar._id,
+        entityLabel: calendar.academicYear,
+        nextApproverUserId,
+        nextApproverStage,
+        approvedBy: user.name,
+        approvedByStage: currentStage,
+        comments,
+      })
+    }
+
     return success({ calendar }, 200, "Calendar approved successfully")
   }
 
@@ -480,6 +553,11 @@ class CalendarService extends BaseService {
       return badRequest("Calendar is not pending approval")
     }
 
+    const assignedApproverUserId = normalizeObjectId(calendar.currentApproverUser)
+    if (assignedApproverUserId && normalizeObjectId(user._id) !== assignedApproverUserId) {
+      return forbidden("Only the assigned approver can reject at this stage")
+    }
+
     if (user.subRole !== requiredSubRole) {
       return forbidden(`Only ${requiredSubRole} can reject at this stage`)
     }
@@ -493,6 +571,7 @@ class CalendarService extends BaseService {
     calendar.currentApprovalStage = null
     calendar.customApprovalChain = []
     calendar.currentChainIndex = null
+    clearCustomApprovalAssignments(calendar)
     await calendar.save()
 
     // Log the rejection
