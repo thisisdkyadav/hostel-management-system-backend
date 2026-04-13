@@ -22,11 +22,15 @@ import {
   STATUS_TO_APPROVER,
   APPROVER_TO_STATUS,
   APPROVAL_ACTIONS,
-  EVENT_CATEGORY,
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
 import { normalizeCategoryBudgetCaps, validateCategoryBudgetCaps } from "./budget-caps.utils.js"
+import {
+  getDefaultCategoryDefinitions,
+  getGlobalGymkhanaCategoryDefinitions,
+  validateEventCategories,
+} from "./category-definitions.utils.js"
 import {
   clearCustomApprovalAssignments,
   getCustomAssignmentState,
@@ -59,8 +63,24 @@ class CalendarService extends BaseService {
       return badRequest(`Activity calendar for ${data.academicYear} already exists`)
     }
 
-    const normalizedBudgetCaps = normalizeCategoryBudgetCaps(data.budgetCaps)
-    const budgetCapValidation = validateCategoryBudgetCaps(data.events || [], normalizedBudgetCaps)
+    const normalizedCategoryDefinitions = await getGlobalGymkhanaCategoryDefinitions({
+      events: data.events,
+      budgetCaps: data.budgetCaps,
+    })
+    const categoryValidation = validateEventCategories(data.events || [], normalizedCategoryDefinitions)
+    if (!categoryValidation.success) {
+      return badRequest(categoryValidation.message)
+    }
+
+    const normalizedBudgetCaps = normalizeCategoryBudgetCaps(
+      data.budgetCaps,
+      normalizedCategoryDefinitions
+    )
+    const budgetCapValidation = validateCategoryBudgetCaps(
+      data.events || [],
+      normalizedBudgetCaps,
+      normalizedCategoryDefinitions
+    )
     if (!budgetCapValidation.success) {
       return badRequest(budgetCapValidation.message)
     }
@@ -69,6 +89,7 @@ class CalendarService extends BaseService {
       academicYear: data.academicYear,
       events: data.events || [],
       allowProposalBeforeApproval: Boolean(data.allowProposalBeforeApproval),
+      categoryDefinitions: [],
       budgetCaps: normalizedBudgetCaps,
       createdBy: user._id,
       status: CALENDAR_STATUS.DRAFT,
@@ -179,7 +200,19 @@ class CalendarService extends BaseService {
     }
 
     if (data.events) {
-      const budgetCapValidation = validateCategoryBudgetCaps(data.events, calendar.budgetCaps)
+      const categoryDefinitions = await getGlobalGymkhanaCategoryDefinitions({
+        calendar,
+      })
+      const categoryValidation = validateEventCategories(data.events, categoryDefinitions)
+      if (!categoryValidation.success) {
+        return badRequest(categoryValidation.message)
+      }
+
+      const budgetCapValidation = validateCategoryBudgetCaps(
+        data.events,
+        calendar.budgetCaps,
+        categoryDefinitions
+      )
       if (!budgetCapValidation.success) {
         return badRequest(budgetCapValidation.message)
       }
@@ -223,9 +256,17 @@ class CalendarService extends BaseService {
       typeof data.allowProposalBeforeApproval === "boolean"
         ? data.allowProposalBeforeApproval
         : previousAllowProposalBeforeApproval
-    const previousBudgetCaps = normalizeCategoryBudgetCaps(calendar.budgetCaps)
+    const nextCategoryDefinitions = await getGlobalGymkhanaCategoryDefinitions({
+      calendar,
+      budgetCaps: data.budgetCaps === undefined ? calendar.budgetCaps : data.budgetCaps,
+    })
+    const previousBudgetCaps = normalizeCategoryBudgetCaps(
+      calendar.budgetCaps,
+      nextCategoryDefinitions
+    )
     const nextBudgetCaps = normalizeCategoryBudgetCaps(
-      data.budgetCaps === undefined ? calendar.budgetCaps : data.budgetCaps
+      data.budgetCaps === undefined ? calendar.budgetCaps : data.budgetCaps,
+      nextCategoryDefinitions
     )
     const allowProposalSettingChanged =
       nextAllowProposalBeforeApproval !== previousAllowProposalBeforeApproval
@@ -236,7 +277,16 @@ class CalendarService extends BaseService {
       return success({ calendar }, 200, "Calendar settings updated successfully")
     }
 
-    const budgetCapValidation = validateCategoryBudgetCaps(calendar.events || [], nextBudgetCaps)
+    const categoryValidation = validateEventCategories(calendar.events || [], nextCategoryDefinitions)
+    if (!categoryValidation.success) {
+      return badRequest(categoryValidation.message)
+    }
+
+    const budgetCapValidation = validateCategoryBudgetCaps(
+      calendar.events || [],
+      nextBudgetCaps,
+      nextCategoryDefinitions
+    )
     if (!budgetCapValidation.success) {
       return badRequest(`Cannot update calendar settings. ${budgetCapValidation.message}`)
     }
@@ -604,7 +654,7 @@ class CalendarService extends BaseService {
       return notFound("Activity calendar")
     }
 
-    return success({ calendar })
+    return success({ calendar: await this._attachResolvedCategoryDefinitions(calendar) })
   }
 
   /**
@@ -619,7 +669,7 @@ class CalendarService extends BaseService {
       return notFound("Activity calendar")
     }
 
-    return success({ calendar })
+    return success({ calendar: await this._attachResolvedCategoryDefinitions(calendar) })
   }
 
   /**
@@ -670,7 +720,7 @@ class CalendarService extends BaseService {
 
     const candidate = {
       title: eventData.title || "Untitled event",
-      category: eventData.category || EVENT_CATEGORY.ACADEMIC,
+      category: eventData.category || getDefaultCategoryDefinitions()[0].key,
       startDate: eventData.startDate,
       endDate: eventData.endDate,
     }
@@ -763,6 +813,22 @@ class CalendarService extends BaseService {
     }
   }
 
+  async _attachResolvedCategoryDefinitions(calendar) {
+    if (!calendar) return calendar
+
+    const resolvedCategoryDefinitions = await getGlobalGymkhanaCategoryDefinitions({
+      calendar,
+    })
+    const serializedCalendar =
+      typeof calendar.toObject === "function" ? calendar.toObject() : { ...calendar }
+
+    return {
+      ...serializedCalendar,
+      categoryDefinitions: resolvedCategoryDefinitions,
+      budgetCaps: normalizeCategoryBudgetCaps(serializedCalendar.budgetCaps, resolvedCategoryDefinitions),
+    }
+  }
+
   /**
    * Find event date overlaps in the same calendar.
    */
@@ -834,7 +900,7 @@ class CalendarService extends BaseService {
     return {
       eventId: event?._id || null,
       title: event?.title || "Untitled event",
-      category: event?.category || EVENT_CATEGORY.ACADEMIC,
+      category: event?.category || getDefaultCategoryDefinitions()[0].key,
       startDate: event?.startDate || event?.scheduledStartDate || event?.tentativeDate || event?.scheduledDate,
       endDate: event?.endDate || event?.scheduledEndDate || event?.tentativeDate || event?.scheduledDate,
       estimatedBudget: event?.estimatedBudget || 0,
@@ -846,7 +912,7 @@ class CalendarService extends BaseService {
     const endDate = event?.endDate || event?.scheduledEndDate
     return [
       event?.title || "",
-      event?.category || EVENT_CATEGORY.ACADEMIC,
+      event?.category || getDefaultCategoryDefinitions()[0].key,
       this._normalizeSyncDate(startDate),
       this._normalizeSyncDate(endDate),
     ].join("|")

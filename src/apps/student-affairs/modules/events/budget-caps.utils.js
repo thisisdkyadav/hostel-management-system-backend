@@ -1,18 +1,15 @@
-import { EVENT_CATEGORY } from "./events.constants.js"
-
-export const CATEGORY_BUDGET_CAP_KEYS = Object.values(EVENT_CATEGORY)
-
-export const CATEGORY_BUDGET_LABELS = {
-  [EVENT_CATEGORY.ACADEMIC]: "Academic",
-  [EVENT_CATEGORY.CULTURAL]: "Cultural",
-  [EVENT_CATEGORY.SPORTS]: "Sports",
-  [EVENT_CATEGORY.TECHNICAL]: "Technical",
-}
+import {
+  getCategoryLabelMap,
+  normalizeCalendarCategoryDefinitions,
+} from "./category-definitions.utils.js"
 
 const formatCurrency = (value) => `Rs ${Number(value || 0).toLocaleString("en-IN")}`
 
-export const normalizeCategoryBudgetCaps = (budgetCaps = {}) =>
-  CATEGORY_BUDGET_CAP_KEYS.reduce((accumulator, category) => {
+export const normalizeCategoryBudgetCaps = (budgetCaps = {}, categoryDefinitions = []) => {
+  const definitions = normalizeCalendarCategoryDefinitions(categoryDefinitions, { budgetCaps })
+
+  return definitions.reduce((accumulator, definition) => {
+    const category = definition.key
     const rawValue = budgetCaps?.[category]
 
     if (rawValue === "" || rawValue === null || rawValue === undefined) {
@@ -24,27 +21,34 @@ export const normalizeCategoryBudgetCaps = (budgetCaps = {}) =>
     accumulator[category] = Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null
     return accumulator
   }, {})
+}
 
-export const validateCategoryBudgetCaps = (events = [], budgetCaps = {}) => {
-  const normalizedBudgetCaps = normalizeCategoryBudgetCaps(budgetCaps)
-  const totals = CATEGORY_BUDGET_CAP_KEYS.reduce((accumulator, category) => {
-    accumulator[category] = 0
+export const validateCategoryBudgetCaps = (events = [], budgetCaps = {}, categoryDefinitions = []) => {
+  const definitions = normalizeCalendarCategoryDefinitions(categoryDefinitions, {
+    events,
+    budgetCaps,
+  })
+  const normalizedBudgetCaps = normalizeCategoryBudgetCaps(budgetCaps, definitions)
+  const labels = getCategoryLabelMap(definitions)
+  const totals = definitions.reduce((accumulator, definition) => {
+    accumulator[definition.key] = 0
     return accumulator
   }, {})
 
   for (const event of events || []) {
     const category = event?.category
-    if (!CATEGORY_BUDGET_CAP_KEYS.includes(category)) continue
+    if (!category || totals[category] === undefined) continue
     totals[category] += Number(event?.estimatedBudget || 0)
   }
 
-  for (const category of CATEGORY_BUDGET_CAP_KEYS) {
+  for (const definition of definitions) {
+    const category = definition.key
     const cap = normalizedBudgetCaps[category]
     if (cap === null || cap === undefined) continue
 
     const total = totals[category]
     if (total > cap) {
-      const label = CATEGORY_BUDGET_LABELS[category] || category
+      const label = labels[category] || category
       return {
         success: false,
         category,

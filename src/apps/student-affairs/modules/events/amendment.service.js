@@ -18,6 +18,10 @@ import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import { AMENDMENT_STATUS, CALENDAR_STATUS, APPROVAL_ACTIONS, APPROVAL_STAGES } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
 import { validateCategoryBudgetCaps } from "./budget-caps.utils.js"
+import {
+  getGlobalGymkhanaCategoryDefinitions,
+  validateEventCategories,
+} from "./category-definitions.utils.js"
 
 class AmendmentService extends BaseService {
   constructor() {
@@ -89,6 +93,10 @@ class AmendmentService extends BaseService {
       return notFound("Activity calendar")
     }
 
+    const categoryDefinitions = await getGlobalGymkhanaCategoryDefinitions({
+      calendar,
+    })
+
     let linkedEvent = null
 
     if (amendment.type === "edit") {
@@ -117,7 +125,16 @@ class AmendmentService extends BaseService {
         description: amendment.proposedChanges.description,
       }
 
-      const budgetCapValidation = validateCategoryBudgetCaps(updatedEvents, calendar.budgetCaps)
+      const categoryValidation = validateEventCategories(updatedEvents, categoryDefinitions)
+      if (!categoryValidation.success) {
+        return badRequest(categoryValidation.message)
+      }
+
+      const budgetCapValidation = validateCategoryBudgetCaps(
+        updatedEvents,
+        calendar.budgetCaps,
+        categoryDefinitions
+      )
       if (!budgetCapValidation.success) {
         return badRequest(budgetCapValidation.message)
       }
@@ -135,7 +152,16 @@ class AmendmentService extends BaseService {
       await linkedEvent.save()
     } else if (amendment.type === "new_event") {
       const updatedEvents = [...(calendar.events || []).map((event) => event.toObject()), amendment.proposedChanges]
-      const budgetCapValidation = validateCategoryBudgetCaps(updatedEvents, calendar.budgetCaps)
+      const categoryValidation = validateEventCategories(updatedEvents, categoryDefinitions)
+      if (!categoryValidation.success) {
+        return badRequest(categoryValidation.message)
+      }
+
+      const budgetCapValidation = validateCategoryBudgetCaps(
+        updatedEvents,
+        calendar.budgetCaps,
+        categoryDefinitions
+      )
       if (!budgetCapValidation.success) {
         return badRequest(budgetCapValidation.message)
       }

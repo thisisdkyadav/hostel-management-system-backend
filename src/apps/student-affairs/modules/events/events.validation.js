@@ -5,7 +5,7 @@
 
 import Joi from "joi"
 import { objectId } from "../../../../validations/common.validation.js"
-import { EVENT_CATEGORY, POST_STUDENT_AFFAIRS_APPROVERS } from "./events.constants.js"
+import { POST_STUDENT_AFFAIRS_APPROVERS } from "./events.constants.js"
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // COMMON SCHEMAS
@@ -14,7 +14,7 @@ import { EVENT_CATEGORY, POST_STUDENT_AFFAIRS_APPROVERS } from "./events.constan
 const calendarEventSchema = Joi.object({
   _id: objectId,
   title: Joi.string().trim().min(2).max(200).required(),
-  category: Joi.string().valid(...Object.values(EVENT_CATEGORY)).required(),
+  category: Joi.string().trim().min(1).max(100).required(),
   startDate: Joi.date().required(),
   endDate: Joi.date().required(),
   estimatedBudget: Joi.number().min(0).required(),
@@ -26,12 +26,9 @@ const calendarEventSchema = Joi.object({
   return value
 })
 
-const categoryBudgetCapSchema = Joi.object({
-  academic: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
-  cultural: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
-  sports: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
-  technical: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
-})
+const categoryBudgetCapSchema = Joi.object()
+  .pattern(Joi.string().trim().min(1).max(100), Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)))
+  .default({})
 
 const nextApproverSchema = Joi.object({
   stage: Joi.string().valid(...POST_STUDENT_AFFAIRS_APPROVERS).required(),
@@ -64,7 +61,7 @@ export const createCalendarSchema = Joi.object({
     .messages({ "string.pattern.base": "Academic year must be in format YYYY-YY (e.g., 2025-26)" }),
   events: Joi.array().items(calendarEventSchema).default([]),
   allowProposalBeforeApproval: Joi.boolean().default(false),
-  budgetCaps: categoryBudgetCapSchema.default({}),
+  budgetCaps: categoryBudgetCapSchema,
 })
 
 export const updateCalendarSchema = Joi.object({
@@ -270,7 +267,7 @@ export const eventsQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).default(1),
   limit: Joi.number().integer().min(1).max(100).default(10),
   status: Joi.string(),
-  category: Joi.string().valid(...Object.values(EVENT_CATEGORY)),
+  category: Joi.string().trim().min(1).max(100),
   calendarId: objectId,
   megaEventSeriesId: objectId,
   isMegaEvent: Joi.boolean(),

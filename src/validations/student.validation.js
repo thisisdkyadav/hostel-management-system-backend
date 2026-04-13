@@ -23,6 +23,7 @@ const studentProfileBody = Joi.object({
   guardian: Joi.string().max(100),
   guardianPhone: phone,
   guardianEmail: email,
+  alumniEmailId: email,
   hostel: objectId,
   room: objectId,
   profileImage: mediaReference,
@@ -141,6 +142,7 @@ export const updateStudentProfileSchema = Joi.object({
     guardian: Joi.string().max(100),
     guardianPhone: phone,
     guardianEmail: email,
+    alumniEmailId: email,
     profileImage: mediaReference,
   }),
 });

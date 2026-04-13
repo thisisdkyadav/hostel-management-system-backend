@@ -21,12 +21,11 @@ const APPROVER_ASSIGNMENT_SCHEMA = new mongoose.Schema(
   { _id: false }
 )
 
-const CATEGORY_BUDGET_CAP_SCHEMA = new mongoose.Schema(
+const CATEGORY_DEFINITION_SCHEMA = new mongoose.Schema(
   {
-    academic: { type: Number, min: 0, default: null },
-    cultural: { type: Number, min: 0, default: null },
-    sports: { type: Number, min: 0, default: null },
-    technical: { type: Number, min: 0, default: null },
+    key: { type: String, required: true, trim: true },
+    label: { type: String, required: true, trim: true },
+    isDefault: { type: Boolean, default: false },
   },
   { _id: false }
 )
@@ -35,8 +34,8 @@ const CalendarEventSchema = new mongoose.Schema({
   title: { type: String, required: true, trim: true },
   category: {
     type: String,
-    enum: ["academic", "cultural", "sports", "technical"],
     required: true,
+    trim: true,
   },
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
@@ -100,8 +99,12 @@ const ActivityCalendarSchema = new mongoose.Schema(
       default: null,
     },
     allowProposalBeforeApproval: { type: Boolean, default: false },
+    categoryDefinitions: {
+      type: [CATEGORY_DEFINITION_SCHEMA],
+      default: [],
+    },
     budgetCaps: {
-      type: CATEGORY_BUDGET_CAP_SCHEMA,
+      type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
     events: [CalendarEventSchema],

@@ -212,7 +212,7 @@ const MegaEventOccurrenceSchema = new mongoose.Schema(
     description: { type: String, trim: true, default: "" },
     category: {
       type: String,
-      enum: ["academic", "cultural", "sports", "technical"],
+      trim: true,
       default: "cultural",
     },
     scheduledStartDate: { type: Date, required: true },

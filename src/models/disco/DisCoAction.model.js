@@ -48,6 +48,14 @@ const DisCoActionSchema = new mongoose.Schema({
     default: Date.now,
     required: true,
   },
+  punishmentStartDate: {
+    type: Date,
+    default: null,
+  },
+  punishmentEndDate: {
+    type: Date,
+    default: null,
+  },
   remarks: {
     type: String,
   },
@@ -55,8 +63,11 @@ const DisCoActionSchema = new mongoose.Schema({
     type: [ReminderItemSchema],
     default: [],
   },
+}, {
+  timestamps: true,
 });
 
 DisCoActionSchema.index({ userId: 1, date: -1 });
+DisCoActionSchema.index({ userId: 1, createdAt: -1 });
 
 export default mongoose.model("DisCoAction", DisCoActionSchema);

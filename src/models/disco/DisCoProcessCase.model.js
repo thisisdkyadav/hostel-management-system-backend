@@ -200,6 +200,14 @@ const StudentDisciplinaryActionTemplateSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    punishmentStartDate: {
+      type: Date,
+      default: null,
+    },
+    punishmentEndDate: {
+      type: Date,
+      default: null,
+    },
     remarks: {
       type: String,
       default: "",
@@ -288,6 +296,8 @@ const DisCoProcessCaseSchema = new mongoose.Schema(
         reason: { type: String, default: "", trim: true },
         actionTaken: { type: String, default: "", trim: true },
         date: { type: Date, default: null },
+        punishmentStartDate: { type: Date, default: null },
+        punishmentEndDate: { type: Date, default: null },
         remarks: { type: String, default: "", trim: true },
         reminderItems: {
           type: [ActionReminderTemplateSchema],

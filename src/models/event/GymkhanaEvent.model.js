@@ -19,8 +19,8 @@ const GymkhanaEventSchema = new mongoose.Schema(
     title: { type: String, required: true, trim: true },
     category: {
       type: String,
-      enum: ["academic", "cultural", "sports", "technical"],
       required: true,
+      trim: true,
     },
     scheduledStartDate: { type: Date, required: true },
     scheduledEndDate: { type: Date, required: true },

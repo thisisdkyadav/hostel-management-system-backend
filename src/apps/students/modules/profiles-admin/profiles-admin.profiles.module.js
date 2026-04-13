@@ -333,6 +333,7 @@ const buildProfileUpdatePayload = (student, currentUserId, batchValue) => {
   if (student.guardian !== undefined) profileUpdate.guardian = student.guardian;
   if (student.guardianPhone !== undefined) profileUpdate.guardianPhone = student.guardianPhone;
   if (student.guardianEmail !== undefined) profileUpdate.guardianEmail = student.guardianEmail;
+  if (student.alumniEmailId !== undefined) profileUpdate.alumniEmailId = student.alumniEmailId;
 
   if (Object.keys(profileUpdate).length > 0 && currentUserId) {
     profileUpdate.lastUpdatedBy = currentUserId;
@@ -837,6 +838,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
     guardian,
     guardianPhone,
     guardianEmail,
+    alumniEmailId,
     profileImage,
   } = updateData;
 
@@ -872,6 +874,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
     guardian,
     guardianPhone,
     guardianEmail,
+    alumniEmailId,
   };
 
   const studentBatchesConfig = batch !== undefined

@@ -90,6 +90,92 @@ const normalizeStatementRole = (role) => {
   return "";
 };
 
+const parseDisciplinaryActionDates = (
+  {
+    date,
+    punishmentStartDate,
+    punishmentEndDate,
+  },
+  {
+    defaultDate = new Date(),
+    requireLegacyDate = false,
+  } = {}
+) => {
+  if (requireLegacyDate && !date) {
+    return { error: badRequest("Creation date is required") };
+  }
+
+  const creationDate = date ? new Date(date) : new Date(defaultDate);
+  if (Number.isNaN(creationDate.getTime())) {
+    return { error: badRequest("Invalid creation date") };
+  }
+
+  const normalizedStartDate = punishmentStartDate
+    ? new Date(punishmentStartDate)
+    : new Date(creationDate);
+  if (Number.isNaN(normalizedStartDate.getTime())) {
+    return { error: badRequest("Invalid punishment start date") };
+  }
+
+  const normalizedEndDate = punishmentEndDate
+    ? new Date(punishmentEndDate)
+    : new Date(normalizedStartDate);
+  if (Number.isNaN(normalizedEndDate.getTime())) {
+    return { error: badRequest("Invalid punishment end date") };
+  }
+
+  if (normalizedEndDate.getTime() < normalizedStartDate.getTime()) {
+    return { error: badRequest("Punishment end date cannot be before punishment start date") };
+  }
+
+  return {
+    creationDate,
+    punishmentStartDate: normalizedStartDate,
+    punishmentEndDate: normalizedEndDate,
+  };
+};
+
+const getDisciplinaryActionDateView = (source = {}) => {
+  const creationDate = source?.date || source?.createdAt || null;
+  const punishmentStartDate = source?.punishmentStartDate || source?.date || creationDate || null;
+  const punishmentEndDate =
+    source?.punishmentEndDate ||
+    source?.punishmentStartDate ||
+    source?.date ||
+    creationDate ||
+    null;
+
+  return {
+    createdDate: creationDate,
+    punishmentStartDate,
+    punishmentEndDate,
+    date: creationDate,
+  };
+};
+
+const toDisCoActionView = (action) => {
+  const dateView = getDisciplinaryActionDateView(action);
+
+  return {
+    _id: action?._id,
+    userId: toUserRef(action?.userId) || action?.userId,
+    reason: action?.reason || "",
+    actionTaken: action?.actionTaken || "",
+    remarks: action?.remarks || "",
+    reminderItems: (action?.reminderItems || []).map((item) => ({
+      _id: item?._id,
+      action: item?.action || "",
+      dueDate: item?.dueDate || null,
+      isDone: Boolean(item?.isDone),
+      doneAt: item?.doneAt || null,
+      doneBy: toUserRef(item?.doneBy) || item?.doneBy || null,
+    })),
+    createdAt: action?.createdAt || null,
+    updatedAt: action?.updatedAt || null,
+    ...dateView,
+  };
+};
+
 const toUniqueIdArray = (items = []) => {
   if (!Array.isArray(items)) return [];
   return [...new Set(items.filter(Boolean).map((value) => String(value)))];
@@ -386,20 +472,20 @@ const toAdminCaseView = (caseDoc) => ({
     })),
     createdDisCoActionIds: caseDoc.finalDecision?.createdDisCoActionIds || [],
     disciplinaryActionMode: caseDoc.finalDecision?.disciplinaryActionMode || "common",
-    disciplinaryActionTemplate: caseDoc.finalDecision?.disciplinaryActionTemplate || {
-      reason: "",
-      actionTaken: "",
-      date: null,
-      remarks: "",
-      reminderItems: [],
+    disciplinaryActionTemplate: {
+      ...getDisciplinaryActionDateView(caseDoc.finalDecision?.disciplinaryActionTemplate || {}),
+      reason: caseDoc.finalDecision?.disciplinaryActionTemplate?.reason || "",
+      actionTaken: caseDoc.finalDecision?.disciplinaryActionTemplate?.actionTaken || "",
+      remarks: caseDoc.finalDecision?.disciplinaryActionTemplate?.remarks || "",
+      reminderItems: caseDoc.finalDecision?.disciplinaryActionTemplate?.reminderItems || [],
     },
     studentDisciplinaryActions: (caseDoc.finalDecision?.studentDisciplinaryActions || []).map(
       (item) => ({
+        ...getDisciplinaryActionDateView(item),
         id: item._id,
         student: toUserRef(item.studentUserId),
         reason: item.reason || "",
         actionTaken: item.actionTaken || "",
-        date: item.date || null,
         remarks: item.remarks || "",
         reminderItems: item.reminderItems || [],
       })
@@ -473,7 +559,7 @@ const buildCreatedActionExportView = (actions = []) =>
     user: toUserRef(action.userId),
     reason: action.reason || "",
     actionTaken: action.actionTaken || "",
-    date: action.date || null,
+    ...getDisciplinaryActionDateView(action),
     remarks: action.remarks || "",
     reminderItems: (action.reminderItems || []).map((item) => ({
       id: item._id,
@@ -521,17 +607,27 @@ class DisCoService extends BaseService {
    * @param {Object} data - Action data with studentId
    */
   async addDisCoAction(data) {
-    const { studentId, reason, actionTaken, date, remarks, reminderItems } = data;
+    const {
+      studentId,
+      reason,
+      actionTaken,
+      date,
+      punishmentStartDate,
+      punishmentEndDate,
+      remarks,
+      reminderItems,
+    } = data;
 
     const studentProfile = await StudentProfile.findOne({ userId: studentId });
     if (!studentProfile) {
       return notFound("Student profile");
     }
 
-    const actionDate = date ? new Date(date) : new Date();
-    if (Number.isNaN(actionDate.getTime())) {
-      return badRequest("Invalid action date");
-    }
+    const normalizedDates = parseDisciplinaryActionDates(
+      { date, punishmentStartDate, punishmentEndDate },
+      { defaultDate: new Date(), requireLegacyDate: true }
+    );
+    if (normalizedDates.error) return normalizedDates.error;
 
     const normalizedReminderItems = normalizeReminderItems(reminderItems, {
       label: "reminder items",
@@ -545,7 +641,9 @@ class DisCoService extends BaseService {
       userId: studentId,
       reason,
       actionTaken,
-      date: actionDate,
+      date: normalizedDates.creationDate,
+      punishmentStartDate: normalizedDates.punishmentStartDate,
+      punishmentEndDate: normalizedDates.punishmentEndDate,
       remarks,
       reminderItems: normalizedReminderItems.list,
     });
@@ -564,6 +662,7 @@ class DisCoService extends BaseService {
     const result = await this.findAll(
       { userId: studentId },
       {
+        sort: { date: -1, createdAt: -1 },
         populate: [
           { path: "userId", select: "name email" },
           { path: "reminderItems.doneBy", select: "name email" },
@@ -575,7 +674,7 @@ class DisCoService extends BaseService {
       return success({
         success: true,
         message: "Disciplinary actions fetched successfully",
-        actions: result.data,
+        actions: (result.data || []).map((action) => toDisCoActionView(action)),
       });
     }
     return result;
@@ -591,13 +690,45 @@ class DisCoService extends BaseService {
 
     if (Object.prototype.hasOwnProperty.call(data, "date")) {
       if (!data.date) {
-        return badRequest("Action date is required");
+        return badRequest("Creation date is required");
       }
       const parsedDate = new Date(data.date);
       if (Number.isNaN(parsedDate.getTime())) {
-        return badRequest("Invalid action date");
+        return badRequest("Invalid creation date");
       }
       updates.date = parsedDate;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(data, "date") ||
+      Object.prototype.hasOwnProperty.call(data, "punishmentStartDate") ||
+      Object.prototype.hasOwnProperty.call(data, "punishmentEndDate")
+    ) {
+      const actionDoc = await DisCoAction.findById(disCoId).select("date punishmentStartDate punishmentEndDate");
+      if (!actionDoc) {
+        return notFound("DisCo action");
+      }
+
+      const normalizedDates = parseDisciplinaryActionDates(
+        {
+          date: Object.prototype.hasOwnProperty.call(data, "date") ? data.date : actionDoc.date,
+          punishmentStartDate: Object.prototype.hasOwnProperty.call(data, "punishmentStartDate")
+            ? data.punishmentStartDate
+            : actionDoc.punishmentStartDate,
+          punishmentEndDate: Object.prototype.hasOwnProperty.call(data, "punishmentEndDate")
+            ? data.punishmentEndDate
+            : actionDoc.punishmentEndDate,
+        },
+        {
+          defaultDate: actionDoc.date || actionDoc.createdAt || new Date(),
+          requireLegacyDate: true,
+        }
+      );
+      if (normalizedDates.error) return normalizedDates.error;
+
+      updates.date = normalizedDates.creationDate;
+      updates.punishmentStartDate = normalizedDates.punishmentStartDate;
+      updates.punishmentEndDate = normalizedDates.punishmentEndDate;
     }
 
     if (Object.prototype.hasOwnProperty.call(data, "reminderItems")) {
@@ -613,7 +744,10 @@ class DisCoService extends BaseService {
 
     const result = await this.updateById(disCoId, updates);
     if (result.success) {
-      return success({ message: "DisCo action updated successfully", action: result.data });
+      return success({
+        message: "DisCo action updated successfully",
+        action: toDisCoActionView(result.data),
+      });
     }
     return result;
   }
@@ -659,7 +793,7 @@ class DisCoService extends BaseService {
       message: wasAlreadyDone
         ? "Reminder item already completed"
         : "Reminder item marked as completed",
-      action: populatedAction,
+      action: toDisCoActionView(populatedAction),
     });
   }
 
@@ -1396,6 +1530,8 @@ class DisCoService extends BaseService {
       reason: "",
       actionTaken: "",
       date: null,
+      punishmentStartDate: null,
+      punishmentEndDate: null,
       remarks: "",
       reminderItems: [],
     };
@@ -1409,10 +1545,11 @@ class DisCoService extends BaseService {
       }
 
       uniqueStudentIds = toUniqueIdArray(studentUserIds);
-      const actionDate = date ? new Date(date) : new Date();
-      if (Number.isNaN(actionDate.getTime())) {
-        return badRequest("Invalid action date");
-      }
+      const normalizedDates = parseDisciplinaryActionDates(
+        { date, punishmentStartDate: payload.punishmentStartDate, punishmentEndDate: payload.punishmentEndDate },
+        { defaultDate: new Date(), requireLegacyDate: true }
+      );
+      if (normalizedDates.error) return normalizedDates.error;
 
       const normalizedReminderItems = normalizeReminderItems(reminderItems, {
         label: "reminder items",
@@ -1426,7 +1563,9 @@ class DisCoService extends BaseService {
         userId: studentId,
         reason: reason.trim(),
         actionTaken: actionTaken.trim(),
-        date: actionDate,
+        date: normalizedDates.creationDate,
+        punishmentStartDate: normalizedDates.punishmentStartDate,
+        punishmentEndDate: normalizedDates.punishmentEndDate,
         remarks: remarks?.trim() || "",
         reminderItems: normalizedReminderItems.list,
       }));
@@ -1434,7 +1573,9 @@ class DisCoService extends BaseService {
       disciplinaryActionTemplate = {
         reason: reason.trim(),
         actionTaken: actionTaken.trim(),
-        date: actionDate,
+        date: normalizedDates.creationDate,
+        punishmentStartDate: normalizedDates.punishmentStartDate,
+        punishmentEndDate: normalizedDates.punishmentEndDate,
         remarks: remarks?.trim() || "",
         reminderItems: normalizedReminderItems.list,
       };
@@ -1443,7 +1584,9 @@ class DisCoService extends BaseService {
         studentUserId: studentId,
         reason: reason.trim(),
         actionTaken: actionTaken.trim(),
-        date: actionDate,
+        date: normalizedDates.creationDate,
+        punishmentStartDate: normalizedDates.punishmentStartDate,
+        punishmentEndDate: normalizedDates.punishmentEndDate,
         remarks: remarks?.trim() || "",
         reminderItems: normalizedReminderItems.list,
       }));
@@ -1471,10 +1614,15 @@ class DisCoService extends BaseService {
           return badRequest("Each per-student action must include actionTaken");
         }
 
-        const perStudentDate = item?.date ? new Date(item.date) : new Date();
-        if (Number.isNaN(perStudentDate.getTime())) {
-          return badRequest("Invalid action date in per-student action");
-        }
+        const normalizedDates = parseDisciplinaryActionDates(
+          {
+            date: item?.date,
+            punishmentStartDate: item?.punishmentStartDate,
+            punishmentEndDate: item?.punishmentEndDate,
+          },
+          { defaultDate: new Date(), requireLegacyDate: true }
+        );
+        if (normalizedDates.error) return normalizedDates.error;
 
         const normalizedReminderItems = normalizeReminderItems(item?.reminderItems, {
           label: "per-student reminder items",
@@ -1488,7 +1636,9 @@ class DisCoService extends BaseService {
           studentUserId,
           reason: item.reason.trim(),
           actionTaken: item.actionTaken.trim(),
-          date: perStudentDate,
+          date: normalizedDates.creationDate,
+          punishmentStartDate: normalizedDates.punishmentStartDate,
+          punishmentEndDate: normalizedDates.punishmentEndDate,
           remarks: item?.remarks?.trim() || "",
           reminderItems: normalizedReminderItems.list,
         });
@@ -1500,6 +1650,8 @@ class DisCoService extends BaseService {
         reason: studentActionMap.get(studentId).reason,
         actionTaken: studentActionMap.get(studentId).actionTaken,
         date: studentActionMap.get(studentId).date,
+        punishmentStartDate: studentActionMap.get(studentId).punishmentStartDate,
+        punishmentEndDate: studentActionMap.get(studentId).punishmentEndDate,
         remarks: studentActionMap.get(studentId).remarks,
         reminderItems: studentActionMap.get(studentId).reminderItems,
       }));

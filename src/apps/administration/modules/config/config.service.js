@@ -9,12 +9,18 @@ import { Configuration, StudentProfile } from '../../../../models/index.js';
 import { defaultConfigs, getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { MIXED_BATCH_SCOPE_KEY, normalizeStudentBatchesConfig } from '../../../../utils/index.js';
 import { BaseService, success, notFound, badRequest, error } from '../../../../services/base/index.js';
+import {
+  GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY,
+  normalizeCalendarCategoryDefinitions,
+  validateCategoryDefinitionsInput,
+} from '../../../student-affairs/modules/events/category-definitions.utils.js';
 
 const ACADEMIC_HOLIDAYS_KEY = "academicHolidays"
 const STUDENT_BATCHES_KEY = "studentBatches"
 const STUDENT_GROUPS_KEY = "studentGroups"
 const DEGREES_KEY = "degrees"
 const DEPARTMENTS_KEY = "departments"
+const GYMKHANA_EVENT_CATEGORIES_KEY = GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY
 const YEAR_KEY_REGEX = /^\d{4}$/
 
 const sortNames = (left, right) => left.localeCompare(right, undefined, { sensitivity: "base", numeric: true })
@@ -179,6 +185,12 @@ class ConfigService extends BaseService {
       if (key === STUDENT_GROUPS_KEY) {
         previousConfig = await Configuration.findOne({ key })
       }
+    } else if (key === GYMKHANA_EVENT_CATEGORIES_KEY) {
+      const validation = validateCategoryDefinitionsInput(value)
+      if (!validation.success) {
+        return badRequest(validation.message)
+      }
+      normalizedValue = normalizeCalendarCategoryDefinitions(value)
     }
 
     const result = await this.upsert(

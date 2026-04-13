@@ -77,6 +77,9 @@ class StudentProfileService extends BaseService {
           editableProfile.guardianPhone = studentProfile.guardianPhone || '';
           editableProfile.guardianEmail = studentProfile.guardianEmail || '';
           break;
+        case 'alumniEmailId':
+          editableProfile.alumniEmailId = studentProfile.alumniEmailId || '';
+          break;
         case 'bloodGroup':
           editableProfile.bloodGroup = health?.bloodGroup || '';
           break;
@@ -148,6 +151,9 @@ class StudentProfileService extends BaseService {
             updates.guardianPhone = body.emergencyContact.guardianPhone;
             updates.guardianEmail = body.emergencyContact.guardianEmail;
           }
+          break;
+        case 'alumniEmailId':
+          if (editableFields.includes('alumniEmailId')) updates.alumniEmailId = body.alumniEmailId;
           break;
         case 'bloodGroup':
           if (editableFields.includes('bloodGroup')) updates.bloodGroup = body.bloodGroup;

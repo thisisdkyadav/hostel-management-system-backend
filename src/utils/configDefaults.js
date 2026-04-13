@@ -34,6 +34,15 @@ export const defaultConfigs = {
     value: {},
     description: "Year-wise academic holidays map. Example: { \"2026\": [{ title, date }] }",
   },
+  gymkhanaEventCategories: {
+    value: [
+      { key: "academic", label: "Academic", isDefault: true },
+      { key: "cultural", label: "Cultural", isDefault: true },
+      { key: "sports", label: "Sports", isDefault: true },
+      { key: "technical", label: "Technical", isDefault: true },
+    ],
+    description: "Global Gymkhana event categories used across calendars, budgets, and related workflows.",
+  },
 }
 
 /**
