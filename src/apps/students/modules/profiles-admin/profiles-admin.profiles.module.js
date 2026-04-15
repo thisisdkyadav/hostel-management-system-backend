@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcrypt';
 import { Configuration, StudentProfile, User } from '../../../../models/index.js';
 import { success, badRequest, forbidden, notFound } from '../../../../services/base/index.js';
 import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
@@ -17,7 +16,6 @@ const STUDENT_IMPORT_PROGRESS_EVENT = 'students:import:progress';
 const CREATE_STUDENTS_CHUNK_SIZE = 200;
 const STUDENT_UPDATE_PROGRESS_EVENT = 'students:update:progress';
 const UPDATE_STUDENTS_CHUNK_SIZE = 200;
-const UPDATE_PASSWORD_HASH_CONCURRENCY = 8;
 
 const emitStudentImportProgress = ({
   userId,
@@ -89,13 +87,11 @@ const normalizeCreateStudent = (student = {}) => {
   const name = typeof student.name === 'string' ? student.name.trim() : '';
   const email = typeof student.email === 'string' ? student.email.trim() : '';
   const rollNumber = typeof student.rollNumber === 'string' ? student.rollNumber.trim().toUpperCase() : '';
-  const password = typeof student.password === 'string' ? student.password : '';
 
   return {
     name,
     email,
     rollNumber,
-    password,
   };
 };
 
@@ -110,6 +106,7 @@ const splitIntoChunks = (items, chunkSize) => {
 const buildCreateProfileDoc = (userId, rollNumber) => ({
   userId,
   rollNumber,
+  status: 'Active',
 });
 
 const validateCreateStudents = (students) => {
@@ -191,19 +188,11 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
     return [];
   }
 
-  const userDocs = await Promise.all(
-    studentsToCreate.map(async (student) => {
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(student.password || student.rollNumber, salt);
-
-      return {
-        email: student.email,
-        name: student.name,
-        role: 'Student',
-        password: hashedPassword,
-      };
-    })
-  );
+  const userDocs = studentsToCreate.map((student) => ({
+    email: student.email,
+    name: student.name,
+    role: 'Student',
+  }));
 
   const userInsertResult = await User.collection.insertMany(userDocs, { session });
   const insertedUserIds = Object.values(userInsertResult.insertedIds);
@@ -227,17 +216,11 @@ const normalizeUpdateRollNumber = (rollNumber) => (
   typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
 );
 
-const buildUserUpdatePayload = (student, hashedPassword = null) => {
+const buildUserUpdatePayload = (student) => {
   const userUpdate = {};
 
   if (student.name) userUpdate.name = student.name;
   if (student.email) userUpdate.email = student.email.trim();
-  if (student.password) {
-    if (!hashedPassword) {
-      throw new Error('Missing hashed password for bulk update');
-    }
-    userUpdate.password = hashedPassword;
-  }
   if (student.phone !== undefined) userUpdate.phone = student.phone || '';
   if (student.profileImage !== undefined) userUpdate.profileImage = student.profileImage || '';
 
@@ -287,39 +270,6 @@ const resolveBatchUpdate = ({ student = {}, currentProfile = {}, studentBatchesC
   return { success: true, value: undefined };
 };
 
-const buildChunkPasswordHashes = async (chunkStudents) => {
-  const passwordHashesByIndex = new Map();
-  const tasks = [];
-
-  chunkStudents.forEach((student, index) => {
-    if (typeof student.password === 'string' && student.password) {
-      tasks.push(async () => {
-        const hashed = await bcrypt.hash(student.password, 10);
-        passwordHashesByIndex.set(index, hashed);
-      });
-    }
-  });
-
-  if (tasks.length === 0) {
-    return passwordHashesByIndex;
-  }
-
-  let taskPointer = 0;
-  const workerCount = Math.min(UPDATE_PASSWORD_HASH_CONCURRENCY, tasks.length);
-
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (taskPointer < tasks.length) {
-        const currentTaskIndex = taskPointer;
-        taskPointer += 1;
-        await tasks[currentTaskIndex]();
-      }
-    })
-  );
-
-  return passwordHashesByIndex;
-};
-
 const buildProfileUpdatePayload = (student, currentUserId, batchValue) => {
   const profileUpdate = {};
 
@@ -347,7 +297,6 @@ const processUpdateStudentsChunk = async ({
   session,
   currentUserId,
   errors,
-  passwordHashesByIndex,
 }) => {
   const results = [];
   const rollNumbers = [];
@@ -409,7 +358,7 @@ const processUpdateStudentsChunk = async ({
       continue;
     }
 
-    const userUpdate = buildUserUpdatePayload(student, passwordHashesByIndex.get(index) || null);
+    const userUpdate = buildUserUpdatePayload(student);
     if (Object.keys(userUpdate).length > 0) {
       userBulkOps.push({
         updateOne: {
@@ -617,7 +566,6 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
 
     for (let chunkIndex = 0; chunkIndex < studentChunks.length; chunkIndex += 1) {
       const chunkStudents = studentChunks[chunkIndex];
-      const passwordHashesByIndex = await buildChunkPasswordHashes(chunkStudents);
       const session = await mongoose.startSession();
 
       let chunkResult = { results: [], userOpsCount: 0, profileOpsCount: 0 };
@@ -628,7 +576,6 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
             session,
             currentUserId: currentUser?._id || null,
             errors,
-            passwordHashesByIndex,
           });
         });
       } finally {
