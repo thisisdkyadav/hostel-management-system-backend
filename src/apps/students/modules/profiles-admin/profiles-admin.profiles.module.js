@@ -16,6 +16,29 @@ const STUDENT_IMPORT_PROGRESS_EVENT = 'students:import:progress';
 const CREATE_STUDENTS_CHUNK_SIZE = 200;
 const STUDENT_UPDATE_PROGRESS_EVENT = 'students:update:progress';
 const UPDATE_STUDENTS_CHUNK_SIZE = 200;
+const VALID_IMPORT_GENDERS = new Set(['Male', 'Female', 'Other']);
+
+const normalizeImportGender = (value) => {
+  if (typeof value !== 'string') return '';
+
+  const trimmed = value.trim();
+  const normalized = trimmed.toLowerCase();
+  if (normalized === 'male') return 'Male';
+  if (normalized === 'female') return 'Female';
+  if (normalized === 'other') return 'Other';
+
+  return trimmed;
+};
+
+const parseImportIsDayScholar = (value) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return null;
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'true') return true;
+  if (normalized === 'false') return false;
+  return null;
+};
 
 const emitStudentImportProgress = ({
   userId,
@@ -87,11 +110,15 @@ const normalizeCreateStudent = (student = {}) => {
   const name = typeof student.name === 'string' ? student.name.trim() : '';
   const email = typeof student.email === 'string' ? student.email.trim() : '';
   const rollNumber = typeof student.rollNumber === 'string' ? student.rollNumber.trim().toUpperCase() : '';
+  const gender = normalizeImportGender(student.gender);
+  const isDayScholar = parseImportIsDayScholar(student.isDayScholar);
 
   return {
     name,
     email,
     rollNumber,
+    gender,
+    isDayScholar,
   };
 };
 
@@ -103,9 +130,11 @@ const splitIntoChunks = (items, chunkSize) => {
   return chunks;
 };
 
-const buildCreateProfileDoc = (userId, rollNumber) => ({
+const buildCreateProfileDoc = (userId, student) => ({
   userId,
-  rollNumber,
+  rollNumber: student.rollNumber,
+  gender: student.gender,
+  isDayScholar: student.isDayScholar,
   status: 'Active',
 });
 
@@ -117,12 +146,20 @@ const validateCreateStudents = (students) => {
 
   students.forEach((rawStudent) => {
     const student = normalizeCreateStudent(rawStudent);
-    const { name, email, rollNumber } = student;
+    const { name, email, rollNumber, gender, isDayScholar } = student;
 
-    if (!name || !email || !rollNumber) {
+    if (!name || !email || !rollNumber || !gender || isDayScholar === null) {
       validationErrors.push({
         student: rollNumber || email || 'Unknown',
-        message: 'Missing required fields: email, name, rollNumber',
+        message: 'Missing required fields: name, email, rollNumber, gender, isDayScholar',
+      });
+      return;
+    }
+
+    if (!VALID_IMPORT_GENDERS.has(gender)) {
+      validationErrors.push({
+        student: rollNumber || email || 'Unknown',
+        message: `Invalid gender "${gender}". Allowed values: Male, Female, Other`,
       });
       return;
     }
@@ -197,9 +234,7 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
   const userInsertResult = await User.collection.insertMany(userDocs, { session });
   const insertedUserIds = Object.values(userInsertResult.insertedIds);
 
-  const profileDocs = insertedUserIds.map((userId, index) => (
-    buildCreateProfileDoc(userId, studentsToCreate[index].rollNumber)
-  ));
+  const profileDocs = insertedUserIds.map((userId, index) => buildCreateProfileDoc(userId, studentsToCreate[index]));
 
   const profileInsertResult = await StudentProfile.collection.insertMany(profileDocs, { session });
 
