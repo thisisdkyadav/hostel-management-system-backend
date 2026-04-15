@@ -12,13 +12,95 @@ import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
 import { Task } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
+import { Gymkhana } from '../../../../models/index.js';
 import { ROLES, SUBROLES } from '../../../../core/constants/roles.constants.js';
+import {
+  getGlobalGymkhanaCategoryDefinitions,
+  normalizeCategoryKey,
+} from '../../../student-affairs/modules/events/category-definitions.utils.js';
 
 const GYMKHANA_SUBROLES = [
   SUBROLES.GS_GYMKHANA,
   SUBROLES.PRESIDENT_GYMKHANA,
   SUBROLES.ELECTION_OFFICER,
 ];
+
+const normalizeOptionalText = (value) => {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+};
+
+const resolveGymkhanaCategoryLookup = async () => {
+  const categoryDefinitions = await getGlobalGymkhanaCategoryDefinitions();
+  const categoryKeySet = new Set();
+  const categoryLabelToKey = new Map();
+  const categoryLabelByKey = new Map();
+
+  for (const definition of categoryDefinitions) {
+    const key = normalizeCategoryKey(definition?.key);
+    if (!key) continue;
+
+    const label = String(definition?.label || '').trim() || key;
+    categoryKeySet.add(key);
+    categoryLabelToKey.set(label.toLowerCase(), key);
+    categoryLabelByKey.set(key, label);
+  }
+
+  return { categoryKeySet, categoryLabelToKey, categoryLabelByKey };
+};
+
+const normalizeGymkhanaCategories = (categories = [], categoryLookup) => {
+  if (!Array.isArray(categories)) {
+    return {
+      success: false,
+      message: 'Categories must be provided as an array',
+    };
+  }
+
+  const normalized = [];
+  const dedupe = new Set();
+  const invalidCategories = [];
+
+  for (const rawCategory of categories) {
+    const rawValue =
+      typeof rawCategory === 'string'
+        ? rawCategory
+        : String(rawCategory?.key || rawCategory?.label || '');
+
+    const trimmed = String(rawValue || '').trim();
+    if (!trimmed) continue;
+
+    const normalizedKeyCandidate = normalizeCategoryKey(trimmed);
+    let resolvedKey = null;
+
+    if (normalizedKeyCandidate && categoryLookup.categoryKeySet.has(normalizedKeyCandidate)) {
+      resolvedKey = normalizedKeyCandidate;
+    }
+
+    if (!resolvedKey) {
+      resolvedKey = categoryLookup.categoryLabelToKey.get(trimmed.toLowerCase()) || null;
+    }
+
+    if (!resolvedKey) {
+      invalidCategories.push(trimmed);
+      continue;
+    }
+
+    if (!dedupe.has(resolvedKey)) {
+      dedupe.add(resolvedKey);
+      normalized.push(resolvedKey);
+    }
+  }
+
+  if (invalidCategories.length > 0) {
+    return {
+      success: false,
+      message: `Invalid Gymkhana categories: ${invalidCategories.join(', ')}`,
+    };
+  }
+
+  return { success: true, value: normalized };
+};
 
 class AdminService extends BaseService {
   constructor() {
@@ -186,8 +268,12 @@ class AdminService extends BaseService {
   /**
    * Create a Gymkhana user
    */
-  async createGymkhana({ email, password, name, subRole }) {
-    if (!email || !name || !subRole) {
+  async createGymkhana({ email, password, name, subRole, categories = [], position = '' }) {
+    const normalizedEmail = normalizeOptionalText(email);
+    const normalizedName = normalizeOptionalText(name);
+    const normalizedPosition = normalizeOptionalText(position);
+
+    if (!normalizedEmail || !normalizedName || !subRole) {
       return badRequest('Email, name, and subRole are required');
     }
 
@@ -195,7 +281,13 @@ class AdminService extends BaseService {
       return badRequest('Invalid Gymkhana subRole');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const categoryLookup = await resolveGymkhanaCategoryLookup();
+    const normalizedCategories = normalizeGymkhanaCategories(categories, categoryLookup);
+    if (!normalizedCategories.success) {
+      return badRequest(normalizedCategories.message);
+    }
+
+    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } });
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -208,8 +300,8 @@ class AdminService extends BaseService {
     }
 
     const userPayload = {
-      name,
-      email,
+      name: normalizedName,
+      email: normalizedEmail,
       role: ROLES.GYMKHANA,
       subRole,
     };
@@ -218,7 +310,17 @@ class AdminService extends BaseService {
       userPayload.password = hashedPassword;
     }
 
-    await User.create(userPayload);
+    const createdUser = await User.create(userPayload);
+    try {
+      await Gymkhana.create({
+        userId: createdUser._id,
+        categories: normalizedCategories.value,
+        position: normalizedPosition,
+      });
+    } catch (error) {
+      await User.findByIdAndDelete(createdUser._id);
+      throw error;
+    }
 
     return success(null, 201, 'Gymkhana user created successfully');
   }
@@ -227,20 +329,41 @@ class AdminService extends BaseService {
    * Get all Gymkhana users
    */
   async getAllGymkhanaUsers() {
-    const gymkhanaUsers = await User.find({ role: ROLES.GYMKHANA })
-      .select('name email role subRole profileImage')
+    const [gymkhanaUsers, categoryLookup] = await Promise.all([
+      User.find({ role: ROLES.GYMKHANA })
+        .select('name email role subRole profileImage')
+        .lean(),
+      resolveGymkhanaCategoryLookup(),
+    ]);
+
+    const gymkhanaProfiles = await Gymkhana.find({
+      userId: { $in: gymkhanaUsers.map((user) => user._id) },
+    })
+      .select('userId categories position')
       .lean();
 
+    const profileByUserId = new Map(
+      gymkhanaProfiles.map((profile) => [String(profile.userId), profile])
+    );
+
     const formattedUsers = gymkhanaUsers
-      .map((user) => ({
-        id: user._id,
-        userId: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subRole: user.subRole || null,
-        profileImage: user.profileImage || null,
-      }))
+      .map((user) => {
+        const profile = profileByUserId.get(String(user._id));
+        const categories = Array.isArray(profile?.categories) ? profile.categories : [];
+
+        return {
+          id: user._id,
+          userId: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          subRole: user.subRole || null,
+          profileImage: user.profileImage || null,
+          categories,
+          categoryLabels: categories.map((key) => categoryLookup.categoryLabelByKey.get(key) || key),
+          position: normalizeOptionalText(profile?.position) || null,
+        };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return success(formattedUsers);
@@ -249,10 +372,17 @@ class AdminService extends BaseService {
   /**
    * Update a Gymkhana user
    */
-  async updateGymkhana(id, { name, subRole }) {
+  async updateGymkhana(id, { name, subRole, categories, position }) {
     const updateData = {};
+    const profileUpdateData = {};
 
-    if (name !== undefined) updateData.name = name;
+    if (name !== undefined) {
+      const normalizedName = normalizeOptionalText(name);
+      if (!normalizedName) {
+        return badRequest('Name cannot be empty');
+      }
+      updateData.name = normalizedName;
+    }
 
     if (subRole !== undefined) {
       if (!GYMKHANA_SUBROLES.includes(subRole)) {
@@ -261,18 +391,44 @@ class AdminService extends BaseService {
       updateData.subRole = subRole;
     }
 
-    if (Object.keys(updateData).length === 0) {
+    if (categories !== undefined) {
+      const categoryLookup = await resolveGymkhanaCategoryLookup();
+      const normalizedCategories = normalizeGymkhanaCategories(categories, categoryLookup);
+      if (!normalizedCategories.success) {
+        return badRequest(normalizedCategories.message);
+      }
+      profileUpdateData.categories = normalizedCategories.value;
+    }
+
+    if (position !== undefined) {
+      profileUpdateData.position = normalizeOptionalText(position);
+    }
+
+    if (Object.keys(updateData).length === 0 && Object.keys(profileUpdateData).length === 0) {
       return badRequest('No update data provided');
     }
 
-    const updatedUser = await User.findOneAndUpdate(
-      { _id: id, role: ROLES.GYMKHANA },
-      updateData,
-      { new: true }
-    );
+    const existingUser = await User.findOne({ _id: id, role: ROLES.GYMKHANA })
+      .select('_id')
+      .lean();
 
-    if (!updatedUser) {
+    if (!existingUser) {
       return notFound('Gymkhana user');
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await User.updateOne({ _id: id, role: ROLES.GYMKHANA }, updateData);
+    }
+
+    if (Object.keys(profileUpdateData).length > 0) {
+      await Gymkhana.findOneAndUpdate(
+        { userId: id },
+        {
+          $set: profileUpdateData,
+          $setOnInsert: { userId: id },
+        },
+        { new: true, upsert: true }
+      );
     }
 
     return success(null, 200, 'Gymkhana user updated successfully');
@@ -287,6 +443,8 @@ class AdminService extends BaseService {
     if (!deletedUser) {
       return notFound('Gymkhana user');
     }
+
+    await Gymkhana.deleteOne({ userId: deletedUser._id });
 
     return success(null, 200, 'Gymkhana user deleted successfully');
   }

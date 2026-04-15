@@ -24,12 +24,22 @@ export const SUBROLES = {
   GS_GYMKHANA: "GS Gymkhana",
   PRESIDENT_GYMKHANA: "President Gymkhana",
   ELECTION_OFFICER: "Election Officer",
+  // Admin operations subroles
+  HCU: "HCU",
   // Admin SA subroles
   STUDENT_AFFAIRS: "Student Affairs",
   JOINT_REGISTRAR_SA: "Joint Registrar SA",
   ASSOCIATE_DEAN_SA: "Associate Dean SA",
   DEAN_SA: "Dean SA",
 }
+
+export const ADMIN_SUBROLES = [
+  SUBROLES.HCU,
+  SUBROLES.STUDENT_AFFAIRS,
+  SUBROLES.JOINT_REGISTRAR_SA,
+  SUBROLES.ASSOCIATE_DEAN_SA,
+  SUBROLES.DEAN_SA,
+]
 
 /**
  * Role hierarchy (higher index = more privileges)

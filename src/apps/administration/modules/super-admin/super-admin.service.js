@@ -5,14 +5,93 @@
  * @module services/superAdmin
  */
 
-import { ApiClient } from '../../../../models/index.js';
-import { User } from '../../../../models/index.js';
+import { ApiClient, User, Admin, HCUStaff } from '../../../../models/index.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
-import { Admin } from '../../../../models/index.js';
-import { success, badRequest, error } from '../../../../services/base/index.js';
+import { success, badRequest, error, notFound, forbidden } from '../../../../services/base/index.js';
+import { ROLES, SUBROLES, ADMIN_SUBROLES } from '../../../../core/constants/roles.constants.js';
+
+const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
+const isHcuSubRole = (subRole) => subRole === SUBROLES.HCU;
+const getDefaultCategoryForSubRole = (subRole) => (isHcuSubRole(subRole) ? 'HCU' : 'Admin');
+
+const resolveRequestedAdminSubRole = ({ requestedSubRole, actorRole }) => {
+  const normalizedRequestedSubRole = normalizeText(requestedSubRole);
+
+  if (actorRole === ROLES.ADMIN) {
+    if (normalizedRequestedSubRole && normalizedRequestedSubRole !== SUBROLES.HCU) {
+      return {
+        success: false,
+        status: 'forbidden',
+        message: 'Admin can only manage HCU sub-role accounts',
+      };
+    }
+
+    return {
+      success: true,
+      value: SUBROLES.HCU,
+    };
+  }
+
+  if (!normalizedRequestedSubRole) {
+    return {
+      success: false,
+      status: 'badRequest',
+      message: 'subRole is required',
+    };
+  }
+
+  if (!ADMIN_SUBROLES.includes(normalizedRequestedSubRole)) {
+    return {
+      success: false,
+      status: 'badRequest',
+      message: 'Invalid admin subRole',
+    };
+  }
+
+  return {
+    success: true,
+    value: normalizedRequestedSubRole,
+  };
+};
+
+const buildUserResponse = ({ user, profileMeta }) => ({
+  _id: user._id,
+  id: user._id,
+  name: user.name,
+  email: user.email,
+  phone: user.phone || '',
+  profileImage: user.profileImage || '',
+  role: user.role,
+  subRole: user.subRole || null,
+  category: profileMeta?.category || null,
+  createdAt: profileMeta?.createdAt || user.createdAt,
+  updatedAt: profileMeta?.updatedAt || user.updatedAt,
+});
 
 class SuperAdminService {
+  async upsertAdminProfileBySubRole({ userId, subRole, category }) {
+    const normalizedCategory = normalizeText(category);
+    const isHcu = isHcuSubRole(subRole);
+    const targetModel = isHcu ? HCUStaff : Admin;
+    const fallbackCategory = getDefaultCategoryForSubRole(subRole);
+
+    await targetModel.findOneAndUpdate(
+      { userId },
+      {
+        $set: { category: normalizedCategory || fallbackCategory },
+        $setOnInsert: { userId },
+      },
+      { new: true, upsert: true }
+    );
+
+    if (isHcu) {
+      await Admin.deleteOne({ userId });
+    } else {
+      await HCUStaff.deleteOne({ userId });
+    }
+  }
+
   /**
    * Create an API client
    * @param {Object} data - API client data
@@ -85,28 +164,56 @@ class SuperAdminService {
    * Create an admin user
    * @param {Object} data - Admin data
    */
-  async createAdmin(data) {
-    const { name, email, password, phone, category } = data;
+  async createAdmin(data, actor = {}) {
+    const { name, email, password, phone, category, subRole } = data;
+    const normalizedName = normalizeText(name);
+    const normalizedEmail = normalizeText(email);
+    const normalizedPassword = typeof password === 'string' ? password.trim() : '';
 
-    if (!name || !email) {
-      return badRequest('Name and email are required');
+    if (!normalizedName || !normalizedEmail || !normalizedPassword) {
+      return badRequest('Name, email, and password are required');
+    }
+
+    const resolvedSubRole = resolveRequestedAdminSubRole({
+      requestedSubRole: subRole,
+      actorRole: actor?.role,
+    });
+
+    if (!resolvedSubRole.success) {
+      return resolvedSubRole.status === 'forbidden'
+        ? forbidden(resolvedSubRole.message)
+        : badRequest(resolvedSubRole.message);
     }
 
     try {
-      const hashedPassword = await bcrypt.hash(password, 10);
+      const existingUser = await User.findOne({
+        email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') },
+      })
+        .select('_id')
+        .lean();
+
+      if (existingUser) {
+        return badRequest('User with this email already exists');
+      }
+
+      const hashedPassword = await bcrypt.hash(normalizedPassword, 10);
       const newUser = new User({
-        name,
-        email,
-        role: 'Admin',
+        name: normalizedName,
+        email: normalizedEmail,
+        role: ROLES.ADMIN,
+        subRole: resolvedSubRole.value,
         password: hashedPassword,
-        phone
+        phone: normalizeText(phone) || null,
       });
       await newUser.save();
 
-      const newAdmin = new Admin({ userId: newUser._id, category });
-      await newAdmin.save();
+      await this.upsertAdminProfileBySubRole({
+        userId: newUser._id,
+        subRole: resolvedSubRole.value,
+        category,
+      });
 
-      return success({ message: 'Admin created successfully', adminId: newAdmin._id }, 201);
+      return success({ message: 'Admin created successfully', adminId: newUser._id }, 201);
     } catch (err) {
       return error('Failed to create admin', 500, err);
     }
@@ -115,21 +222,53 @@ class SuperAdminService {
   /**
    * Get all admins
    */
-  async getAdmins() {
+  async getAdmins(actor = {}) {
     try {
-      const admins = await Admin.find().populate('userId', 'name email phone profileImage role');
-      const response = admins.map((admin) => ({
-        _id: admin.userId._id,
-        id: admin.userId._id,
-        name: admin.userId.name,
-        email: admin.userId.email,
-        phone: admin.userId.phone,
-        profileImage: admin.userId.profileImage,
-        role: admin.userId.role,
-        category: admin.category,
-        createdAt: admin.createdAt,
-        updatedAt: admin.updatedAt
-      }));
+      const userQuery = { role: ROLES.ADMIN };
+      if (actor?.role === ROLES.ADMIN) {
+        userQuery.subRole = SUBROLES.HCU;
+      }
+
+      const users = await User.find(userQuery)
+        .select('name email phone profileImage role subRole createdAt updatedAt')
+        .sort({ name: 1 })
+        .lean();
+
+      const userIds = users.map((user) => user._id);
+      const [adminProfiles, hcuProfiles] = await Promise.all([
+        Admin.find({
+          userId: { $in: userIds },
+        })
+          .select('userId category createdAt updatedAt')
+          .lean(),
+        HCUStaff.find({
+          userId: { $in: userIds },
+        })
+          .select('userId category createdAt updatedAt')
+          .lean(),
+      ]);
+
+      const adminProfileByUserId = new Map(
+        adminProfiles.map((profile) => [String(profile.userId), profile])
+      );
+      const hcuProfileByUserId = new Map(
+        hcuProfiles.map((profile) => [String(profile.userId), profile])
+      );
+
+      const response = users.map((user) => {
+        const userId = String(user._id);
+        const adminProfile = adminProfileByUserId.get(userId);
+        const hcuProfile = hcuProfileByUserId.get(userId);
+        const profileMeta = isHcuSubRole(user.subRole)
+          ? (hcuProfile || adminProfile)
+          : (adminProfile || hcuProfile);
+
+        return buildUserResponse({
+          user,
+          profileMeta,
+        });
+      });
+
       return success(response);
     } catch (err) {
       return error('Failed to fetch admins', 500, err);
@@ -141,30 +280,133 @@ class SuperAdminService {
    * @param {string} adminId - Admin user ID
    * @param {Object} data - Update data
    */
-  async updateAdmin(adminId, data) {
-    const { name, email, password, phone, category, profileImage } = data;
+  async updateAdmin(adminId, data, actor = {}) {
+    const { name, email, password, phone, category, profileImage, subRole } = data;
 
     try {
-      const updatedUser = await User.findByIdAndUpdate(
-        adminId,
-        { name, email, password, phone, profileImage },
-        { new: true }
-      );
-      const updatedAdmin = await Admin.findOneAndUpdate(
-        { userId: adminId },
-        { category },
-        { new: true }
-      );
+      const existingUser = await User.findOne({ _id: adminId, role: ROLES.ADMIN }).lean();
 
-      const response = {
-        _id: updatedAdmin._id,
-        name: updatedUser.name,
-        email: updatedUser.email,
-        phone: updatedUser.phone,
-        profileImage: updatedUser.profileImage,
-        role: updatedUser.role,
-        category: updatedAdmin.category
-      };
+      if (!existingUser) {
+        return notFound('Admin');
+      }
+
+      if (actor?.role === ROLES.ADMIN && existingUser.subRole !== SUBROLES.HCU) {
+        return forbidden('Admin can only manage HCU sub-role accounts');
+      }
+
+      const [existingAdminProfile, existingHcuProfile] = await Promise.all([
+        Admin.findOne({ userId: adminId })
+          .select('category')
+          .lean(),
+        HCUStaff.findOne({ userId: adminId })
+          .select('category')
+          .lean(),
+      ]);
+
+      const userUpdate = {};
+
+      if (name !== undefined) {
+        const normalizedName = normalizeText(name);
+        if (!normalizedName) {
+          return badRequest('Name cannot be empty');
+        }
+        userUpdate.name = normalizedName;
+      }
+
+      if (email !== undefined) {
+        const normalizedEmail = normalizeText(email);
+        if (!normalizedEmail) {
+          return badRequest('Email cannot be empty');
+        }
+
+        const duplicateUser = await User.findOne({
+          _id: { $ne: adminId },
+          email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') },
+        })
+          .select('_id')
+          .lean();
+
+        if (duplicateUser) {
+          return badRequest('User with this email already exists');
+        }
+
+        userUpdate.email = normalizedEmail;
+      }
+
+      if (phone !== undefined) {
+        userUpdate.phone = normalizeText(phone) || null;
+      }
+
+      if (profileImage !== undefined) {
+        userUpdate.profileImage = profileImage || null;
+      }
+
+      if (password !== undefined) {
+        const normalizedPassword = typeof password === 'string' ? password.trim() : '';
+        if (!normalizedPassword) {
+          return badRequest('Password cannot be empty');
+        }
+        userUpdate.password = await bcrypt.hash(normalizedPassword, 10);
+      }
+
+      if (subRole !== undefined) {
+        const resolvedSubRole = resolveRequestedAdminSubRole({
+          requestedSubRole: subRole,
+          actorRole: actor?.role,
+        });
+
+        if (!resolvedSubRole.success) {
+          return resolvedSubRole.status === 'forbidden'
+            ? forbidden(resolvedSubRole.message)
+            : badRequest(resolvedSubRole.message);
+        }
+
+        userUpdate.subRole = resolvedSubRole.value;
+      } else if (actor?.role === ROLES.ADMIN) {
+        // Admin-side updates are always HCU scoped.
+        userUpdate.subRole = SUBROLES.HCU;
+      }
+
+      if (Object.keys(userUpdate).length > 0) {
+        await User.updateOne({ _id: adminId, role: ROLES.ADMIN }, { $set: userUpdate });
+      }
+
+      const effectiveSubRole = userUpdate.subRole || existingUser.subRole;
+      const oldProfileMeta = isHcuSubRole(effectiveSubRole)
+        ? (existingHcuProfile || existingAdminProfile)
+        : (existingAdminProfile || existingHcuProfile);
+      const fallbackCategory = getDefaultCategoryForSubRole(effectiveSubRole);
+      const categoryToPersist = normalizeText(category) || normalizeText(oldProfileMeta?.category) || fallbackCategory;
+
+      if (effectiveSubRole) {
+        await this.upsertAdminProfileBySubRole({
+          userId: adminId,
+          subRole: effectiveSubRole,
+          category: categoryToPersist,
+        });
+      }
+
+      const [updatedUser, updatedAdminProfile, updatedHcuProfile] = await Promise.all([
+        User.findById(adminId)
+          .select('name email phone profileImage role subRole createdAt updatedAt')
+          .lean(),
+        Admin.findOne({ userId: adminId })
+          .select('userId category createdAt updatedAt')
+          .lean(),
+        HCUStaff.findOne({ userId: adminId })
+          .select('userId category createdAt updatedAt')
+          .lean(),
+      ]);
+
+      const profileMeta = isHcuSubRole(updatedUser?.subRole)
+        ? (updatedHcuProfile || updatedAdminProfile)
+        : (updatedAdminProfile || updatedHcuProfile);
+
+      const response = buildUserResponse({
+        user: updatedUser,
+        profileMeta,
+      });
+
       return success({ message: 'Admin updated successfully', response });
     } catch (err) {
       return error('Failed to update admin', 500, err);
@@ -175,10 +417,26 @@ class SuperAdminService {
    * Delete an admin
    * @param {string} adminId - Admin user ID
    */
-  async deleteAdmin(adminId) {
+  async deleteAdmin(adminId, actor = {}) {
     try {
+      const existingUser = await User.findOne({ _id: adminId, role: ROLES.ADMIN })
+        .select('_id subRole')
+        .lean();
+
+      if (!existingUser) {
+        return notFound('Admin');
+      }
+
+      if (actor?.role === ROLES.ADMIN && existingUser.subRole !== SUBROLES.HCU) {
+        return forbidden('Admin can only manage HCU sub-role accounts');
+      }
+
       await User.findByIdAndDelete(adminId);
-      await Admin.findOneAndDelete({ userId: adminId });
+      await Promise.all([
+        Admin.findOneAndDelete({ userId: adminId }),
+        HCUStaff.findOneAndDelete({ userId: adminId }),
+      ]);
+
       return success({ message: 'Admin deleted successfully' });
     } catch (err) {
       return error('Failed to delete admin', 500, err);
@@ -190,7 +448,7 @@ class SuperAdminService {
    */
   async getDashboardStats() {
     try {
-      const totalAdmins = await Admin.countDocuments();
+      const totalAdmins = await User.countDocuments({ role: ROLES.ADMIN });
       const totalApiKeys = await ApiClient.countDocuments();
       const activeApiKeys = await ApiClient.countDocuments({ isActive: true });
 

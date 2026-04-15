@@ -30,22 +30,22 @@ export const updateApiClient = asyncHandler(async (req, res) => {
 })
 
 export const createAdmin = asyncHandler(async (req, res) => {
-  const result = await superAdminService.createAdmin(req.body)
+  const result = await superAdminService.createAdmin(req.body, req.user)
   sendResponse(res, result)
 })
 
 export const getAdmins = asyncHandler(async (req, res) => {
-  const result = await superAdminService.getAdmins()
+  const result = await superAdminService.getAdmins(req.user)
   sendResponse(res, result)
 })
 
 export const updateAdmin = asyncHandler(async (req, res) => {
-  const result = await superAdminService.updateAdmin(req.params.adminId, req.body)
+  const result = await superAdminService.updateAdmin(req.params.adminId, req.body, req.user)
   sendResponse(res, result)
 })
 
 export const deleteAdmin = asyncHandler(async (req, res) => {
-  const result = await superAdminService.deleteAdmin(req.params.adminId)
+  const result = await superAdminService.deleteAdmin(req.params.adminId, req.user)
   sendResponse(res, result)
 })
 
