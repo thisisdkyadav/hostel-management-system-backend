@@ -82,7 +82,7 @@ export const calendarYearSchema = Joi.object({
 })
 
 export const approvalActionSchema = Joi.object({
-  comments: Joi.string().trim().max(1000),
+  comments: Joi.string().trim().allow("").max(1000).default(""),
   nextApprovalStages: Joi.array()
     .items(Joi.string().valid(...POST_STUDENT_AFFAIRS_APPROVERS))
     .min(1)
@@ -238,7 +238,7 @@ export const createAmendmentSchema = Joi.object({
 })
 
 export const reviewAmendmentSchema = Joi.object({
-  reviewComments: Joi.string().trim().max(1000),
+  reviewComments: Joi.string().trim().allow("").max(1000).default(""),
 })
 
 export const checkOverlapSchema = Joi.object({

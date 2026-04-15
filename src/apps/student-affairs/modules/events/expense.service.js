@@ -167,6 +167,7 @@ class ExpenseService extends BaseService {
     let nextApproverStage = null
 
     const isSuperAdmin = user.role === ROLES.SUPER_ADMIN
+    const normalizedComments = String(comments || "").trim()
     const assignedApproverUserId = normalizeObjectId(expense.currentApproverUser)
     if (assignedApproverUserId && !isSuperAdmin && normalizeObjectId(user._id) !== assignedApproverUserId) {
       return forbidden("Only the assigned approver can approve at this stage")
@@ -277,7 +278,7 @@ class ExpenseService extends BaseService {
       expense.approvedAt = new Date()
     }
 
-    expense.approvalComments = comments?.trim() || ""
+    expense.approvalComments = normalizedComments
     await expense.save()
 
     await ApprovalLog.create({
@@ -286,7 +287,7 @@ class ExpenseService extends BaseService {
       stage: effectiveStage,
       action: APPROVAL_ACTIONS.APPROVED,
       performedBy: user._id,
-      comments: comments?.trim() || "",
+      comments: normalizedComments,
     })
 
     if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
@@ -299,7 +300,7 @@ class ExpenseService extends BaseService {
         nextApproverStage,
         approvedBy: user.name,
         approvedByStage: effectiveStage,
-        comments,
+        comments: normalizedComments,
       })
     }
 

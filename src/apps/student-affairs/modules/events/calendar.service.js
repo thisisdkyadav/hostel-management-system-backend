@@ -452,6 +452,7 @@ class CalendarService extends BaseService {
     }
 
     const currentStage = user.subRole
+    const normalizedComments = String(comments || "").trim()
     const isStudentAffairsReview =
       currentStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
       calendar.status === CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
@@ -569,7 +570,7 @@ class CalendarService extends BaseService {
       stage: currentStage,
       action: APPROVAL_ACTIONS.APPROVED,
       performedBy: user._id,
-      comments,
+      comments: normalizedComments,
     })
 
     if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
@@ -581,7 +582,7 @@ class CalendarService extends BaseService {
         nextApproverStage,
         approvedBy: user.name,
         approvedByStage: currentStage,
-        comments,
+        comments: normalizedComments,
       })
     }
 
