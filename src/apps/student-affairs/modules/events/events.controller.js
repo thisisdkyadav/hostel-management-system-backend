@@ -12,6 +12,7 @@ import { megaEventsService } from "./mega-events.service.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import { success } from "../../../../services/base/ServiceResponse.js"
 import { getConfigWithDefault } from "../../../../utils/configDefaults.js"
+import { getPostStudentAffairsApproverOptionsByStage } from "./approval-assignments.utils.js"
 
 const computeProposalDueDate = (event) => {
   const existingDueDate = event?.proposalDueDate ? new Date(event.proposalDueDate) : null
@@ -246,6 +247,16 @@ export const getGymkhanaProfile = asyncHandler(async (req, res) => {
     res,
     success({
       profile: req.user,
+    })
+  )
+})
+
+export const getPostStudentAffairsApprovers = asyncHandler(async (_req, res) => {
+  const approversByStage = await getPostStudentAffairsApproverOptionsByStage()
+  return sendRawResponse(
+    res,
+    success({
+      approversByStage,
     })
   )
 })

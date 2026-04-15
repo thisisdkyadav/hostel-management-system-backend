@@ -164,3 +164,52 @@ export const getCustomAssignmentState = (entity, currentStage) => {
     nextAssignment: currentIndex >= 0 ? assignments[currentIndex + 1] || null : null,
   }
 }
+
+export const getPostStudentAffairsApproverOptionsByStage = async () => {
+  const users = await User.find({
+    role: { $in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
+    subRole: { $in: POST_STUDENT_AFFAIRS_APPROVERS },
+  })
+    .select("_id name email subRole")
+    .lean()
+
+  const stageOrder = new Map(
+    POST_STUDENT_AFFAIRS_APPROVERS.map((stage, index) => [stage, index])
+  )
+
+  users.sort((left, right) => {
+    const leftOrder = stageOrder.get(left?.subRole) ?? Number.MAX_SAFE_INTEGER
+    const rightOrder = stageOrder.get(right?.subRole) ?? Number.MAX_SAFE_INTEGER
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder
+
+    const leftName = String(left?.name || "").toLowerCase()
+    const rightName = String(right?.name || "").toLowerCase()
+    return leftName.localeCompare(rightName)
+  })
+
+  const optionsByStage = POST_STUDENT_AFFAIRS_APPROVERS.reduce((accumulator, stage) => {
+    accumulator[stage] = []
+    return accumulator
+  }, {})
+
+  for (const user of users) {
+    const stage = normalizeStage(user?.subRole)
+    if (!stage || !optionsByStage[stage]) continue
+
+    const userId = normalizeObjectId(user?._id)
+    if (!userId) continue
+
+    optionsByStage[stage].push({
+      value: userId,
+      label: user?.email
+        ? `${user?.name || "User"} (${user.email})`
+        : user?.name || stage,
+      userId,
+      name: user?.name || "",
+      email: user?.email || "",
+      subRole: stage,
+    })
+  }
+
+  return optionsByStage
+}

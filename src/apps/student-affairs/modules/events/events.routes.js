@@ -44,6 +44,13 @@ const megaEventsViewAccess = [requireMegaEventsRouteAccess]
 const megaEventsCreateAccess = [requireMegaEventsRouteAccess]
 const megaEventsApproveAccess = [requireMegaEventsRouteAccess]
 
+router.get(
+  "/approval/post-student-affairs-approvers",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  eventsController.getPostStudentAffairsApprovers
+)
+
 // Get all calendars
 router.post(
   "/calendar",
