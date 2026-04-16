@@ -139,7 +139,7 @@ export const upsertNominationSchema = Joi.object({
   hasNoActiveBacklogs: Joi.boolean().valid(true).required(),
   proposerRollNumbers: Joi.array().items(rollNumber).min(0).max(20).default([]),
   seconderRollNumbers: Joi.array().items(rollNumber).min(0).max(20).default([]),
-  gradeCardUrl: uploadedPdfPath.required(),
+  gradeCardUrl: uploadedPdfPath.allow("").default(""),
   manifestoUrl: uploadedPdfPath.allow("").default(""),
   porDocumentUrl: uploadedPdfPath.allow("").default(""),
   attachments: Joi.array().items(
