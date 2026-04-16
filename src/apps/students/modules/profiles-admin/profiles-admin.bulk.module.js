@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Configuration, StudentProfile } from '../../../../models/index.js';
+import { Configuration, RoomAllocation, StudentProfile } from '../../../../models/index.js';
 import { badRequest } from '../../../../services/base/index.js';
 import {
   asyncHandler,
@@ -15,6 +15,8 @@ const BATCH_ASSIGNMENT_MODE_REPLACE = 'replace';
 const GROUP_ASSIGNMENT_MODE_ADD = 'add';
 const GROUP_ASSIGNMENT_MODE_REMOVE = 'remove';
 const GROUP_ASSIGNMENT_MODE_REPLACE = 'replace';
+const STUDENT_STATUS_ACTIVE = 'Active';
+const VALID_STUDENT_STATUSES = new Set([STUDENT_STATUS_ACTIVE, 'Graduated', 'Dropped', 'Inactive']);
 
 const normalizeRollNumber = (value) => (
   typeof value === 'string' ? value.trim().toUpperCase() : ''
@@ -116,50 +118,96 @@ const normalizeGroupNames = (values = []) => (
   )]
 );
 
+const deallocateStudentProfiles = async ({ studentProfileIds = [], session }) => {
+  if (!Array.isArray(studentProfileIds) || studentProfileIds.length === 0) {
+    return 0;
+  }
+
+  const deleteResult = await RoomAllocation.deleteMany({
+    studentProfileId: { $in: studentProfileIds },
+  }).session(session);
+
+  return deleteResult?.deletedCount || 0;
+};
+
 export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
   const { status, rollNumbers } = req.body;
+  const normalizedStatus = typeof status === 'string' ? status.trim() : '';
+  const normalizedRollNumbers = Array.isArray(rollNumbers)
+    ? [...new Set(rollNumbers.map(normalizeRollNumber).filter(Boolean))]
+    : [];
 
-  if (!status) {
+  if (!normalizedStatus) {
     return sendStandardResponse(res, badRequest('Status is required'));
   }
 
-  if (!Array.isArray(rollNumbers) || rollNumbers.length === 0) {
+  if (!VALID_STUDENT_STATUSES.has(normalizedStatus)) {
+    return sendStandardResponse(res, badRequest('Invalid status value'));
+  }
+
+  if (normalizedRollNumbers.length === 0) {
     return sendStandardResponse(res, badRequest('Please provide at least one roll number'));
   }
-  if (rollNumbers.length > MAX_BULK_RECORDS) {
+  if (normalizedRollNumbers.length > MAX_BULK_RECORDS) {
     return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
   }
 
-  const existingStudents = await StudentProfile.find({ rollNumber: { $in: rollNumbers } });
-  const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
-  const unsuccessfulRollNumbers = rollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
+  const session = await mongoose.startSession();
 
-  const students = await StudentProfile.updateMany(
-    { rollNumber: { $in: existingRollNumbers } },
-    { status }
-  );
+  try {
+    let responsePayload = null;
 
-  if (students.modifiedCount === 0) {
-    return sendStandardResponse(res, {
-      success: false,
-      statusCode: 404,
-      message: 'No students found to update',
-      errors: unsuccessfulRollNumbers.map((rollNumber) => ({
-        rollNumber,
-        message: 'Student not found',
-      })),
+    await session.withTransaction(async () => {
+      const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
+        .select('_id rollNumber')
+        .session(session)
+        .lean();
+      const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
+      const existingRollNumberSet = new Set(existingRollNumbers);
+      const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumberSet.has(rollNumber));
+
+      if (existingStudents.length === 0) {
+        responsePayload = {
+          success: false,
+          statusCode: 404,
+          message: 'No students found to update',
+          errors: unsuccessfulRollNumbers.map((rollNumber) => ({
+            rollNumber,
+            message: 'Student not found',
+          })),
+        };
+        return;
+      }
+
+      const studentProfileIds = existingStudents.map((student) => student._id);
+
+      const students = await StudentProfile.updateMany(
+        { _id: { $in: studentProfileIds } },
+        { $set: { status: normalizedStatus } },
+        { session }
+      );
+
+      const deallocatedCount = normalizedStatus !== STUDENT_STATUS_ACTIVE
+        ? await deallocateStudentProfiles({ studentProfileIds, session })
+        : 0;
+
+      responsePayload = {
+        success: true,
+        statusCode: 200,
+        data: {
+          updatedCount: students.modifiedCount,
+          matchedCount: students.matchedCount,
+          deallocatedCount,
+          unsuccessfulRollNumbers,
+        },
+        message: 'Students status updated successfully',
+      };
     });
-  }
 
-  return sendStandardResponse(res, {
-    success: true,
-    statusCode: 200,
-    data: {
-      updatedCount: students.modifiedCount,
-      unsuccessfulRollNumbers,
-    },
-    message: 'Students status updated successfully',
-  });
+    return sendStandardResponse(res, responsePayload);
+  } finally {
+    await session.endSession();
+  }
 });
 
 export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
@@ -313,6 +361,7 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
     });
 
     const bulkOperations = [];
+    const studentProfileIdsToDeallocate = [];
 
     for (const [rollNumber, studentData] of Object.entries(normalizedEntries)) {
       const student = studentMap.get(rollNumber);
@@ -323,8 +372,9 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
       }
 
       const { isDayScholar, dayScholarDetails } = studentData;
+      const shouldBeDayScholar = isDayScholar === true;
 
-      if (isDayScholar) {
+      if (shouldBeDayScholar) {
         const nextDayScholarDetails = (
           dayScholarDetails && typeof dayScholarDetails === 'object' && !Array.isArray(dayScholarDetails)
         ) ? {
@@ -347,6 +397,7 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
           },
         });
 
+        studentProfileIdsToDeallocate.push(student._id);
         results.push({ rollNumber, success: true, isDayScholar: true });
       } else {
         bulkOperations.push({
@@ -367,6 +418,11 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
       await StudentProfile.bulkWrite(bulkOperations, { session, ordered: false });
     }
 
+    const deallocatedCount = await deallocateStudentProfiles({
+      studentProfileIds: studentProfileIdsToDeallocate,
+      session,
+    });
+
     await session.commitTransaction();
 
     const responseStatus = errors.length > 0 ? 207 : 200;
@@ -376,6 +432,7 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
       data: {
         results,
         errors,
+        deallocatedCount,
       },
       message: errors.length > 0
         ? 'Day scholar details updated with some errors. Please review the errors for details.'
