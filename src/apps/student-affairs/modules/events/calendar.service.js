@@ -25,7 +25,12 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
-import { normalizeCategoryBudgetCaps, validateCategoryBudgetCaps } from "./budget-caps.utils.js"
+import {
+  normalizeCalendarOverallBudget,
+  normalizeCategoryBudgetCaps,
+  validateCalendarOverallBudgetCap,
+  validateCategoryBudgetCaps,
+} from "./budget-caps.utils.js"
 import {
   getDefaultCategoryDefinitions,
   getGlobalGymkhanaCategoryDefinitions,
@@ -85,10 +90,20 @@ class CalendarService extends BaseService {
       return badRequest(budgetCapValidation.message)
     }
 
+    const overallBudgetValidation = validateCalendarOverallBudgetCap(
+      data.overallBudget,
+      normalizedBudgetCaps,
+      normalizedCategoryDefinitions
+    )
+    if (!overallBudgetValidation.success) {
+      return badRequest(overallBudgetValidation.message)
+    }
+
     const calendar = await this.model.create({
       academicYear: data.academicYear,
       events: data.events || [],
       allowProposalBeforeApproval: Boolean(data.allowProposalBeforeApproval),
+      overallBudget: overallBudgetValidation.overallBudget,
       categoryDefinitions: [],
       budgetCaps: normalizedBudgetCaps,
       createdBy: user._id,
@@ -252,10 +267,15 @@ class CalendarService extends BaseService {
     }
 
     const previousAllowProposalBeforeApproval = Boolean(calendar.allowProposalBeforeApproval)
+    const previousOverallBudget = normalizeCalendarOverallBudget(calendar.overallBudget)
     const nextAllowProposalBeforeApproval =
       typeof data.allowProposalBeforeApproval === "boolean"
         ? data.allowProposalBeforeApproval
         : previousAllowProposalBeforeApproval
+    const nextOverallBudget =
+      data.overallBudget === undefined
+        ? previousOverallBudget
+        : normalizeCalendarOverallBudget(data.overallBudget)
     const nextCategoryDefinitions = await getGlobalGymkhanaCategoryDefinitions({
       calendar,
       budgetCaps: data.budgetCaps === undefined ? calendar.budgetCaps : data.budgetCaps,
@@ -272,8 +292,9 @@ class CalendarService extends BaseService {
       nextAllowProposalBeforeApproval !== previousAllowProposalBeforeApproval
     const budgetCapsChanged =
       JSON.stringify(previousBudgetCaps) !== JSON.stringify(nextBudgetCaps)
+    const overallBudgetChanged = previousOverallBudget !== nextOverallBudget
 
-    if (!allowProposalSettingChanged && !budgetCapsChanged) {
+    if (!allowProposalSettingChanged && !budgetCapsChanged && !overallBudgetChanged) {
       return success({ calendar }, 200, "Calendar settings updated successfully")
     }
 
@@ -288,7 +309,16 @@ class CalendarService extends BaseService {
       nextCategoryDefinitions
     )
     if (!budgetCapValidation.success) {
-      return badRequest(`Cannot update calendar settings. ${budgetCapValidation.message}`)
+      return badRequest("Cannot update calendar settings. " + budgetCapValidation.message)
+    }
+
+    const overallBudgetValidation = validateCalendarOverallBudgetCap(
+      nextOverallBudget,
+      nextBudgetCaps,
+      nextCategoryDefinitions
+    )
+    if (!overallBudgetValidation.success) {
+      return badRequest("Cannot update calendar settings. " + overallBudgetValidation.message)
     }
 
     if (
@@ -325,6 +355,7 @@ class CalendarService extends BaseService {
     }
 
     calendar.allowProposalBeforeApproval = nextAllowProposalBeforeApproval
+    calendar.overallBudget = overallBudgetValidation.overallBudget
     calendar.budgetCaps = nextBudgetCaps
     await calendar.save()
 

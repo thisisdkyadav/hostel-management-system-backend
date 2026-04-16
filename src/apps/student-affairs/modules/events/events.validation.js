@@ -61,6 +61,7 @@ export const createCalendarSchema = Joi.object({
     .messages({ "string.pattern.base": "Academic year must be in format YYYY-YY (e.g., 2025-26)" }),
   events: Joi.array().items(calendarEventSchema).default([]),
   allowProposalBeforeApproval: Joi.boolean().default(false),
+  overallBudget: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)).default(null),
   budgetCaps: categoryBudgetCapSchema,
 })
 
@@ -70,6 +71,7 @@ export const updateCalendarSchema = Joi.object({
 
 export const updateCalendarSettingsSchema = Joi.object({
   allowProposalBeforeApproval: Joi.boolean(),
+  overallBudget: Joi.alternatives().try(Joi.number().min(0), Joi.valid(null)),
   budgetCaps: categoryBudgetCapSchema,
 }).min(1)
 

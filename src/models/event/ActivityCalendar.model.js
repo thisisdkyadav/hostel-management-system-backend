@@ -99,6 +99,7 @@ const ActivityCalendarSchema = new mongoose.Schema(
       default: null,
     },
     allowProposalBeforeApproval: { type: Boolean, default: false },
+    overallBudget: { type: Number, min: 0, default: null },
     categoryDefinitions: {
       type: [CATEGORY_DEFINITION_SCHEMA],
       default: [],

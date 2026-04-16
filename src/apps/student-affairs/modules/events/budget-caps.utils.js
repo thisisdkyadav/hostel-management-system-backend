@@ -5,6 +5,15 @@ import {
 
 const formatCurrency = (value) => `Rs ${Number(value || 0).toLocaleString("en-IN")}`
 
+export const normalizeCalendarOverallBudget = (overallBudget) => {
+  if (overallBudget === "" || overallBudget === null || overallBudget === undefined) {
+    return null
+  }
+
+  const parsedValue = Number(overallBudget)
+  return Number.isFinite(parsedValue) && parsedValue >= 0 ? parsedValue : null
+}
+
 export const normalizeCategoryBudgetCaps = (budgetCaps = {}, categoryDefinitions = []) => {
   const definitions = normalizeCalendarCategoryDefinitions(categoryDefinitions, { budgetCaps })
 
@@ -64,5 +73,37 @@ export const validateCategoryBudgetCaps = (events = [], budgetCaps = {}, categor
     success: true,
     totals,
     budgetCaps: normalizedBudgetCaps,
+  }
+}
+
+export const validateCalendarOverallBudgetCap = (
+  overallBudget,
+  budgetCaps = {},
+  categoryDefinitions = []
+) => {
+  const normalizedOverallBudget = normalizeCalendarOverallBudget(overallBudget)
+  const normalizedBudgetCaps = normalizeCategoryBudgetCaps(budgetCaps, categoryDefinitions)
+
+  const configuredCategoryCapsTotal = Object.values(normalizedBudgetCaps).reduce((sum, cap) => {
+    if (cap === null || cap === undefined) return sum
+    return sum + Number(cap || 0)
+  }, 0)
+
+  if (
+    normalizedOverallBudget !== null &&
+    configuredCategoryCapsTotal > normalizedOverallBudget
+  ) {
+    return {
+      success: false,
+      overallBudget: normalizedOverallBudget,
+      configuredCategoryCapsTotal,
+      message: `Total configured category caps ${formatCurrency(configuredCategoryCapsTotal)} exceed the calendar overall budget cap of ${formatCurrency(normalizedOverallBudget)}.`,
+    }
+  }
+
+  return {
+    success: true,
+    overallBudget: normalizedOverallBudget,
+    configuredCategoryCapsTotal,
   }
 }
