@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { Configuration, RoomAllocation, StudentProfile } from '../../../../models/index.js';
+import { Configuration, Room, RoomAllocation, StudentProfile } from '../../../../models/index.js';
 import { badRequest } from '../../../../services/base/index.js';
 import {
   asyncHandler,
@@ -123,9 +123,46 @@ const deallocateStudentProfiles = async ({ studentProfileIds = [], session }) =>
     return 0;
   }
 
-  const deleteResult = await RoomAllocation.deleteMany({
+  const allocations = await RoomAllocation.find({
     studentProfileId: { $in: studentProfileIds },
-  }).session(session);
+  })
+    .select('_id roomId')
+    .session(session)
+    .lean();
+
+  if (!allocations.length) {
+    return 0;
+  }
+
+  const allocationIds = allocations.map((allocation) => allocation._id);
+  await StudentProfile.updateMany(
+    { currentRoomAllocation: { $in: allocationIds } },
+    { $unset: { currentRoomAllocation: '' } },
+    { session }
+  );
+
+  const roomUpdates = {};
+  allocations.forEach((allocation) => {
+    const roomId = allocation.roomId?.toString();
+    if (!roomId) return;
+    roomUpdates[roomId] = (roomUpdates[roomId] || 0) + 1;
+  });
+
+  const roomBulkOps = Object.entries(roomUpdates).map(([roomId, count]) => ({
+    updateOne: {
+      filter: { _id: roomId },
+      update: { $inc: { occupancy: -count } },
+    },
+  }));
+
+  if (roomBulkOps.length > 0) {
+    await Room.bulkWrite(roomBulkOps, { session });
+  }
+
+  const deleteResult = await RoomAllocation.collection.deleteMany(
+    { _id: { $in: allocationIds } },
+    { session }
+  );
 
   return deleteResult?.deletedCount || 0;
 };
