@@ -8,10 +8,10 @@ const proofSchema = Joi.object({
 })
 
 const referenceSchema = Joi.object({
-  name: Joi.string().trim().required().max(160),
-  designation: Joi.string().trim().required().max(160),
-  department: Joi.string().trim().required().max(160),
-  phoneNumber: Joi.string().trim().required().max(40),
+  name: Joi.string().trim().allow("").max(160),
+  designation: Joi.string().trim().allow("").max(160),
+  department: Joi.string().trim().allow("").max(160),
+  phoneNumber: Joi.string().trim().allow("").max(40),
 })
 
 const scoredItemSchema = Joi.object({
@@ -24,7 +24,7 @@ const scoredItemSchema = Joi.object({
   referenceCode: Joi.string().trim().allow("").max(40),
   scoreType: Joi.string().trim().required().max(120),
   notes: Joi.string().trim().allow("").max(1000),
-  proofs: Joi.array().items(proofSchema).default([]),
+  proofs: Joi.array().items(proofSchema).min(1).required(),
 })
 
 export const occurrenceIdSchema = Joi.object({
@@ -63,7 +63,7 @@ export const upsertApplicationSchema = Joi.object({
     projectGuidePhone: Joi.string().trim().allow("").max(40),
     thesisGuideName: Joi.string().trim().allow("").max(160),
     thesisGuidePhone: Joi.string().trim().allow("").max(40),
-    references: Joi.array().items(referenceSchema).length(3).required(),
+    references: Joi.array().items(referenceSchema).max(3).default([]),
     isPassingOutStudent: Joi.boolean().valid(true).required(),
     hasNoDisciplinaryAction: Joi.boolean().valid(true).required(),
     hasNoFrGrade: Joi.boolean().valid(true).required(),
@@ -73,6 +73,7 @@ export const upsertApplicationSchema = Joi.object({
     evaluationMode: Joi.string().trim().valid("ug_cgpa", "pg_cpi", "research_coursework_cpi").required(),
     scoreValue: Joi.number().min(6.5).max(10).required(),
     notes: Joi.string().trim().allow("").max(1000),
+    proofs: Joi.array().items(proofSchema).min(1).required(),
   }).required(),
   projectThesis: Joi.object({
     track: Joi.string().trim().valid("btech_project", "pg_thesis").required(),
@@ -80,7 +81,13 @@ export const upsertApplicationSchema = Joi.object({
       .trim()
       .valid("none", "institute_best", "second", "third", "department_award_or_nomination")
       .default("none"),
+    btpAwardTitle: Joi.string().trim().allow("").max(300),
+    btpAwardNotes: Joi.string().trim().allow("").max(1000),
+    btpAwardProofs: Joi.array().items(proofSchema).default([]),
     projectGrade: Joi.string().trim().valid("none", "AP", "AA", "AB", "BB", "OTHER").default("none"),
+    projectGradeTitle: Joi.string().trim().allow("").max(300),
+    projectGradeNotes: Joi.string().trim().allow("").max(1000),
+    projectGradeProofs: Joi.array().items(proofSchema).default([]),
     publicationItems: Joi.array().items(scoredItemSchema).default([]),
     technologyTransferItems: Joi.array().items(scoredItemSchema).default([]),
   }).required(),

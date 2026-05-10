@@ -22,10 +22,11 @@ import grievanceRoutes from './modules/grievance/grievance.routes.js';
 import eventsRoutes from './modules/events/events.routes.js';
 import bestPerformerRoutes from './modules/best-performer/best-performer.routes.js';
 import electionsRoutes from './modules/elections/elections.routes.js';
+import clubsRoutes from './modules/clubs/clubs.routes.js';
+import porRoutes from './modules/por/por.routes.js';
 // import scholarshipRoutes from './modules/scholarship/scholarship.routes.js';
 // import counselingRoutes from './modules/counseling/counseling.routes.js';
 // import disciplinaryRoutes from './modules/disciplinary/disciplinary.routes.js';
-// import clubRoutes from './modules/clubs/club.routes.js';
 // import electionRoutes from './modules/elections/election.routes.js';
 
 
@@ -54,10 +55,11 @@ router.use('/grievances', grievanceRoutes);
 router.use('/events', eventsRoutes);
 router.use('/overall-best-performer', bestPerformerRoutes);
 router.use('/elections', electionsRoutes);
+router.use('/clubs', clubsRoutes);
+router.use('/por', porRoutes);
 // router.use('/scholarships', scholarshipRoutes);
 // router.use('/counseling', counselingRoutes);
 // router.use('/disciplinary', disciplinaryRoutes);
-// router.use('/clubs', clubRoutes);
 // router.use('/elections', electionRoutes);
 
 

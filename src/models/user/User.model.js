@@ -49,6 +49,7 @@ const UserSchema = new mongoose.Schema(
         "GS Gymkhana",
         "President Gymkhana",
         "Election Officer",
+        "Club",
         // Admin operations subroles
         "HCU",
         // Admin SA subroles

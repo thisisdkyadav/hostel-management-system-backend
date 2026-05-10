@@ -63,6 +63,9 @@ export * from './award/index.js'
 // Election Models
 export * from './election/index.js'
 
+// Club Models
+export * from './club/index.js'
+
 // AuthZ audit models
 export * from './authz/index.js'
 

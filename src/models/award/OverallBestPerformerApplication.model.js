@@ -208,6 +208,10 @@ const courseworkSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    proofs: {
+      type: [proofSchema],
+      default: [],
+    },
     calculatedPoints: {
       type: Number,
       default: 0,
@@ -230,10 +234,38 @@ const projectThesisSchema = new mongoose.Schema(
       enum: ["none", "institute_best", "second", "third", "department_award_or_nomination"],
       default: "none",
     },
+    btpAwardTitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    btpAwardNotes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    btpAwardProofs: {
+      type: [proofSchema],
+      default: [],
+    },
     projectGrade: {
       type: String,
       enum: ["none", "AP", "AA", "AB", "BB", "OTHER"],
       default: "none",
+    },
+    projectGradeTitle: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    projectGradeNotes: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    projectGradeProofs: {
+      type: [proofSchema],
+      default: [],
     },
     publicationItems: {
       type: [scoredItemSchema],

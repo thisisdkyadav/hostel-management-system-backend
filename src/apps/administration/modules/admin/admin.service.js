@@ -330,7 +330,7 @@ class AdminService extends BaseService {
    */
   async getAllGymkhanaUsers() {
     const [gymkhanaUsers, categoryLookup] = await Promise.all([
-      User.find({ role: ROLES.GYMKHANA })
+      User.find({ role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } })
         .select('name email role subRole profileImage')
         .lean(),
       resolveGymkhanaCategoryLookup(),
@@ -408,7 +408,7 @@ class AdminService extends BaseService {
       return badRequest('No update data provided');
     }
 
-    const existingUser = await User.findOne({ _id: id, role: ROLES.GYMKHANA })
+    const existingUser = await User.findOne({ _id: id, role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } })
       .select('_id')
       .lean();
 
@@ -417,7 +417,7 @@ class AdminService extends BaseService {
     }
 
     if (Object.keys(updateData).length > 0) {
-      await User.updateOne({ _id: id, role: ROLES.GYMKHANA }, updateData);
+      await User.updateOne({ _id: id, role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } }, updateData);
     }
 
     if (Object.keys(profileUpdateData).length > 0) {
