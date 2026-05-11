@@ -23,21 +23,23 @@ class DashboardService extends BaseService {
    * Get hostler and day scholar counts by gender
    */
   async getHostlerAndDayScholarCounts() {
-    const [totalBoys, totalGirls, dayScholarBoys, dayScholarGirls] = await Promise.all([
-      StudentProfile.countDocuments({ gender: 'Male', status: 'Active' }),
-      StudentProfile.countDocuments({ gender: 'Female', status: 'Active' }),
+    const [hostlerTotal, hostlerBoys, hostlerGirls, dayScholarTotal, dayScholarBoys, dayScholarGirls] = await Promise.all([
+      StudentProfile.countDocuments({ isDayScholar: false, status: 'Active' }),
+      StudentProfile.countDocuments({ isDayScholar: false, gender: 'Male', status: 'Active' }),
+      StudentProfile.countDocuments({ isDayScholar: false, gender: 'Female', status: 'Active' }),
+      StudentProfile.countDocuments({ isDayScholar: true, status: 'Active' }),
       StudentProfile.countDocuments({ isDayScholar: true, gender: 'Male', status: 'Active' }),
       StudentProfile.countDocuments({ isDayScholar: true, gender: 'Female', status: 'Active' })
     ]);
     
     return {
       hostler: {
-        total: (totalBoys - dayScholarBoys) + (totalGirls - dayScholarGirls),
-        boys: totalBoys - dayScholarBoys,
-        girls: totalGirls - dayScholarGirls
+        total: hostlerTotal,
+        boys: hostlerBoys,
+        girls: hostlerGirls
       },
       dayScholar: {
-        total: dayScholarBoys + dayScholarGirls,
+        total: dayScholarTotal,
         boys: dayScholarBoys,
         girls: dayScholarGirls
       }
