@@ -25,7 +25,9 @@ class StudentProfileService extends BaseService {
   }
 
   resolveEditableFields(defaultEditableFields) {
-    return toStringArray(defaultEditableFields);
+    return toStringArray(defaultEditableFields).map((field) => (
+      field === 'alumniEmailId' ? 'secondaryEmail' : field
+    ));
   }
 
   /**
@@ -77,8 +79,8 @@ class StudentProfileService extends BaseService {
           editableProfile.guardianPhone = studentProfile.guardianPhone || '';
           editableProfile.guardianEmail = studentProfile.guardianEmail || '';
           break;
-        case 'alumniEmailId':
-          editableProfile.alumniEmailId = studentProfile.alumniEmailId || '';
+        case 'secondaryEmail':
+          editableProfile.secondaryEmail = studentProfile.secondaryEmail || '';
           break;
         case 'bloodGroup':
           editableProfile.bloodGroup = health?.bloodGroup || '';
@@ -152,8 +154,8 @@ class StudentProfileService extends BaseService {
             updates.guardianEmail = body.emergencyContact.guardianEmail;
           }
           break;
-        case 'alumniEmailId':
-          if (editableFields.includes('alumniEmailId')) updates.alumniEmailId = body.alumniEmailId;
+        case 'secondaryEmail':
+          if (editableFields.includes('secondaryEmail')) updates.secondaryEmail = body.secondaryEmail;
           break;
         case 'bloodGroup':
           if (editableFields.includes('bloodGroup')) updates.bloodGroup = body.bloodGroup;
