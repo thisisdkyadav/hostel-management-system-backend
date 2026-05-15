@@ -32,6 +32,7 @@ import { POR_STATUS } from "../por/por.constants.js"
 
 const roundToTwo = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100
 const clamp = (value, max) => Math.max(0, Math.min(roundToTwo(value), max))
+const ALLOWED_BEST_PERFORMER_STUDENT_STATUSES = new Set(["ACTIVE", "GRADUATED"])
 
 const normalizeRollNumbers = (rollNumbers = []) => {
   if (!Array.isArray(rollNumbers)) return []
@@ -43,6 +44,10 @@ const normalizeRollNumbers = (rollNumbers = []) => {
 }
 
 const now = () => new Date()
+
+const normalizeStudentStatus = (status = "") => String(status || "").trim().toUpperCase()
+const isBestPerformerStudentStatusAllowed = (status = "") =>
+  ALLOWED_BEST_PERFORMER_STUDENT_STATUSES.has(normalizeStudentStatus(status))
 
 const closeExpiredOccurrences = async () => {
   const currentTime = now()
@@ -648,7 +653,9 @@ class BestPerformerService {
       rollNumber: profile.rollNumber || "",
       department: profile.department || "",
       degree: profile.degree || "",
+      status: profile.status || "",
     }
+    const isAllowedStudentStatus = isBestPerformerStudentStatusAllowed(profile.status)
 
     const activeOccurrence = await getActiveOccurrence()
     if (activeOccurrence) {
@@ -662,10 +669,14 @@ class BestPerformerService {
       const hasApplied = Boolean(currentApplication)
 
       return success({
-        canAccessPortal: isEligible || hasApplied,
-        isEligible,
+        canAccessPortal: hasApplied || (isEligible && isAllowedStudentStatus),
+        isEligible: isEligible && isAllowedStudentStatus,
         hasApplied,
-        canEdit: now() <= new Date(activeOccurrence.applyEndAt) && (!currentApplication || currentApplication.review?.status === APPLICATION_STATUS.SUBMITTED),
+        studentStatusAllowed: isAllowedStudentStatus,
+        canEdit:
+          isAllowedStudentStatus &&
+          now() <= new Date(activeOccurrence.applyEndAt) &&
+          (!currentApplication || currentApplication.review?.status === APPLICATION_STATUS.SUBMITTED),
         student,
         occurrence: serializeOccurrence(activeOccurrence),
         application: serializeApplication(
@@ -681,6 +692,7 @@ class BestPerformerService {
         canAccessPortal: false,
         isEligible: false,
         hasApplied: false,
+        studentStatusAllowed: isAllowedStudentStatus,
         canEdit: false,
         student,
         occurrence: null,
@@ -692,6 +704,7 @@ class BestPerformerService {
       canAccessPortal: true,
       isEligible: false,
       hasApplied: true,
+      studentStatusAllowed: isAllowedStudentStatus,
       canEdit: false,
       student,
       occurrence: serializeOccurrence(latestApplied.occurrence),
@@ -708,6 +721,10 @@ class BestPerformerService {
 
     const profile = await getStudentProfileForUser(user._id)
     if (!profile) return notFound("Student profile")
+
+    if (!isBestPerformerStudentStatusAllowed(profile.status)) {
+      return forbidden("Only students with Active or Graduated status can apply for this award")
+    }
 
     const editWindowOpen = now() <= new Date(occurrence.applyEndAt)
     if (!editWindowOpen) {
