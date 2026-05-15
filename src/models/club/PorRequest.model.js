@@ -4,7 +4,7 @@ const APPROVER_ASSIGNMENT_SCHEMA = new mongoose.Schema(
   {
     stage: {
       type: String,
-      enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      enum: ["Officer SA", "Associate Dean SA", "Dean SA"],
       required: true,
     },
     userId: {
@@ -85,7 +85,7 @@ const PorRequestSchema = new mongoose.Schema(
         "GS Gymkhana",
         "President Gymkhana",
         "Student Affairs",
-        "Joint Registrar SA",
+        "Officer SA",
         "Associate Dean SA",
         "Dean SA",
       ],
@@ -94,7 +94,7 @@ const PorRequestSchema = new mongoose.Schema(
     customApprovalChain: [
       {
         type: String,
-        enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+        enum: ["Officer SA", "Associate Dean SA", "Dean SA"],
       },
     ],
     currentChainIndex: {

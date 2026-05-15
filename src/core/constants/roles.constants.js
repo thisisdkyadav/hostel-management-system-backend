@@ -29,7 +29,7 @@ export const SUBROLES = {
   HCU: "HCU",
   // Admin SA subroles
   STUDENT_AFFAIRS: "Student Affairs",
-  JOINT_REGISTRAR_SA: "Joint Registrar SA",
+  JOINT_REGISTRAR_SA: "Officer SA",
   ASSOCIATE_DEAN_SA: "Associate Dean SA",
   DEAN_SA: "Dean SA",
 }

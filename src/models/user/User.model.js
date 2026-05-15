@@ -54,7 +54,7 @@ const UserSchema = new mongoose.Schema(
         "HCU",
         // Admin SA subroles
         "Student Affairs",
-        "Joint Registrar SA",
+        "Officer SA",
         "Associate Dean SA",
         "Dean SA",
       ],

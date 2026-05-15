@@ -9,7 +9,7 @@ const APPROVER_ASSIGNMENT_SCHEMA = new mongoose.Schema(
   {
     stage: {
       type: String,
-      enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      enum: ["Officer SA", "Associate Dean SA", "Dean SA"],
       required: true,
     },
     userId: {
@@ -70,7 +70,7 @@ const EventExpenseSchema = new mongoose.Schema(
       type: String,
       enum: [
         "Student Affairs",
-        "Joint Registrar SA",
+        "Officer SA",
         "Associate Dean SA",
         "Dean SA",
       ],
@@ -79,7 +79,7 @@ const EventExpenseSchema = new mongoose.Schema(
     customApprovalChain: [
       {
         type: String,
-        enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+        enum: ["Officer SA", "Associate Dean SA", "Dean SA"],
       },
     ],
     currentChainIndex: { type: Number, default: null },

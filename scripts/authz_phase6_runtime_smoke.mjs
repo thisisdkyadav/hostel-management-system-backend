@@ -470,7 +470,7 @@ const runApprovalAmountScenario = async (operatorClient) => {
         {
           body: {
             comments: "runtime smoke approval limit check",
-            nextApprovalStages: ["Joint Registrar SA"],
+            nextApprovalStages: ["Officer SA"],
           },
         }
       )
@@ -489,7 +489,7 @@ const runApprovalAmountScenario = async (operatorClient) => {
         {
           body: {
             comments: "runtime smoke approval limit check",
-            nextApprovalStages: ["Joint Registrar SA"],
+            nextApprovalStages: ["Officer SA"],
           },
         }
       )

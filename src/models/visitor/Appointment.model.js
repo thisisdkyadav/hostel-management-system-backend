@@ -14,7 +14,7 @@ const AppointmentSchema = new mongoose.Schema(
     },
     targetSubRole: {
       type: String,
-      enum: ["Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      enum: ["Officer SA", "Associate Dean SA", "Dean SA"],
       required: true,
     },
     visitorName: {

@@ -25,7 +25,7 @@ const ApprovalLogSchema = new mongoose.Schema(
         "GS Gymkhana",
         "President Gymkhana",
         "Student Affairs",
-        "Joint Registrar SA",
+        "Officer SA",
         "Associate Dean SA",
         "Dean SA",
       ],

@@ -8,6 +8,7 @@
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "dev:legacy": "nodemon server.js",
+    "migrate:officer-sa": "node scripts/migrate_joint_registrar_sa_to_officer_sa.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

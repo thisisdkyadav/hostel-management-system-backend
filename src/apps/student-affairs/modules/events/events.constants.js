@@ -62,7 +62,7 @@ export const APPROVAL_STAGES = {
   GS_GYMKHANA: "GS Gymkhana",
   PRESIDENT_GYMKHANA: "President Gymkhana",
   STUDENT_AFFAIRS: "Student Affairs",
-  JOINT_REGISTRAR_SA: "Joint Registrar SA",
+  JOINT_REGISTRAR_SA: "Officer SA",
   ASSOCIATE_DEAN_SA: "Associate Dean SA",
   DEAN_SA: "Dean SA",
 }

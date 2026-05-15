@@ -960,7 +960,7 @@ class CalendarService extends BaseService {
       return {
         success: false,
         message:
-          "Student Affairs must select at least one next approval stage (Joint Registrar SA / Associate Dean SA / Dean SA)",
+          "Student Affairs must select at least one next approval stage (Officer SA / Associate Dean SA / Dean SA)",
       }
     }
 

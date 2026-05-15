@@ -9,13 +9,13 @@ const APPROVAL_STAGES = [
   "GS Gymkhana",
   "President Gymkhana",
   "Student Affairs",
-  "Joint Registrar SA",
+  "Officer SA",
   "Associate Dean SA",
   "Dean SA",
 ]
 
 const POST_STUDENT_AFFAIRS_APPROVERS = [
-  "Joint Registrar SA",
+  "Officer SA",
   "Associate Dean SA",
   "Dean SA",
 ]
@@ -99,7 +99,7 @@ const proposalSchema = new mongoose.Schema(
       enum: [
         "President Gymkhana",
         "Student Affairs",
-        "Joint Registrar SA",
+        "Officer SA",
         "Associate Dean SA",
         "Dean SA",
       ],
@@ -170,7 +170,7 @@ const expenseSchema = new mongoose.Schema(
     },
     currentApprovalStage: {
       type: String,
-      enum: ["Student Affairs", "Joint Registrar SA", "Associate Dean SA", "Dean SA"],
+      enum: ["Student Affairs", "Officer SA", "Associate Dean SA", "Dean SA"],
       default: "Student Affairs",
     },
     customApprovalChain: [

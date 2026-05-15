@@ -41,7 +41,7 @@ export const resolvePostStudentAffairsAssignments = async (
       return {
         success: false,
         message:
-          "Student Affairs must select at least one next approver (Joint Registrar SA / Associate Dean SA / Dean SA)",
+          "Student Affairs must select at least one next approver (Officer SA / Associate Dean SA / Dean SA)",
       }
     }
 
