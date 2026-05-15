@@ -18,6 +18,10 @@ const OverallBestPerformerOccurrenceSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    applyStartAt: {
+      type: Date,
+      required: true,
+    },
     applyEndAt: {
       type: Date,
       required: true,
@@ -61,7 +65,7 @@ const OverallBestPerformerOccurrenceSchema = new mongoose.Schema(
   }
 )
 
-OverallBestPerformerOccurrenceSchema.index({ status: 1, applyEndAt: -1 })
+OverallBestPerformerOccurrenceSchema.index({ status: 1, applyStartAt: -1, applyEndAt: -1 })
 OverallBestPerformerOccurrenceSchema.index({ awardYear: -1 })
 
 const OverallBestPerformerOccurrence = mongoose.model(

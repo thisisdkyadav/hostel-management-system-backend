@@ -54,6 +54,7 @@ export const createOccurrenceSchema = Joi.object({
   title: Joi.string().trim().required().max(200),
   awardYear: Joi.number().integer().min(2000).max(3000).required(),
   description: Joi.string().trim().allow("").max(4000),
+  applyStartAt: Joi.date().iso().required(),
   applyEndAt: Joi.date().iso().required(),
   eligibleRollNumbers: Joi.array().items(Joi.string().trim().required()).min(1).max(5000).required(),
 })
@@ -61,6 +62,7 @@ export const createOccurrenceSchema = Joi.object({
 export const updateOccurrenceSchema = Joi.object({
   title: Joi.string().trim().max(200),
   description: Joi.string().trim().allow("").max(4000),
+  applyStartAt: Joi.date().iso(),
   applyEndAt: Joi.date().iso(),
   eligibleRollNumbers: Joi.array().items(Joi.string().trim().required()).min(1).max(5000),
 }).min(1)

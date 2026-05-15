@@ -49,6 +49,26 @@ const normalizeStudentStatus = (status = "") => String(status || "").trim().toUp
 const isBestPerformerStudentStatusAllowed = (status = "") =>
   ALLOWED_BEST_PERFORMER_STUDENT_STATUSES.has(normalizeStudentStatus(status))
 
+const isOccurrenceWindowOpen = (occurrence) => {
+  if (!occurrence?.applyStartAt || !occurrence?.applyEndAt) return false
+  const currentTime = now()
+  const startAt = new Date(occurrence.applyStartAt)
+  const endAt = new Date(occurrence.applyEndAt)
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) return false
+  return currentTime >= startAt && currentTime <= endAt
+}
+
+const getOccurrenceWindowStatus = (occurrence) => {
+  if (!occurrence?.applyStartAt || !occurrence?.applyEndAt) return "closed"
+  const currentTime = now()
+  const startAt = new Date(occurrence.applyStartAt)
+  const endAt = new Date(occurrence.applyEndAt)
+  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) return "closed"
+  if (currentTime < startAt) return "scheduled"
+  if (currentTime > endAt) return "closed"
+  return "open"
+}
+
 const closeExpiredOccurrences = async () => {
   const currentTime = now()
   await OverallBestPerformerOccurrence.updateMany(
@@ -68,15 +88,17 @@ const closeExpiredOccurrences = async () => {
 const serializeOccurrence = (occurrence, extras = {}) => {
   if (!occurrence) return null
   const data = typeof occurrence.toObject === "function" ? occurrence.toObject() : occurrence
-  const currentTime = now()
-  const isActive = data.status === OCCURRENCE_STATUS.ACTIVE && new Date(data.applyEndAt) >= currentTime
+  const windowStatus = getOccurrenceWindowStatus(data)
+  const isActive = data.status === OCCURRENCE_STATUS.ACTIVE && windowStatus !== "closed"
   return {
     id: data._id,
     title: data.title,
     awardYear: data.awardYear,
     description: data.description || "",
+    applyStartAt: data.applyStartAt,
     applyEndAt: data.applyEndAt,
     status: isActive ? OCCURRENCE_STATUS.ACTIVE : OCCURRENCE_STATUS.CLOSED,
+    applicationWindowStatus: windowStatus,
     eligibleStudentCount: data.eligibleStudentCount || 0,
     activatedAt: data.activatedAt || data.createdAt,
     closedAt: data.closedAt || null,
@@ -528,9 +550,18 @@ class BestPerformerService {
     const eligibleResult = await assertEligibleStudentRollNumbers(payload.eligibleRollNumbers)
     if (!eligibleResult.success) return eligibleResult
 
+    const applyStartAt = new Date(payload.applyStartAt)
     const applyEndAt = new Date(payload.applyEndAt)
+    if (Number.isNaN(applyStartAt.getTime())) {
+      return badRequest("Application start date is invalid")
+    }
+
     if (Number.isNaN(applyEndAt.getTime()) || applyEndAt <= now()) {
       return badRequest("Application end date must be in the future")
+    }
+
+    if (applyStartAt >= applyEndAt) {
+      return badRequest("Application start date must be before the end date")
     }
 
     await closeExpiredOccurrences()
@@ -549,6 +580,7 @@ class BestPerformerService {
       title: payload.title,
       awardYear: payload.awardYear,
       description: payload.description || "",
+      applyStartAt,
       applyEndAt,
       status: OCCURRENCE_STATUS.ACTIVE,
       eligibleRollNumbers: eligibleResult.data.normalizedRollNumbers,
@@ -571,12 +603,27 @@ class BestPerformerService {
       return badRequest("Only active occurrences can be updated")
     }
 
+    const nextApplyStartAt = payload.applyStartAt ? new Date(payload.applyStartAt) : new Date(occurrence.applyStartAt)
+    const nextApplyEndAt = payload.applyEndAt ? new Date(payload.applyEndAt) : new Date(occurrence.applyEndAt)
+
+    if (payload.applyStartAt && Number.isNaN(nextApplyStartAt.getTime())) {
+      return badRequest("Application start date is invalid")
+    }
+
+    if (payload.applyEndAt && (Number.isNaN(nextApplyEndAt.getTime()) || nextApplyEndAt <= now())) {
+      return badRequest("Application end date must be in the future")
+    }
+
+    if (nextApplyStartAt >= nextApplyEndAt) {
+      return badRequest("Application start date must be before the end date")
+    }
+
+    if (payload.applyStartAt) {
+      occurrence.applyStartAt = nextApplyStartAt
+    }
+
     if (payload.applyEndAt) {
-      const applyEndAt = new Date(payload.applyEndAt)
-      if (Number.isNaN(applyEndAt.getTime()) || applyEndAt <= now()) {
-        return badRequest("Application end date must be in the future")
-      }
-      occurrence.applyEndAt = applyEndAt
+      occurrence.applyEndAt = nextApplyEndAt
     }
 
     if (typeof payload.title === "string") {
@@ -667,15 +714,18 @@ class BestPerformerService {
       const normalizedRollNumber = String(profile.rollNumber || "").toUpperCase()
       const isEligible = activeOccurrence.eligibleRollNumbers.includes(normalizedRollNumber)
       const hasApplied = Boolean(currentApplication)
+      const isWindowOpen = isOccurrenceWindowOpen(activeOccurrence)
 
       return success({
-        canAccessPortal: hasApplied || (isEligible && isAllowedStudentStatus),
-        isEligible: isEligible && isAllowedStudentStatus,
+        canAccessPortal: isWindowOpen && isEligible && isAllowedStudentStatus,
+        isEligible: isWindowOpen && isEligible && isAllowedStudentStatus,
         hasApplied,
         studentStatusAllowed: isAllowedStudentStatus,
+        applicationWindowStatus: getOccurrenceWindowStatus(activeOccurrence),
         canEdit:
+          isWindowOpen &&
           isAllowedStudentStatus &&
-          now() <= new Date(activeOccurrence.applyEndAt) &&
+          isEligible &&
           (!currentApplication || currentApplication.review?.status === APPLICATION_STATUS.SUBMITTED),
         student,
         occurrence: serializeOccurrence(activeOccurrence),
@@ -693,6 +743,7 @@ class BestPerformerService {
         isEligible: false,
         hasApplied: false,
         studentStatusAllowed: isAllowedStudentStatus,
+        applicationWindowStatus: null,
         canEdit: false,
         student,
         occurrence: null,
@@ -701,10 +752,11 @@ class BestPerformerService {
     }
 
     return success({
-      canAccessPortal: true,
+      canAccessPortal: false,
       isEligible: false,
       hasApplied: true,
       studentStatusAllowed: isAllowedStudentStatus,
+      applicationWindowStatus: getOccurrenceWindowStatus(latestApplied.occurrence),
       canEdit: false,
       student,
       occurrence: serializeOccurrence(latestApplied.occurrence),
@@ -726,9 +778,9 @@ class BestPerformerService {
       return forbidden("Only students with Active or Graduated status can apply for this award")
     }
 
-    const editWindowOpen = now() <= new Date(occurrence.applyEndAt)
+    const editWindowOpen = isOccurrenceWindowOpen(occurrence)
     if (!editWindowOpen) {
-      return badRequest("The application deadline has passed")
+      return badRequest("Applications are allowed only between the configured start and end date")
     }
 
     const normalizedRollNumber = String(profile.rollNumber || "").toUpperCase()
