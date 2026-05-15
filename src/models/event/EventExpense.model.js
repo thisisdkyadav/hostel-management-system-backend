@@ -58,7 +58,7 @@ const EventExpenseSchema = new mongoose.Schema(
       enum: [
         "pending",
         "pending_student_affairs",
-        "pending_joint_registrar",
+        "pending_officer",
         "pending_associate_dean",
         "pending_dean",
         "approved",

@@ -62,7 +62,7 @@ const ActivityCalendarSchema = new mongoose.Schema(
         "draft",
         "pending_president",
         "pending_student_affairs",
-        "pending_joint_registrar",
+        "pending_officer",
         "pending_associate_dean",
         "pending_dean",
         "approved",

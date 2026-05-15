@@ -11,7 +11,7 @@ export const CALENDAR_STATUS = {
   DRAFT: "draft",
   PENDING_PRESIDENT: "pending_president",
   PENDING_STUDENT_AFFAIRS: "pending_student_affairs",
-  PENDING_JOINT_REGISTRAR: "pending_joint_registrar",
+  PENDING_OFFICER: "pending_officer",
   PENDING_ASSOCIATE_DEAN: "pending_associate_dean",
   PENDING_DEAN: "pending_dean",
   APPROVED: "approved",
@@ -31,7 +31,7 @@ export const PROPOSAL_STATUS = {
   DRAFT: "draft",
   PENDING_PRESIDENT: "pending_president",
   PENDING_STUDENT_AFFAIRS: "pending_student_affairs",
-  PENDING_JOINT_REGISTRAR: "pending_joint_registrar",
+  PENDING_OFFICER: "pending_officer",
   PENDING_ASSOCIATE_DEAN: "pending_associate_dean",
   PENDING_DEAN: "pending_dean",
   APPROVED: "approved",
@@ -47,7 +47,7 @@ export const AMENDMENT_STATUS = {
 
 export const EXPENSE_APPROVAL_STATUS = {
   PENDING_STUDENT_AFFAIRS: "pending_student_affairs",
-  PENDING_JOINT_REGISTRAR: "pending_joint_registrar",
+  PENDING_OFFICER: "pending_officer",
   PENDING_ASSOCIATE_DEAN: "pending_associate_dean",
   PENDING_DEAN: "pending_dean",
   APPROVED: "approved",
@@ -62,7 +62,7 @@ export const APPROVAL_STAGES = {
   GS_GYMKHANA: "GS Gymkhana",
   PRESIDENT_GYMKHANA: "President Gymkhana",
   STUDENT_AFFAIRS: "Student Affairs",
-  JOINT_REGISTRAR_SA: "Officer SA",
+  OFFICER_SA: "Officer SA",
   ASSOCIATE_DEAN_SA: "Associate Dean SA",
   DEAN_SA: "Dean SA",
 }
@@ -71,13 +71,13 @@ export const APPROVAL_ORDER = [
   APPROVAL_STAGES.GS_GYMKHANA,
   APPROVAL_STAGES.PRESIDENT_GYMKHANA,
   APPROVAL_STAGES.STUDENT_AFFAIRS,
-  APPROVAL_STAGES.JOINT_REGISTRAR_SA,
+  APPROVAL_STAGES.OFFICER_SA,
   APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
   APPROVAL_STAGES.DEAN_SA,
 ]
 
 export const POST_STUDENT_AFFAIRS_APPROVERS = [
-  APPROVAL_STAGES.JOINT_REGISTRAR_SA,
+  APPROVAL_STAGES.OFFICER_SA,
   APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
   APPROVAL_STAGES.DEAN_SA,
 ]
@@ -86,8 +86,8 @@ export const POST_STUDENT_AFFAIRS_APPROVERS = [
 export const STAGE_TO_STATUS = {
   [APPROVAL_STAGES.GS_GYMKHANA]: "pending_president",
   [APPROVAL_STAGES.PRESIDENT_GYMKHANA]: "pending_student_affairs",
-  [APPROVAL_STAGES.STUDENT_AFFAIRS]: "pending_joint_registrar",
-  [APPROVAL_STAGES.JOINT_REGISTRAR_SA]: "pending_associate_dean",
+  [APPROVAL_STAGES.STUDENT_AFFAIRS]: "pending_officer",
+  [APPROVAL_STAGES.OFFICER_SA]: "pending_associate_dean",
   [APPROVAL_STAGES.ASSOCIATE_DEAN_SA]: "pending_dean",
   [APPROVAL_STAGES.DEAN_SA]: "approved",
 }
@@ -97,7 +97,7 @@ export const STATUS_TO_APPROVER = {
   pending: APPROVAL_STAGES.STUDENT_AFFAIRS,
   pending_president: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
   pending_student_affairs: APPROVAL_STAGES.STUDENT_AFFAIRS,
-  pending_joint_registrar: APPROVAL_STAGES.JOINT_REGISTRAR_SA,
+  pending_officer: APPROVAL_STAGES.OFFICER_SA,
   pending_associate_dean: APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
   pending_dean: APPROVAL_STAGES.DEAN_SA,
 }
@@ -105,7 +105,7 @@ export const STATUS_TO_APPROVER = {
 export const APPROVER_TO_STATUS = {
   [APPROVAL_STAGES.PRESIDENT_GYMKHANA]: "pending_president",
   [APPROVAL_STAGES.STUDENT_AFFAIRS]: "pending_student_affairs",
-  [APPROVAL_STAGES.JOINT_REGISTRAR_SA]: "pending_joint_registrar",
+  [APPROVAL_STAGES.OFFICER_SA]: "pending_officer",
   [APPROVAL_STAGES.ASSOCIATE_DEAN_SA]: "pending_associate_dean",
   [APPROVAL_STAGES.DEAN_SA]: "pending_dean",
 }

@@ -77,7 +77,7 @@ const resolveViewerMode = (user) => {
   if (user.role === ROLES.ADMIN) {
     if (user.subRole === SUBROLES.STUDENT_AFFAIRS) return "student_affairs"
     if (
-      [SUBROLES.JOINT_REGISTRAR_SA, SUBROLES.ASSOCIATE_DEAN_SA, SUBROLES.DEAN_SA].includes(
+      [SUBROLES.OFFICER_SA, SUBROLES.ASSOCIATE_DEAN_SA, SUBROLES.DEAN_SA].includes(
         user.subRole
       )
     ) {
@@ -306,7 +306,7 @@ class PorService extends BaseService {
       porRequest.currentApproverUser = assignmentResolution.currentApproverUser
     } else if (
       [
-        POR_APPROVAL_STAGES.JOINT_REGISTRAR_SA,
+        POR_APPROVAL_STAGES.OFFICER_SA,
         POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
         POR_APPROVAL_STAGES.DEAN_SA,
       ].includes(currentStage)
@@ -657,7 +657,7 @@ class PorService extends BaseService {
 
     if (
       [
-        POR_APPROVAL_STAGES.JOINT_REGISTRAR_SA,
+        POR_APPROVAL_STAGES.OFFICER_SA,
         POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
         POR_APPROVAL_STAGES.DEAN_SA,
       ].includes(requiredStage)

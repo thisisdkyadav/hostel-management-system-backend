@@ -67,7 +67,7 @@ const PorRequestSchema = new mongoose.Schema(
         "pending_gs",
         "pending_president",
         "pending_student_affairs",
-        "pending_joint_registrar",
+        "pending_officer",
         "pending_associate_dean",
         "pending_dean",
         "approved",

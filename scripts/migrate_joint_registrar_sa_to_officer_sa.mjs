@@ -4,23 +4,34 @@ import connectDatabase from "../src/config/database.config.js"
 
 const OLD_SUBROLE = "Joint Registrar SA"
 const NEW_SUBROLE = "Officer SA"
+const OLD_STATUS = "pending_joint_registrar"
+const NEW_STATUS = "pending_officer"
 const APPLY = process.argv.includes("--apply")
 const VERBOSE = process.argv.includes("--verbose")
 const BATCH_SIZE = 200
 
 const COLLECTION_MIGRATIONS = [
   {
+    label: "users.subRole",
     collection: "users",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["subRole"],
     query: { subRole: OLD_SUBROLE },
   },
   {
+    label: "jrappointments.targetSubRole",
     collection: "jrappointments",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["targetSubRole"],
     query: { targetSubRole: OLD_SUBROLE },
   },
   {
+    label: "eventproposals.approverStages",
     collection: "eventproposals",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["currentApprovalStage", "customApprovalChain", "customApprovalAssignments[].stage"],
     query: {
       $or: [
@@ -31,7 +42,18 @@ const COLLECTION_MIGRATIONS = [
     },
   },
   {
+    label: "eventproposals.status",
+    collection: "eventproposals",
+    oldValue: OLD_STATUS,
+    newValue: NEW_STATUS,
+    paths: ["status"],
+    query: { status: OLD_STATUS },
+  },
+  {
+    label: "activitycalendars.approverStages",
     collection: "activitycalendars",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["currentApprovalStage", "customApprovalChain", "customApprovalAssignments[].stage"],
     query: {
       $or: [
@@ -42,7 +64,18 @@ const COLLECTION_MIGRATIONS = [
     },
   },
   {
+    label: "activitycalendars.status",
+    collection: "activitycalendars",
+    oldValue: OLD_STATUS,
+    newValue: NEW_STATUS,
+    paths: ["status"],
+    query: { status: OLD_STATUS },
+  },
+  {
+    label: "eventexpenses.approverStages",
     collection: "eventexpenses",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["currentApprovalStage", "customApprovalChain", "customApprovalAssignments[].stage"],
     query: {
       $or: [
@@ -53,7 +86,18 @@ const COLLECTION_MIGRATIONS = [
     },
   },
   {
+    label: "eventexpenses.approvalStatus",
+    collection: "eventexpenses",
+    oldValue: OLD_STATUS,
+    newValue: NEW_STATUS,
+    paths: ["approvalStatus"],
+    query: { approvalStatus: OLD_STATUS },
+  },
+  {
+    label: "porrequests.approverStages",
     collection: "porrequests",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["currentApprovalStage", "customApprovalChain", "customApprovalAssignments[].stage"],
     query: {
       $or: [
@@ -64,12 +108,26 @@ const COLLECTION_MIGRATIONS = [
     },
   },
   {
+    label: "porrequests.status",
+    collection: "porrequests",
+    oldValue: OLD_STATUS,
+    newValue: NEW_STATUS,
+    paths: ["status"],
+    query: { status: OLD_STATUS },
+  },
+  {
+    label: "approvallogs.stage",
     collection: "approvallogs",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: ["stage"],
     query: { stage: OLD_SUBROLE },
   },
   {
+    label: "megaeventoccurrences.approverStages",
     collection: "megaeventoccurrences",
+    oldValue: OLD_SUBROLE,
+    newValue: NEW_SUBROLE,
     paths: [
       "proposal.currentApprovalStage",
       "proposal.customApprovalChain",
@@ -91,6 +149,16 @@ const COLLECTION_MIGRATIONS = [
         { "expense.customApprovalAssignments.stage": OLD_SUBROLE },
         { "expense.history.stage": OLD_SUBROLE },
       ],
+    },
+  },
+  {
+    label: "megaeventoccurrences.statuses",
+    collection: "megaeventoccurrences",
+    oldValue: OLD_STATUS,
+    newValue: NEW_STATUS,
+    paths: ["proposal.status", "expense.approvalStatus"],
+    query: {
+      $or: [{ "proposal.status": OLD_STATUS }, { "expense.approvalStatus": OLD_STATUS }],
     },
   },
 ]
@@ -143,15 +211,18 @@ const replaceValueAtPath = (node, tokens, oldValue, newValue) => {
   return replaceValueAtPath(node[token], rest, oldValue, newValue)
 }
 
-const formatCollectionSummary = ({ collection, matchedCount, modifiedCount, replacementCount }) =>
-  `${collection}: matched ${matchedCount}, modified ${modifiedCount}, replacements ${replacementCount}`
+const formatCollectionSummary = ({ label, collection, matchedCount, modifiedCount, replacementCount }) =>
+  `${label || collection}: matched ${matchedCount}, modified ${modifiedCount}, replacements ${replacementCount}`
 
 const runMigrationForCollection = async (db, migration) => {
   const collection = db.collection(migration.collection)
+  const oldValue = migration.oldValue ?? OLD_SUBROLE
+  const newValue = migration.newValue ?? NEW_SUBROLE
   const matchedCount = await collection.countDocuments(migration.query)
 
   if (matchedCount === 0) {
     return {
+      label: migration.label,
       collection: migration.collection,
       matchedCount,
       modifiedCount: 0,
@@ -172,7 +243,7 @@ const runMigrationForCollection = async (db, migration) => {
     }
 
     const documentReplacementCount = migration.paths.reduce(
-      (count, path) => count + replaceValueAtPath(document, splitPath(path), OLD_SUBROLE, NEW_SUBROLE),
+      (count, path) => count + replaceValueAtPath(document, splitPath(path), oldValue, newValue),
       0
     )
 
@@ -203,6 +274,7 @@ const runMigrationForCollection = async (db, migration) => {
   }
 
   return {
+    label: migration.label,
     collection: migration.collection,
     matchedCount,
     modifiedCount,
@@ -227,8 +299,8 @@ const verifyRemainingMatches = async (db) => {
 const main = async () => {
   console.log(
     APPLY
-      ? `Applying migration: ${OLD_SUBROLE} -> ${NEW_SUBROLE}`
-      : `Dry run: ${OLD_SUBROLE} -> ${NEW_SUBROLE}`
+      ? `Applying migrations: ${OLD_SUBROLE} -> ${NEW_SUBROLE}; ${OLD_STATUS} -> ${NEW_STATUS}`
+      : `Dry run: ${OLD_SUBROLE} -> ${NEW_SUBROLE}; ${OLD_STATUS} -> ${NEW_STATUS}`
   )
 
   await connectDatabase()
