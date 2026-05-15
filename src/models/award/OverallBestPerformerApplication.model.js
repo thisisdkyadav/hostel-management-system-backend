@@ -7,10 +7,20 @@ const proofSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    sourceType: {
+      type: String,
+      enum: ["upload", "por"],
+      default: "upload",
+    },
     url: {
       type: String,
       trim: true,
-      required: true,
+      default: "",
+    },
+    porRequestId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PorRequest",
+      default: null,
     },
   },
   {

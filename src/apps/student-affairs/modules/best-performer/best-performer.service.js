@@ -2,6 +2,7 @@ import {
   OverallBestPerformerOccurrence,
   OverallBestPerformerApplication,
   StudentProfile,
+  PorRequest,
 } from "../../../../models/index.js"
 import {
   success,
@@ -23,6 +24,11 @@ import {
   CO_CURRICULAR_POINTS,
   SECTION_MAX_POINTS,
 } from "./best-performer.constants.js"
+import {
+  getGlobalGymkhanaCategoryDefinitions,
+  normalizeCategoryKey,
+} from "../events/category-definitions.utils.js"
+import { POR_STATUS } from "../por/por.constants.js"
 
 const roundToTwo = (value) => Math.round((Number(value) + Number.EPSILON) * 100) / 100
 const clamp = (value, max) => Math.max(0, Math.min(roundToTwo(value), max))
@@ -75,7 +81,156 @@ const serializeOccurrence = (occurrence, extras = {}) => {
   }
 }
 
-const serializeApplication = (application) => {
+const buildCategoryLookup = async () => {
+  const categories = await getGlobalGymkhanaCategoryDefinitions()
+  const categoriesByKey = new Map()
+
+  for (const category of categories || []) {
+    const key = normalizeCategoryKey(category?.key)
+    if (!key) continue
+    categoriesByKey.set(key, String(category?.label || key).trim() || key)
+  }
+
+  return categoriesByKey
+}
+
+const serializePorProofDetail = (porRequest, studentProfilesByUserId = new Map(), categoriesByKey = new Map()) => {
+  if (!porRequest) return null
+
+  const submittedById = String(porRequest?.submittedBy?._id || porRequest?.submittedBy || "")
+  const club = porRequest?.clubId && typeof porRequest.clubId === "object" ? porRequest.clubId : null
+  const studentProfile = studentProfilesByUserId.get(submittedById)
+  const categoryKey = normalizeCategoryKey(porRequest?.gymkhanaCategoryKey)
+
+  return {
+    id: String(porRequest?._id || ""),
+    student: {
+      userId: submittedById,
+      name: String(porRequest?.submittedBy?.name || "").trim(),
+      email: String(porRequest?.submittedBy?.email || "").trim().toLowerCase(),
+      rollNumber: String(studentProfile?.rollNumber || "").trim(),
+      department: String(studentProfile?.department || "").trim(),
+      degree: String(studentProfile?.degree || "").trim(),
+      batch: String(studentProfile?.batch || "").trim(),
+    },
+    club: {
+      id: String(club?._id || porRequest?.clubId || ""),
+      name: String(club?.name || "").trim(),
+      email: String(club?.email || "").trim().toLowerCase(),
+      userId: String(club?.userId || "").trim(),
+    },
+    gymkhanaCategoryKey: categoryKey,
+    gymkhanaCategoryLabel: categoriesByKey.get(categoryKey) || categoryKey,
+    hasDisciplinaryAction: Boolean(porRequest?.hasDisciplinaryAction),
+    disciplinaryActionDetails: String(porRequest?.disciplinaryActionDetails || "").trim(),
+    positionTitle: String(porRequest?.positionTitle || "").trim(),
+    positionDetails: String(porRequest?.positionDetails || "").trim(),
+    tenure: String(porRequest?.tenure || "").trim(),
+    status: porRequest?.status || "",
+    currentApprovalStage: porRequest?.currentApprovalStage || null,
+    approvedAt: porRequest?.approvedAt || null,
+    createdAt: porRequest?.createdAt || null,
+    updatedAt: porRequest?.updatedAt || null,
+    revisionCount: Number(porRequest?.revisionCount || 0),
+  }
+}
+
+const collectProofPorIds = (proofs = []) =>
+  (Array.isArray(proofs) ? proofs : [])
+    .map((proof) => (proof?.sourceType === "por" ? String(proof?.porRequestId || "").trim() : ""))
+    .filter(Boolean)
+
+const collectApplicationProofPorIds = (application = {}) => {
+  const ids = []
+
+  ids.push(...collectProofPorIds(application?.coursework?.proofs))
+  ids.push(...collectProofPorIds(application?.projectThesis?.btpAwardProofs))
+  ids.push(...collectProofPorIds(application?.projectThesis?.projectGradeProofs))
+
+  for (const item of application?.projectThesis?.publicationItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.projectThesis?.technologyTransferItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.responsibilityItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.awardItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.culturalItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.scienceTechnologyItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.gamesSportsItems || []) ids.push(...collectProofPorIds(item?.proofs))
+  for (const item of application?.coCurricularItems || []) ids.push(...collectProofPorIds(item?.proofs))
+
+  return [...new Set(ids)]
+}
+
+const normalizeProofs = (proofs = []) =>
+  (Array.isArray(proofs) ? proofs : [])
+    .filter(Boolean)
+    .map((proof) => {
+      const sourceType = proof?.sourceType === "por" ? "por" : "upload"
+      const label = String(proof?.label || "").trim()
+
+      if (sourceType === "por") {
+        return {
+          label,
+          sourceType,
+          url: "",
+          porRequestId: proof?.porRequestId || null,
+        }
+      }
+
+      return {
+        label,
+        sourceType,
+        url: String(proof?.url || "").trim(),
+        porRequestId: null,
+      }
+    })
+    .filter((proof) => (proof.sourceType === "por" ? Boolean(proof.porRequestId) : Boolean(proof.url)))
+
+const normalizeProofsInPayload = (payload = {}) => {
+  const normalizeItemArray = (items = []) =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      proofs: normalizeProofs(item?.proofs),
+    }))
+
+  return {
+    ...payload,
+    coursework: {
+      ...(payload?.coursework || {}),
+      proofs: normalizeProofs(payload?.coursework?.proofs),
+    },
+    projectThesis: {
+      ...(payload?.projectThesis || {}),
+      btpAwardProofs: normalizeProofs(payload?.projectThesis?.btpAwardProofs),
+      projectGradeProofs: normalizeProofs(payload?.projectThesis?.projectGradeProofs),
+      publicationItems: normalizeItemArray(payload?.projectThesis?.publicationItems),
+      technologyTransferItems: normalizeItemArray(payload?.projectThesis?.technologyTransferItems),
+    },
+    responsibilityItems: normalizeItemArray(payload?.responsibilityItems),
+    awardItems: normalizeItemArray(payload?.awardItems),
+    culturalItems: normalizeItemArray(payload?.culturalItems),
+    scienceTechnologyItems: normalizeItemArray(payload?.scienceTechnologyItems),
+    gamesSportsItems: normalizeItemArray(payload?.gamesSportsItems),
+    coCurricularItems: normalizeItemArray(payload?.coCurricularItems),
+  }
+}
+
+const serializeProofs = (proofs = [], porLookup = new Map()) =>
+  (Array.isArray(proofs) ? proofs : []).map((proof) => {
+    const porRequestId = String(proof?.porRequestId || "").trim()
+    return {
+      label: String(proof?.label || "").trim(),
+      sourceType: proof?.sourceType === "por" ? "por" : "upload",
+      url: String(proof?.url || "").trim(),
+      porRequestId,
+      linkedPor: porRequestId ? porLookup.get(porRequestId) || null : null,
+    }
+  })
+
+const serializeApplicationItem = (item = {}, porLookup = new Map()) => ({
+  ...item,
+  proofs: serializeProofs(item?.proofs, porLookup),
+})
+
+const serializeApplication = (application, porLookup = new Map()) => {
   if (!application) return null
   const data = typeof application.toObject === "function" ? application.toObject() : application
   const calculatedTotal = Number(data?.scoreBreakdown?.total || 0)
@@ -96,14 +251,39 @@ const serializeApplication = (application) => {
     department: data.department,
     degree: data.degree,
     personalAcademic: data.personalAcademic || {},
-    coursework: data.coursework || {},
-    projectThesis: data.projectThesis || {},
-    responsibilityItems: data.responsibilityItems || [],
-    awardItems: data.awardItems || [],
-    culturalItems: data.culturalItems || [],
-    scienceTechnologyItems: data.scienceTechnologyItems || [],
-    gamesSportsItems: data.gamesSportsItems || [],
-    coCurricularItems: data.coCurricularItems || [],
+    coursework: data.coursework
+      ? {
+          ...data.coursework,
+          proofs: serializeProofs(data.coursework?.proofs, porLookup),
+        }
+      : {},
+    projectThesis: data.projectThesis
+      ? {
+          ...data.projectThesis,
+          btpAwardProofs: serializeProofs(data.projectThesis?.btpAwardProofs, porLookup),
+          projectGradeProofs: serializeProofs(data.projectThesis?.projectGradeProofs, porLookup),
+          publicationItems: (data.projectThesis?.publicationItems || []).map((item) =>
+            serializeApplicationItem(item, porLookup)
+          ),
+          technologyTransferItems: (data.projectThesis?.technologyTransferItems || []).map((item) =>
+            serializeApplicationItem(item, porLookup)
+          ),
+        }
+      : {},
+    responsibilityItems: (data.responsibilityItems || []).map((item) =>
+      serializeApplicationItem(item, porLookup)
+    ),
+    awardItems: (data.awardItems || []).map((item) => serializeApplicationItem(item, porLookup)),
+    culturalItems: (data.culturalItems || []).map((item) => serializeApplicationItem(item, porLookup)),
+    scienceTechnologyItems: (data.scienceTechnologyItems || []).map((item) =>
+      serializeApplicationItem(item, porLookup)
+    ),
+    gamesSportsItems: (data.gamesSportsItems || []).map((item) =>
+      serializeApplicationItem(item, porLookup)
+    ),
+    coCurricularItems: (data.coCurricularItems || []).map((item) =>
+      serializeApplicationItem(item, porLookup)
+    ),
     scoreBreakdown: data.scoreBreakdown || {},
     review: data.review || {},
     submittedAt: data.submittedAt,
@@ -256,6 +436,53 @@ const getActiveOccurrence = async () => {
     .sort({ applyEndAt: -1, createdAt: -1 })
 }
 
+const buildPorLookupForApplications = async (applications = []) => {
+  const porRequestIds = [
+    ...new Set(
+      (Array.isArray(applications) ? applications : [])
+        .flatMap((application) => collectApplicationProofPorIds(application))
+        .filter(Boolean)
+    ),
+  ]
+
+  if (!porRequestIds.length) {
+    return new Map()
+  }
+
+  const [porRequests, categoriesByKey] = await Promise.all([
+    PorRequest.find({ _id: { $in: porRequestIds } })
+      .populate("submittedBy", "name email")
+      .populate("clubId", "name email gymkhanaCategoryKey userId")
+      .lean(),
+    buildCategoryLookup(),
+  ])
+
+  const submittedByIds = [
+    ...new Set(
+      porRequests
+        .map((request) => String(request?.submittedBy?._id || request?.submittedBy || "").trim())
+        .filter(Boolean)
+    ),
+  ]
+
+  const studentProfiles = await StudentProfile.find({
+    userId: { $in: submittedByIds },
+  })
+    .select("userId rollNumber department degree batch")
+    .lean()
+
+  const studentProfilesByUserId = new Map(
+    studentProfiles.map((profile) => [String(profile?.userId || "").trim(), profile])
+  )
+
+  return new Map(
+    porRequests.map((request) => [
+      String(request?._id || "").trim(),
+      serializePorProofDetail(request, studentProfilesByUserId, categoriesByKey),
+    ])
+  )
+}
+
 const getLatestAppliedOccurrenceForStudent = async (userId) => {
   const application = await OverallBestPerformerApplication.findOne({ studentUserId: userId })
     .populate("occurrenceId")
@@ -392,9 +619,10 @@ class BestPerformerService {
     const applications = await OverallBestPerformerApplication.find({ occurrenceId: occurrence._id })
       .sort({ "review.finalScore": -1, "scoreBreakdown.total": -1, updatedAt: 1 })
       .lean()
+    const porLookup = await buildPorLookupForApplications(applications)
 
     const leaderboard = applications
-      .map((application) => serializeApplication(application))
+      .map((application) => serializeApplication(application, porLookup))
       .sort((left, right) => right.finalScore - left.finalScore || right.calculatedTotal - left.calculatedTotal)
 
     const stats = {
@@ -440,7 +668,10 @@ class BestPerformerService {
         canEdit: now() <= new Date(activeOccurrence.applyEndAt) && (!currentApplication || currentApplication.review?.status === APPLICATION_STATUS.SUBMITTED),
         student,
         occurrence: serializeOccurrence(activeOccurrence),
-        application: serializeApplication(currentApplication),
+        application: serializeApplication(
+          currentApplication,
+          await buildPorLookupForApplications(currentApplication ? [currentApplication] : [])
+        ),
       })
     }
 
@@ -464,7 +695,10 @@ class BestPerformerService {
       canEdit: false,
       student,
       occurrence: serializeOccurrence(latestApplied.occurrence),
-      application: serializeApplication(latestApplied.application),
+      application: serializeApplication(
+        latestApplied.application,
+        await buildPorLookupForApplications(latestApplied.application ? [latestApplied.application] : [])
+      ),
     })
   }
 
@@ -498,7 +732,29 @@ class BestPerformerService {
       return badRequest("Reviewed applications can no longer be edited")
     }
 
-    const computed = computeBreakdown(payload)
+    const normalizedPayload = normalizeProofsInPayload(payload)
+    const linkedPorIds = collectApplicationProofPorIds(normalizedPayload)
+
+    if (linkedPorIds.length > 0) {
+      const approvedPorRequests = await PorRequest.find({
+        _id: { $in: linkedPorIds },
+        submittedBy: user._id,
+        status: POR_STATUS.APPROVED,
+      })
+        .select("_id")
+        .lean()
+
+      const approvedIdSet = new Set(
+        approvedPorRequests.map((request) => String(request?._id || "").trim())
+      )
+      const invalidPorIds = linkedPorIds.filter((id) => !approvedIdSet.has(id))
+
+      if (invalidPorIds.length > 0) {
+        return badRequest("Only your verified PORs can be used as supporting proof")
+      }
+    }
+
+    const computed = computeBreakdown(normalizedPayload)
     const application = existingApplication || new OverallBestPerformerApplication({
       occurrenceId: occurrence._id,
       studentUserId: user._id,
@@ -538,8 +794,10 @@ class BestPerformerService {
 
     await application.save()
 
+    const porLookup = await buildPorLookupForApplications([application])
+
     return success({
-      application: serializeApplication(application),
+      application: serializeApplication(application, porLookup),
       occurrence: serializeOccurrence(occurrence),
     }, 200, existingApplication ? "Application updated successfully" : "Application submitted successfully")
   }
@@ -571,8 +829,10 @@ class BestPerformerService {
 
     await application.save()
 
+    const porLookup = await buildPorLookupForApplications([application])
+
     return success({
-      application: serializeApplication(application),
+      application: serializeApplication(application, porLookup),
     }, 200, decision === APPLICATION_STATUS.REJECTED ? "Application rejected" : "Application approved")
   }
 }

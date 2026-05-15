@@ -4,8 +4,23 @@ const objectIdSchema = Joi.string().trim().hex().length(24)
 
 const proofSchema = Joi.object({
   label: Joi.string().trim().allow("").max(120),
-  url: Joi.string().trim().required().max(4000),
-})
+  sourceType: Joi.string().trim().valid("upload", "por").default("upload"),
+  url: Joi.string().trim().allow("").max(4000),
+  porRequestId: objectIdSchema.allow(null, ""),
+}).custom((value, helpers) => {
+  if (value?.sourceType === "por") {
+    if (!String(value?.porRequestId || "").trim()) {
+      return helpers.error("any.invalid")
+    }
+    return value
+  }
+
+  if (!String(value?.url || "").trim()) {
+    return helpers.error("any.invalid")
+  }
+
+  return value
+}, "proof source validation")
 
 const referenceSchema = Joi.object({
   name: Joi.string().trim().allow("").max(160),
