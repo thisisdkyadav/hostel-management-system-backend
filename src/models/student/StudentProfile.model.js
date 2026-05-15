@@ -298,6 +298,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   } = params
 
   const pipeline = []
+  const normalizedIsDayScholar = typeof isDayScholar === "boolean" ? String(isDayScholar) : isDayScholar
 
   const matchProfile = {}
   if (rollNumber) matchProfile.rollNumber = { $regex: rollNumber, $options: "i" }
@@ -321,9 +322,9 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   if (status) matchProfile.status = status
   pipeline.push({ $match: matchProfile })
 
-  if (isDayScholar === "true") {
+  if (normalizedIsDayScholar === "true") {
     pipeline.push({ $match: { isDayScholar: true } })
-  } else if (isDayScholar === "false") {
+  } else if (normalizedIsDayScholar === "false") {
     pipeline.push({
       $match: {
         $or: [

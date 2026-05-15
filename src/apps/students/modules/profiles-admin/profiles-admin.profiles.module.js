@@ -835,6 +835,17 @@ const orderStudentsByUserIds = (students, userIds) => {
   ));
 };
 
+const orderStudentsByRollNumbers = (students, rollNumbers) => {
+  const order = new Map(
+    rollNumbers.map((rollNumber, index) => [String(rollNumber || '').trim().toUpperCase(), index])
+  );
+
+  return [...students].sort((a, b) => (
+    (order.get(String(a.rollNumber || '').trim().toUpperCase()) ?? Number.MAX_SAFE_INTEGER)
+    - (order.get(String(b.rollNumber || '').trim().toUpperCase()) ?? Number.MAX_SAFE_INTEGER)
+  ));
+};
+
 export const getStudentExportDetails = asyncHandler(async (req, res) => {
   const { mode, filters = {}, rollNumbers = [] } = req.body || {};
   const { constraintContext } = applyStudentListScope({}, req.user);
@@ -846,6 +857,7 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
   let userIds = [];
   let errors = [];
   let totalMatched = 0;
+  let requestedRollNumbers = [];
 
   if (mode === 'filters') {
     const { scopedQuery, forceEmpty } = applyStudentListScope(filters, req.user);
@@ -878,6 +890,7 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
       .map((rollNumber) => (typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''))
       .filter(Boolean);
     const uniqueRollNumbers = [...new Set(normalizedRollNumbers)];
+    requestedRollNumbers = uniqueRollNumbers;
 
     if (uniqueRollNumbers.length === 0) {
       return sendStandardResponse(res, badRequest('Please provide at least one roll number'));
@@ -934,7 +947,9 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
     ];
   }
 
-  const orderedStudents = orderStudentsByUserIds(filteredStudentsData, userIds);
+  const orderedStudents = mode === 'rollNumbers'
+    ? orderStudentsByRollNumbers(filteredStudentsData, requestedRollNumbers)
+    : orderStudentsByUserIds(filteredStudentsData, userIds);
 
   return sendStandardResponse(res, {
     success: true,
