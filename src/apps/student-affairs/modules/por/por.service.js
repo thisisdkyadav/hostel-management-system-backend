@@ -11,7 +11,10 @@ import Club from "../../../../models/club/Club.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import StudentProfile from "../../../../models/student/StudentProfile.model.js"
 import Gymkhana from "../../../../models/user/Gymkhana.model.js"
+import User from "../../../../models/user/User.model.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
+import logger from "../../../../services/base/Logger.js"
+import { emailService } from "../../../../services/email/index.js"
 import {
   getGlobalGymkhanaCategoryDefinitions,
   normalizeCategoryKey,
@@ -36,6 +39,19 @@ const normalizeText = (value = "") => String(value || "").trim()
 const normalizeOptionalText = (value = "") => {
   const normalized = normalizeText(value)
   return normalized || ""
+}
+
+const escapeHtml = (value = "") =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+
+const formatStageLabel = (stage) => {
+  if (stage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) return "Office - Student Affairs"
+  return stage || "POR Workflow"
 }
 
 const buildCategoryLookup = async () => {
@@ -176,6 +192,16 @@ class PorService extends BaseService {
         : "",
     })
 
+    await this.notifyNextPorReviewers({
+      porRequestId: porRequest._id,
+      movedByUser: user,
+      movedFromStage: POR_APPROVAL_STAGES.STUDENT,
+      comments: studentProfile.rollNumber
+        ? `Submitted by ${studentProfile.rollNumber}`
+        : "",
+      trigger: "submitted",
+    })
+
     const { categoriesByKey } = await buildCategoryLookup()
     const serializedRequests = await this.serializeRequests(
       [
@@ -249,6 +275,14 @@ class PorService extends BaseService {
       comments: `Revision #${porRequest.revisionCount}`,
     })
 
+    await this.notifyNextPorReviewers({
+      porRequestId: porRequest._id,
+      movedByUser: user,
+      movedFromStage: POR_APPROVAL_STAGES.STUDENT,
+      comments: `Revision #${porRequest.revisionCount}`,
+      trigger: "submitted",
+    })
+
     const { categoriesByKey } = await buildCategoryLookup()
     const serializedRequests = await this.serializeRequests(
       [
@@ -271,6 +305,251 @@ class PorService extends BaseService {
       200,
       "POR request resubmitted successfully"
     )
+  }
+
+  async getPorRequestEmailContext(porRequestId) {
+    const request = await this.model
+      .findById(porRequestId)
+      .populate("submittedBy", "name email")
+      .populate("currentApproverUser", "name email subRole role")
+      .populate("clubId", "name email gymkhanaCategoryKey userId")
+      .lean()
+
+    if (!request) return null
+
+    const { categoriesByKey } = await buildCategoryLookup()
+    const categoryKey = normalizeCategoryKey(request.gymkhanaCategoryKey)
+
+    return {
+      request,
+      student: request.submittedBy || null,
+      club: request.clubId || null,
+      categoryLabel: categoriesByKey.get(categoryKey) || categoryKey,
+    }
+  }
+
+  buildPorEmailTitle(context) {
+    const positionTitle = normalizeText(context?.request?.positionTitle) || "POR Request"
+    const studentName = normalizeText(context?.student?.name) || "Student"
+    return `${positionTitle} - ${studentName}`
+  }
+
+  async resolveNextPorReviewerRecipients(context) {
+    const request = context?.request
+    const nextStage = request?.currentApprovalStage
+    if (!request || !nextStage || request.status === POR_STATUS.APPROVED) return []
+
+    if (nextStage === POR_APPROVAL_STAGES.CLUB) {
+      const clubUserId = context?.club?.userId
+      if (!clubUserId) return []
+      return User.find({ _id: clubUserId }).select("name email role subRole").lean()
+    }
+
+    if (nextStage === POR_APPROVAL_STAGES.GS_GYMKHANA) {
+      const categoryKey = normalizeCategoryKey(request.gymkhanaCategoryKey)
+      if (!categoryKey) return []
+
+      const gymkhanaProfiles = await Gymkhana.find({ categories: categoryKey }).select("userId").lean()
+      const userIds = gymkhanaProfiles.map((profile) => profile.userId).filter(Boolean)
+      if (userIds.length === 0) return []
+
+      return User.find({
+        _id: { $in: userIds },
+        role: ROLES.GYMKHANA,
+        subRole: SUBROLES.GS_GYMKHANA,
+      })
+        .select("name email role subRole")
+        .lean()
+    }
+
+    if (nextStage === POR_APPROVAL_STAGES.PRESIDENT_GYMKHANA) {
+      return User.find({
+        role: ROLES.GYMKHANA,
+        subRole: SUBROLES.PRESIDENT_GYMKHANA,
+      })
+        .select("name email role subRole")
+        .lean()
+    }
+
+    if (nextStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
+      return User.find({
+        role: ROLES.ADMIN,
+        subRole: SUBROLES.STUDENT_AFFAIRS,
+      })
+        .select("name email role subRole")
+        .lean()
+    }
+
+    if (
+      [
+        POR_APPROVAL_STAGES.OFFICER_SA,
+        POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
+        POR_APPROVAL_STAGES.DEAN_SA,
+      ].includes(nextStage)
+    ) {
+      if (request.currentApproverUser?.email) {
+        return [request.currentApproverUser]
+      }
+
+      if (!request.currentApproverUser?._id) return []
+      return User.find({ _id: request.currentApproverUser._id }).select("name email role subRole").lean()
+    }
+
+    return []
+  }
+
+  async notifyNextPorReviewers({
+    porRequestId,
+    movedByUser,
+    movedFromStage,
+    comments = "",
+    trigger = "recommended",
+  }) {
+    try {
+      const context = await this.getPorRequestEmailContext(porRequestId)
+      if (!context?.request) return
+
+      const recipients = await this.resolveNextPorReviewerRecipients(context)
+      const emails = [
+        ...new Set(
+          recipients
+            .map((recipient) => normalizeText(recipient?.email).toLowerCase())
+            .filter(Boolean)
+        ),
+      ]
+
+      if (emails.length === 0) return
+
+      const requestTitle = this.buildPorEmailTitle(context)
+      const nextStageLabel = formatStageLabel(context.request.currentApprovalStage)
+      const movedFromLabel = formatStageLabel(movedFromStage)
+      const movedByName = normalizeText(movedByUser?.name) || "Previous reviewer"
+      const movedByRole = normalizeText(movedByUser?.subRole || movedByUser?.role) || movedFromLabel
+      const safeComments = normalizeOptionalText(comments)
+      const actionText = trigger === "submitted" ? "submitted" : "recommended"
+
+      const commentsBlock = safeComments
+        ? `<p><strong>Comments:</strong><br />${escapeHtml(safeComments)}</p>`
+        : ""
+
+      const body = `
+        <p>Dear Reviewer,</p>
+        <p>A POR verification request has been ${escapeHtml(actionText)} and is now pending at your stage.</p>
+        <div class="info-box">
+          <p><strong>Request:</strong> ${escapeHtml(requestTitle)}</p>
+          <p><strong>Student:</strong> ${escapeHtml(context.student?.name || "Student")} (${escapeHtml(context.student?.email || "No email")})</p>
+          <p><strong>Club:</strong> ${escapeHtml(context.club?.name || "Club")}</p>
+          <p><strong>GS Category:</strong> ${escapeHtml(context.categoryLabel || "Category")}</p>
+          <p><strong>Your role/stage:</strong> ${escapeHtml(nextStageLabel)}</p>
+          <p><strong>Moved by:</strong> ${escapeHtml(movedByName)} (${escapeHtml(movedByRole)})</p>
+        </div>
+        ${commentsBlock}
+        <p>Please log in to HMS and review this POR request from your POR workspace.</p>
+      `
+
+      const result = await emailService.sendCustomEmail({
+        to: emails,
+        subject: `POR review required: ${requestTitle}`,
+        body,
+        useTemplate: true,
+      })
+
+      if (!result?.success) {
+        logger.error("Failed to send POR reviewer notification", {
+          porRequestId: String(porRequestId),
+          nextStage: context.request.currentApprovalStage,
+          recipients: emails,
+          error: result?.error || result?.errors?.join("; ") || "Unknown email error",
+        })
+      }
+    } catch (error) {
+      logger.error("Error sending POR reviewer notification", {
+        porRequestId: String(porRequestId || ""),
+        error: error?.message || "Unknown error",
+      })
+    }
+  }
+
+  async notifyPorStudent({
+    porRequestId,
+    action,
+    performedBy,
+    stage,
+    comments = "",
+  }) {
+    try {
+      const context = await this.getPorRequestEmailContext(porRequestId)
+      const studentEmail = normalizeText(context?.student?.email).toLowerCase()
+      if (!context?.request || !studentEmail) return
+
+      const requestTitle = this.buildPorEmailTitle(context)
+      const safeComments = normalizeOptionalText(comments)
+      const stageLabel = formatStageLabel(stage)
+      const performedByName = normalizeText(performedBy?.name) || "Reviewer"
+      const performedByRole = normalizeText(performedBy?.subRole || performedBy?.role) || stageLabel
+
+      const actionMeta = {
+        approved: {
+          subject: `POR approved: ${requestTitle}`,
+          heading: "Your POR request has been approved",
+          description: "Your POR verification request has received final approval.",
+          boxClass: "success-box",
+        },
+        rejected: {
+          subject: `POR rejected: ${requestTitle}`,
+          heading: "Your POR request has been rejected",
+          description: "Your POR verification request was rejected during review.",
+          boxClass: "warning",
+        },
+        revision_requested: {
+          subject: `Modification required: ${requestTitle}`,
+          heading: "Modification required for your POR request",
+          description: "A reviewer has requested changes before this POR request can continue.",
+          boxClass: "warning",
+        },
+      }[action]
+
+      if (!actionMeta) return
+
+      const commentsBlock = safeComments
+        ? `<p><strong>Reviewer comments:</strong><br />${escapeHtml(safeComments)}</p>`
+        : ""
+
+      const body = `
+        <p>Hello ${escapeHtml(context.student?.name || "Student")},</p>
+        <p>${escapeHtml(actionMeta.description)}</p>
+        <div class="${actionMeta.boxClass}">
+          <p><strong>Request:</strong> ${escapeHtml(requestTitle)}</p>
+          <p><strong>Club:</strong> ${escapeHtml(context.club?.name || "Club")}</p>
+          <p><strong>Stage:</strong> ${escapeHtml(stageLabel)}</p>
+          <p><strong>Reviewed by:</strong> ${escapeHtml(performedByName)} (${escapeHtml(performedByRole)})</p>
+        </div>
+        ${commentsBlock}
+        <p>Please log in to HMS to view the latest status in your POR workspace.</p>
+      `
+
+      const result = await emailService.sendCustomEmail({
+        to: studentEmail,
+        subject: actionMeta.subject,
+        body: `<h2>${escapeHtml(actionMeta.heading)}</h2>${body}`,
+        useTemplate: true,
+      })
+
+      if (!result?.success) {
+        logger.error("Failed to send POR student notification", {
+          porRequestId: String(porRequestId),
+          action,
+          studentEmail,
+          error: result?.error || "Unknown email error",
+        })
+      }
+    } catch (error) {
+      logger.error("Error sending POR student notification", {
+        porRequestId: String(porRequestId || ""),
+        action,
+        error: error?.message || "Unknown error",
+      })
+    }
   }
 
   async approvePorRequest(id, comments, user, nextApprovalStages = [], nextApprovers = []) {
@@ -365,6 +644,24 @@ class PorService extends BaseService {
       comments: normalizedComments,
     })
 
+    if (porRequest.status === POR_STATUS.APPROVED) {
+      await this.notifyPorStudent({
+        porRequestId: porRequest._id,
+        action: POR_APPROVAL_ACTIONS.APPROVED,
+        performedBy: user,
+        stage: currentStage,
+        comments: normalizedComments,
+      })
+    } else {
+      await this.notifyNextPorReviewers({
+        porRequestId: porRequest._id,
+        movedByUser: user,
+        movedFromStage: currentStage,
+        comments: normalizedComments,
+        trigger: "recommended",
+      })
+    }
+
     return success({ request: porRequest }, 200, "POR request approved")
   }
 
@@ -401,6 +698,14 @@ class PorService extends BaseService {
       comments: normalizeText(reason),
     })
 
+    await this.notifyPorStudent({
+      porRequestId: porRequest._id,
+      action: POR_APPROVAL_ACTIONS.REJECTED,
+      performedBy: user,
+      stage: currentStage,
+      comments: normalizeText(reason),
+    })
+
     return success({ request: porRequest }, 200, "POR request rejected")
   }
 
@@ -434,6 +739,14 @@ class PorService extends BaseService {
       stage: currentStage,
       action: POR_APPROVAL_ACTIONS.REVISION_REQUESTED,
       performedBy: user._id,
+      comments: normalizeText(comments),
+    })
+
+    await this.notifyPorStudent({
+      porRequestId: porRequest._id,
+      action: POR_APPROVAL_ACTIONS.REVISION_REQUESTED,
+      performedBy: user,
+      stage: currentStage,
       comments: normalizeText(comments),
     })
 
