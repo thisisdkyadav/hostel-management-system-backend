@@ -12,6 +12,7 @@ import {
   getStudents,
   getStudentDetails,
   getMultipleStudentDetails,
+  getStudentExportDetails,
   getStudentId,
   updateStudentProfile,
 } from './profiles-admin.profiles.module.js';
@@ -87,6 +88,12 @@ router.post(
   authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireStudentsRouteAccess,
   getMultipleStudentDetails
+);
+router.post(
+  '/profiles/export',
+  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  requireStudentsRouteAccess,
+  getStudentExportDetails
 );
 router.get(
   '/profile/details/:userId',

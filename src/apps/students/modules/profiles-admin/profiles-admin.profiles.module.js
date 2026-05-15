@@ -17,6 +17,7 @@ const CREATE_STUDENTS_CHUNK_SIZE = 200;
 const STUDENT_UPDATE_PROGRESS_EVENT = 'students:update:progress';
 const UPDATE_STUDENTS_CHUNK_SIZE = 200;
 const VALID_IMPORT_GENDERS = new Set(['Male', 'Female', 'Other']);
+const STUDENT_EXPORT_LIMIT = MAX_BULK_RECORDS;
 
 const normalizeImportGender = (value) => {
   if (typeof value !== 'string') return '';
@@ -792,6 +793,158 @@ export const getMultipleStudentDetails = asyncHandler(async (req, res) => {
       errors,
     },
     message: `Retrieved ${filteredStudentsData.length} out of ${userIds.length} student profiles`,
+  });
+});
+
+const applyStudentListScope = (searchQuery, user) => {
+  const scopedQuery = { ...searchQuery };
+  const constraintContext = getConstraintContext(user);
+  const requestedHostelId = toObjectIdString(scopedQuery.hostelId);
+
+  if (constraintContext.scopedHostelIds && constraintContext.scopedHostelIds.size === 0) {
+    return { scopedQuery, constraintContext, forceEmpty: true };
+  }
+
+  if (constraintContext.scopedHostelIds) {
+    if (requestedHostelId) {
+      if (!constraintContext.scopedHostelIds.has(requestedHostelId)) {
+        return { scopedQuery, constraintContext, forceEmpty: true };
+      }
+      scopedQuery.hostelId = requestedHostelId;
+    } else {
+      const allowedHostelIds = [...constraintContext.scopedHostelIds];
+      if (allowedHostelIds.length === 1) {
+        scopedQuery.hostelId = allowedHostelIds[0];
+      } else {
+        scopedQuery.hostelIds = allowedHostelIds;
+        delete scopedQuery.hostelId;
+      }
+    }
+  } else if (user.hostel) {
+    scopedQuery.hostelId = user.hostel._id.toString();
+  }
+
+  return { scopedQuery, constraintContext, forceEmpty: false };
+};
+
+const orderStudentsByUserIds = (students, userIds) => {
+  const order = new Map(userIds.map((userId, index) => [userId.toString(), index]));
+  return [...students].sort((a, b) => (
+    (order.get(a.userId?.toString()) ?? Number.MAX_SAFE_INTEGER)
+    - (order.get(b.userId?.toString()) ?? Number.MAX_SAFE_INTEGER)
+  ));
+};
+
+export const getStudentExportDetails = asyncHandler(async (req, res) => {
+  const { mode, filters = {}, rollNumbers = [] } = req.body || {};
+  const { constraintContext } = applyStudentListScope({}, req.user);
+
+  if (!['filters', 'rollNumbers'].includes(mode)) {
+    return sendStandardResponse(res, badRequest('Invalid export mode'));
+  }
+
+  let userIds = [];
+  let errors = [];
+  let totalMatched = 0;
+
+  if (mode === 'filters') {
+    const { scopedQuery, forceEmpty } = applyStudentListScope(filters, req.user);
+    if (forceEmpty) {
+      return sendStandardResponse(res, success({ students: [], errors: [], totalMatched: 0 }));
+    }
+
+    const exportQuery = {
+      ...scopedQuery,
+      page: 1,
+      limit: STUDENT_EXPORT_LIMIT,
+    };
+
+    const studentProfilesResult = await StudentProfile.searchStudents(exportQuery);
+    const studentProfiles = studentProfilesResult[0].data || [];
+    totalMatched = studentProfilesResult[0].totalCount[0]?.count || 0;
+
+    if (totalMatched > STUDENT_EXPORT_LIMIT) {
+      return sendStandardResponse(
+        res,
+        badRequest(`Export is limited to ${STUDENT_EXPORT_LIMIT} students. Please narrow the filters.`)
+      );
+    }
+
+    userIds = studentProfiles.map((student) => student.userId).filter(Boolean);
+  }
+
+  if (mode === 'rollNumbers') {
+    const normalizedRollNumbers = rollNumbers
+      .map((rollNumber) => (typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''))
+      .filter(Boolean);
+    const uniqueRollNumbers = [...new Set(normalizedRollNumbers)];
+
+    if (uniqueRollNumbers.length === 0) {
+      return sendStandardResponse(res, badRequest('Please provide at least one roll number'));
+    }
+
+    if (uniqueRollNumbers.length > STUDENT_EXPORT_LIMIT) {
+      return sendStandardResponse(
+        res,
+        badRequest(`Export is limited to ${STUDENT_EXPORT_LIMIT} roll numbers per request`)
+      );
+    }
+
+    const profiles = await StudentProfile.find({ rollNumber: { $in: uniqueRollNumbers } })
+      .select('rollNumber userId currentRoomAllocation')
+      .lean();
+    const profilesByRollNumber = new Map(profiles.map((profile) => [profile.rollNumber, profile]));
+
+    const allowedProfiles = [];
+    uniqueRollNumbers.forEach((rollNumber) => {
+      const profile = profilesByRollNumber.get(rollNumber);
+      if (!profile) {
+        errors.push({ rollNumber, message: 'Student profile not found' });
+        return;
+      }
+
+      allowedProfiles.push(profile);
+    });
+
+    userIds = allowedProfiles.map((profile) => profile.userId).filter(Boolean);
+    totalMatched = userIds.length;
+  }
+
+  if (userIds.length === 0) {
+    return sendStandardResponse(res, success({ students: [], errors, totalMatched }));
+  }
+
+  const studentsData = await StudentProfile.getFullStudentData(userIds);
+  const filteredStudentsData = constraintContext.scopedHostelIds
+    ? studentsData.filter((student) => isHostelAllowed(student.hostelId, constraintContext))
+    : studentsData;
+
+  if (mode === 'rollNumbers' && constraintContext.scopedHostelIds) {
+    const allowedRollNumbers = new Set(filteredStudentsData.map((student) => student.rollNumber));
+    const deniedRollNumbers = studentsData
+      .filter((student) => !allowedRollNumbers.has(student.rollNumber))
+      .map((student) => student.rollNumber);
+
+    errors = [
+      ...errors,
+      ...deniedRollNumbers.map((rollNumber) => ({
+        rollNumber,
+        message: 'Student profile not allowed by hostel scope',
+      })),
+    ];
+  }
+
+  const orderedStudents = orderStudentsByUserIds(filteredStudentsData, userIds);
+
+  return sendStandardResponse(res, {
+    success: true,
+    statusCode: errors.length > 0 ? 207 : 200,
+    data: {
+      students: orderedStudents,
+      errors,
+      totalMatched,
+    },
+    message: `Prepared ${orderedStudents.length} student profiles for export`,
   });
 });
 
