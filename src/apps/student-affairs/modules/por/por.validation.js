@@ -4,9 +4,15 @@ import { POST_STUDENT_AFFAIRS_APPROVERS } from "../events/events.constants.js"
 
 const requiredText = Joi.string().trim().min(2).max(500)
 const optionalComment = Joi.string().trim().max(2000).allow("")
+const porCategoryName = Joi.string().trim().min(2).max(120)
+
+const porGymkhanaStepSchema = Joi.object({
+  label: porCategoryName.required(),
+  reviewerUserIds: Joi.array().items(objectId.required()).min(1).required(),
+})
 
 export const createPorRequestSchema = Joi.object({
-  clubId: objectId.required(),
+  porCategoryId: objectId.required(),
   hasDisciplinaryAction: Joi.boolean().required(),
   disciplinaryActionDetails: Joi.when("hasDisciplinaryAction", {
     is: true,
@@ -20,8 +26,17 @@ export const createPorRequestSchema = Joi.object({
   supportingDocumentName: Joi.string().trim().max(255).allow("").default(""),
 })
 
+export const porCategorySchema = Joi.object({
+  name: porCategoryName.required(),
+  gymkhanaSteps: Joi.array().items(porGymkhanaStepSchema).min(1).required(),
+})
+
 export const porRequestIdSchema = Joi.object({
   id: objectId.required(),
+})
+
+export const porCategoryIdSchema = Joi.object({
+  categoryId: objectId.required(),
 })
 
 export const approvalActionSchema = Joi.object({
@@ -49,7 +64,9 @@ export const revisionSchema = Joi.object({
 
 export default {
   createPorRequestSchema,
+  porCategorySchema,
   porRequestIdSchema,
+  porCategoryIdSchema,
   approvalActionSchema,
   rejectionSchema,
   revisionSchema,

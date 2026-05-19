@@ -7,6 +7,7 @@ import {
   success,
 } from "../../../../services/base/ServiceResponse.js"
 import PorRequest from "../../../../models/club/PorRequest.model.js"
+import PorCategory from "../../../../models/club/PorCategory.model.js"
 import Club from "../../../../models/club/Club.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import StudentProfile from "../../../../models/student/StudentProfile.model.js"
@@ -31,7 +32,6 @@ import {
   POR_APPROVAL_STAGES,
   POR_APPROVER_TO_STATUS,
   POR_STATUS,
-  POR_STATUS_TO_APPROVER,
 } from "./por.constants.js"
 
 const normalizeText = (value = "") => String(value || "").trim()
@@ -41,6 +41,9 @@ const normalizeOptionalText = (value = "") => {
   return normalized || ""
 }
 
+const normalizeUserIdList = (values = []) =>
+  [...new Set((Array.isArray(values) ? values : []).map((value) => normalizeObjectId(value)).filter(Boolean))]
+
 const escapeHtml = (value = "") =>
   String(value)
     .replace(/&/g, "&amp;")
@@ -48,6 +51,8 @@ const escapeHtml = (value = "") =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;")
+
+const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 const formatStageLabel = (stage) => {
   if (stage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) return "Office - Student Affairs"
@@ -72,12 +77,10 @@ const buildCategoryLookup = async () => {
   return { gymkhanaCategories: normalizedCategories, categoriesByKey }
 }
 
-const sortClubsByName = (clubs = []) =>
-  [...clubs].sort((left, right) => {
-    const leftName = normalizeText(left?.name).toLowerCase()
-    const rightName = normalizeText(right?.name).toLowerCase()
-    return leftName.localeCompare(rightName)
-  })
+const sortByName = (items = [], getName = (item) => item?.name) =>
+  [...items].sort((left, right) =>
+    normalizeText(getName(left)).toLowerCase().localeCompare(normalizeText(getName(right)).toLowerCase())
+  )
 
 const resolveViewerMode = (user) => {
   if (!user) return "unknown"
@@ -87,7 +90,7 @@ const resolveViewerMode = (user) => {
     if (user.subRole === SUBROLES.CLUB) return "club"
     if (user.subRole === SUBROLES.GS_GYMKHANA) return "gs"
     if (user.subRole === SUBROLES.PRESIDENT_GYMKHANA) return "president"
-    return "gymkhana_other"
+    return "gymkhana"
   }
 
   if (user.role === ROLES.ADMIN) {
@@ -105,6 +108,52 @@ const resolveViewerMode = (user) => {
   return "unknown"
 }
 
+const isGymkhanaViewerMode = (mode) =>
+  ["club", "gs", "president", "gymkhana"].includes(mode)
+
+const isPostStudentAffairsStage = (stage) =>
+  [
+    POR_APPROVAL_STAGES.OFFICER_SA,
+    POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
+    POR_APPROVAL_STAGES.DEAN_SA,
+  ].includes(stage)
+
+const cloneGymkhanaSteps = (steps = []) =>
+  (Array.isArray(steps) ? steps : [])
+    .map((step) => ({
+      label: normalizeText(step?.label),
+      reviewerUserIds: normalizeUserIdList(step?.reviewerUserIds),
+    }))
+    .filter((step) => step.label && step.reviewerUserIds.length > 0)
+
+const getFirstReviewerId = (reviewerUserIds = []) => normalizeUserIdList(reviewerUserIds)[0] || null
+
+const findNextGymkhanaStep = (steps = [], startIndex = 0) => {
+  const safeSteps = Array.isArray(steps) ? steps : []
+  for (let index = Math.max(0, Number(startIndex || 0)); index < safeSteps.length; index += 1) {
+    const reviewerUserIds = normalizeUserIdList(safeSteps[index]?.reviewerUserIds)
+    const label = normalizeText(safeSteps[index]?.label)
+    if (!label || reviewerUserIds.length === 0) continue
+    return {
+      index,
+      step: {
+        label,
+        reviewerUserIds,
+      },
+    }
+  }
+
+  return null
+}
+
+const getCurrentApproverUserIds = (request) => {
+  const userIds = normalizeUserIdList(request?.currentApproverUsers)
+  if (userIds.length > 0) return userIds
+
+  const legacyUserId = normalizeObjectId(request?.currentApproverUser)
+  return legacyUserId ? [legacyUserId] : []
+}
+
 class PorService extends BaseService {
   constructor() {
     super(PorRequest, "PorRequest")
@@ -115,35 +164,116 @@ class PorService extends BaseService {
     if (!viewerContext.supported) {
       return success({
         viewer: viewerContext.viewer,
-        clubs: [],
+        porCategories: [],
         requests: [],
         stats: [],
         approversByStage: {},
+        gymkhanaReviewerOptions: [],
       })
     }
 
-    const [categoryLookup, clubs, requests, approversByStage] = await Promise.all([
-      buildCategoryLookup(),
-      this.getClubsForSelection(),
-      this.getAccessibleRequests(user, viewerContext),
+    const categoryLookup = await buildCategoryLookup()
+    await this.ensureLegacyPorCategories(categoryLookup.categoriesByKey)
+
+    const [porCategories, requests, approversByStage, gymkhanaReviewerOptions] = await Promise.all([
+      this.getPorCategoriesForWorkspace({
+        includeStepReviewers: Boolean(viewerContext.viewer.canManageCategories),
+      }),
+      this.getAccessibleRequests(user, viewerContext, categoryLookup.categoriesByKey),
       viewerContext.viewer.canSelectPostApprovers
         ? getPostStudentAffairsApproverOptionsByStage()
         : Promise.resolve({}),
+      viewerContext.viewer.canManageCategories
+        ? this.getGymkhanaReviewerOptions()
+        : Promise.resolve([]),
     ])
 
-    const serializedRequests = await this.serializeRequests(requests, user, viewerContext, categoryLookup.categoriesByKey)
-    const stats = this.buildStats(serializedRequests, viewerContext, categoryLookup.categoriesByKey)
+    const serializedRequests = await this.serializeRequests(
+      requests,
+      user,
+      viewerContext,
+      categoryLookup.categoriesByKey
+    )
+    const stats = this.buildStats(serializedRequests, viewerContext)
 
     return success(
       {
         viewer: viewerContext.viewer,
-        clubs: viewerContext.viewer.canCreate ? clubs : [],
+        porCategories:
+          viewerContext.viewer.canCreate || viewerContext.viewer.canManageCategories
+            ? porCategories
+            : [],
         requests: serializedRequests,
         stats,
         approversByStage,
+        gymkhanaReviewerOptions,
       },
       200,
       "POR workspace loaded successfully"
+    )
+  }
+
+  async createPorCategory(data, user) {
+    if (user?.role !== ROLES.ADMIN) {
+      return forbidden("Only admin users can manage POR categories")
+    }
+
+    const normalized = await this.normalizePorCategoryPayload(data)
+    if (!normalized.success) {
+      return badRequest(normalized.message)
+    }
+
+    const duplicate = await this.findPorCategoryByName(normalized.value.name)
+    if (duplicate) {
+      return badRequest("A POR category with that name already exists")
+    }
+
+    const category = await PorCategory.create({
+      name: normalized.value.name,
+      gymkhanaSteps: normalized.value.gymkhanaSteps,
+      createdBy: user._id,
+      updatedBy: user._id,
+    })
+
+    return created(
+      {
+        category: await this.serializePorCategoryById(category._id),
+      },
+      "POR category created successfully"
+    )
+  }
+
+  async updatePorCategory(categoryId, data, user) {
+    if (user?.role !== ROLES.ADMIN) {
+      return forbidden("Only admin users can manage POR categories")
+    }
+
+    const category = await PorCategory.findById(categoryId)
+    if (!category) {
+      return notFound("POR category")
+    }
+
+    const normalized = await this.normalizePorCategoryPayload(data)
+    if (!normalized.success) {
+      return badRequest(normalized.message)
+    }
+
+    const duplicate = await this.findPorCategoryByName(normalized.value.name, categoryId)
+    if (duplicate) {
+      return badRequest("A POR category with that name already exists")
+    }
+
+    category.name = normalized.value.name
+    category.gymkhanaSteps = normalized.value.gymkhanaSteps
+    category.updatedBy = user._id
+    await category.save()
+
+    return success(
+      {
+        category: await this.serializePorCategoryById(category._id),
+      },
+      200,
+      "POR category updated successfully"
     )
   }
 
@@ -157,15 +287,24 @@ class PorService extends BaseService {
       return notFound("Student profile")
     }
 
-    const club = await Club.findById(data.clubId).select("_id name userId gymkhanaCategoryKey email")
-    if (!club) {
-      return notFound("Club")
+    const categoryResolution = await this.resolvePorCategoryForSubmission(data.porCategoryId)
+    if (!categoryResolution.success) {
+      return categoryResolution.response
+    }
+
+    const firstStep = findNextGymkhanaStep(categoryResolution.category.gymkhanaSteps, 0)
+    if (!firstStep) {
+      return badRequest("Selected POR category does not have a valid Gymkhana review chain")
     }
 
     const porRequest = await this.model.create({
       submittedBy: user._id,
-      clubId: club._id,
-      gymkhanaCategoryKey: normalizeCategoryKey(club.gymkhanaCategoryKey),
+      clubId: null,
+      porCategoryId: categoryResolution.category._id,
+      porCategoryNameSnapshot: categoryResolution.category.name,
+      gymkhanaCategoryKey: normalizeCategoryKey(categoryResolution.category.legacyGymkhanaCategoryKey),
+      gymkhanaApprovalSteps: categoryResolution.category.gymkhanaSteps,
+      currentGymkhanaStepIndex: firstStep.index,
       hasDisciplinaryAction: Boolean(data.hasDisciplinaryAction),
       disciplinaryActionDetails: data.hasDisciplinaryAction
         ? normalizeOptionalText(data.disciplinaryActionDetails)
@@ -175,13 +314,18 @@ class PorService extends BaseService {
       tenure: normalizeText(data.tenure),
       supportingDocumentUrl: normalizeOptionalText(data.supportingDocumentUrl),
       supportingDocumentName: normalizeOptionalText(data.supportingDocumentName),
-      status: POR_STATUS.PENDING_CLUB,
-      currentApprovalStage: POR_APPROVAL_STAGES.CLUB,
-      currentApproverUser: club.userId,
+      status: POR_STATUS.PENDING_GYMKHANA,
+      currentApprovalStage: firstStep.step.label,
+      currentApproverUser: getFirstReviewerId(firstStep.step.reviewerUserIds),
+      currentApproverUsers: firstStep.step.reviewerUserIds,
       customApprovalChain: [],
       currentChainIndex: null,
       customApprovalAssignments: [],
     })
+
+    const submissionComment = studentProfile.rollNumber
+      ? `Submitted by ${studentProfile.rollNumber}`
+      : ""
 
     await ApprovalLog.create({
       entityType: "PorRequest",
@@ -189,39 +333,26 @@ class PorService extends BaseService {
       stage: POR_APPROVAL_STAGES.STUDENT,
       action: POR_APPROVAL_ACTIONS.SUBMITTED,
       performedBy: user._id,
-      comments: studentProfile.rollNumber
-        ? `Submitted by ${studentProfile.rollNumber}`
-        : "",
+      comments: submissionComment,
     })
 
     await this.notifyNextPorReviewers({
       porRequestId: porRequest._id,
       movedByUser: user,
       movedFromStage: POR_APPROVAL_STAGES.STUDENT,
-      comments: studentProfile.rollNumber
-        ? `Submitted by ${studentProfile.rollNumber}`
-        : "",
+      comments: submissionComment,
       trigger: "submitted",
     })
 
-    const { categoriesByKey } = await buildCategoryLookup()
-    const serializedRequests = await this.serializeRequests(
-      [
-        await this.model
-          .findById(porRequest._id)
-          .populate("submittedBy", "name email")
-          .populate("rejectedBy", "name email subRole")
-          .populate("currentApproverUser", "name email subRole")
-          .populate("clubId", "name email gymkhanaCategoryKey userId"),
-      ],
+    const serializedRequest = await this.getSerializedRequestById(
+      porRequest._id,
       user,
-      await this.getViewerContext(user),
-      categoriesByKey
+      await this.getViewerContext(user)
     )
 
     return created(
       {
-        request: serializedRequests[0] || null,
+        request: serializedRequest,
       },
       "POR request submitted successfully"
     )
@@ -233,6 +364,8 @@ class PorService extends BaseService {
       return notFound("POR request")
     }
 
+    await this.migrateLegacyRequestIfNeeded(porRequest)
+
     if (normalizeObjectId(porRequest.submittedBy) !== normalizeObjectId(user._id)) {
       return forbidden("You can only update your own POR request")
     }
@@ -241,13 +374,22 @@ class PorService extends BaseService {
       return badRequest("Only POR requests needing modification can be updated")
     }
 
-    const club = await Club.findById(data.clubId).select("_id userId gymkhanaCategoryKey")
-    if (!club) {
-      return notFound("Club")
+    const categoryResolution = await this.resolvePorCategoryForSubmission(data.porCategoryId)
+    if (!categoryResolution.success) {
+      return categoryResolution.response
     }
 
-    porRequest.clubId = club._id
-    porRequest.gymkhanaCategoryKey = normalizeCategoryKey(club.gymkhanaCategoryKey)
+    const firstStep = findNextGymkhanaStep(categoryResolution.category.gymkhanaSteps, 0)
+    if (!firstStep) {
+      return badRequest("Selected POR category does not have a valid Gymkhana review chain")
+    }
+
+    porRequest.clubId = null
+    porRequest.porCategoryId = categoryResolution.category._id
+    porRequest.porCategoryNameSnapshot = categoryResolution.category.name
+    porRequest.gymkhanaCategoryKey = normalizeCategoryKey(categoryResolution.category.legacyGymkhanaCategoryKey)
+    porRequest.gymkhanaApprovalSteps = categoryResolution.category.gymkhanaSteps
+    porRequest.currentGymkhanaStepIndex = firstStep.index
     porRequest.hasDisciplinaryAction = Boolean(data.hasDisciplinaryAction)
     porRequest.disciplinaryActionDetails = data.hasDisciplinaryAction
       ? normalizeOptionalText(data.disciplinaryActionDetails)
@@ -257,9 +399,10 @@ class PorService extends BaseService {
     porRequest.tenure = normalizeText(data.tenure)
     porRequest.supportingDocumentUrl = normalizeOptionalText(data.supportingDocumentUrl)
     porRequest.supportingDocumentName = normalizeOptionalText(data.supportingDocumentName)
-    porRequest.status = POR_STATUS.PENDING_CLUB
-    porRequest.currentApprovalStage = POR_APPROVAL_STAGES.CLUB
-    porRequest.currentApproverUser = club.userId
+    porRequest.status = POR_STATUS.PENDING_GYMKHANA
+    porRequest.currentApprovalStage = firstStep.step.label
+    porRequest.currentApproverUser = getFirstReviewerId(firstStep.step.reviewerUserIds)
+    porRequest.currentApproverUsers = firstStep.step.reviewerUserIds
     porRequest.customApprovalChain = []
     porRequest.currentChainIndex = null
     clearCustomApprovalAssignments(porRequest)
@@ -270,41 +413,32 @@ class PorService extends BaseService {
     porRequest.approvedAt = null
     await porRequest.save()
 
+    const revisionComment = `Revision #${porRequest.revisionCount}`
+
     await ApprovalLog.create({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: POR_APPROVAL_STAGES.STUDENT,
       action: POR_APPROVAL_ACTIONS.SUBMITTED,
       performedBy: user._id,
-      comments: `Revision #${porRequest.revisionCount}`,
+      comments: revisionComment,
     })
 
     await this.notifyNextPorReviewers({
       porRequestId: porRequest._id,
       movedByUser: user,
       movedFromStage: POR_APPROVAL_STAGES.STUDENT,
-      comments: `Revision #${porRequest.revisionCount}`,
+      comments: revisionComment,
       trigger: "submitted",
     })
 
-    const { categoriesByKey } = await buildCategoryLookup()
-    const serializedRequests = await this.serializeRequests(
-      [
-        await this.model
-          .findById(porRequest._id)
-          .populate("submittedBy", "name email")
-          .populate("rejectedBy", "name email subRole")
-          .populate("currentApproverUser", "name email subRole")
-          .populate("clubId", "name email gymkhanaCategoryKey userId"),
-      ],
-      user,
-      await this.getViewerContext(user),
-      categoriesByKey
-    )
-
     return success(
       {
-        request: serializedRequests[0] || null,
+        request: await this.getSerializedRequestById(
+          porRequest._id,
+          user,
+          await this.getViewerContext(user)
+        ),
       },
       200,
       "POR request resubmitted successfully"
@@ -316,19 +450,21 @@ class PorService extends BaseService {
       .findById(porRequestId)
       .populate("submittedBy", "name email")
       .populate("currentApproverUser", "name email subRole role")
+      .populate("currentApproverUsers", "name email subRole role")
       .populate("clubId", "name email gymkhanaCategoryKey userId")
+      .populate("porCategoryId", "name")
       .lean()
 
     if (!request) return null
-
-    const { categoriesByKey } = await buildCategoryLookup()
-    const categoryKey = normalizeCategoryKey(request.gymkhanaCategoryKey)
 
     return {
       request,
       student: request.submittedBy || null,
       club: request.clubId || null,
-      categoryLabel: categoriesByKey.get(categoryKey) || categoryKey,
+      porCategoryName:
+        normalizeText(request.porCategoryNameSnapshot) ||
+        normalizeText(request.porCategoryId?.name) ||
+        "POR Category",
     }
   }
 
@@ -343,36 +479,32 @@ class PorService extends BaseService {
     const nextStage = request?.currentApprovalStage
     if (!request || !nextStage || request.status === POR_STATUS.APPROVED) return []
 
-    if (nextStage === POR_APPROVAL_STAGES.CLUB) {
-      const clubUserId = context?.club?.userId
-      if (!clubUserId) return []
-      return User.find({ _id: clubUserId }).select("name email role subRole").lean()
+    const currentApproverUsers = Array.isArray(request.currentApproverUsers)
+      ? request.currentApproverUsers
+      : []
+
+    const explicitApprovers = currentApproverUsers
+      .filter((user) => user && normalizeText(user.email))
+      .map((user) => ({
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        subRole: user.subRole,
+      }))
+
+    if (explicitApprovers.length > 0) {
+      return explicitApprovers
     }
 
-    if (nextStage === POR_APPROVAL_STAGES.GS_GYMKHANA) {
-      const categoryKey = normalizeCategoryKey(request.gymkhanaCategoryKey)
-      if (!categoryKey) return []
-
-      const gymkhanaProfiles = await Gymkhana.find({ categories: categoryKey }).select("userId").lean()
-      const userIds = gymkhanaProfiles.map((profile) => profile.userId).filter(Boolean)
-      if (userIds.length === 0) return []
-
-      return User.find({
-        _id: { $in: userIds },
-        role: ROLES.GYMKHANA,
-        subRole: SUBROLES.GS_GYMKHANA,
-      })
+    const explicitApproverIds = normalizeUserIdList(currentApproverUsers)
+    if (explicitApproverIds.length > 0) {
+      return User.find({ _id: { $in: explicitApproverIds } })
         .select("name email role subRole")
         .lean()
     }
 
-    if (nextStage === POR_APPROVAL_STAGES.PRESIDENT_GYMKHANA) {
-      return User.find({
-        role: ROLES.GYMKHANA,
-        subRole: SUBROLES.PRESIDENT_GYMKHANA,
-      })
-        .select("name email role subRole")
-        .lean()
+    if (request.currentApproverUser?.email) {
+      return [request.currentApproverUser]
     }
 
     if (nextStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
@@ -384,19 +516,10 @@ class PorService extends BaseService {
         .lean()
     }
 
-    if (
-      [
-        POR_APPROVAL_STAGES.OFFICER_SA,
-        POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
-        POR_APPROVAL_STAGES.DEAN_SA,
-      ].includes(nextStage)
-    ) {
-      if (request.currentApproverUser?.email) {
-        return [request.currentApproverUser]
-      }
-
-      if (!request.currentApproverUser?._id) return []
-      return User.find({ _id: request.currentApproverUser._id }).select("name email role subRole").lean()
+    if (isPostStudentAffairsStage(nextStage) && request.currentApproverUser?._id) {
+      return User.find({ _id: request.currentApproverUser._id })
+        .select("name email role subRole")
+        .lean()
     }
 
     return []
@@ -432,6 +555,12 @@ class PorService extends BaseService {
       const safeComments = normalizeOptionalText(comments)
       const actionText = trigger === "submitted" ? "submitted" : "recommended"
 
+      const categoryBlock = `<p><strong>POR Category:</strong> ${escapeHtml(
+        context.porCategoryName || "POR Category"
+      )}</p>`
+      const clubBlock = context.club?.name
+        ? `<p><strong>Club:</strong> ${escapeHtml(context.club.name)}</p>`
+        : ""
       const commentsBlock = safeComments
         ? `<p><strong>Comments:</strong><br />${escapeHtml(safeComments)}</p>`
         : ""
@@ -442,8 +571,8 @@ class PorService extends BaseService {
         <div class="info-box">
           <p><strong>Request:</strong> ${escapeHtml(requestTitle)}</p>
           <p><strong>Student:</strong> ${escapeHtml(context.student?.name || "Student")} (${escapeHtml(context.student?.email || "No email")})</p>
-          <p><strong>Club:</strong> ${escapeHtml(context.club?.name || "Club")}</p>
-          <p><strong>GS Category:</strong> ${escapeHtml(context.categoryLabel || "Category")}</p>
+          ${categoryBlock}
+          ${clubBlock}
           <p><strong>Your role/stage:</strong> ${escapeHtml(nextStageLabel)}</p>
           <p><strong>Moved by:</strong> ${escapeHtml(movedByName)} (${escapeHtml(movedByRole)})</p>
         </div>
@@ -518,13 +647,17 @@ class PorService extends BaseService {
       const commentsBlock = safeComments
         ? `<p><strong>Reviewer comments:</strong><br />${escapeHtml(safeComments)}</p>`
         : ""
+      const clubBlock = context.club?.name
+        ? `<p><strong>Club:</strong> ${escapeHtml(context.club.name)}</p>`
+        : ""
 
       const body = `
         <p>Hello ${escapeHtml(context.student?.name || "Student")},</p>
         <p>${escapeHtml(actionMeta.description)}</p>
         <div class="${actionMeta.boxClass}">
           <p><strong>Request:</strong> ${escapeHtml(requestTitle)}</p>
-          <p><strong>Club:</strong> ${escapeHtml(context.club?.name || "Club")}</p>
+          <p><strong>POR Category:</strong> ${escapeHtml(context.porCategoryName || "POR Category")}</p>
+          ${clubBlock}
           <p><strong>Stage:</strong> ${escapeHtml(stageLabel)}</p>
           <p><strong>Reviewed by:</strong> ${escapeHtml(performedByName)} (${escapeHtml(performedByRole)})</p>
         </div>
@@ -562,6 +695,8 @@ class PorService extends BaseService {
       return notFound("POR request")
     }
 
+    await this.migrateLegacyRequestIfNeeded(porRequest)
+
     const viewerContext = await this.getViewerContext(user)
     const actionAccess = this.getActionAccess(porRequest, user, viewerContext)
     if (!actionAccess.canAct) {
@@ -587,13 +722,10 @@ class PorService extends BaseService {
       porRequest.status = POR_APPROVER_TO_STATUS[firstStage]
       porRequest.currentApprovalStage = firstStage
       porRequest.currentApproverUser = assignmentResolution.currentApproverUser
-    } else if (
-      [
-        POR_APPROVAL_STAGES.OFFICER_SA,
-        POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
-        POR_APPROVAL_STAGES.DEAN_SA,
-      ].includes(currentStage)
-    ) {
+      porRequest.currentApproverUsers = assignmentResolution.currentApproverUser
+        ? [assignmentResolution.currentApproverUser]
+        : []
+    } else if (isPostStudentAffairsStage(currentStage)) {
       const assignmentState = getCustomAssignmentState(porRequest, currentStage)
       if (assignmentState.currentIndex === -1 || !assignmentState.currentAssignment) {
         return badRequest("Assigned approval flow is misconfigured for this POR request")
@@ -605,27 +737,37 @@ class PorService extends BaseService {
         porRequest.currentApprovalStage = null
         porRequest.currentChainIndex = null
         porRequest.currentApproverUser = null
+        porRequest.currentApproverUsers = []
       } else {
         porRequest.status = POR_APPROVER_TO_STATUS[nextAssignment.stage]
         porRequest.currentApprovalStage = nextAssignment.stage
         porRequest.currentChainIndex = assignmentState.currentIndex + 1
         porRequest.currentApproverUser = normalizeObjectId(nextAssignment.userId)
+        porRequest.currentApproverUsers = normalizeObjectId(nextAssignment.userId)
+          ? [normalizeObjectId(nextAssignment.userId)]
+          : []
       }
-    } else if (currentStage === POR_APPROVAL_STAGES.CLUB) {
-      porRequest.status = POR_STATUS.PENDING_GS
-      porRequest.currentApprovalStage = POR_APPROVAL_STAGES.GS_GYMKHANA
-      porRequest.currentApproverUser = null
-    } else if (currentStage === POR_APPROVAL_STAGES.GS_GYMKHANA) {
-      porRequest.status = POR_STATUS.PENDING_PRESIDENT
-      porRequest.currentApprovalStage = POR_APPROVAL_STAGES.PRESIDENT_GYMKHANA
-      porRequest.currentApproverUser = null
-    } else if (currentStage === POR_APPROVAL_STAGES.PRESIDENT_GYMKHANA) {
-      porRequest.status = POR_STATUS.PENDING_STUDENT_AFFAIRS
-      porRequest.currentApprovalStage = POR_APPROVAL_STAGES.STUDENT_AFFAIRS
-      porRequest.currentApproverUser = null
-      porRequest.customApprovalChain = []
-      porRequest.currentChainIndex = null
-      clearCustomApprovalAssignments(porRequest)
+    } else if (porRequest.status === POR_STATUS.PENDING_GYMKHANA) {
+      const currentIndex = Number.isInteger(porRequest.currentGymkhanaStepIndex)
+        ? porRequest.currentGymkhanaStepIndex
+        : 0
+      const nextStep = findNextGymkhanaStep(porRequest.gymkhanaApprovalSteps, currentIndex + 1)
+
+      if (nextStep) {
+        porRequest.status = POR_STATUS.PENDING_GYMKHANA
+        porRequest.currentGymkhanaStepIndex = nextStep.index
+        porRequest.currentApprovalStage = nextStep.step.label
+        porRequest.currentApproverUsers = nextStep.step.reviewerUserIds
+        porRequest.currentApproverUser = getFirstReviewerId(nextStep.step.reviewerUserIds)
+      } else {
+        porRequest.status = POR_STATUS.PENDING_STUDENT_AFFAIRS
+        porRequest.currentApprovalStage = POR_APPROVAL_STAGES.STUDENT_AFFAIRS
+        porRequest.currentApproverUser = null
+        porRequest.currentApproverUsers = []
+        porRequest.currentChainIndex = null
+        porRequest.customApprovalChain = []
+        clearCustomApprovalAssignments(porRequest)
+      }
     } else {
       return badRequest("POR request is not at an approvable stage")
     }
@@ -635,6 +777,7 @@ class PorService extends BaseService {
       porRequest.currentApprovalStage = null
       porRequest.currentChainIndex = null
       porRequest.currentApproverUser = null
+      porRequest.currentApproverUsers = []
     }
 
     await porRequest.save()
@@ -675,6 +818,8 @@ class PorService extends BaseService {
       return notFound("POR request")
     }
 
+    await this.migrateLegacyRequestIfNeeded(porRequest)
+
     const viewerContext = await this.getViewerContext(user)
     const actionAccess = this.getActionAccess(porRequest, user, viewerContext)
     if (!actionAccess.canAct) {
@@ -687,9 +832,9 @@ class PorService extends BaseService {
     porRequest.rejectedBy = user._id
     porRequest.rejectedAt = new Date()
     porRequest.currentApprovalStage = null
-    porRequest.customApprovalChain = []
-    porRequest.currentChainIndex = null
     porRequest.currentApproverUser = null
+    porRequest.currentApproverUsers = []
+    porRequest.currentChainIndex = null
     clearCustomApprovalAssignments(porRequest)
     await porRequest.save()
 
@@ -719,6 +864,8 @@ class PorService extends BaseService {
       return notFound("POR request")
     }
 
+    await this.migrateLegacyRequestIfNeeded(porRequest)
+
     const viewerContext = await this.getViewerContext(user)
     const actionAccess = this.getActionAccess(porRequest, user, viewerContext)
     if (!actionAccess.canAct) {
@@ -732,7 +879,7 @@ class PorService extends BaseService {
     porRequest.rejectedAt = null
     porRequest.currentApprovalStage = POR_APPROVAL_STAGES.STUDENT
     porRequest.currentApproverUser = porRequest.submittedBy
-    porRequest.customApprovalChain = []
+    porRequest.currentApproverUsers = []
     porRequest.currentChainIndex = null
     clearCustomApprovalAssignments(porRequest)
     await porRequest.save()
@@ -763,6 +910,8 @@ class PorService extends BaseService {
       return notFound("POR request")
     }
 
+    await this.migrateLegacyRequestIfNeeded(porRequest)
+
     const viewerContext = await this.getViewerContext(user)
     if (!this.canAccessRequest(porRequest, user, viewerContext)) {
       return forbidden("You cannot view this POR request")
@@ -787,6 +936,7 @@ class PorService extends BaseService {
       canCreate: mode === "student",
       showStats: mode === "president" || mode === "student_affairs" || mode === "post_student_affairs",
       canSelectPostApprovers: mode === "student_affairs",
+      canManageCategories: user?.role === ROLES.ADMIN,
     }
 
     if (mode === "student") {
@@ -795,19 +945,20 @@ class PorService extends BaseService {
 
     if (mode === "club") {
       const club = await Club.findOne({ userId: user._id }).select("_id userId gymkhanaCategoryKey name").lean()
-      if (!club) {
-        return { supported: false, viewer, mode }
-      }
+      const gymkhanaProfile = await Gymkhana.findOne({ userId: user._id }).select("categories").lean()
       return {
         supported: true,
         viewer,
         mode,
-        clubId: normalizeObjectId(club._id),
-        clubUserId: normalizeObjectId(club.userId),
+        clubId: normalizeObjectId(club?._id),
+        clubUserId: normalizeObjectId(club?.userId),
+        categoryKeys: Array.isArray(gymkhanaProfile?.categories)
+          ? gymkhanaProfile.categories.map((category) => normalizeCategoryKey(category)).filter(Boolean)
+          : [],
       }
     }
 
-    if (mode === "gs") {
+    if (mode === "gs" || mode === "gymkhana") {
       const gymkhanaProfile = await Gymkhana.findOne({ userId: user._id }).select("categories").lean()
       return {
         supported: true,
@@ -830,30 +981,386 @@ class PorService extends BaseService {
     return { supported: false, viewer, mode }
   }
 
-  async getClubsForSelection() {
-    const clubs = await Club.find()
-      .select("_id name email gymkhanaCategoryKey userId")
+  async normalizePorCategoryPayload(data = {}) {
+    const name = normalizeText(data.name)
+    if (!name) {
+      return { success: false, message: "POR category name is required" }
+    }
+
+    const inputSteps = Array.isArray(data.gymkhanaSteps) ? data.gymkhanaSteps : []
+    if (inputSteps.length === 0) {
+      return { success: false, message: "At least one Gymkhana review step is required" }
+    }
+
+    const allReviewerUserIds = normalizeUserIdList(
+      inputSteps.flatMap((step) => step?.reviewerUserIds || [])
+    )
+    const gymkhanaUsers = await User.find({
+      _id: { $in: allReviewerUserIds },
+      role: ROLES.GYMKHANA,
+    })
+      .select("_id")
       .lean()
 
-    return sortClubsByName(clubs).map((club) => ({
-      id: normalizeObjectId(club._id),
-      name: normalizeText(club.name),
-      email: normalizeText(club.email).toLowerCase(),
-      gymkhanaCategoryKey: normalizeCategoryKey(club.gymkhanaCategoryKey),
-      userId: normalizeObjectId(club.userId),
+    const validReviewerIds = new Set(gymkhanaUsers.map((user) => normalizeObjectId(user._id)))
+    if (validReviewerIds.size !== allReviewerUserIds.length) {
+      return { success: false, message: "Every reviewer must be an active Gymkhana user" }
+    }
+
+    const normalizedSteps = []
+    for (let index = 0; index < inputSteps.length; index += 1) {
+      const step = inputSteps[index]
+      const label = normalizeText(step?.label)
+      const reviewerUserIds = normalizeUserIdList(step?.reviewerUserIds)
+
+      if (!label) {
+        return { success: false, message: `Step ${index + 1} needs a label` }
+      }
+
+      if (reviewerUserIds.length === 0) {
+        return { success: false, message: `Step ${index + 1} needs at least one Gymkhana reviewer` }
+      }
+
+      normalizedSteps.push({
+        label,
+        reviewerUserIds,
+      })
+    }
+
+    return {
+      success: true,
+      value: {
+        name,
+        gymkhanaSteps: normalizedSteps,
+      },
+    }
+  }
+
+  async findPorCategoryByName(name, excludeId = null) {
+    const query = {
+      name: new RegExp(`^${escapeRegex(normalizeText(name))}$`, "i"),
+    }
+
+    if (excludeId) {
+      query._id = { $ne: excludeId }
+    }
+
+    return PorCategory.findOne(query).select("_id name").lean()
+  }
+
+  async resolvePorCategoryForSubmission(categoryId) {
+    const category = await PorCategory.findById(categoryId).select(
+      "_id name gymkhanaSteps legacyGymkhanaCategoryKey"
+    )
+    if (!category) {
+      return { success: false, response: notFound("POR category") }
+    }
+
+    const gymkhanaSteps = cloneGymkhanaSteps(category.gymkhanaSteps)
+    if (gymkhanaSteps.length === 0) {
+      return {
+        success: false,
+        response: badRequest("Selected POR category does not have a valid Gymkhana review chain"),
+      }
+    }
+
+    return {
+      success: true,
+      category: {
+        _id: category._id,
+        name: normalizeText(category.name),
+        legacyGymkhanaCategoryKey: normalizeCategoryKey(category.legacyGymkhanaCategoryKey),
+        gymkhanaSteps,
+      },
+    }
+  }
+
+  async getPorCategoriesForWorkspace({ includeStepReviewers = false } = {}) {
+    const query = PorCategory.find().sort({ name: 1 })
+    if (includeStepReviewers) {
+      query.populate("gymkhanaSteps.reviewerUserIds", "name email subRole role")
+    }
+
+    const categories = await query.lean()
+
+    return categories.map((category) => {
+      const serializedSteps = (Array.isArray(category.gymkhanaSteps) ? category.gymkhanaSteps : [])
+        .map((step) => {
+          const reviewerUsers = Array.isArray(step?.reviewerUserIds)
+            ? step.reviewerUserIds
+            : []
+
+          return {
+            label: normalizeText(step?.label),
+            reviewerUserIds: includeStepReviewers
+              ? reviewerUsers
+                  .map((user) => normalizeObjectId(user?._id))
+                  .filter(Boolean)
+              : normalizeUserIdList(reviewerUsers),
+            reviewers: includeStepReviewers
+              ? sortByName(reviewerUsers, (user) => user?.name).map((user) => ({
+                  id: normalizeObjectId(user?._id),
+                  name: normalizeText(user?.name),
+                  email: normalizeText(user?.email).toLowerCase(),
+                  role: normalizeText(user?.role),
+                  subRole: normalizeText(user?.subRole),
+                }))
+              : [],
+          }
+        })
+        .filter((step) => step.label && step.reviewerUserIds.length > 0)
+
+      return {
+        id: normalizeObjectId(category._id),
+        name: normalizeText(category.name),
+        stepCount: serializedSteps.length,
+        gymkhanaSteps: serializedSteps,
+        isLegacyMigrated: Boolean(category.isLegacyMigrated),
+        legacyClubId: normalizeObjectId(category.legacyClubId),
+      }
+    })
+  }
+
+  async serializePorCategoryById(categoryId) {
+    const categories = await this.getPorCategoriesForWorkspace({ includeStepReviewers: true })
+    return categories.find((category) => category.id === normalizeObjectId(categoryId)) || null
+  }
+
+  async getGymkhanaReviewerOptions() {
+    const users = await User.find({ role: ROLES.GYMKHANA })
+      .select("_id name email role subRole")
+      .sort({ name: 1 })
+      .lean()
+
+    return users.map((user) => ({
+      id: normalizeObjectId(user._id),
+      label: `${normalizeText(user.name)}${normalizeText(user.subRole) ? ` (${normalizeText(user.subRole)})` : ""}`,
+      name: normalizeText(user.name),
+      email: normalizeText(user.email).toLowerCase(),
+      role: normalizeText(user.role),
+      subRole: normalizeText(user.subRole),
     }))
   }
 
-  async getAccessibleRequests(user, viewerContext) {
-    const query = this.buildAccessQuery(user, viewerContext)
-    return this.model
-      .find(query)
-      .populate("submittedBy", "name email")
-      .populate("rejectedBy", "name email subRole")
-      .populate("currentApproverUser", "name email subRole")
-      .populate("clubId", "name email gymkhanaCategoryKey userId")
-      .sort({ updatedAt: -1 })
+  async buildClubLinkedPorCategoryDefinition(club, categoriesByKey = null, presidentUserIds = null) {
+    const lookup = categoriesByKey || (await buildCategoryLookup()).categoriesByKey
+    const categoryKey = normalizeCategoryKey(club?.gymkhanaCategoryKey)
+    const gymkhanaProfiles = categoryKey
+      ? await Gymkhana.find({ categories: categoryKey }).select("userId").lean()
+      : []
+    const gsUserIds = gymkhanaProfiles
+      .map((profile) => normalizeObjectId(profile.userId))
+      .filter(Boolean)
+    const presidents =
+      Array.isArray(presidentUserIds) && presidentUserIds.length > 0
+        ? presidentUserIds
+        : (
+            await User.find({
+              role: ROLES.GYMKHANA,
+              subRole: SUBROLES.PRESIDENT_GYMKHANA,
+            })
+              .select("_id")
+              .lean()
+          )
+            .map((user) => normalizeObjectId(user._id))
+            .filter(Boolean)
+
+    const stepDefinitions = []
+    const clubUserId = normalizeObjectId(club?.userId)
+    if (clubUserId) {
+      stepDefinitions.push({
+        label: "Club Review",
+        reviewerUserIds: [clubUserId],
+      })
+    }
+
+    if (gsUserIds.length > 0) {
+      stepDefinitions.push({
+        label: `${lookup?.get(categoryKey) || categoryKey || "GS"} Review`,
+        reviewerUserIds: gsUserIds,
+      })
+    }
+
+    if (presidents.length > 0) {
+      stepDefinitions.push({
+        label: "President Gymkhana",
+        reviewerUserIds: presidents,
+      })
+    }
+
+    return {
+      name: normalizeText(club?.name) || "POR Category",
+      legacyGymkhanaCategoryKey: categoryKey,
+      gymkhanaSteps: cloneGymkhanaSteps(stepDefinitions),
+    }
+  }
+
+  async syncClubLinkedPorCategories({ categoriesByKey = null, updateExisting = false } = {}) {
+    const clubs = await Club.find().select("_id name userId gymkhanaCategoryKey email").lean()
+    if (!clubs.length) {
+      return { created: 0, updated: 0, skipped: 0 }
+    }
+
+    const presidents = await User.find({
+      role: ROLES.GYMKHANA,
+      subRole: SUBROLES.PRESIDENT_GYMKHANA,
+    })
+      .select("_id")
       .lean()
+    const presidentUserIds = presidents.map((user) => normalizeObjectId(user._id)).filter(Boolean)
+
+    let created = 0
+    let updated = 0
+    let skipped = 0
+
+    for (const club of clubs) {
+      const legacyClubId = normalizeObjectId(club._id)
+      if (!legacyClubId) {
+        skipped += 1
+        continue
+      }
+
+      const definition = await this.buildClubLinkedPorCategoryDefinition(
+        club,
+        categoriesByKey,
+        presidentUserIds
+      )
+
+      if (definition.gymkhanaSteps.length === 0) {
+        skipped += 1
+        continue
+      }
+
+      const existing = await PorCategory.findOne({ legacyClubId })
+      if (!existing) {
+        await PorCategory.create({
+          name: definition.name,
+          gymkhanaSteps: definition.gymkhanaSteps,
+          legacyClubId,
+          legacyGymkhanaCategoryKey: definition.legacyGymkhanaCategoryKey,
+          isLegacyMigrated: true,
+        })
+        created += 1
+        continue
+      }
+
+      if (!updateExisting) {
+        skipped += 1
+        continue
+      }
+
+      existing.name = definition.name
+      existing.gymkhanaSteps = definition.gymkhanaSteps
+      existing.legacyGymkhanaCategoryKey = definition.legacyGymkhanaCategoryKey
+      existing.isLegacyMigrated = true
+      await existing.save()
+      updated += 1
+    }
+
+    return { created, updated, skipped }
+  }
+
+  async ensureLegacyPorCategories(categoriesByKey = null) {
+    await this.syncClubLinkedPorCategories({ categoriesByKey, updateExisting: false })
+  }
+
+  async migrateLegacyRequestIfNeeded(porRequest, categoriesByKey = null) {
+    if (!porRequest) return porRequest
+
+    const needsSnapshot =
+      !normalizeObjectId(porRequest.porCategoryId) ||
+      !Array.isArray(porRequest.gymkhanaApprovalSteps) ||
+      porRequest.gymkhanaApprovalSteps.length === 0
+    const isLegacyGymkhanaStatus = [
+      POR_STATUS.PENDING_CLUB,
+      POR_STATUS.PENDING_GS,
+      POR_STATUS.PENDING_PRESIDENT,
+    ].includes(porRequest.status)
+
+    if (!needsSnapshot && !isLegacyGymkhanaStatus) {
+      return porRequest
+    }
+
+    const clubId = normalizeObjectId(
+      typeof porRequest.clubId === "object" ? porRequest.clubId?._id : porRequest.clubId
+    )
+    if (!clubId) return porRequest
+
+    await this.ensureLegacyPorCategories(categoriesByKey)
+
+    const category = await PorCategory.findOne({ legacyClubId: clubId }).select(
+      "_id name gymkhanaSteps legacyGymkhanaCategoryKey"
+    )
+    if (!category) return porRequest
+
+    porRequest.porCategoryId = category._id
+    if (!normalizeText(porRequest.porCategoryNameSnapshot)) {
+      porRequest.porCategoryNameSnapshot = normalizeText(category.name)
+    }
+
+    if (!normalizeText(porRequest.gymkhanaCategoryKey)) {
+      porRequest.gymkhanaCategoryKey = normalizeCategoryKey(category.legacyGymkhanaCategoryKey)
+    }
+
+    const gymkhanaApprovalSteps = cloneGymkhanaSteps(category.gymkhanaSteps)
+    porRequest.gymkhanaApprovalSteps = gymkhanaApprovalSteps
+
+    if (isLegacyGymkhanaStatus) {
+      const legacyIndexByStatus = {
+        [POR_STATUS.PENDING_CLUB]: 0,
+        [POR_STATUS.PENDING_GS]: 1,
+        [POR_STATUS.PENDING_PRESIDENT]: 2,
+      }
+
+      const desiredIndex = legacyIndexByStatus[porRequest.status] ?? 0
+      const nextStep = findNextGymkhanaStep(gymkhanaApprovalSteps, desiredIndex)
+
+      if (nextStep) {
+        porRequest.status = POR_STATUS.PENDING_GYMKHANA
+        porRequest.currentGymkhanaStepIndex = nextStep.index
+        porRequest.currentApprovalStage = nextStep.step.label
+        porRequest.currentApproverUsers = nextStep.step.reviewerUserIds
+        porRequest.currentApproverUser = getFirstReviewerId(nextStep.step.reviewerUserIds)
+      } else {
+        porRequest.status = POR_STATUS.PENDING_STUDENT_AFFAIRS
+        porRequest.currentGymkhanaStepIndex = gymkhanaApprovalSteps.length - 1
+        porRequest.currentApprovalStage = POR_APPROVAL_STAGES.STUDENT_AFFAIRS
+        porRequest.currentApproverUser = null
+        porRequest.currentApproverUsers = []
+      }
+    } else if (porRequest.status === POR_STATUS.PENDING_STUDENT_AFFAIRS) {
+      porRequest.currentApprovalStage = POR_APPROVAL_STAGES.STUDENT_AFFAIRS
+      porRequest.currentApproverUser = null
+      porRequest.currentApproverUsers = []
+      porRequest.currentGymkhanaStepIndex = gymkhanaApprovalSteps.length > 0 ? gymkhanaApprovalSteps.length - 1 : null
+    } else if (isPostStudentAffairsStage(porRequest.currentApprovalStage)) {
+      porRequest.currentApproverUsers = normalizeObjectId(porRequest.currentApproverUser)
+        ? [normalizeObjectId(porRequest.currentApproverUser)]
+        : []
+    }
+
+    await porRequest.save()
+    return porRequest
+  }
+
+  async getAccessibleRequests(user, viewerContext, categoriesByKey) {
+    const query = this.buildAccessQuery(user, viewerContext)
+    const requests = await this.model.find(query).sort({ updatedAt: -1 })
+
+    for (const request of requests) {
+      await this.migrateLegacyRequestIfNeeded(request, categoriesByKey)
+    }
+
+    await this.model.populate(requests, [
+      { path: "submittedBy", select: "name email" },
+      { path: "rejectedBy", select: "name email subRole" },
+      { path: "currentApproverUser", select: "name email subRole" },
+      { path: "currentApproverUsers", select: "name email subRole" },
+      { path: "clubId", select: "name email gymkhanaCategoryKey userId" },
+      { path: "porCategoryId", select: "name" },
+    ])
+
+    return requests
   }
 
   buildAccessQuery(user, viewerContext) {
@@ -862,14 +1369,38 @@ class PorService extends BaseService {
     }
 
     if (viewerContext.mode === "club") {
-      return { clubId: viewerContext.clubId }
+      return {
+        $or: [
+          viewerContext.clubId ? { clubId: viewerContext.clubId } : null,
+          { "gymkhanaApprovalSteps.reviewerUserIds": user._id },
+          { currentApproverUsers: user._id },
+          { currentApproverUser: user._id },
+        ].filter(Boolean),
+      }
     }
 
     if (viewerContext.mode === "gs") {
       return {
-        gymkhanaCategoryKey: {
-          $in: Array.isArray(viewerContext.categoryKeys) ? viewerContext.categoryKeys : [],
-        },
+        $or: [
+          {
+            gymkhanaCategoryKey: {
+              $in: Array.isArray(viewerContext.categoryKeys) ? viewerContext.categoryKeys : [],
+            },
+          },
+          { "gymkhanaApprovalSteps.reviewerUserIds": user._id },
+          { currentApproverUsers: user._id },
+          { currentApproverUser: user._id },
+        ],
+      }
+    }
+
+    if (viewerContext.mode === "gymkhana") {
+      return {
+        $or: [
+          { "gymkhanaApprovalSteps.reviewerUserIds": user._id },
+          { currentApproverUsers: user._id },
+          { currentApproverUser: user._id },
+        ],
       }
     }
 
@@ -889,20 +1420,37 @@ class PorService extends BaseService {
       return normalizeObjectId(porRequest.submittedBy) === normalizeObjectId(user._id)
     }
 
-    if (viewerContext.mode === "club") {
-      return normalizeObjectId(porRequest.clubId?._id || porRequest.clubId) === viewerContext.clubId
+    if (isGymkhanaViewerMode(viewerContext.mode)) {
+      const userId = normalizeObjectId(user._id)
+      if (getCurrentApproverUserIds(porRequest).includes(userId)) {
+        return true
+      }
+
+      const isExplicitReviewer = (Array.isArray(porRequest.gymkhanaApprovalSteps)
+        ? porRequest.gymkhanaApprovalSteps
+        : []
+      ).some((step) => normalizeUserIdList(step?.reviewerUserIds).includes(userId))
+      if (isExplicitReviewer) {
+        return true
+      }
+
+      if (viewerContext.mode === "club") {
+        return normalizeObjectId(porRequest.clubId?._id || porRequest.clubId) === viewerContext.clubId
+      }
+
+      if (viewerContext.mode === "gs") {
+        const categoryKey = normalizeCategoryKey(porRequest.gymkhanaCategoryKey)
+        return (
+          categoryKey &&
+          Array.isArray(viewerContext.categoryKeys) &&
+          viewerContext.categoryKeys.includes(categoryKey)
+        )
+      }
+
+      return viewerContext.mode === "president" || viewerContext.mode === "gymkhana"
     }
 
-    if (viewerContext.mode === "gs") {
-      const categoryKey = normalizeCategoryKey(porRequest.gymkhanaCategoryKey)
-      return (
-        categoryKey &&
-        Array.isArray(viewerContext.categoryKeys) &&
-        viewerContext.categoryKeys.includes(categoryKey)
-      )
-    }
-
-    return ["president", "student_affairs", "post_student_affairs"].includes(viewerContext.mode)
+    return ["student_affairs", "post_student_affairs"].includes(viewerContext.mode)
   }
 
   getActionAccess(porRequest, user, viewerContext) {
@@ -910,95 +1458,81 @@ class PorService extends BaseService {
       return { canAct: false, message: "POR request not found", stage: null }
     }
 
-    const requiredStage = POR_STATUS_TO_APPROVER[porRequest.status]
-    if (!requiredStage) {
-      return { canAct: false, message: "POR request is not pending approval", stage: null }
-    }
-
     if (!this.canAccessRequest(porRequest, user, viewerContext)) {
-      return { canAct: false, message: "You cannot access this POR request", stage: requiredStage }
+      return { canAct: false, message: "You cannot access this POR request", stage: null }
     }
 
-    const assignedApproverUserId = normalizeObjectId(porRequest.currentApproverUser)
-    if (assignedApproverUserId && assignedApproverUserId !== normalizeObjectId(user._id)) {
-      return {
-        canAct: false,
-        message: "Only the assigned approver can act on this POR request",
-        stage: requiredStage,
-      }
-    }
-
-    if (requiredStage === POR_APPROVAL_STAGES.CLUB) {
-      const canAct =
-        viewerContext.mode === "club" &&
-        normalizeObjectId(porRequest.clubId?._id || porRequest.clubId) === viewerContext.clubId
+    if (porRequest.status === POR_STATUS.PENDING_GYMKHANA) {
+      const approverUserIds = getCurrentApproverUserIds(porRequest)
+      const canAct = approverUserIds.includes(normalizeObjectId(user._id))
       return {
         canAct,
-        message: canAct ? "" : "Only the selected club can review this POR request",
-        stage: requiredStage,
+        message: canAct ? "" : "Only the assigned Gymkhana reviewers can act on this POR request",
+        stage: porRequest.currentApprovalStage || POR_APPROVAL_STAGES.GYMKHANA,
       }
     }
 
-    if (requiredStage === POR_APPROVAL_STAGES.GS_GYMKHANA) {
-      const categoryKey = normalizeCategoryKey(porRequest.gymkhanaCategoryKey)
-      const canAct =
-        viewerContext.mode === "gs" &&
-        Array.isArray(viewerContext.categoryKeys) &&
-        viewerContext.categoryKeys.includes(categoryKey)
-      return {
-        canAct,
-        message: canAct
-          ? ""
-          : "Only a matching GS Gymkhana reviewer can act on this POR request",
-        stage: requiredStage,
-      }
-    }
-
-    if (requiredStage === POR_APPROVAL_STAGES.PRESIDENT_GYMKHANA) {
-      const canAct = viewerContext.mode === "president"
-      return {
-        canAct,
-        message: canAct ? "" : "Only President Gymkhana can review this POR request",
-        stage: requiredStage,
-      }
-    }
-
-    if (requiredStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
+    if (porRequest.status === POR_STATUS.PENDING_STUDENT_AFFAIRS) {
       const canAct = viewerContext.mode === "student_affairs"
       return {
         canAct,
         message: canAct ? "" : "Only Office - Student Affairs can review this POR request",
-        stage: requiredStage,
+        stage: POR_APPROVAL_STAGES.STUDENT_AFFAIRS,
       }
     }
 
     if (
       [
-        POR_APPROVAL_STAGES.OFFICER_SA,
-        POR_APPROVAL_STAGES.ASSOCIATE_DEAN_SA,
-        POR_APPROVAL_STAGES.DEAN_SA,
-      ].includes(requiredStage)
+        POR_STATUS.PENDING_OFFICER,
+        POR_STATUS.PENDING_ASSOCIATE_DEAN,
+        POR_STATUS.PENDING_DEAN,
+      ].includes(porRequest.status)
     ) {
-      const canAct = user?.subRole === requiredStage
+      const requiredStage = porRequest.currentApprovalStage
+      const assignedApproverUserId = normalizeObjectId(porRequest.currentApproverUser)
+      const canAct =
+        Boolean(requiredStage) &&
+        user?.subRole === requiredStage &&
+        (!assignedApproverUserId || assignedApproverUserId === normalizeObjectId(user._id))
+
       return {
         canAct,
-        message: canAct ? "" : `Only ${requiredStage} can review this POR request`,
+        message: canAct ? "" : `Only ${requiredStage || "the assigned reviewer"} can review this POR request`,
         stage: requiredStage,
       }
     }
 
     return {
       canAct: false,
-      message: "You cannot act on this POR request",
-      stage: requiredStage,
+      message: "POR request is not pending approval",
+      stage: porRequest.currentApprovalStage || null,
     }
+  }
+
+  async getSerializedRequestById(requestId, user, viewerContext) {
+    const request = await this.model
+      .findById(requestId)
+      .populate("submittedBy", "name email")
+      .populate("rejectedBy", "name email subRole")
+      .populate("currentApproverUser", "name email subRole")
+      .populate("currentApproverUsers", "name email subRole")
+      .populate("clubId", "name email gymkhanaCategoryKey userId")
+      .populate("porCategoryId", "name")
+
+    if (!request) return null
+
+    const { categoriesByKey } = await buildCategoryLookup()
+    const serialized = await this.serializeRequests([request], user, viewerContext, categoriesByKey)
+    return serialized[0] || null
   }
 
   async serializeRequests(requests, user, viewerContext, categoriesByKey) {
     const safeRequests = Array.isArray(requests) ? requests.filter(Boolean) : []
     const submittedUserIds = [
       ...new Set(
-        safeRequests.map((request) => normalizeObjectId(request?.submittedBy?._id || request?.submittedBy)).filter(Boolean)
+        safeRequests
+          .map((request) => normalizeObjectId(request?.submittedBy?._id || request?.submittedBy))
+          .filter(Boolean)
       ),
     ]
 
@@ -1021,10 +1555,24 @@ class PorService extends BaseService {
         typeof request.clubId === "object" && request.clubId
           ? request.clubId
           : null
+      const porCategory =
+        typeof request.porCategoryId === "object" && request.porCategoryId
+          ? request.porCategoryId
+          : null
       const currentApproverUser =
         typeof request.currentApproverUser === "object" && request.currentApproverUser
           ? request.currentApproverUser
           : null
+      const currentApproverUsers = Array.isArray(request.currentApproverUsers)
+        ? request.currentApproverUsers
+            .filter((userEntry) => typeof userEntry === "object" && userEntry)
+            .map((userEntry) => ({
+              id: normalizeObjectId(userEntry._id),
+              name: normalizeText(userEntry.name),
+              email: normalizeText(userEntry.email).toLowerCase(),
+              subRole: normalizeText(userEntry.subRole),
+            }))
+        : []
       const rejectedBy =
         typeof request.rejectedBy === "object" && request.rejectedBy
           ? request.rejectedBy
@@ -1036,6 +1584,11 @@ class PorService extends BaseService {
         viewerContext.mode === "student" &&
         submittedByUserId === normalizeObjectId(user._id) &&
         request.status === POR_STATUS.REVISION_REQUESTED
+
+      const porCategoryName =
+        normalizeText(request.porCategoryNameSnapshot) ||
+        normalizeText(porCategory?.name) ||
+        normalizeText(club?.name)
 
       return {
         id: normalizeObjectId(request._id),
@@ -1054,6 +1607,11 @@ class PorService extends BaseService {
           email: normalizeText(club?.email).toLowerCase(),
           userId: normalizeObjectId(club?.userId),
         },
+        porCategory: {
+          id: normalizeObjectId(porCategory?._id || request.porCategoryId),
+          name: porCategoryName,
+        },
+        porCategoryName,
         gymkhanaCategoryKey: normalizeCategoryKey(request.gymkhanaCategoryKey),
         gymkhanaCategoryLabel:
           categoriesByKey.get(normalizeCategoryKey(request.gymkhanaCategoryKey)) ||
@@ -1075,6 +1633,7 @@ class PorService extends BaseService {
               subRole: currentApproverUser.subRole || "",
             }
           : null,
+        currentApproverUsers,
         rejectionReason: request.rejectionReason || "",
         rejectedBy: rejectedBy
           ? {
@@ -1100,7 +1659,7 @@ class PorService extends BaseService {
     })
   }
 
-  buildStats(serializedRequests, viewerContext, categoriesByKey) {
+  buildStats(serializedRequests, viewerContext) {
     if (!viewerContext?.viewer?.showStats) {
       return []
     }
@@ -1108,9 +1667,9 @@ class PorService extends BaseService {
     const total = Array.isArray(serializedRequests) ? serializedRequests.length : 0
     const counts = new Map()
     for (const request of serializedRequests || []) {
-      const categoryKey = normalizeCategoryKey(request?.gymkhanaCategoryKey)
-      if (!categoryKey) continue
-      counts.set(categoryKey, (counts.get(categoryKey) || 0) + 1)
+      const categoryName = normalizeText(request?.porCategoryName)
+      if (!categoryName) continue
+      counts.set(categoryName, (counts.get(categoryName) || 0) + 1)
     }
 
     const stats = [
@@ -1121,17 +1680,12 @@ class PorService extends BaseService {
       },
     ]
 
-    const sortedKeys = [...counts.keys()].sort((left, right) => {
-      const leftLabel = categoriesByKey.get(left) || left
-      const rightLabel = categoriesByKey.get(right) || right
-      return leftLabel.localeCompare(rightLabel)
-    })
-
-    for (const key of sortedKeys) {
+    const sortedNames = [...counts.keys()].sort((left, right) => left.localeCompare(right))
+    for (const name of sortedNames) {
       stats.push({
-        title: categoriesByKey.get(key) || key,
-        value: counts.get(key) || 0,
-        subtitle: "Category requests",
+        title: name,
+        value: counts.get(name) || 0,
+        subtitle: "POR category requests",
       })
     }
 

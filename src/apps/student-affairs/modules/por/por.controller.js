@@ -11,8 +11,18 @@ export const createPorRequest = asyncHandler(async (req, res) => {
   sendStandardResponse(res, result)
 })
 
+export const createPorCategory = asyncHandler(async (req, res) => {
+  const result = await porService.createPorCategory(req.body, req.user)
+  sendStandardResponse(res, result)
+})
+
 export const updatePorRequest = asyncHandler(async (req, res) => {
   const result = await porService.updatePorRequest(req.params.id, req.body, req.user)
+  sendStandardResponse(res, result)
+})
+
+export const updatePorCategory = asyncHandler(async (req, res) => {
+  const result = await porService.updatePorCategory(req.params.categoryId, req.body, req.user)
   sendStandardResponse(res, result)
 })
 
@@ -45,7 +55,9 @@ export const getApprovalHistory = asyncHandler(async (req, res) => {
 export default {
   getWorkspace,
   createPorRequest,
+  createPorCategory,
   updatePorRequest,
+  updatePorCategory,
   approvePorRequest,
   rejectPorRequest,
   requestPorRevision,

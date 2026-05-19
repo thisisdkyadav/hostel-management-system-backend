@@ -38,6 +38,14 @@ router.post(
   controller.createPorRequest
 )
 
+router.post(
+  "/categories",
+  authorizeRoles([ROLES.ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.porCategorySchema),
+  controller.createPorCategory
+)
+
 router.put(
   "/:id",
   authorizeRoles([ROLES.STUDENT]),
@@ -45,6 +53,15 @@ router.put(
   validate(validation.porRequestIdSchema, "params"),
   validate(validation.createPorRequestSchema),
   controller.updatePorRequest
+)
+
+router.put(
+  "/categories/:categoryId",
+  authorizeRoles([ROLES.ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.porCategoryIdSchema, "params"),
+  validate(validation.porCategorySchema),
+  controller.updatePorCategory
 )
 
 router.post(

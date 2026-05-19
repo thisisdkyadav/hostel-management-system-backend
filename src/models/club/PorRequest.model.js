@@ -16,6 +16,27 @@ const APPROVER_ASSIGNMENT_SCHEMA = new mongoose.Schema(
   { _id: false }
 )
 
+const GYMKHANA_STEP_SNAPSHOT_SCHEMA = new mongoose.Schema(
+  {
+    label: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    reviewerUserIds: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+      ],
+      default: [],
+    },
+  },
+  { _id: false }
+)
+
 const PorRequestSchema = new mongoose.Schema(
   {
     submittedBy: {
@@ -27,14 +48,33 @@ const PorRequestSchema = new mongoose.Schema(
     clubId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Club",
-      required: true,
+      default: null,
       index: true,
+    },
+    porCategoryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "PorCategory",
+      default: null,
+      index: true,
+    },
+    porCategoryNameSnapshot: {
+      type: String,
+      trim: true,
+      default: "",
     },
     gymkhanaCategoryKey: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
       index: true,
+    },
+    gymkhanaApprovalSteps: {
+      type: [GYMKHANA_STEP_SNAPSHOT_SCHEMA],
+      default: [],
+    },
+    currentGymkhanaStepIndex: {
+      type: Number,
+      default: null,
     },
     hasDisciplinaryAction: {
       type: Boolean,
@@ -73,6 +113,7 @@ const PorRequestSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: [
+        "pending_gymkhana",
         "pending_club",
         "pending_gs",
         "pending_president",
@@ -84,22 +125,12 @@ const PorRequestSchema = new mongoose.Schema(
         "rejected",
         "revision_requested",
       ],
-      default: "pending_club",
+      default: "pending_gymkhana",
       index: true,
     },
     currentApprovalStage: {
       type: String,
-      enum: [
-        "Student",
-        "Club",
-        "GS Gymkhana",
-        "President Gymkhana",
-        "Student Affairs",
-        "Officer SA",
-        "Associate Dean SA",
-        "Dean SA",
-      ],
-      default: "Club",
+      default: null,
     },
     customApprovalChain: [
       {
@@ -119,6 +150,15 @@ const PorRequestSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
+    },
+    currentApproverUsers: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+        },
+      ],
+      default: [],
     },
     rejectionReason: {
       type: String,
@@ -153,6 +193,8 @@ const PorRequestSchema = new mongoose.Schema(
 PorRequestSchema.index({ submittedBy: 1, createdAt: -1 })
 PorRequestSchema.index({ clubId: 1, createdAt: -1 })
 PorRequestSchema.index({ gymkhanaCategoryKey: 1, createdAt: -1 })
+PorRequestSchema.index({ porCategoryId: 1, createdAt: -1 })
+PorRequestSchema.index({ currentApproverUsers: 1, updatedAt: -1 })
 
 const PorRequest = mongoose.model("PorRequest", PorRequestSchema)
 
