@@ -16,7 +16,7 @@ export const createPorRequestSchema = Joi.object({
   positionTitle: requiredText.required(),
   positionDetails: Joi.string().trim().min(5).max(4000).required(),
   tenure: requiredText.required(),
-  supportingDocumentUrl: mediaReference.allow("").default(""),
+  supportingDocumentUrl: mediaReference.required(),
   supportingDocumentName: Joi.string().trim().max(255).allow("").default(""),
 })
 
