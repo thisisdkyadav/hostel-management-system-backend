@@ -24,6 +24,9 @@ export const SUBROLES = {
   GS_GYMKHANA: "GS Gymkhana",
   PRESIDENT_GYMKHANA: "President Gymkhana",
   ELECTION_OFFICER: "Election Officer",
+  COUNCILS: "Councils",
+  COMMITTEE: "Committee",
+  MEGA_EVENTS: "Mega Events",
   CLUB: "Club",
   // Admin operations subroles
   HCU: "HCU",
