@@ -253,12 +253,31 @@ class UploadService {
     const sizeValidation = validateSize(file, TEN_MB);
     if (!sizeValidation.ok) return sizeValidation;
 
-    return this._uploadWithPolicy({
-      file,
-      policy: 'por-document-pdf',
-      actorId: userId,
-      actorRole: 'Student',
-    });
+    const policyFallbacks = [
+      'por-document-pdf',
+      'overall-best-performer-proof-pdf',
+      'h2-form',
+    ];
+
+    let lastResult = null;
+
+    for (const policy of policyFallbacks) {
+      const result = await this._uploadWithPolicy({
+        file,
+        policy,
+        actorId: userId,
+        actorRole: 'Student',
+      });
+
+      if (result.success) return result;
+
+      lastResult = result;
+      if (!String(result.message || '').toLowerCase().includes('unknown upload policy')) {
+        return result;
+      }
+    }
+
+    return lastResult || errorResult(502, 'Failed to upload POR document');
   }
 }
 
