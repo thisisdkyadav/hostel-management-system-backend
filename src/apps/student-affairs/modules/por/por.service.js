@@ -154,6 +154,21 @@ const getCurrentApproverUserIds = (request) => {
   return legacyUserId ? [legacyUserId] : []
 }
 
+const resolveGymkhanaStepIndex = (request, gymkhanaSteps = []) => {
+  if (Number.isInteger(request?.currentGymkhanaStepIndex) && request.currentGymkhanaStepIndex >= 0) {
+    return request.currentGymkhanaStepIndex
+  }
+
+  const currentStage = normalizeText(request?.currentApprovalStage)
+  if (!currentStage) return 0
+
+  const stageIndex = (Array.isArray(gymkhanaSteps) ? gymkhanaSteps : []).findIndex(
+    (step) => normalizeText(step?.label) === currentStage
+  )
+
+  return stageIndex >= 0 ? stageIndex : 0
+}
+
 class PorService extends BaseService {
   constructor() {
     super(PorRequest, "PorRequest")
@@ -1142,15 +1157,34 @@ class PorService extends BaseService {
     }))
   }
 
+  async resolveGsGymkhanaReviewerUserIds(categoryKey) {
+    const normalizedCategoryKey = normalizeCategoryKey(categoryKey)
+    if (!normalizedCategoryKey) return []
+
+    const gymkhanaProfiles = await Gymkhana.find({ categories: normalizedCategoryKey })
+      .select("userId")
+      .lean()
+    const candidateUserIds = gymkhanaProfiles
+      .map((profile) => normalizeObjectId(profile.userId))
+      .filter(Boolean)
+
+    if (candidateUserIds.length === 0) return []
+
+    const gsUsers = await User.find({
+      _id: { $in: candidateUserIds },
+      role: ROLES.GYMKHANA,
+      subRole: SUBROLES.GS_GYMKHANA,
+    })
+      .select("_id")
+      .lean()
+
+    return gsUsers.map((user) => normalizeObjectId(user._id)).filter(Boolean)
+  }
+
   async buildClubLinkedPorCategoryDefinition(club, categoriesByKey = null, presidentUserIds = null) {
     const lookup = categoriesByKey || (await buildCategoryLookup()).categoriesByKey
     const categoryKey = normalizeCategoryKey(club?.gymkhanaCategoryKey)
-    const gymkhanaProfiles = categoryKey
-      ? await Gymkhana.find({ categories: categoryKey }).select("userId").lean()
-      : []
-    const gsUserIds = gymkhanaProfiles
-      .map((profile) => normalizeObjectId(profile.userId))
-      .filter(Boolean)
+    const gsUserIds = await this.resolveGsGymkhanaReviewerUserIds(categoryKey)
     const presidents =
       Array.isArray(presidentUserIds) && presidentUserIds.length > 0
         ? presidentUserIds
@@ -1262,6 +1296,41 @@ class PorService extends BaseService {
 
   async ensureLegacyPorCategories(categoriesByKey = null) {
     await this.syncClubLinkedPorCategories({ categoriesByKey, updateExisting: false })
+  }
+
+  async syncRequestWithPorCategoryDefinition(porRequest, porCategory) {
+    if (!porRequest || !porCategory) return porRequest
+
+    const categoryId = normalizeObjectId(porCategory._id)
+    const gymkhanaSteps = cloneGymkhanaSteps(porCategory.gymkhanaSteps)
+    porRequest.porCategoryId = categoryId
+    porRequest.porCategoryNameSnapshot = normalizeText(porCategory.name)
+    porRequest.gymkhanaCategoryKey = normalizeCategoryKey(porCategory.legacyGymkhanaCategoryKey)
+    porRequest.gymkhanaApprovalSteps = gymkhanaSteps
+
+    if (porRequest.status === POR_STATUS.PENDING_GYMKHANA) {
+      const currentIndex = resolveGymkhanaStepIndex(porRequest, gymkhanaSteps)
+      const currentStep = findNextGymkhanaStep(gymkhanaSteps, currentIndex)
+      if (currentStep) {
+        porRequest.currentGymkhanaStepIndex = currentStep.index
+        porRequest.currentApprovalStage = currentStep.step.label
+        porRequest.currentApproverUsers = currentStep.step.reviewerUserIds
+        porRequest.currentApproverUser = getFirstReviewerId(currentStep.step.reviewerUserIds)
+      }
+    } else if (porRequest.status === POR_STATUS.PENDING_STUDENT_AFFAIRS) {
+      porRequest.currentApprovalStage = POR_APPROVAL_STAGES.STUDENT_AFFAIRS
+      porRequest.currentApproverUsers = []
+      porRequest.currentApproverUser = null
+      porRequest.currentGymkhanaStepIndex = gymkhanaSteps.length > 0 ? gymkhanaSteps.length - 1 : null
+    } else if (isPostStudentAffairsStage(porRequest.currentApprovalStage)) {
+      porRequest.currentApproverUsers = normalizeObjectId(porRequest.currentApproverUser)
+        ? [normalizeObjectId(porRequest.currentApproverUser)]
+        : []
+      porRequest.currentGymkhanaStepIndex = gymkhanaSteps.length > 0 ? gymkhanaSteps.length - 1 : null
+    }
+
+    await porRequest.save()
+    return porRequest
   }
 
   async migrateLegacyRequestIfNeeded(porRequest, categoriesByKey = null) {

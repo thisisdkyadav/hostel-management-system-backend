@@ -10,6 +10,7 @@
     "dev:legacy": "nodemon server.js",
     "migrate:officer-sa": "node scripts/migrate_joint_registrar_sa_to_officer_sa.mjs",
     "migrate:por-categories": "node scripts/migrate_por_categories_from_clubs.mjs",
+    "repair:por-category-gs": "node scripts/repair_por_category_gs_reviewers.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
