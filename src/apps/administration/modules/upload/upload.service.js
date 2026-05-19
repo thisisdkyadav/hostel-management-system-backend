@@ -245,6 +245,21 @@ class UploadService {
       actorRole: 'Student',
     });
   }
+
+  async uploadPorDocumentPDF({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    const sizeValidation = validateSize(file, TEN_MB);
+    if (!sizeValidation.ok) return sizeValidation;
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'por-document-pdf',
+      actorId: userId,
+      actorRole: 'Student',
+    });
+  }
 }
 
 export const uploadService = new UploadService();

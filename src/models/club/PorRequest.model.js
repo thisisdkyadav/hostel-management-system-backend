@@ -60,6 +60,16 @@ const PorRequestSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    supportingDocumentUrl: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    supportingDocumentName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
     status: {
       type: String,
       enum: [

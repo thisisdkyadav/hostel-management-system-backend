@@ -173,6 +173,8 @@ class PorService extends BaseService {
       positionTitle: normalizeText(data.positionTitle),
       positionDetails: normalizeText(data.positionDetails),
       tenure: normalizeText(data.tenure),
+      supportingDocumentUrl: normalizeOptionalText(data.supportingDocumentUrl),
+      supportingDocumentName: normalizeOptionalText(data.supportingDocumentName),
       status: POR_STATUS.PENDING_CLUB,
       currentApprovalStage: POR_APPROVAL_STAGES.CLUB,
       currentApproverUser: club.userId,
@@ -253,6 +255,8 @@ class PorService extends BaseService {
     porRequest.positionTitle = normalizeText(data.positionTitle)
     porRequest.positionDetails = normalizeText(data.positionDetails)
     porRequest.tenure = normalizeText(data.tenure)
+    porRequest.supportingDocumentUrl = normalizeOptionalText(data.supportingDocumentUrl)
+    porRequest.supportingDocumentName = normalizeOptionalText(data.supportingDocumentName)
     porRequest.status = POR_STATUS.PENDING_CLUB
     porRequest.currentApprovalStage = POR_APPROVAL_STAGES.CLUB
     porRequest.currentApproverUser = club.userId
@@ -1059,6 +1063,8 @@ class PorService extends BaseService {
         positionTitle: normalizeText(request.positionTitle),
         positionDetails: normalizeText(request.positionDetails),
         tenure: normalizeText(request.tenure),
+        supportingDocumentUrl: normalizeOptionalText(request.supportingDocumentUrl),
+        supportingDocumentName: normalizeOptionalText(request.supportingDocumentName),
         status: request.status,
         currentApprovalStage: request.currentApprovalStage || null,
         currentApproverUser: currentApproverUser

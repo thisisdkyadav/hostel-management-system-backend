@@ -1,5 +1,5 @@
 import Joi from "joi"
-import { objectId } from "../../../../validations/common.validation.js"
+import { mediaReference, objectId } from "../../../../validations/common.validation.js"
 import { POST_STUDENT_AFFAIRS_APPROVERS } from "../events/events.constants.js"
 
 const requiredText = Joi.string().trim().min(2).max(500)
@@ -16,6 +16,8 @@ export const createPorRequestSchema = Joi.object({
   positionTitle: requiredText.required(),
   positionDetails: Joi.string().trim().min(5).max(4000).required(),
   tenure: requiredText.required(),
+  supportingDocumentUrl: mediaReference.allow("").default(""),
+  supportingDocumentName: Joi.string().trim().max(255).allow("").default(""),
 })
 
 export const porRequestIdSchema = Joi.object({

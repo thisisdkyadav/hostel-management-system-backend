@@ -229,3 +229,19 @@ export const uploadOverallBestPerformerProofPDF = asyncHandler(async (req, res) 
 
   return res.status(result.statusCode).json(result.data);
 });
+
+/**
+ * Upload POR supporting document PDF
+ */
+export const uploadPorDocumentPDF = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadPorDocumentPDF({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});

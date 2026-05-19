@@ -21,6 +21,7 @@ import {
   uploadCertificate,
   uploadElectionNominationDocument,
   uploadOverallBestPerformerProofPDF,
+  uploadPorDocumentPDF,
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -37,6 +38,10 @@ const GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE = {
 const OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE = {
   [ROLES.STUDENT]: 'route.student.overallBestPerformer',
   [ROLES.ADMIN]: 'route.admin.overallBestPerformer',
+};
+
+const POR_UPLOAD_ROUTE_KEYS_BY_ROLE = {
+  [ROLES.STUDENT]: 'route.student.por',
 };
 
 const ELECTION_UPLOAD_ROUTE_KEYS_BY_ROLE = {
@@ -62,6 +67,14 @@ const requireOverallBestPerformerUploadRouteAccess = (req, res, next) => {
 
 const requireElectionUploadRouteAccess = (req, res, next) => {
   const routeKey = ELECTION_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
+  if (!routeKey) {
+    return next();
+  }
+  return requireRouteAccess(routeKey)(req, res, next);
+};
+
+const requirePorUploadRouteAccess = (req, res, next) => {
+  const routeKey = POR_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
   if (!routeKey) {
     return next();
   }
@@ -217,6 +230,15 @@ router.post(
   requireOverallBestPerformerUploadRouteAccess,
   upload.any(),
   uploadOverallBestPerformerProofPDF
+);
+
+// POR supporting document PDF upload
+router.post(
+  '/por-document-pdf',
+  authorizeRoles(['Student']),
+  requirePorUploadRouteAccess,
+  handleElectionNominationUpload,
+  uploadPorDocumentPDF
 );
 
 export default router;
