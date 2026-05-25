@@ -722,6 +722,22 @@ class PorService extends BaseService {
     const normalizedComments = normalizeOptionalText(comments)
     const shouldDirectApproveFromStudentAffairs =
       currentStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS && Boolean(directApprove)
+    const normalizedNextApproverCount = Array.isArray(nextApprovers)
+      ? nextApprovers.filter((assignment) => assignment && assignment.userId).length
+      : 0
+    const normalizedNextStageCount = Array.isArray(nextApprovalStages)
+      ? nextApprovalStages.filter(Boolean).length
+      : 0
+
+    if (currentStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
+      if (shouldDirectApproveFromStudentAffairs && (normalizedNextApproverCount > 0 || normalizedNextStageCount > 0)) {
+        return badRequest("Direct approval from Student Affairs is only allowed when no next recommender is selected")
+      }
+
+      if (!shouldDirectApproveFromStudentAffairs && normalizedNextApproverCount === 0 && normalizedNextStageCount === 0) {
+        return badRequest("Select at least one next recommender before forwarding from Student Affairs")
+      }
+    }
 
     if (shouldDirectApproveFromStudentAffairs) {
       porRequest.status = POR_STATUS.APPROVED
