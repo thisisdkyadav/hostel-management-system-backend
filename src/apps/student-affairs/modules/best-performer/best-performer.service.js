@@ -272,6 +272,8 @@ const serializeApplication = (application, porLookup = new Map()) => {
     id: data._id,
     occurrenceId: data.occurrenceId,
     awardYear: data.awardYear,
+    studentUserId: data.studentUserId || null,
+    studentProfileId: data.studentProfileId || null,
     studentName: data.studentName,
     studentEmail: data.studentEmail,
     rollNumber: data.rollNumber,
