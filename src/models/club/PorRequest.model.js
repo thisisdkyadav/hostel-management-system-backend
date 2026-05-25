@@ -110,6 +110,10 @@ const PorRequestSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+    undertakingAccepted: {
+      type: Boolean,
+      default: false,
+    },
     status: {
       type: String,
       enum: [

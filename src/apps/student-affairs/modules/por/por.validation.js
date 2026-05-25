@@ -24,6 +24,7 @@ export const createPorRequestSchema = Joi.object({
   tenure: requiredText.required(),
   supportingDocumentUrl: mediaReference.required(),
   supportingDocumentName: Joi.string().trim().max(255).allow("").default(""),
+  undertakingAccepted: Joi.boolean().valid(true).required(),
 })
 
 export const porCategorySchema = Joi.object({

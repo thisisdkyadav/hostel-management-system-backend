@@ -329,6 +329,7 @@ class PorService extends BaseService {
       tenure: normalizeText(data.tenure),
       supportingDocumentUrl: normalizeOptionalText(data.supportingDocumentUrl),
       supportingDocumentName: normalizeOptionalText(data.supportingDocumentName),
+      undertakingAccepted: Boolean(data.undertakingAccepted),
       status: POR_STATUS.PENDING_GYMKHANA,
       currentApprovalStage: firstStep.step.label,
       currentApproverUser: getFirstReviewerId(firstStep.step.reviewerUserIds),
@@ -414,6 +415,7 @@ class PorService extends BaseService {
     porRequest.tenure = normalizeText(data.tenure)
     porRequest.supportingDocumentUrl = normalizeOptionalText(data.supportingDocumentUrl)
     porRequest.supportingDocumentName = normalizeOptionalText(data.supportingDocumentName)
+    porRequest.undertakingAccepted = Boolean(data.undertakingAccepted)
     porRequest.status = POR_STATUS.PENDING_GYMKHANA
     porRequest.currentApprovalStage = firstStep.step.label
     porRequest.currentApproverUser = getFirstReviewerId(firstStep.step.reviewerUserIds)
@@ -1727,6 +1729,7 @@ class PorService extends BaseService {
         tenure: normalizeText(request.tenure),
         supportingDocumentUrl: normalizeOptionalText(request.supportingDocumentUrl),
         supportingDocumentName: normalizeOptionalText(request.supportingDocumentName),
+        undertakingAccepted: Boolean(request.undertakingAccepted),
         status: request.status,
         currentApprovalStage: request.currentApprovalStage || null,
         currentApproverUser: currentApproverUser
