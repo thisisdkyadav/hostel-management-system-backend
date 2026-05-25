@@ -28,6 +28,7 @@ export const POR_APPROVAL_STAGES = {
 
 export const POR_APPROVAL_ACTIONS = {
   SUBMITTED: "submitted",
+  RECOMMENDED: "recommended",
   APPROVED: "approved",
   REJECTED: "rejected",
   REVISION_REQUESTED: "revision_requested",

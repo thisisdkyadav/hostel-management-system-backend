@@ -41,6 +41,7 @@ export const porCategoryIdSchema = Joi.object({
 
 export const approvalActionSchema = Joi.object({
   comments: optionalComment.default(""),
+  directApprove: Joi.boolean().default(false),
   nextApprovalStages: Joi.array()
     .items(Joi.string().valid(...POST_STUDENT_AFFAIRS_APPROVERS))
     .default([]),

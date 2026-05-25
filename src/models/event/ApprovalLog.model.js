@@ -33,7 +33,7 @@ const ApprovalLogSchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      enum: ["submitted", "approved", "rejected", "revision_requested"],
+      enum: ["submitted", "recommended", "approved", "rejected", "revision_requested"],
       required: true,
     },
     performedBy: {

@@ -32,7 +32,8 @@ export const approvePorRequest = asyncHandler(async (req, res) => {
     req.body.comments,
     req.user,
     req.body.nextApprovalStages,
-    req.body.nextApprovers
+    req.body.nextApprovers,
+    req.body.directApprove
   )
   sendStandardResponse(res, result)
 })

@@ -704,7 +704,7 @@ class PorService extends BaseService {
     }
   }
 
-  async approvePorRequest(id, comments, user, nextApprovalStages = [], nextApprovers = []) {
+  async approvePorRequest(id, comments, user, nextApprovalStages = [], nextApprovers = [], directApprove = false) {
     const porRequest = await this.model.findById(id)
     if (!porRequest) {
       return notFound("POR request")
@@ -720,8 +720,18 @@ class PorService extends BaseService {
 
     const currentStage = actionAccess.stage
     const normalizedComments = normalizeOptionalText(comments)
+    const shouldDirectApproveFromStudentAffairs =
+      currentStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS && Boolean(directApprove)
 
-    if (currentStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
+    if (shouldDirectApproveFromStudentAffairs) {
+      porRequest.status = POR_STATUS.APPROVED
+      porRequest.currentApprovalStage = null
+      porRequest.currentChainIndex = null
+      porRequest.currentApproverUser = null
+      porRequest.currentApproverUsers = []
+      porRequest.customApprovalChain = []
+      clearCustomApprovalAssignments(porRequest)
+    } else if (currentStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
       const assignmentResolution = await resolvePostStudentAffairsAssignments(
         nextApprovers,
         nextApprovalStages
@@ -797,11 +807,16 @@ class PorService extends BaseService {
 
     await porRequest.save()
 
+    const approvalLogAction =
+      porRequest.status === POR_STATUS.APPROVED
+        ? POR_APPROVAL_ACTIONS.APPROVED
+        : POR_APPROVAL_ACTIONS.RECOMMENDED
+
     await ApprovalLog.create({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: currentStage,
-      action: POR_APPROVAL_ACTIONS.APPROVED,
+      action: approvalLogAction,
       performedBy: user._id,
       comments: normalizedComments,
     })
@@ -824,7 +839,11 @@ class PorService extends BaseService {
       })
     }
 
-    return success({ request: porRequest }, 200, "POR request approved")
+    return success(
+      { request: porRequest },
+      200,
+      porRequest.status === POR_STATUS.APPROVED ? "POR request approved" : "POR request recommended"
+    )
   }
 
   async rejectPorRequest(id, reason, user) {
