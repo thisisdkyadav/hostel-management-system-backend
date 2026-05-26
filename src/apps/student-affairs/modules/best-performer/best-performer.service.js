@@ -108,6 +108,41 @@ const serializeOccurrence = (occurrence, extras = {}) => {
   }
 }
 
+const serializeEligibleStudents = async (occurrence) => {
+  const eligibleRollNumbers = normalizeRollNumbers(occurrence?.eligibleRollNumbers)
+  if (eligibleRollNumbers.length === 0) return []
+
+  const profiles = await StudentProfile.find({
+    rollNumber: { $in: eligibleRollNumbers },
+  })
+    .select("rollNumber department degree userId")
+    .populate({
+      path: "userId",
+      select: "name email",
+    })
+    .lean()
+
+  const profileByRollNumber = new Map(
+    profiles.map((profile) => [
+      String(profile?.rollNumber || "").trim().toUpperCase(),
+      profile,
+    ])
+  )
+
+  return eligibleRollNumbers.map((rollNumber) => {
+    const profile = profileByRollNumber.get(rollNumber)
+
+    return {
+      rollNumber,
+      name: String(profile?.userId?.name || "").trim(),
+      email: String(profile?.userId?.email || "").trim().toLowerCase(),
+      department: String(profile?.department || "").trim(),
+      degree: String(profile?.degree || "").trim(),
+      exists: Boolean(profile),
+    }
+  })
+}
+
 const buildCategoryLookup = async () => {
   const categories = await getGlobalGymkhanaCategoryDefinitions()
   const categoriesByKey = new Map()
@@ -685,9 +720,15 @@ class BestPerformerService {
       rejectedCount: leaderboard.filter((item) => item.review?.status === APPLICATION_STATUS.REJECTED).length,
       highestScore: leaderboard[0]?.finalScore || leaderboard[0]?.calculatedTotal || 0,
     }
+    const eligibleRollNumbers = normalizeRollNumbers(occurrence?.eligibleRollNumbers)
+    const eligibleStudents = await serializeEligibleStudents(occurrence)
 
     return success({
-      occurrence: serializeOccurrence(occurrence, stats),
+      occurrence: serializeOccurrence(occurrence, {
+        ...stats,
+        eligibleRollNumbers,
+        eligibleStudents,
+      }),
       leaderboard,
     })
   }
