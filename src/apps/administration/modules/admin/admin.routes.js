@@ -13,6 +13,18 @@ import {
   updateHostel,
 } from './hostelController.js';
 import {
+  createCaterer,
+  getCaterers,
+  updateCaterer,
+  updateCatererArchiveStatus,
+} from './catererController.js';
+import {
+  createDiningPeriod,
+  getDiningPeriods,
+  updateDiningPeriod,
+  updateDiningPeriodArchiveStatus,
+} from './diningPeriodController.js';
+import {
   createSecurity,
   getAllSecurities,
   updateSecurity,
@@ -25,9 +37,13 @@ import {
   getTaskStats,
   getMaintenanceStaffStats,
   createGymkhana,
+  createAcademics,
   getAllGymkhanaUsers,
+  getAllAcademicsUsers,
   updateGymkhana,
+  updateAcademics,
   deleteGymkhana,
+  deleteAcademics,
 } from './adminController.js';
 import {
   createWarden,
@@ -99,6 +115,16 @@ router.get('/hostels', requireRouteAccess('route.admin.hostels'), getHostels);
 router.post('/hostel', requireRouteAccess('route.admin.hostels'), addHostel);
 router.put('/hostel/:id', requireRouteAccess('route.admin.hostels'), updateHostel);
 
+// Dining caterer management
+router.get('/caterers', requireRouteAccess('route.admin.caterers'), getCaterers);
+router.post('/caterers', requireRouteAccess('route.admin.caterers'), createCaterer);
+router.put('/caterers/:id', requireRouteAccess('route.admin.caterers'), updateCaterer);
+router.put('/caterers/:id/archive', requireRouteAccess('route.admin.caterers'), updateCatererArchiveStatus);
+router.get('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), getDiningPeriods);
+router.post('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), createDiningPeriod);
+router.put('/dining-periods/:id', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriod);
+router.put('/dining-periods/:id/archive', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriodArchiveStatus);
+
 // Warden management
 router.get('/wardens', requireRouteAccess('route.admin.wardens'), getAllWardens);
 router.post('/warden', requireRouteAccess('route.admin.wardens'), createWarden);
@@ -122,6 +148,12 @@ router.get('/gymkhana', requireRouteAccess('route.admin.gymkhana'), getAllGymkha
 router.post('/gymkhana', requireRouteAccess('route.admin.gymkhana'), createGymkhana);
 router.put('/gymkhana/:id', requireRouteAccess('route.admin.gymkhana'), updateGymkhana);
 router.delete('/gymkhana/:id', requireRouteAccess('route.admin.gymkhana'), deleteGymkhana);
+
+// Academics user management
+router.get('/academics', requireRouteAccess('route.admin.academics'), getAllAcademicsUsers);
+router.post('/academics', requireRouteAccess('route.admin.academics'), createAcademics);
+router.put('/academics/:id', requireRouteAccess('route.admin.academics'), updateAcademics);
+router.delete('/academics/:id', requireRouteAccess('route.admin.academics'), deleteAcademics);
 
 // Security staff management
 router.get('/security', requireRouteAccess('route.admin.security'), getAllSecurities);

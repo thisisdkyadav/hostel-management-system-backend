@@ -307,10 +307,11 @@ const serializeApplication = (application, porLookup = new Map()) => {
     id: data._id,
     occurrenceId: data.occurrenceId,
     awardYear: data.awardYear,
-    studentUserId: data.studentUserId || null,
-    studentProfileId: data.studentProfileId || null,
+    studentUserId: data.studentUserId?._id || data.studentUserId || null,
+    studentProfileId: data.studentProfileId?._id || data.studentProfileId || null,
     studentName: data.studentName,
     studentEmail: data.studentEmail,
+    studentProfileImage: data.studentUserId?.profileImage || "",
     rollNumber: data.rollNumber,
     department: data.department,
     degree: data.degree,
@@ -350,6 +351,15 @@ const serializeApplication = (application, porLookup = new Map()) => {
     ),
     scoreBreakdown: data.scoreBreakdown || {},
     review: data.review || {},
+    hodVerifications: (data.hodVerifications || []).map((entry) => ({
+      id: entry?._id || null,
+      action: entry?.action || "commented",
+      remarks: String(entry?.remarks || "").trim(),
+      verifiedAt: entry?.verifiedAt || null,
+      verifiedBy: entry?.verifiedBy?._id || entry?.verifiedBy || null,
+      verifierName: String(entry?.verifierName || entry?.verifiedBy?.name || "").trim(),
+      verifierEmail: String(entry?.verifierEmail || entry?.verifiedBy?.email || "").trim().toLowerCase(),
+    })),
     submittedAt: data.submittedAt,
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
@@ -485,7 +495,7 @@ const getStudentProfileForUser = async (userId) => {
   return StudentProfile.findOne({ userId })
     .populate({
       path: "userId",
-      select: "name email",
+      select: "name email profileImage",
     })
 }
 
@@ -706,6 +716,8 @@ class BestPerformerService {
     if (!occurrence) return notFound("Occurrence")
 
     const applications = await OverallBestPerformerApplication.find({ occurrenceId: occurrence._id })
+      .populate("studentUserId", "name email profileImage")
+      .populate("hodVerifications.verifiedBy", "name email")
       .sort({ "review.finalScore": -1, "scoreBreakdown.total": -1, updatedAt: 1 })
       .lean()
     const porLookup = await buildPorLookupForApplications(applications)
@@ -946,6 +958,47 @@ class BestPerformerService {
     return success({
       application: serializeApplication(application, porLookup),
     }, 200, decision === APPLICATION_STATUS.REJECTED ? "Application rejected" : "Application approved")
+  }
+
+  async addHodVerification(applicationId, payload, user) {
+    const application = await OverallBestPerformerApplication.findById(applicationId)
+    if (!application) return notFound("Application")
+
+    const occurrence = await getOccurrenceById(application.occurrenceId)
+    if (!occurrence) return notFound("Occurrence")
+
+    if (now() <= new Date(occurrence.applyEndAt)) {
+      return badRequest("Applications can be verified only after the deadline")
+    }
+
+    const remarks = String(payload.remarks || "").trim()
+    if (!remarks) {
+      return badRequest("Remarks are required")
+    }
+
+    application.hodVerifications = Array.isArray(application.hodVerifications)
+      ? application.hodVerifications
+      : []
+
+    application.hodVerifications.push({
+      action: payload.action === "verified" ? "verified" : "commented",
+      remarks,
+      verifiedBy: user._id,
+      verifierName: String(user?.name || "").trim(),
+      verifierEmail: String(user?.email || "").trim().toLowerCase(),
+      verifiedAt: now(),
+    })
+
+    await application.save()
+
+    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
+      .populate("hodVerifications.verifiedBy", "name email")
+
+    const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
+
+    return success({
+      application: serializeApplication(refreshedApplication, porLookup),
+    }, 200, payload.action === "verified" ? "Application verified" : "Comment added")
   }
 }
 

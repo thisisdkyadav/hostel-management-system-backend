@@ -40,6 +40,10 @@ export const porCategoryIdSchema = Joi.object({
   categoryId: objectId.required(),
 })
 
+export const porStudentUserIdSchema = Joi.object({
+  userId: objectId.required(),
+})
+
 export const approvalActionSchema = Joi.object({
   comments: optionalComment.default(""),
   directApprove: Joi.boolean().default(false),
@@ -69,6 +73,7 @@ export default {
   porCategorySchema,
   porRequestIdSchema,
   porCategoryIdSchema,
+  porStudentUserIdSchema,
   approvalActionSchema,
   rejectionSchema,
   revisionSchema,

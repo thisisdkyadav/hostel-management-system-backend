@@ -343,6 +343,43 @@ const reviewSchema = new mongoose.Schema(
   }
 )
 
+const hodVerificationSchema = new mongoose.Schema(
+  {
+    action: {
+      type: String,
+      enum: ["verified", "commented"],
+      required: true,
+    },
+    remarks: {
+      type: String,
+      trim: true,
+      required: true,
+    },
+    verifiedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    verifierName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    verifierEmail: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+    verifiedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    _id: true,
+  }
+)
+
 const OverallBestPerformerApplicationSchema = new mongoose.Schema(
   {
     occurrenceId: {
@@ -433,6 +470,10 @@ const OverallBestPerformerApplicationSchema = new mongoose.Schema(
     review: {
       type: reviewSchema,
       default: () => ({}),
+    },
+    hodVerifications: {
+      type: [hodVerificationSchema],
+      default: [],
     },
     submittedAt: {
       type: Date,

@@ -12,6 +12,7 @@ router.use(authenticate)
 
 const ROUTE_KEY_BY_ROLE = {
   [ROLES.ADMIN]: "route.admin.overallBestPerformer",
+  [ROLES.ACADEMICS]: "route.academics.bestPerformer",
   [ROLES.STUDENT]: "route.student.overallBestPerformer",
 }
 
@@ -23,14 +24,14 @@ const requireMappedRouteAccess = (req, res, next) => {
 
 router.get(
   "/occurrences/selector",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.ACADEMICS]),
   requireMappedRouteAccess,
   controller.getOccurrenceSelector
 )
 
 router.get(
   "/occurrences/:id",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.ACADEMICS]),
   requireMappedRouteAccess,
   validate(validation.occurrenceIdSchema, "params"),
   controller.getOccurrenceDetail
@@ -76,6 +77,15 @@ router.post(
   validate(validation.applicationIdSchema, "params"),
   validate(validation.reviewApplicationSchema),
   controller.reviewApplication
+)
+
+router.post(
+  "/applications/:id/hod-verification",
+  authorizeRoles([ROLES.ACADEMICS]),
+  requireMappedRouteAccess,
+  validate(validation.applicationIdSchema, "params"),
+  validate(validation.hodVerificationSchema),
+  controller.addHodVerification
 )
 
 export default router

@@ -110,11 +110,29 @@ export const createGymkhana = asyncHandler(async (req, res) => {
   });
 });
 
+export const createAcademics = asyncHandler(async (req, res) => {
+  const result = await adminService.createAcademics(req.body);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
+
+  return res.status(result.statusCode).json({
+    message: result.message,
+    success: true,
+  });
+});
+
 /**
  * Get all Gymkhana users
  */
 export const getAllGymkhanaUsers = asyncHandler(async (_req, res) => {
   const result = await adminService.getAllGymkhanaUsers();
+  return res.status(result.statusCode).json(result.data);
+});
+
+export const getAllAcademicsUsers = asyncHandler(async (_req, res) => {
+  const result = await adminService.getAllAcademicsUsers();
   return res.status(result.statusCode).json(result.data);
 });
 
@@ -132,12 +150,34 @@ export const updateGymkhana = asyncHandler(async (req, res) => {
   return res.status(result.statusCode).json({ message: result.message });
 });
 
+export const updateAcademics = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await adminService.updateAcademics(id, req.body);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
+
 /**
  * Delete a Gymkhana user
  */
 export const deleteGymkhana = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const result = await adminService.deleteGymkhana(id);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
+
+  return res.status(result.statusCode).json({ message: result.message });
+});
+
+export const deleteAcademics = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const result = await adminService.deleteAcademics(id);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });

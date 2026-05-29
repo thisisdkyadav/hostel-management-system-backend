@@ -120,3 +120,8 @@ export const reviewApplicationSchema = Joi.object({
   decision: Joi.string().trim().valid("approved", "rejected").required(),
   remarks: Joi.string().trim().allow("").max(2000),
 })
+
+export const hodVerificationSchema = Joi.object({
+  action: Joi.string().trim().valid("verified", "commented").required(),
+  remarks: Joi.string().trim().required().max(2000),
+})

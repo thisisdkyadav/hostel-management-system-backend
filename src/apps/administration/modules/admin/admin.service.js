@@ -28,6 +28,8 @@ const GYMKHANA_SUBROLES = [
   SUBROLES.MEGA_EVENTS,
 ];
 
+const ACADEMICS_SUBROLES = [SUBROLES.HOD];
+
 const normalizeOptionalText = (value) => {
   if (value === undefined || value === null) return '';
   return String(value).trim();
@@ -328,6 +330,46 @@ class AdminService extends BaseService {
     return success(null, 201, 'Gymkhana user created successfully');
   }
 
+  async createAcademics({ email, password, name, subRole }) {
+    const normalizedEmail = normalizeOptionalText(email);
+    const normalizedName = normalizeOptionalText(name);
+
+    if (!normalizedEmail || !normalizedName || !subRole) {
+      return badRequest('Email, name, and subRole are required');
+    }
+
+    if (!ACADEMICS_SUBROLES.includes(subRole)) {
+      return badRequest('Invalid Academics subRole');
+    }
+
+    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } });
+    if (existingUser) {
+      return badRequest('User with this email already exists');
+    }
+
+    let hashedPassword;
+
+    if (password) {
+      const salt = await bcrypt.genSalt(10);
+      hashedPassword = await bcrypt.hash(password, salt);
+    }
+
+    const userPayload = {
+      name: normalizedName,
+      email: normalizedEmail,
+      role: ROLES.ACADEMICS,
+      subRole,
+    };
+
+    if (hashedPassword) {
+      userPayload.password = hashedPassword;
+    }
+
+    await User.create(userPayload);
+
+    return success(null, 201, 'Academics user created successfully');
+  }
+
   /**
    * Get all Gymkhana users
    */
@@ -367,6 +409,26 @@ class AdminService extends BaseService {
           position: normalizeOptionalText(profile?.position) || null,
         };
       })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return success(formattedUsers);
+  }
+
+  async getAllAcademicsUsers() {
+    const academicsUsers = await User.find({ role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } })
+      .select('name email role subRole profileImage')
+      .lean();
+
+    const formattedUsers = academicsUsers
+      .map((user) => ({
+        id: user._id,
+        userId: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        subRole: user.subRole || null,
+        profileImage: user.profileImage || null,
+      }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return success(formattedUsers);
@@ -437,6 +499,43 @@ class AdminService extends BaseService {
     return success(null, 200, 'Gymkhana user updated successfully');
   }
 
+  async updateAcademics(id, { name, subRole }) {
+    const updateData = {};
+
+    if (name !== undefined) {
+      const normalizedName = normalizeOptionalText(name);
+      if (!normalizedName) {
+        return badRequest('Name cannot be empty');
+      }
+      updateData.name = normalizedName;
+    }
+
+    if (subRole !== undefined) {
+      if (!ACADEMICS_SUBROLES.includes(subRole)) {
+        return badRequest('Invalid Academics subRole');
+      }
+      updateData.subRole = subRole;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return badRequest('No update data provided');
+    }
+
+    const updatedUser = await User.findOneAndUpdate(
+      { _id: id, role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } },
+      updateData,
+      { new: true }
+    )
+      .select('_id')
+      .lean();
+
+    if (!updatedUser) {
+      return notFound('Academics user');
+    }
+
+    return success(null, 200, 'Academics user updated successfully');
+  }
+
   /**
    * Delete a Gymkhana user
    */
@@ -450,6 +549,16 @@ class AdminService extends BaseService {
     await Gymkhana.deleteOne({ userId: deletedUser._id });
 
     return success(null, 200, 'Gymkhana user deleted successfully');
+  }
+
+  async deleteAcademics(id) {
+    const deletedUser = await User.findOneAndDelete({ _id: id, role: ROLES.ACADEMICS });
+
+    if (!deletedUser) {
+      return notFound('Academics user');
+    }
+
+    return success(null, 200, 'Academics user deleted successfully');
   }
 
   /**

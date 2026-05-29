@@ -228,6 +228,52 @@ class PorService extends BaseService {
     )
   }
 
+  async getStudentPorRequests(targetUserId, user) {
+    const viewerContext = await this.getViewerContext(user)
+    if (!viewerContext.supported || viewerContext.mode === "student") {
+      return forbidden("You cannot view POR requests for this student")
+    }
+
+    const { categoriesByKey } = await buildCategoryLookup()
+    await this.ensureLegacyPorCategories(categoriesByKey)
+
+    const requests = await this.model.find({ submittedBy: targetUserId }).sort({ updatedAt: -1 })
+
+    for (const request of requests) {
+      await this.migrateLegacyRequestIfNeeded(request, categoriesByKey)
+    }
+
+    await this.model.populate(requests, [
+      { path: "submittedBy", select: "name email" },
+      { path: "rejectedBy", select: "name email subRole" },
+      { path: "currentApproverUser", select: "name email subRole" },
+      { path: "currentApproverUsers", select: "name email subRole" },
+      { path: "clubId", select: "name email gymkhanaCategoryKey userId" },
+      { path: "porCategoryId", select: "name" },
+    ])
+
+    const serializedRequests = await this.serializeRequests(
+      requests,
+      user,
+      viewerContext,
+      categoriesByKey
+    )
+
+    const approversByStage = viewerContext.viewer.canSelectPostApprovers
+      ? await getPostStudentAffairsApproverOptionsByStage()
+      : {}
+
+    return success(
+      {
+        viewer: viewerContext.viewer,
+        requests: serializedRequests,
+        approversByStage,
+      },
+      200,
+      "Student POR requests loaded successfully"
+    )
+  }
+
   async createPorCategory(data, user) {
     if (user?.role !== ROLES.ADMIN) {
       return forbidden("Only admin users can manage POR categories")

@@ -35,3 +35,8 @@ export const reviewApplication = asyncHandler(async (req, res) => {
   const result = await bestPerformerService.reviewApplication(req.params.id, req.body, req.user)
   return sendStandardResponse(res, result)
 })
+
+export const addHodVerification = asyncHandler(async (req, res) => {
+  const result = await bestPerformerService.addHodVerification(req.params.id, req.body, req.user)
+  return sendStandardResponse(res, result)
+})

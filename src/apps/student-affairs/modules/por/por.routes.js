@@ -30,6 +30,14 @@ router.get(
   controller.getWorkspace
 )
 
+router.get(
+  "/student/:userId",
+  authorizeRoles([ROLES.GYMKHANA, ROLES.ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.porStudentUserIdSchema, "params"),
+  controller.getStudentPorRequests
+)
+
 router.post(
   "/",
   authorizeRoles([ROLES.STUDENT]),

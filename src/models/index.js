@@ -66,6 +66,9 @@ export * from './election/index.js'
 // Club Models
 export * from './club/index.js'
 
+// Dining Models
+export * from './dining/index.js'
+
 // AuthZ audit models
 export * from './authz/index.js'
 

@@ -6,6 +6,11 @@ export const getWorkspace = asyncHandler(async (req, res) => {
   sendStandardResponse(res, result)
 })
 
+export const getStudentPorRequests = asyncHandler(async (req, res) => {
+  const result = await porService.getStudentPorRequests(req.params.userId, req.user)
+  sendStandardResponse(res, result)
+})
+
 export const createPorRequest = asyncHandler(async (req, res) => {
   const result = await porService.createPorRequest(req.body, req.user)
   sendStandardResponse(res, result)
@@ -55,6 +60,7 @@ export const getApprovalHistory = asyncHandler(async (req, res) => {
 
 export default {
   getWorkspace,
+  getStudentPorRequests,
   createPorRequest,
   createPorCategory,
   updatePorRequest,

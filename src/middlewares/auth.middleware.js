@@ -4,7 +4,7 @@
  */
 // Using old model paths until Phase 3 (Models Migration)
 import { User } from "../models/index.js"
-import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from "../core/authz/index.js"
+import { AUTHZ_CATALOG_VERSION, buildEffectiveAuthzForUser, extractUserAuthzOverride } from "../core/authz/index.js"
 
 const buildSessionAuthz = (userLike) => {
   const override = extractUserAuthzOverride(userLike)
@@ -20,7 +20,10 @@ const withAuthzSessionData = (sessionUserData = {}) => {
   const hasLegacyPermissions = Object.prototype.hasOwnProperty.call(sessionUserData, "permissions")
   const { permissions: _legacyPermissions, ...sanitizedUserData } = sessionUserData
 
-  if (sanitizedUserData?.authz?.effective) {
+  if (
+    sanitizedUserData?.authz?.effective &&
+    sanitizedUserData.authz.effective.catalogVersion === AUTHZ_CATALOG_VERSION
+  ) {
     return { userData: sanitizedUserData, shouldPersist: hasLegacyPermissions && sanitizedUserData.role !== "Student" }
   }
 

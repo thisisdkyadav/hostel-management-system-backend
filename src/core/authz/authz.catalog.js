@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 1
+export const AUTHZ_CATALOG_VERSION = 4
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -43,11 +43,14 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.liveCheckInOut", "Live Check In/Out", ["/admin/live-checkinout", "/admin/lc"]),
   route("route.admin.faceScanners", "Face Scanners", ["/admin/face-scanners", "/admin/fs"]),
   route("route.admin.hostels", "Hostels", ["/admin/hostels", "/admin/hostels/:hostelName", "/admin/hostels/:hostelName/units/:unitNumber"]),
+  route("route.admin.caterers", "Caterers", ["/admin/caterers"]),
+  route("route.admin.diningPeriods", "Dining Periods", ["/admin/dining-periods"]),
   route("route.admin.administrators", "Administrators", ["/admin/administrators"]),
   route("route.admin.wardens", "Wardens", ["/admin/wardens"]),
   route("route.admin.associateWardens", "Associate Wardens", ["/admin/associate-wardens"]),
   route("route.admin.hostelSupervisors", "Hostel Supervisors", ["/admin/hostel-supervisors"]),
   route("route.admin.gymkhana", "Gymkhana Management", ["/admin/gymkhana"]),
+  route("route.admin.academics", "Academics Management", ["/admin/academics"]),
   route("route.admin.students", "Students", ["/admin/students"]),
   route("route.admin.inventory", "Inventory", ["/admin/inventory"]),
   route("route.admin.complaints", "Complaints", ["/admin/complaints"]),
@@ -171,6 +174,10 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.gymkhana.megaEvents", "Gymkhana Mega Events", ["/gymkhana/mega-events"]),
   route("route.gymkhana.elections", "Gymkhana Elections", ["/gymkhana/elections"]),
   route("route.gymkhana.profile", "Gymkhana Profile", ["/gymkhana/profile"]),
+
+  // Academics
+  route("route.academics.bestPerformer", "Academics Best Performer", ["/academics", "/academics/overall-best-performer"]),
+  route("route.academics.profile", "Academics Profile", ["/academics/profile"]),
 ]
 
 export const AUTHZ_CAPABILITY_DEFINITIONS = [
@@ -197,6 +204,7 @@ export const AUTHZ_ROUTE_KEYS_BY_ROLE = {
   [ROLES.MAINTENANCE_STAFF]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.maintenance.")),
   [ROLES.STUDENT]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.student.")),
   [ROLES.GYMKHANA]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.gymkhana.")),
+  [ROLES.ACADEMICS]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.academics.")),
 }
 
 export const AUTHZ_CAPABILITY_DEFAULTS_BY_ROLE = Object.values(ROLES).reduce((acc, role) => {
