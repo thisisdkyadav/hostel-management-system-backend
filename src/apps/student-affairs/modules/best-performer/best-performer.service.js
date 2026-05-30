@@ -188,6 +188,8 @@ const serializePorProofDetail = (porRequest, studentProfilesByUserId = new Map()
     positionTitle: String(porRequest?.positionTitle || "").trim(),
     positionDetails: String(porRequest?.positionDetails || "").trim(),
     tenure: String(porRequest?.tenure || "").trim(),
+    supportingDocumentUrl: String(porRequest?.supportingDocumentUrl || "").trim(),
+    supportingDocumentName: String(porRequest?.supportingDocumentName || "").trim(),
     status: porRequest?.status || "",
     currentApprovalStage: porRequest?.currentApprovalStage || null,
     approvedAt: porRequest?.approvedAt || null,
