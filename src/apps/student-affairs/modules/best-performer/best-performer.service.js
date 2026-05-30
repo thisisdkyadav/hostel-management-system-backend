@@ -374,10 +374,11 @@ const mapItemPoints = (items = [], pointsMap = {}, max = Number.POSITIVE_INFINIT
   const sanitizedItems = Array.isArray(items) ? items : []
   let total = 0
   const nextItems = sanitizedItems.map((item) => {
-    const points = Number(pointsMap[item?.scoreType] || 0)
+    const points = item?.excludedFromScoring ? 0 : Number(pointsMap[item?.scoreType] || 0)
     total += points
     return {
       ...item,
+      excludedFromScoring: Boolean(item?.excludedFromScoring),
       calculatedPoints: points,
     }
   })
@@ -1051,6 +1052,9 @@ class BestPerformerService {
     if (!item) return badRequest("Application item was not found")
 
     item.scoreType = scoreType
+    if (typeof payload?.excludedFromScoring === "boolean") {
+      item.excludedFromScoring = payload.excludedFromScoring
+    }
 
     const computed = computeBreakdown(buildScoringPayloadFromApplication(application))
     application.personalAcademic = computed.personalAcademic

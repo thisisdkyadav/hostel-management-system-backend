@@ -107,6 +107,10 @@ const scoredItemSchema = new mongoose.Schema(
       type: [proofSchema],
       default: [],
     },
+    excludedFromScoring: {
+      type: Boolean,
+      default: false,
+    },
     calculatedPoints: {
       type: Number,
       default: 0,

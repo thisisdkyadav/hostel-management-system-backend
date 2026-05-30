@@ -137,6 +137,7 @@ export const updateApplicationItemTypeSchema = Joi.object({
     .required(),
   itemIndex: Joi.number().integer().min(0).required(),
   scoreType: Joi.string().trim().required().max(120),
+  excludedFromScoring: Joi.boolean(),
 })
 
 export const hodVerificationSchema = Joi.object({
