@@ -710,10 +710,6 @@ class BestPerformerService {
     const occurrence = await getOccurrenceById(id)
     if (!occurrence) return notFound("Occurrence")
 
-    if (occurrence.status !== OCCURRENCE_STATUS.ACTIVE) {
-      return badRequest("Only active occurrences can be updated")
-    }
-
     const nextApplyStartAt = payload.applyStartAt ? new Date(payload.applyStartAt) : new Date(occurrence.applyStartAt)
     const nextApplyEndAt = payload.applyEndAt ? new Date(payload.applyEndAt) : new Date(occurrence.applyEndAt)
 
@@ -721,8 +717,8 @@ class BestPerformerService {
       return badRequest("Application start date is invalid")
     }
 
-    if (payload.applyEndAt && (Number.isNaN(nextApplyEndAt.getTime()) || nextApplyEndAt <= now())) {
-      return badRequest("Application end date must be in the future")
+    if (payload.applyEndAt && Number.isNaN(nextApplyEndAt.getTime())) {
+      return badRequest("Application end date is invalid")
     }
 
     if (nextApplyStartAt >= nextApplyEndAt) {
@@ -751,6 +747,27 @@ class BestPerformerService {
 
       occurrence.eligibleRollNumbers = eligibleResult.data.normalizedRollNumbers
       occurrence.eligibleStudentCount = eligibleResult.data.eligibleStudentCount
+    }
+
+    if (nextApplyEndAt > now()) {
+      await OverallBestPerformerOccurrence.updateMany(
+        {
+          _id: { $ne: occurrence._id },
+          status: OCCURRENCE_STATUS.ACTIVE,
+        },
+        {
+          $set: {
+            status: OCCURRENCE_STATUS.CLOSED,
+            closedAt: now(),
+          },
+        }
+      )
+      occurrence.status = OCCURRENCE_STATUS.ACTIVE
+      occurrence.closedAt = null
+      occurrence.activatedAt = occurrence.activatedAt || now()
+    } else {
+      occurrence.status = OCCURRENCE_STATUS.CLOSED
+      occurrence.closedAt = occurrence.closedAt || now()
     }
 
     occurrence.updatedBy = user._id
