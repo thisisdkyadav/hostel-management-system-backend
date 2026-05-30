@@ -768,9 +768,18 @@ class BestPerformerService {
       .lean()
 
     const activeOccurrence = occurrences.find((item) => item.status === OCCURRENCE_STATUS.ACTIVE) || null
+    const sixMonthsAgo = new Date(now())
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
+    const recentClosedOccurrence = activeOccurrence
+      ? null
+      : occurrences.find((item) => {
+          const applyEndAt = new Date(item?.applyEndAt || 0)
+          return !Number.isNaN(applyEndAt.getTime()) && applyEndAt >= sixMonthsAgo
+        }) || null
 
     return success({
       activeOccurrenceId: activeOccurrence?._id || null,
+      defaultOccurrenceId: activeOccurrence?._id || recentClosedOccurrence?._id || null,
       occurrences: occurrences.map((item) => serializeOccurrence(item)),
     })
   }
@@ -1091,6 +1100,66 @@ class BestPerformerService {
     return success({
       application: serializeApplication(refreshedApplication, porLookup),
     }, 200, "Application item type updated")
+  }
+
+  async updateApplicationCourseworkScore(applicationId, payload) {
+    const application = await OverallBestPerformerApplication.findById(applicationId)
+    if (!application) return notFound("Application")
+
+    const occurrence = await getOccurrenceById(application.occurrenceId)
+    if (!occurrence) return notFound("Occurrence")
+
+    if (now() <= new Date(occurrence.applyEndAt)) {
+      return badRequest("Coursework score can be edited only after the deadline")
+    }
+
+    const scoreValue = Number(payload?.scoreValue)
+    if (Number.isNaN(scoreValue) || scoreValue < 6.5 || scoreValue > 10) {
+      return badRequest("CGPA / CPI must be between 6.50 and 10.00")
+    }
+
+    application.coursework = {
+      ...(typeof application.coursework?.toObject === "function"
+        ? application.coursework.toObject()
+        : application.coursework || {}),
+      scoreValue,
+    }
+
+    const computed = computeBreakdown(buildScoringPayloadFromApplication(application))
+    application.personalAcademic = computed.personalAcademic
+    application.coursework = computed.coursework
+    application.projectThesis = computed.projectThesis
+    application.responsibilityItems = computed.responsibilityItems
+    application.awardItems = computed.awardItems
+    application.culturalItems = computed.culturalItems
+    application.scienceTechnologyItems = computed.scienceTechnologyItems
+    application.gamesSportsItems = computed.gamesSportsItems
+    application.coCurricularItems = computed.coCurricularItems
+    application.scoreBreakdown = computed.scoreBreakdown
+
+    if (application.review?.status === APPLICATION_STATUS.APPROVED) {
+      const currentReview = typeof application.review?.toObject === "function"
+        ? application.review.toObject()
+        : application.review || {}
+      application.review = {
+        ...currentReview,
+        finalScore: computed.scoreBreakdown.total,
+      }
+    }
+
+    application.markModified("coursework")
+    application.markModified("scoreBreakdown")
+    application.markModified("review")
+    await application.save()
+
+    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
+      .populate("studentUserId", "name email profileImage")
+      .populate("hodVerifications.verifiedBy", "name email")
+    const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
+
+    return success({
+      application: serializeApplication(refreshedApplication, porLookup),
+    }, 200, "CGPA / CPI updated")
   }
 
   async addHodVerification(applicationId, payload, user) {

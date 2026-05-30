@@ -41,6 +41,11 @@ export const updateApplicationItemType = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result)
 })
 
+export const updateApplicationCourseworkScore = asyncHandler(async (req, res) => {
+  const result = await bestPerformerService.updateApplicationCourseworkScore(req.params.id, req.body, req.user)
+  return sendStandardResponse(res, result)
+})
+
 export const addHodVerification = asyncHandler(async (req, res) => {
   const result = await bestPerformerService.addHodVerification(req.params.id, req.body, req.user)
   return sendStandardResponse(res, result)

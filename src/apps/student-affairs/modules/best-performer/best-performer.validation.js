@@ -140,6 +140,10 @@ export const updateApplicationItemTypeSchema = Joi.object({
   excludedFromScoring: Joi.boolean(),
 })
 
+export const updateApplicationCourseworkScoreSchema = Joi.object({
+  scoreValue: Joi.number().min(6.5).max(10).required(),
+})
+
 export const hodVerificationSchema = Joi.object({
   action: Joi.string().trim().valid("verified", "commented").required(),
   remarks: Joi.string().trim().required().max(2000),

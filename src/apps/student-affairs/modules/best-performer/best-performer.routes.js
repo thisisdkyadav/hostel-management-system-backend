@@ -88,6 +88,15 @@ router.patch(
   controller.updateApplicationItemType
 )
 
+router.patch(
+  "/applications/:id/coursework-score",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.applicationIdSchema, "params"),
+  validate(validation.updateApplicationCourseworkScoreSchema),
+  controller.updateApplicationCourseworkScore
+)
+
 router.post(
   "/applications/:id/hod-verification",
   authorizeRoles([ROLES.ACADEMICS]),
