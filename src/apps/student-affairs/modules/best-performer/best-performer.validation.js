@@ -121,6 +121,24 @@ export const reviewApplicationSchema = Joi.object({
   remarks: Joi.string().trim().allow("").max(2000),
 })
 
+export const updateApplicationItemTypeSchema = Joi.object({
+  sectionKey: Joi.string()
+    .trim()
+    .valid(
+      "publicationItems",
+      "technologyTransferItems",
+      "responsibilityItems",
+      "awardItems",
+      "culturalItems",
+      "scienceTechnologyItems",
+      "gamesSportsItems",
+      "coCurricularItems"
+    )
+    .required(),
+  itemIndex: Joi.number().integer().min(0).required(),
+  scoreType: Joi.string().trim().required().max(120),
+})
+
 export const hodVerificationSchema = Joi.object({
   action: Joi.string().trim().valid("verified", "commented").required(),
   remarks: Joi.string().trim().required().max(2000),

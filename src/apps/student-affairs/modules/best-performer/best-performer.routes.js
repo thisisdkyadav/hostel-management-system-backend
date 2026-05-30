@@ -79,6 +79,15 @@ router.post(
   controller.reviewApplication
 )
 
+router.patch(
+  "/applications/:id/item-type",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.applicationIdSchema, "params"),
+  validate(validation.updateApplicationItemTypeSchema),
+  controller.updateApplicationItemType
+)
+
 router.post(
   "/applications/:id/hod-verification",
   authorizeRoles([ROLES.ACADEMICS]),

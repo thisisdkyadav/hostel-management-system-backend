@@ -493,6 +493,67 @@ const computeBreakdown = (payload = {}) => {
   }
 }
 
+const APPLICATION_ITEM_TYPE_CONFIG = {
+  publicationItems: {
+    path: ["projectThesis", "publicationItems"],
+    pointsMap: PUBLICATION_POINTS,
+    modifiedPath: "projectThesis",
+  },
+  technologyTransferItems: {
+    path: ["projectThesis", "technologyTransferItems"],
+    pointsMap: TECHNOLOGY_TRANSFER_POINTS,
+    modifiedPath: "projectThesis",
+  },
+  responsibilityItems: {
+    path: ["responsibilityItems"],
+    pointsMap: RESPONSIBILITY_POINTS,
+    modifiedPath: "responsibilityItems",
+  },
+  awardItems: {
+    path: ["awardItems"],
+    pointsMap: AWARD_POINTS,
+    modifiedPath: "awardItems",
+  },
+  culturalItems: {
+    path: ["culturalItems"],
+    pointsMap: ACTIVITY_LEVEL_POINTS,
+    modifiedPath: "culturalItems",
+  },
+  scienceTechnologyItems: {
+    path: ["scienceTechnologyItems"],
+    pointsMap: ACTIVITY_LEVEL_POINTS,
+    modifiedPath: "scienceTechnologyItems",
+  },
+  gamesSportsItems: {
+    path: ["gamesSportsItems"],
+    pointsMap: ACTIVITY_LEVEL_POINTS,
+    modifiedPath: "gamesSportsItems",
+  },
+  coCurricularItems: {
+    path: ["coCurricularItems"],
+    pointsMap: CO_CURRICULAR_POINTS,
+    modifiedPath: "coCurricularItems",
+  },
+}
+
+const getApplicationItemsByPath = (application, path = []) =>
+  path.reduce((value, key) => value?.[key], application)
+
+const buildScoringPayloadFromApplication = (application) => {
+  const data = typeof application?.toObject === "function" ? application.toObject() : application || {}
+  return {
+    personalAcademic: data.personalAcademic || {},
+    coursework: data.coursework || {},
+    projectThesis: data.projectThesis || {},
+    responsibilityItems: data.responsibilityItems || [],
+    awardItems: data.awardItems || [],
+    culturalItems: data.culturalItems || [],
+    scienceTechnologyItems: data.scienceTechnologyItems || [],
+    gamesSportsItems: data.gamesSportsItems || [],
+    coCurricularItems: data.coCurricularItems || [],
+  }
+}
+
 const getStudentProfileForUser = async (userId) => {
   return StudentProfile.findOne({ userId })
     .populate({
@@ -960,6 +1021,72 @@ class BestPerformerService {
     return success({
       application: serializeApplication(application, porLookup),
     }, 200, decision === APPLICATION_STATUS.REJECTED ? "Application rejected" : "Application approved")
+  }
+
+  async updateApplicationItemType(applicationId, payload) {
+    const application = await OverallBestPerformerApplication.findById(applicationId)
+    if (!application) return notFound("Application")
+
+    const occurrence = await getOccurrenceById(application.occurrenceId)
+    if (!occurrence) return notFound("Occurrence")
+
+    if (now() <= new Date(occurrence.applyEndAt)) {
+      return badRequest("Application item types can be edited only after the deadline")
+    }
+
+    const sectionKey = String(payload?.sectionKey || "").trim()
+    const config = APPLICATION_ITEM_TYPE_CONFIG[sectionKey]
+    if (!config) return badRequest("Invalid application item section")
+
+    const scoreType = String(payload?.scoreType || "").trim()
+    if (!Object.prototype.hasOwnProperty.call(config.pointsMap, scoreType)) {
+      return badRequest("Invalid type selected for this item")
+    }
+
+    const items = getApplicationItemsByPath(application, config.path)
+    if (!Array.isArray(items)) return badRequest("Application item section is unavailable")
+
+    const itemIndex = Number(payload?.itemIndex)
+    const item = items[itemIndex]
+    if (!item) return badRequest("Application item was not found")
+
+    item.scoreType = scoreType
+
+    const computed = computeBreakdown(buildScoringPayloadFromApplication(application))
+    application.personalAcademic = computed.personalAcademic
+    application.coursework = computed.coursework
+    application.projectThesis = computed.projectThesis
+    application.responsibilityItems = computed.responsibilityItems
+    application.awardItems = computed.awardItems
+    application.culturalItems = computed.culturalItems
+    application.scienceTechnologyItems = computed.scienceTechnologyItems
+    application.gamesSportsItems = computed.gamesSportsItems
+    application.coCurricularItems = computed.coCurricularItems
+    application.scoreBreakdown = computed.scoreBreakdown
+
+    if (application.review?.status === APPLICATION_STATUS.APPROVED) {
+      const currentReview = typeof application.review?.toObject === "function"
+        ? application.review.toObject()
+        : application.review || {}
+      application.review = {
+        ...currentReview,
+        finalScore: computed.scoreBreakdown.total,
+      }
+    }
+
+    application.markModified(config.modifiedPath)
+    application.markModified("scoreBreakdown")
+    application.markModified("review")
+    await application.save()
+
+    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
+      .populate("studentUserId", "name email profileImage")
+      .populate("hodVerifications.verifiedBy", "name email")
+    const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
+
+    return success({
+      application: serializeApplication(refreshedApplication, porLookup),
+    }, 200, "Application item type updated")
   }
 
   async addHodVerification(applicationId, payload, user) {
