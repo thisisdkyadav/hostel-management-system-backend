@@ -97,6 +97,15 @@ router.patch(
   controller.updateApplicationCourseworkScore
 )
 
+router.patch(
+  "/applications/:id/project-thesis-grades",
+  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.applicationIdSchema, "params"),
+  validate(validation.updateApplicationProjectThesisGradesSchema),
+  controller.updateApplicationProjectThesisGrades
+)
+
 router.post(
   "/applications/:id/hod-verification",
   authorizeRoles([ROLES.ACADEMICS]),

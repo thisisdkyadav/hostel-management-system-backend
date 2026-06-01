@@ -1179,6 +1179,64 @@ class BestPerformerService {
     }, 200, "CGPA / CPI updated")
   }
 
+  async updateApplicationProjectThesisGrades(applicationId, payload) {
+    const application = await OverallBestPerformerApplication.findById(applicationId)
+    if (!application) return notFound("Application")
+
+    const occurrence = await getOccurrenceById(application.occurrenceId)
+    if (!occurrence) return notFound("Occurrence")
+
+    if (now() <= new Date(occurrence.applyEndAt)) {
+      return badRequest("BTP grades can be edited only after the deadline")
+    }
+
+    const currentProjectThesis = typeof application.projectThesis?.toObject === "function"
+      ? application.projectThesis.toObject()
+      : application.projectThesis || {}
+
+    application.projectThesis = {
+      ...currentProjectThesis,
+      btpAwardLevel: String(payload?.btpAwardLevel || "none").trim(),
+      projectGrade: String(payload?.projectGrade || "none").trim(),
+    }
+
+    const computed = computeBreakdown(buildScoringPayloadFromApplication(application))
+    application.personalAcademic = computed.personalAcademic
+    application.coursework = computed.coursework
+    application.projectThesis = computed.projectThesis
+    application.responsibilityItems = computed.responsibilityItems
+    application.awardItems = computed.awardItems
+    application.culturalItems = computed.culturalItems
+    application.scienceTechnologyItems = computed.scienceTechnologyItems
+    application.gamesSportsItems = computed.gamesSportsItems
+    application.coCurricularItems = computed.coCurricularItems
+    application.scoreBreakdown = computed.scoreBreakdown
+
+    if (application.review?.status === APPLICATION_STATUS.APPROVED) {
+      const currentReview = typeof application.review?.toObject === "function"
+        ? application.review.toObject()
+        : application.review || {}
+      application.review = {
+        ...currentReview,
+        finalScore: computed.scoreBreakdown.total,
+      }
+    }
+
+    application.markModified("projectThesis")
+    application.markModified("scoreBreakdown")
+    application.markModified("review")
+    await application.save()
+
+    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
+      .populate("studentUserId", "name email profileImage")
+      .populate("hodVerifications.verifiedBy", "name email")
+    const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
+
+    return success({
+      application: serializeApplication(refreshedApplication, porLookup),
+    }, 200, "BTP grades updated")
+  }
+
   async addHodVerification(applicationId, payload, user) {
     const application = await OverallBestPerformerApplication.findById(applicationId)
     if (!application) return notFound("Application")

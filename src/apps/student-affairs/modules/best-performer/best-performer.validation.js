@@ -144,6 +144,14 @@ export const updateApplicationCourseworkScoreSchema = Joi.object({
   scoreValue: Joi.number().min(6.5).max(10).required(),
 })
 
+export const updateApplicationProjectThesisGradesSchema = Joi.object({
+  btpAwardLevel: Joi.string()
+    .trim()
+    .valid("none", "institute_best", "second", "third", "department_award_or_nomination")
+    .required(),
+  projectGrade: Joi.string().trim().valid("none", "AP", "AA", "AB", "BB", "OTHER").required(),
+})
+
 export const hodVerificationSchema = Joi.object({
   action: Joi.string().trim().valid("verified", "commented").required(),
   remarks: Joi.string().trim().required().max(2000),
