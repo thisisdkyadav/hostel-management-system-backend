@@ -1,4 +1,5 @@
 import User from "../models/user/User.model.js"
+import { Caterer } from "../models/index.js"
 import { getIO } from "../loaders/socket.loader.js"
 import { addOnlineUser, removeOnlineUser, updateUserActivity } from "./redisOnlineUsers.js"
 
@@ -35,6 +36,12 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
       socket.userEmail = user.email
       socket.userName = user.name
       socket.hostelId = user.hostel?._id || null
+      socket.catererId = null
+
+      if (user.role === "Caterer") {
+        const caterer = await Caterer.findOne({ userId: user._id, isArchived: false }).select("_id").lean()
+        socket.catererId = caterer?._id || null
+      }
 
       next()
     } catch (error) {
@@ -77,6 +84,11 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
         socket.join(`hostel:${socket.hostelId}`)
       }
 
+      // Join caterer room for dining scanner/live meal verification updates
+      if (socket.catererId) {
+        socket.join(`caterer:${socket.catererId}`)
+      }
+
       // Join user-specific room
       socket.join(`user:${socket.userId}`)
 
@@ -86,6 +98,7 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
         userName: socket.userName,
         role: socket.userRole,
         hostelId: socket.hostelId,
+        catererId: socket.catererId,
         connectedAt,
       })
 
@@ -94,6 +107,7 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
         message: "Connected successfully",
         userId: socket.userId,
         role: socket.userRole,
+        catererId: socket.catererId,
       })
 
       // Handle activity heartbeat

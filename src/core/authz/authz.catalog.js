@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 4
+export const AUTHZ_CATALOG_VERSION = 8
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -162,6 +162,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.student.idCard", "Student ID Card", ["/student/id-card"]),
   route("route.student.undertakings", "Student Undertakings", ["/student/undertakings"]),
   route("route.student.por", "Student POR", ["/student/por"]),
+  route("route.student.dining", "Student Dining", ["/student/dining"]),
   route("route.student.overallBestPerformer", "Student Overall Best Performer", ["/student/overall-best-performer"]),
   route("route.student.elections", "Student Elections", ["/student/elections"]),
   route("route.student.profile", "Student Profile", ["/student/profile"]),
@@ -178,6 +179,11 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   // Academics
   route("route.academics.bestPerformer", "Academics Best Performer", ["/academics", "/academics/overall-best-performer"]),
   route("route.academics.profile", "Academics Profile", ["/academics/profile"]),
+
+  // Caterer
+  route("route.caterer.dashboard", "Caterer Dashboard", ["/caterer"]),
+  route("route.caterer.students", "Caterer Students", ["/caterer/students"]),
+  route("route.caterer.mealVerification", "Caterer Meal Verification", ["/caterer/meal-verification"]),
 ]
 
 export const AUTHZ_CAPABILITY_DEFINITIONS = [
@@ -205,6 +211,7 @@ export const AUTHZ_ROUTE_KEYS_BY_ROLE = {
   [ROLES.STUDENT]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.student.")),
   [ROLES.GYMKHANA]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.gymkhana.")),
   [ROLES.ACADEMICS]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.academics.")),
+  [ROLES.CATERER]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
 }
 
 export const AUTHZ_CAPABILITY_DEFAULTS_BY_ROLE = Object.values(ROLES).reduce((acc, role) => {

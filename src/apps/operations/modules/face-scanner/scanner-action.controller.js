@@ -122,6 +122,21 @@ export const processScan = asyncHandler(async (req, res) => {
         })
       }
 
+    case "dining-meal":
+      const diningResult = await scannerActionService.processDiningMealVerification(scanner, scanData)
+
+      if (diningResult.success) {
+        return res.status(200).json({
+          isSuccess: "Y",
+          outputMessage: diningResult.message || "Added Successfully",
+        })
+      }
+
+      return res.status(diningResult.status || 400).json({
+        isSuccess: "N",
+        outputMessage: diningResult.message,
+      })
+
     default:
       return res.status(400).json({
         isSuccess: "N",

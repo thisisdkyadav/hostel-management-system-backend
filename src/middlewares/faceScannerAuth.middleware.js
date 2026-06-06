@@ -52,7 +52,9 @@ export const authenticateScanner = async (req, res, next) => {
     logScannerRequest(req)
 
     // Get all active scanners
-    const scanners = await FaceScanner.find({ isActive: true }).populate("hostelId", "name type")
+    const scanners = await FaceScanner.find({ isActive: true })
+      .populate("hostelId", "name type")
+      .populate("catererId", "name email")
 
     if (scanners.length === 0) {
       return res.status(401).json({
@@ -100,6 +102,7 @@ export const authenticateScanner = async (req, res, next) => {
       type: authenticatedScanner.type,
       direction: authenticatedScanner.direction,
       hostelId: authenticatedScanner.hostelId,
+      catererId: authenticatedScanner.catererId,
       isActive: authenticatedScanner.isActive,
     }
 

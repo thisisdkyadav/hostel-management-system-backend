@@ -27,6 +27,13 @@ const CatererSchema = new mongoose.Schema(
       unique: true,
       select: false,
     },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      unique: true,
+      sparse: true,
+    },
     isArchived: {
       type: Boolean,
       default: false,

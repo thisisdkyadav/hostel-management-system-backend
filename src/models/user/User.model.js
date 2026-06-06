@@ -39,7 +39,7 @@ const UserSchema = new mongoose.Schema(
     profileImage: { type: String },
     role: {
       type: String,
-      enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate", "Gymkhana", "Academics"],
+      enum: ["Student", "Maintenance Staff", "Warden", "Associate Warden", "Admin", "Security", "Super Admin", "Hostel Supervisor", "Hostel Gate", "Gymkhana", "Academics", "Caterer"],
       required: true,
     },
     subRole: {

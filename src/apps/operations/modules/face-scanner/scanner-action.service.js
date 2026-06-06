@@ -7,6 +7,7 @@ import { CheckInOut } from "../../../../models/index.js"
 import { StudentProfile } from "../../../../models/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
 import * as liveCheckInOutService from "../live-checkinout/live-checkinout.service.js"
+import { verifyDiningMeal } from "../dining-meal-verification/dining-meal-verification.service.js"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
@@ -179,6 +180,35 @@ export const processHostelGateEntry = async (scanner, scanData) => {
   }
 }
 
+export const processDiningMealVerification = async (scanner, scanData) => {
+  const { employeeID: rollNumber, dateTime, deviceID } = scanData
+  const catererId = scanner.catererId?._id || scanner.catererId
+
+  if (!catererId) {
+    return {
+      success: false,
+      status: 400,
+      message: "Dining scanner is not linked to a caterer",
+    }
+  }
+
+  const result = await verifyDiningMeal({
+    rollNumber,
+    catererId,
+    scannedAt: dateTime,
+    source: "face-scanner",
+    scanner,
+    deviceId: deviceID,
+  })
+
+  return {
+    success: result.success,
+    status: result.statusCode,
+    message: result.message,
+  }
+}
+
 export default {
   processHostelGateEntry,
+  processDiningMealVerification,
 }

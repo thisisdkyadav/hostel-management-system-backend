@@ -10,9 +10,10 @@ const FaceScannerSchema = new mongoose.Schema(
     username: { type: String, required: true, unique: true }, // Header key name
     passwordHash: { type: String, required: true }, // Header value (hashed)
     name: { type: String, required: true },
-    type: { type: String, enum: ["hostel-gate"], required: true },
+    type: { type: String, enum: ["hostel-gate", "dining-meal"], required: true },
     direction: { type: String, enum: ["in", "out"], required: true },
     hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel" },
+    catererId: { type: mongoose.Schema.Types.ObjectId, ref: "Caterer" },
     isActive: { type: Boolean, default: true },
     lastActiveAt: { type: Date },
     createdAt: { type: Date, default: Date.now },
@@ -25,7 +26,7 @@ const FaceScannerSchema = new mongoose.Schema(
 )
 
 FaceScannerSchema.index({ isActive: 1 })
-FaceScannerSchema.index({ type: 1, direction: 1, hostelId: 1, createdAt: -1 })
+FaceScannerSchema.index({ type: 1, direction: 1, hostelId: 1, catererId: 1, createdAt: -1 })
 
 // Exclude passwordHash from JSON output
 FaceScannerSchema.methods.toJSON = function () {

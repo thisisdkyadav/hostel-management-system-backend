@@ -6,7 +6,7 @@ import { asyncHandler } from "../../../../utils/index.js"
  * POST /api/face-scanner
  */
 export const createFaceScanner = asyncHandler(async (req, res) => {
-  const { name, type, direction, hostelId } = req.body
+  const { name, type, direction, hostelId, catererId } = req.body
 
   if (!name || !type || !direction) {
     return res.status(400).json({
@@ -19,7 +19,8 @@ export const createFaceScanner = asyncHandler(async (req, res) => {
     name,
     type,
     direction,
-    hostelId,
+      hostelId,
+      catererId,
   })
 
   res.status(201).json({
@@ -73,13 +74,14 @@ export const getFaceScannerById = asyncHandler(async (req, res) => {
  * PUT /api/face-scanner/:id
  */
 export const updateFaceScanner = asyncHandler(async (req, res) => {
-  const { name, type, direction, hostelId, isActive } = req.body
+  const { name, type, direction, hostelId, catererId, isActive } = req.body
 
   const scanner = await faceScannerService.updateScanner(req.params.id, {
     name,
     type,
     direction,
     hostelId,
+    catererId,
     isActive,
   })
 

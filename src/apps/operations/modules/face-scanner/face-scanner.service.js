@@ -34,7 +34,7 @@ export const hashPassword = async (password) => {
  * @returns {Promise<{ scanner: Object, plainPassword: string }>}
  */
 export const createScanner = async (data) => {
-  const { name, type, direction, hostelId } = data
+  const { name, type, direction, hostelId, catererId } = data
 
   // Generate credentials
   const { username, password } = generateSecureCredentials()
@@ -46,7 +46,8 @@ export const createScanner = async (data) => {
     name,
     type,
     direction,
-    hostelId: hostelId || null,
+    hostelId: type === "hostel-gate" ? hostelId || null : null,
+    catererId: type === "dining-meal" ? catererId || null : null,
   })
 
   await scanner.save()
@@ -69,10 +70,12 @@ export const getAllScanners = async (filters = {}) => {
   if (filters.type) query.type = filters.type
   if (filters.direction) query.direction = filters.direction
   if (filters.hostelId) query.hostelId = filters.hostelId
+  if (filters.catererId) query.catererId = filters.catererId
   if (filters.isActive !== undefined) query.isActive = filters.isActive === "true"
 
   const scanners = await FaceScanner.find(query)
     .populate("hostelId", "name type")
+    .populate("catererId", "name email")
     .sort({ createdAt: -1 })
     .lean()
 
@@ -85,7 +88,10 @@ export const getAllScanners = async (filters = {}) => {
  * @returns {Promise<Object|null>}
  */
 export const getScannerById = async (id) => {
-  const scanner = await FaceScanner.findById(id).populate("hostelId", "name type").lean()
+  const scanner = await FaceScanner.findById(id)
+    .populate("hostelId", "name type")
+    .populate("catererId", "name email")
+    .lean()
   return scanner
 }
 
@@ -96,17 +102,19 @@ export const getScannerById = async (id) => {
  * @returns {Promise<Object|null>}
  */
 export const updateScanner = async (id, data) => {
-  const { name, type, direction, hostelId, isActive } = data
+  const { name, type, direction, hostelId, catererId, isActive } = data
 
   const updateData = {}
   if (name !== undefined) updateData.name = name
   if (type !== undefined) updateData.type = type
   if (direction !== undefined) updateData.direction = direction
   if (hostelId !== undefined) updateData.hostelId = hostelId || null
+  if (catererId !== undefined) updateData.catererId = catererId || null
   if (isActive !== undefined) updateData.isActive = isActive
 
   const scanner = await FaceScanner.findByIdAndUpdate(id, updateData, { new: true })
     .populate("hostelId", "name type")
+    .populate("catererId", "name email")
 
   return scanner
 }
