@@ -85,6 +85,7 @@ export const calendarYearSchema = Joi.object({
 
 export const approvalActionSchema = Joi.object({
   comments: Joi.string().trim().allow("").max(1000).default(""),
+  directApprove: Joi.boolean().default(false),
   nextApprovalStages: Joi.array()
     .items(Joi.string().valid(...POST_STUDENT_AFFAIRS_APPROVERS))
     .min(1)

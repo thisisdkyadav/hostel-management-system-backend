@@ -71,6 +71,28 @@ const DiningPeriodSchema = new mongoose.Schema(
         { name: "Dinner", startTime: "19:00", endTime: "22:00" },
       ],
     },
+    rebateSettings: {
+      shortTermMaxTotalDays: {
+        type: Number,
+        default: 10,
+        min: 0,
+      },
+      shortTermMaxContinuousDays: {
+        type: Number,
+        default: 3,
+        min: 1,
+      },
+      shortTermMinApplicationDays: {
+        type: Number,
+        default: 1,
+        min: 1,
+      },
+      shortTermMinAdvanceDays: {
+        type: Number,
+        default: 2,
+        min: 0,
+      },
+    },
     eligibilityMode: {
       type: String,
       enum: ["all-active", "custom"],

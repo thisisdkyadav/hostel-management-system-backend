@@ -19,8 +19,11 @@ import {
   updateCatererArchiveStatus,
 } from './catererController.js';
 import {
+  approveDiningRebateRequest,
   createDiningPeriod,
+  getDiningRebateRequests,
   getDiningPeriods,
+  rejectDiningRebateRequest,
   updateDiningPeriod,
   updateDiningPeriodArchiveStatus,
 } from './diningPeriodController.js';
@@ -124,6 +127,9 @@ router.get('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), g
 router.post('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), createDiningPeriod);
 router.put('/dining-periods/:id', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriod);
 router.put('/dining-periods/:id/archive', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriodArchiveStatus);
+router.get('/dining-rebates', requireRouteAccess('route.admin.diningPeriods'), getDiningRebateRequests);
+router.put('/dining-rebates/:id/approve', requireRouteAccess('route.admin.diningPeriods'), approveDiningRebateRequest);
+router.put('/dining-rebates/:id/reject', requireRouteAccess('route.admin.diningPeriods'), rejectDiningRebateRequest);
 
 // Warden management
 router.get('/wardens', requireRouteAccess('route.admin.wardens'), getAllWardens);

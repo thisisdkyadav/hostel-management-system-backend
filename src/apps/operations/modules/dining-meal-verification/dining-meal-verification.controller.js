@@ -2,6 +2,7 @@ import { asyncHandler } from "../../../../utils/index.js"
 import {
   getCurrentMealAvailableStudents,
   getCurrentMealScope,
+  getDiningRebateSummaryForCaterer,
   getDiningMealVerificationContext,
   getDiningMealVerificationFeed,
   resolveCatererForUser,
@@ -29,6 +30,7 @@ export const getMealVerificationFeed = asyncHandler(async (req, res) => {
     catererId: caterer._id,
     periodId: period?._id,
     mealSlotKey: mealSlot?.key || "__no_active_meal__",
+    date: new Date(),
   })
   res.status(result.statusCode).json({
     success: result.success,
@@ -39,6 +41,15 @@ export const getMealVerificationFeed = asyncHandler(async (req, res) => {
 
 export const getAvailableStudents = asyncHandler(async (req, res) => {
   const result = await getCurrentMealAvailableStudents({ user: req.user })
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  })
+})
+
+export const getRebateSummary = asyncHandler(async (req, res) => {
+  const result = await getDiningRebateSummaryForCaterer({ user: req.user })
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,

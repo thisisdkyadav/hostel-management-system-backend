@@ -8,6 +8,10 @@ import {
 } from "../../../../models/index.js"
 import { badRequest, notFound, success } from "../../../../services/base/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
+import {
+  getApprovedRebateStudentIdsForDay,
+  getCatererDiningRebateSummary,
+} from "../../../../services/dining-rebate.service.js"
 
 const VERIFIED_STATUS = "verified"
 const DUPLICATE_STATUS = "duplicate"
@@ -16,6 +20,7 @@ const NOT_ALLOCATED_STATUS = "not-allocated"
 const UNKNOWN_STUDENT_STATUS = "unknown-student"
 const OUTSIDE_MEAL_TIME_STATUS = "outside-meal-time"
 const NO_ACTIVE_PERIOD_STATUS = "no-active-period"
+const ON_REBATE_STATUS = "on-rebate"
 
 const STATUS_MESSAGES = {
   [VERIFIED_STATUS]: "Meal verified successfully",
@@ -25,6 +30,7 @@ const STATUS_MESSAGES = {
   [UNKNOWN_STUDENT_STATUS]: "Student roll number not found",
   [OUTSIDE_MEAL_TIME_STATUS]: "Scan is outside configured meal timings",
   [NO_ACTIVE_PERIOD_STATUS]: "No active dining period found for this scan time",
+  [ON_REBATE_STATUS]: "Student is on approved rebate for this day",
 }
 
 const normalizeRollNumber = (value = "") => String(value || "").trim().toUpperCase()
@@ -42,6 +48,14 @@ const parseTimeToMinutes = (value = "") => {
 }
 
 const getMinutesForDate = (date = new Date()) => date.getHours() * 60 + date.getMinutes()
+
+const getDayBounds = (date = new Date()) => {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+  return { start, end }
+}
 
 const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -319,10 +333,36 @@ export const verifyDiningMeal = async ({
     return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
   }
 
+  const rebatedStudentIds = await getApprovedRebateStudentIdsForDay({
+    periodId: period._id,
+    catererId,
+    date: scannedAt,
+  })
+  if (rebatedStudentIds.has(String(studentProfile.userId?._id || studentProfile.userId))) {
+    const record = await createVerificationRecord({
+      period,
+      catererId,
+      expectedCatererId,
+      studentProfile,
+      rollNumber: normalizedRollNumber,
+      mealSlot,
+      scannedAt,
+      source,
+      scanner,
+      deviceId,
+      status: ON_REBATE_STATUS,
+    })
+    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
+  }
+
   const previousVerified = await DiningMealVerification.findOne({
     periodId: period._id,
     studentUserId: studentProfile.userId?._id || studentProfile.userId,
     mealSlotKey: mealSlot.key,
+    scannedAt: {
+      $gte: getDayBounds(scannedAt).start,
+      $lt: getDayBounds(scannedAt).end,
+    },
     status: VERIFIED_STATUS,
   }).lean()
 
@@ -353,6 +393,7 @@ export const getDiningMealVerificationFeed = async ({
   periodId,
   mealSlotKey,
   status,
+  date,
   page = 1,
   limit = 20,
 } = {}) => {
@@ -361,6 +402,10 @@ export const getDiningMealVerificationFeed = async ({
   if (periodId && mongoose.Types.ObjectId.isValid(periodId)) query.periodId = periodId
   if (mealSlotKey) query.mealSlotKey = String(mealSlotKey).trim()
   if (status) query.status = String(status).trim()
+  if (date) {
+    const dayBounds = getDayBounds(new Date(date))
+    query.scannedAt = { $gte: dayBounds.start, $lt: dayBounds.end }
+  }
 
   const safePage = Math.max(1, Number(page) || 1)
   const safeLimit = Math.min(100, Math.max(1, Number(limit) || 20))
@@ -473,6 +518,10 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
     periodId: period._id,
     catererId: caterer._id,
     studentUserId: { $in: studentUserIds },
+    scannedAt: {
+      $gte: getDayBounds(now).start,
+      $lt: getDayBounds(now).end,
+    },
   }
 
   if (mealSlot?.key) {
@@ -496,7 +545,14 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
     verificationStateByStudentId.set(studentId, currentState)
   }
 
-  const students = allocations.map((allocation) => serializeAvailableStudent({ allocation, verificationStateByStudentId }))
+  const rebatedStudentIds = await getApprovedRebateStudentIdsForDay({
+    periodId: period._id,
+    catererId: caterer._id,
+    date: now,
+  })
+  const students = allocations
+    .filter((allocation) => !rebatedStudentIds.has(String(allocation.studentUserId?._id || allocation.studentUserId || "")))
+    .map((allocation) => serializeAvailableStudent({ allocation, verificationStateByStudentId }))
   const verifiedCount = students.filter((student) => student.isVerified).length
 
   return success({
@@ -512,7 +568,17 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
     total: students.length,
     verifiedCount,
     pendingCount: Math.max(students.length - verifiedCount, 0),
+    rebateCount: rebatedStudentIds.size,
   })
+}
+
+export const getDiningRebateSummaryForCaterer = async ({ user = null } = {}) => {
+  const caterer = await resolveCatererForUser(user)
+  if (!caterer) {
+    return notFound("Caterer login")
+  }
+
+  return getCatererDiningRebateSummary({ catererId: caterer._id })
 }
 
 export default {
@@ -520,5 +586,6 @@ export default {
   getDiningMealVerificationFeed,
   getDiningMealVerificationContext,
   getCurrentMealAvailableStudents,
+  getDiningRebateSummaryForCaterer,
   getCurrentMealScope,
 }

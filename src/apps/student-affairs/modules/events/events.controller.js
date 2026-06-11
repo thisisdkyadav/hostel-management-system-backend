@@ -152,7 +152,8 @@ export const approveCalendar = asyncHandler(async (req, res) => {
     req.body.comments,
     req.user,
     req.body.nextApprovalStages,
-    req.body.nextApprovers
+    req.body.nextApprovers,
+    req.body.directApprove
   )
   sendRawResponse(res, result)
 })
@@ -281,7 +282,8 @@ export const approveProposal = asyncHandler(async (req, res) => {
     req.body.comments,
     req.user,
     req.body.nextApprovalStages,
-    req.body.nextApprovers
+    req.body.nextApprovers,
+    req.body.directApprove
   )
   sendRawResponse(res, result)
 })

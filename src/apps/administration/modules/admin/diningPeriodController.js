@@ -5,6 +5,11 @@
 
 import { diningPeriodService } from './dining-period.service.js';
 import { asyncHandler } from '../../../../utils/index.js';
+import {
+  approveDiningRebate,
+  getAdminDiningRebates,
+  rejectDiningRebate,
+} from '../../../../services/dining-rebate.service.js';
 
 export const getDiningPeriods = asyncHandler(async (req, res) => {
   const result = await diningPeriodService.getDiningPeriods(req.query.archive);
@@ -48,6 +53,37 @@ export const updateDiningPeriodArchiveStatus = asyncHandler(async (req, res) => 
 
   res.status(result.statusCode).json({
     success: true,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const getDiningRebateRequests = asyncHandler(async (req, res) => {
+  const result = await getAdminDiningRebates({ status: req.query?.status });
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const approveDiningRebateRequest = asyncHandler(async (req, res) => {
+  const result = await approveDiningRebate({ rebateId: req.params.id, adminUserId: req.user._id });
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const rejectDiningRebateRequest = asyncHandler(async (req, res) => {
+  const result = await rejectDiningRebate({
+    rebateId: req.params.id,
+    adminUserId: req.user._id,
+    comment: req.body?.comment,
+  });
+  res.status(result.statusCode).json({
+    success: result.success,
     message: result.message,
     data: result.data,
   });

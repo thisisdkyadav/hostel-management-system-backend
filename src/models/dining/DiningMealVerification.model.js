@@ -62,6 +62,7 @@ const DiningMealVerificationSchema = new mongoose.Schema(
         "unknown-student",
         "outside-meal-time",
         "no-active-period",
+        "on-rebate",
       ],
       required: true,
     },

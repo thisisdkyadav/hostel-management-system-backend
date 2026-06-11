@@ -6,6 +6,7 @@ import {
   getAvailableStudents,
   getMealVerificationContext,
   getMealVerificationFeed,
+  getRebateSummary,
   manuallyVerifyMeal,
 } from "./dining-meal-verification.controller.js"
 
@@ -29,6 +30,7 @@ router.use((req, res, next) => {
 router.get("/context", getMealVerificationContext)
 router.get("/feed", getMealVerificationFeed)
 router.get("/available-students", getAvailableStudents)
+router.get("/rebate-summary", getRebateSummary)
 router.post("/manual", manuallyVerifyMeal)
 
 export default router

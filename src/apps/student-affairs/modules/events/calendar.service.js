@@ -457,7 +457,14 @@ class CalendarService extends BaseService {
   /**
    * Approve calendar (by appropriate stage approver)
    */
-  async approveCalendar(calendarId, comments, user, nextApprovalStages = [], nextApprovers = []) {
+  async approveCalendar(
+    calendarId,
+    comments,
+    user,
+    nextApprovalStages = [],
+    nextApprovers = [],
+    directApprove = false
+  ) {
     const calendar = await this.model.findById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
@@ -487,28 +494,54 @@ class CalendarService extends BaseService {
     const isStudentAffairsReview =
       currentStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
       calendar.status === CALENDAR_STATUS.PENDING_STUDENT_AFFAIRS
+    const hasSelectedNextApprovers =
+      (Array.isArray(nextApprovers) && nextApprovers.length > 0) ||
+      (Array.isArray(nextApprovalStages) && nextApprovalStages.length > 0)
+    let approvalAction = APPROVAL_ACTIONS.APPROVED
 
     if (isStudentAffairsReview) {
-      const assignmentResolution = await resolvePostStudentAffairsAssignments(
-        nextApprovers,
-        nextApprovalStages
-      )
-      if (!assignmentResolution.success) {
-        return badRequest(assignmentResolution.message)
+      if (directApprove && hasSelectedNextApprovers) {
+        return badRequest(
+          "Direct approval from Student Affairs is only allowed when no next recommender is selected"
+        )
       }
-      const chain = assignmentResolution.chain
-      const firstStage = chain[0]
-      const nextStatus = APPROVER_TO_STATUS[firstStage]
 
-      calendar.customApprovalChain = chain
-      calendar.customApprovalAssignments = assignmentResolution.assignments
-      calendar.currentChainIndex = 0
-      calendar.status = nextStatus
-      calendar.currentApprovalStage = firstStage
-      calendar.currentApproverUser = assignmentResolution.currentApproverUser
-      notifyNextApprover = assignmentResolution.assignments.length > 0
-      nextApproverUserId = assignmentResolution.currentApproverUser
-      nextApproverStage = firstStage
+      if (!directApprove && !hasSelectedNextApprovers) {
+        return badRequest(
+          "Select at least one next recommender before forwarding from Student Affairs"
+        )
+      }
+
+      if (directApprove) {
+        calendar.status = CALENDAR_STATUS.APPROVED
+        calendar.currentApprovalStage = null
+        calendar.currentChainIndex = null
+        calendar.currentApproverUser = null
+        calendar.customApprovalChain = []
+        clearCustomApprovalAssignments(calendar)
+      } else {
+        const assignmentResolution = await resolvePostStudentAffairsAssignments(
+          nextApprovers,
+          nextApprovalStages
+        )
+        if (!assignmentResolution.success) {
+          return badRequest(assignmentResolution.message)
+        }
+        const chain = assignmentResolution.chain
+        const firstStage = chain[0]
+        const nextStatus = APPROVER_TO_STATUS[firstStage]
+
+        calendar.customApprovalChain = chain
+        calendar.customApprovalAssignments = assignmentResolution.assignments
+        calendar.currentChainIndex = 0
+        calendar.status = nextStatus
+        calendar.currentApprovalStage = firstStage
+        calendar.currentApproverUser = assignmentResolution.currentApproverUser
+        notifyNextApprover = assignmentResolution.assignments.length > 0
+        nextApproverUserId = assignmentResolution.currentApproverUser
+        nextApproverStage = firstStage
+        approvalAction = APPROVAL_ACTIONS.RECOMMENDED
+      }
     } else {
       const assignmentState = getCustomAssignmentState(calendar, currentStage)
       const hasAssignedApprovers = assignmentState.hasAssignments
@@ -599,7 +632,7 @@ class CalendarService extends BaseService {
       entityType: "ActivityCalendar",
       entityId: calendar._id,
       stage: currentStage,
-      action: APPROVAL_ACTIONS.APPROVED,
+      action: approvalAction,
       performedBy: user._id,
       comments: normalizedComments,
     })
@@ -617,7 +650,13 @@ class CalendarService extends BaseService {
       })
     }
 
-    return success({ calendar }, 200, "Calendar approved successfully")
+    return success(
+      { calendar },
+      200,
+      approvalAction === APPROVAL_ACTIONS.RECOMMENDED
+        ? "Calendar recommended successfully"
+        : "Calendar approved successfully"
+    )
   }
 
   /**

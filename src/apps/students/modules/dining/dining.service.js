@@ -11,6 +11,10 @@ import {
   forbidden,
 } from '../../../../services/base/index.js';
 import { DiningAllocation, DiningPeriod, StudentProfile } from '../../../../models/index.js';
+import {
+  createStudentDiningRebate,
+  getStudentDiningRebates,
+} from '../../../../services/dining-rebate.service.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
@@ -84,6 +88,7 @@ const serializePortalPeriod = ({ period, allocation = null }) => {
     allocationStatus: getAllocationStatus(period),
     caterers,
     catererCapacities,
+    rebateSettings: period.rebateSettings || null,
     selectedAllocation: serializeAllocation(allocation),
   };
 };
@@ -362,7 +367,17 @@ export const selectStudentDiningCaterer = async (userId, catererId) => {
   }
 };
 
+export const requestStudentDiningRebate = async (userId, payload = {}) => (
+  createStudentDiningRebate({ userId, payload })
+);
+
+export const listStudentDiningRebates = async (userId) => (
+  getStudentDiningRebates({ userId })
+);
+
 export default {
   getStudentDiningPortalState,
   selectStudentDiningCaterer,
+  requestStudentDiningRebate,
+  listStudentDiningRebates,
 };

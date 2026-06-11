@@ -112,6 +112,7 @@ export const APPROVER_TO_STATUS = {
 
 export const APPROVAL_ACTIONS = {
   SUBMITTED: "submitted",
+  RECOMMENDED: "recommended",
   APPROVED: "approved",
   REJECTED: "rejected",
   REVISION_REQUESTED: "revision_requested",

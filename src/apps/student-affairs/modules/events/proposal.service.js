@@ -250,7 +250,14 @@ class ProposalService extends BaseService {
   /**
    * Approve proposal
    */
-  async approveProposal(proposalId, comments, user, nextApprovalStages = [], nextApprovers = []) {
+  async approveProposal(
+    proposalId,
+    comments,
+    user,
+    nextApprovalStages = [],
+    nextApprovers = [],
+    directApprove = false
+  ) {
     const proposal = await this.model.findById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
@@ -280,28 +287,54 @@ class ProposalService extends BaseService {
       currentStage === APPROVAL_STAGES.STUDENT_AFFAIRS &&
       (proposal.status === PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS ||
         proposal.status === ProposalService.LEGACY_PENDING_STATUS)
+    const hasSelectedNextApprovers =
+      (Array.isArray(nextApprovers) && nextApprovers.length > 0) ||
+      (Array.isArray(nextApprovalStages) && nextApprovalStages.length > 0)
+    let approvalAction = APPROVAL_ACTIONS.APPROVED
 
     if (isStudentAffairsReview) {
-      const assignmentResolution = await resolvePostStudentAffairsAssignments(
-        nextApprovers,
-        nextApprovalStages
-      )
-      if (!assignmentResolution.success) {
-        return badRequest(assignmentResolution.message)
+      if (directApprove && hasSelectedNextApprovers) {
+        return badRequest(
+          "Direct approval from Student Affairs is only allowed when no next recommender is selected"
+        )
       }
-      const chain = assignmentResolution.chain
-      const firstStage = chain[0]
-      const nextStatus = APPROVER_TO_STATUS[firstStage]
 
-      proposal.customApprovalChain = chain
-      proposal.customApprovalAssignments = assignmentResolution.assignments
-      proposal.currentChainIndex = 0
-      proposal.status = nextStatus
-      proposal.currentApprovalStage = firstStage
-      proposal.currentApproverUser = assignmentResolution.currentApproverUser
-      notifyNextApprover = assignmentResolution.assignments.length > 0
-      nextApproverUserId = assignmentResolution.currentApproverUser
-      nextApproverStage = firstStage
+      if (!directApprove && !hasSelectedNextApprovers) {
+        return badRequest(
+          "Select at least one next recommender before forwarding from Student Affairs"
+        )
+      }
+
+      if (directApprove) {
+        proposal.status = PROPOSAL_STATUS.APPROVED
+        proposal.currentApprovalStage = null
+        proposal.currentChainIndex = null
+        proposal.currentApproverUser = null
+        proposal.customApprovalChain = []
+        clearCustomApprovalAssignments(proposal)
+      } else {
+        const assignmentResolution = await resolvePostStudentAffairsAssignments(
+          nextApprovers,
+          nextApprovalStages
+        )
+        if (!assignmentResolution.success) {
+          return badRequest(assignmentResolution.message)
+        }
+        const chain = assignmentResolution.chain
+        const firstStage = chain[0]
+        const nextStatus = APPROVER_TO_STATUS[firstStage]
+
+        proposal.customApprovalChain = chain
+        proposal.customApprovalAssignments = assignmentResolution.assignments
+        proposal.currentChainIndex = 0
+        proposal.status = nextStatus
+        proposal.currentApprovalStage = firstStage
+        proposal.currentApproverUser = assignmentResolution.currentApproverUser
+        notifyNextApprover = assignmentResolution.assignments.length > 0
+        nextApproverUserId = assignmentResolution.currentApproverUser
+        nextApproverStage = firstStage
+        approvalAction = APPROVAL_ACTIONS.RECOMMENDED
+      }
     } else {
       const assignmentState = getCustomAssignmentState(proposal, currentStage)
       const hasAssignedApprovers = assignmentState.hasAssignments
@@ -385,7 +418,7 @@ class ProposalService extends BaseService {
       entityType: "EventProposal",
       entityId: proposal._id,
       stage: currentStage,
-      action: APPROVAL_ACTIONS.APPROVED,
+      action: approvalAction,
       performedBy: user._id,
       comments: normalizedComments,
     })
@@ -404,7 +437,13 @@ class ProposalService extends BaseService {
       })
     }
 
-    return success({ proposal }, 200, "Proposal approved")
+    return success(
+      { proposal },
+      200,
+      approvalAction === APPROVAL_ACTIONS.RECOMMENDED
+        ? "Proposal recommended"
+        : "Proposal approved"
+    )
   }
 
   /**
