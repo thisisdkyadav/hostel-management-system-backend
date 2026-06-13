@@ -176,6 +176,7 @@ const serializePeriod = (period, activeStudentCount = 0) => {
     eligibleRollNumbers,
     mealSlots,
     rebateSettings,
+    dailyRate: Math.max(0, Number(period.dailyRate || 0)),
     eligibleStudentCount: period.eligibilityMode === ELIGIBILITY_MODE_ALL_ACTIVE
       ? activeStudentCount
       : eligibleRollNumbers.length,
@@ -206,6 +207,7 @@ class DiningPeriodService extends BaseService {
     const eligibleRollNumbers = normalizeRollNumbers(payload.eligibleRollNumbers);
     const mealSlots = normalizeMealSlots(payload.mealSlots);
     const rebateSettings = normalizeRebateSettings(payload.rebateSettings);
+    const dailyRate = Math.max(0, Number(payload.dailyRate || 0));
 
     if (!startDate || Number.isNaN(startDate.getTime()) || !endDate || Number.isNaN(endDate.getTime())) {
       return { error: 'Start date and end date are required' };
@@ -245,6 +247,10 @@ class DiningPeriodService extends BaseService {
 
     if (rebateSettings.shortTermMinApplicationDays > rebateSettings.shortTermMaxContinuousDays) {
       return { error: 'Minimum short-term rebate days cannot exceed the max continuous short-term days' };
+    }
+
+    if (!Number.isFinite(dailyRate) || dailyRate < 0) {
+      return { error: 'Daily rate must be a non-negative amount' };
     }
 
     if (catererCapacities.length !== catererIds.length) {
@@ -344,6 +350,7 @@ class DiningPeriodService extends BaseService {
         catererCapacities,
         mealSlots,
         rebateSettings,
+        dailyRate,
         eligibilityMode,
         eligibleRollNumbers: eligibilityMode === ELIGIBILITY_MODE_CUSTOM ? resolvedRollNumbers : [],
         eligibleStudentCount,

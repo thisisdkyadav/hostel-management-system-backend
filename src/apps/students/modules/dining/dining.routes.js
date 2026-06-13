@@ -1,6 +1,7 @@
 import express from 'express';
 import {
   createDiningRebate,
+  getDiningBilling,
   getDiningPortalState,
   getDiningRebates,
   selectDiningCaterer,
@@ -19,5 +20,6 @@ router.get('/portal', getDiningPortalState);
 router.post('/select', selectDiningCaterer);
 router.get('/rebates', getDiningRebates);
 router.post('/rebates', createDiningRebate);
+router.get('/billing', getDiningBilling);
 
 export default router;

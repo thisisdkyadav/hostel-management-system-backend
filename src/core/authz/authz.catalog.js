@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 9
+export const AUTHZ_CATALOG_VERSION = 10
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -46,6 +46,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.caterers", "Caterers", ["/admin/caterers"]),
   route("route.admin.diningPeriods", "Dining Periods", ["/admin/dining-periods"]),
   route("route.admin.diningRebates", "Dining Rebates", ["/admin/dining-rebates"]),
+  route("route.admin.diningBilling", "Dining Billing", ["/admin/dining-billing", "/admin/dining-billing/:billingPeriodId"]),
   route("route.admin.administrators", "Administrators", ["/admin/administrators"]),
   route("route.admin.wardens", "Wardens", ["/admin/wardens"]),
   route("route.admin.associateWardens", "Associate Wardens", ["/admin/associate-wardens"]),

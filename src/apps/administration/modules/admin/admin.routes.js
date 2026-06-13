@@ -28,6 +28,14 @@ import {
   updateDiningPeriodArchiveStatus,
 } from './diningPeriodController.js';
 import {
+  bulkUpdateDiningBillingAccounts,
+  createDiningBillingPeriod,
+  getDiningBillingAccounts,
+  getDiningBillingPeriods,
+  updateDiningBillingPeriod,
+  updateDiningBillingPeriodArchiveStatus,
+} from './diningBillingController.js';
+import {
   createSecurity,
   getAllSecurities,
   updateSecurity,
@@ -130,6 +138,14 @@ router.put('/dining-periods/:id/archive', requireRouteAccess('route.admin.dining
 router.get('/dining-rebates', requireRouteAccess('route.admin.diningPeriods'), getDiningRebateRequests);
 router.put('/dining-rebates/:id/approve', requireRouteAccess('route.admin.diningPeriods'), approveDiningRebateRequest);
 router.put('/dining-rebates/:id/reject', requireRouteAccess('route.admin.diningPeriods'), rejectDiningRebateRequest);
+
+// Dining billing management
+router.get('/dining-billing-periods', requireRouteAccess('route.admin.diningBilling'), getDiningBillingPeriods);
+router.post('/dining-billing-periods', requireRouteAccess('route.admin.diningBilling'), createDiningBillingPeriod);
+router.put('/dining-billing-periods/:id', requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriod);
+router.put('/dining-billing-periods/:id/archive', requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriodArchiveStatus);
+router.get('/dining-billing-periods/:id/accounts', requireRouteAccess('route.admin.diningBilling'), getDiningBillingAccounts);
+router.post('/dining-billing-periods/:id/accounts/bulk', requireRouteAccess('route.admin.diningBilling'), bulkUpdateDiningBillingAccounts);
 
 // Warden management
 router.get('/wardens', requireRouteAccess('route.admin.wardens'), getAllWardens);

@@ -15,6 +15,7 @@ import {
   createStudentDiningRebate,
   getStudentDiningRebates,
 } from '../../../../services/dining-rebate.service.js';
+import { getStudentDiningBilling } from '../../../administration/modules/admin/dining-billing.service.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
@@ -375,9 +376,14 @@ export const listStudentDiningRebates = async (userId) => (
   getStudentDiningRebates({ userId })
 );
 
+export const listStudentDiningBilling = async (userId) => (
+  getStudentDiningBilling(userId)
+);
+
 export default {
   getStudentDiningPortalState,
   selectStudentDiningCaterer,
   requestStudentDiningRebate,
   listStudentDiningRebates,
+  listStudentDiningBilling,
 };

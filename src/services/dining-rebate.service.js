@@ -37,7 +37,7 @@ export const getDayKey = (value) => {
 
 const addDays = (value, days) => new Date(normalizeDay(value).getTime() + days * DAY_MS)
 
-const listDayKeys = (startDate, endDate) => {
+export const listDayKeys = (startDate, endDate) => {
   const start = normalizeDay(startDate)
   const end = normalizeDay(endDate)
   if (!start || !end || start > end) return []
