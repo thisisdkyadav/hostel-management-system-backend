@@ -22,10 +22,6 @@ export const defaultConfigs = {
     value: ["profileImage", "dateOfBirth"],
     description: "Fields that students are allowed to edit in their profile",
   },
-  registeredStudents: {
-    value: { BTech: { total: 0, boys: 0, girls: 0 }, MTech: { total: 0, boys: 0, girls: 0 }, PhD: { total: 0, boys: 0, girls: 0 } },
-    description: "Number of registered students in each program",
-  },
   systemSettings: {
     value: { visitorPaymentLink: "" },
     description: "System-wide settings for the hostel management system",

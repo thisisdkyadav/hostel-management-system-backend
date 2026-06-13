@@ -12,7 +12,6 @@ import { Event } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
 import { Leave } from '../../../../models/index.js';
 import mongoose from 'mongoose';
-import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 
 class DashboardService extends BaseService {
   constructor() {
@@ -64,19 +63,11 @@ class DashboardService extends BaseService {
     pipeline.push(
       { $lookup: { from: 'users', localField: 'userId', foreignField: '_id', as: 'user' } },
       { $unwind: '$user' },
-      { $group: { _id: { degree: '$degree', gender: '$gender' }, count: { $sum: 1 } } },
-      { $group: { _id: '$_id.degree', genders: { $push: { gender: '$_id.gender', count: '$count' } }, total: { $sum: '$count' } } },
-      { $match: { _id: { $ne: null } } }
+      { $match: { degree: { $ne: null } } },
+      { $group: { _id: { degree: '$degree', gender: '$gender', isDayScholar: '$isDayScholar' }, count: { $sum: 1 } } }
     );
 
-    const degreeWiseData = await StudentProfile.aggregate(pipeline);
-
-    const degreeWise = degreeWiseData.map((degree) => ({
-      degree: degree._id || 'Unknown',
-      boys: degree.genders.find((g) => g.gender === 'Male')?.count || 0,
-      girls: degree.genders.find((g) => g.gender === 'Female')?.count || 0,
-      total: degree.total
-    }));
+    const degreeRows = await StudentProfile.aggregate(pipeline);
 
     const genderPipeline = [{ $match: { status: 'Active' } }];
 
@@ -95,31 +86,24 @@ class DashboardService extends BaseService {
     const totalBoys = genderTotals.find((g) => g._id === 'Male')?.count || 0;
     const totalGirls = genderTotals.find((g) => g._id === 'Female')?.count || 0;
 
-    const registeredStudents = await getConfigWithDefault('registeredStudents');
-    const existingDegrees = new Map(degreeWise.map((d) => [d.degree, d]));
-
-    degreeWise.forEach((degree) => {
-      const registeredData = registeredStudents.value[degree.degree];
-      degree.registeredStudents = registeredData?.total || 0;
-      degree.registered = registeredData || { total: 0, boys: 0, girls: 0 };
-    });
-
-    Object.keys(registeredStudents.value).forEach((degreeName) => {
-      const registeredData = registeredStudents.value[degreeName];
-      if (!existingDegrees.has(degreeName) && registeredData?.total > 0) {
-        degreeWise.push({
-          degree: degreeName,
-          boys: 0,
-          girls: 0,
-          total: 0,
-          registeredStudents: registeredData.total,
-          registered: registeredData
-        });
+    // Build per-degree hostler / day-scholar splits from the isDayScholar flag
+    const byDegree = new Map();
+    for (const row of degreeRows) {
+      const degreeName = row._id.degree || 'Unknown';
+      if (!byDegree.has(degreeName)) {
+        byDegree.set(degreeName, { degree: degreeName, hostler: { boys: 0, girls: 0 }, dayScholar: { boys: 0, girls: 0 } });
       }
-    });
+      const entry = byDegree.get(degreeName);
+      const bucket = row._id.isDayScholar ? entry.dayScholar : entry.hostler;
+      if (row._id.gender === 'Male') bucket.boys += row.count;
+      else if (row._id.gender === 'Female') bucket.girls += row.count;
+    }
 
-    const totalRegisteredStudents = Object.values(registeredStudents.value)
-      .reduce((sum, d) => sum + (d.total || 0), 0);
+    const degreeWise = Array.from(byDegree.values()).map((entry) => {
+      const boys = entry.hostler.boys + entry.dayScholar.boys;
+      const girls = entry.hostler.girls + entry.dayScholar.girls;
+      return { degree: entry.degree, boys, girls, total: boys + girls, hostler: entry.hostler, dayScholar: entry.dayScholar };
+    });
 
     degreeWise.sort((a, b) => a.degree.localeCompare(b.degree));
 
@@ -127,8 +111,7 @@ class DashboardService extends BaseService {
       degreeWise,
       totalBoys,
       totalGirls,
-      grandTotal: totalBoys + totalGirls,
-      totalRegisteredStudents
+      grandTotal: totalBoys + totalGirls
     };
   }
 
