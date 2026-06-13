@@ -13,9 +13,6 @@ const GymkhanaEventSchema = new mongoose.Schema(
       ref: "ActivityCalendar",
       default: null,
     },
-    calendarEventId: {
-      type: mongoose.Schema.Types.ObjectId,
-    },
     title: { type: String, required: true, trim: true },
     category: {
       type: String,
@@ -80,10 +77,6 @@ GymkhanaEventSchema.virtual("isProposalOverdue").get(function () {
 
 // Indexes
 GymkhanaEventSchema.index({ calendarId: 1 })
-GymkhanaEventSchema.index(
-  { calendarId: 1, calendarEventId: 1 },
-  { unique: true, partialFilterExpression: { calendarEventId: { $exists: true } } }
-)
 GymkhanaEventSchema.index({ isMegaEvent: 1 })
 GymkhanaEventSchema.index({ megaEventSeriesId: 1 })
 GymkhanaEventSchema.index({ status: 1 })

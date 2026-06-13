@@ -97,33 +97,39 @@ class AmendmentService extends BaseService {
       calendar,
     })
 
-    let linkedEvent = null
+    // Load the calendar's events from the GymkhanaEvent collection (single source of truth)
+    const calendarEvents = (
+      await GymkhanaEvent.find({ calendarId: calendar._id, isMegaEvent: false })
+    ).map((event) => ({
+      _id: event._id,
+      title: event.title,
+      category: event.category,
+      startDate: event.scheduledStartDate,
+      endDate: event.scheduledEndDate,
+      estimatedBudget: event.estimatedBudget,
+      description: event.description,
+    }))
 
     if (amendment.type === "edit") {
-      linkedEvent = await GymkhanaEvent.findById(amendment.eventId)
+      const linkedEvent = await GymkhanaEvent.findById(amendment.eventId)
       if (!linkedEvent) {
         return notFound("Event to edit")
       }
 
-      const currentEvents = Array.isArray(calendar.events) ? [...calendar.events] : []
-      const targetIndex = currentEvents.findIndex((event) =>
-        this._matchesCalendarEventForAmendment(event, linkedEvent)
+      // Validate the event set with the proposed change applied
+      const updatedEvents = calendarEvents.map((event) =>
+        String(event._id) === String(linkedEvent._id)
+          ? {
+              ...event,
+              title: amendment.proposedChanges.title,
+              category: amendment.proposedChanges.category,
+              startDate: amendment.proposedChanges.startDate,
+              endDate: amendment.proposedChanges.endDate,
+              estimatedBudget: amendment.proposedChanges.estimatedBudget,
+              description: amendment.proposedChanges.description,
+            }
+          : event
       )
-
-      if (targetIndex === -1) {
-        return badRequest("Linked calendar event could not be found for this amendment")
-      }
-
-      const updatedEvents = [...currentEvents]
-      updatedEvents[targetIndex] = {
-        ...updatedEvents[targetIndex].toObject(),
-        title: amendment.proposedChanges.title,
-        category: amendment.proposedChanges.category,
-        startDate: amendment.proposedChanges.startDate,
-        endDate: amendment.proposedChanges.endDate,
-        estimatedBudget: amendment.proposedChanges.estimatedBudget,
-        description: amendment.proposedChanges.description,
-      }
 
       const categoryValidation = validateEventCategories(updatedEvents, categoryDefinitions)
       if (!categoryValidation.success) {
@@ -138,9 +144,6 @@ class AmendmentService extends BaseService {
       if (!budgetCapValidation.success) {
         return badRequest(budgetCapValidation.message)
       }
-
-      calendar.events = updatedEvents
-      await calendar.save()
 
       linkedEvent.title = amendment.proposedChanges.title
       linkedEvent.category = amendment.proposedChanges.category
@@ -148,10 +151,9 @@ class AmendmentService extends BaseService {
       linkedEvent.scheduledEndDate = amendment.proposedChanges.endDate
       linkedEvent.estimatedBudget = amendment.proposedChanges.estimatedBudget
       linkedEvent.description = amendment.proposedChanges.description
-      linkedEvent.calendarEventId = calendar.events[targetIndex]?._id || linkedEvent.calendarEventId || null
       await linkedEvent.save()
     } else if (amendment.type === "new_event") {
-      const updatedEvents = [...(calendar.events || []).map((event) => event.toObject()), amendment.proposedChanges]
+      const updatedEvents = [...calendarEvents, amendment.proposedChanges]
       const categoryValidation = validateEventCategories(updatedEvents, categoryDefinitions)
       if (!categoryValidation.success) {
         return badRequest(categoryValidation.message)
@@ -166,13 +168,8 @@ class AmendmentService extends BaseService {
         return badRequest(budgetCapValidation.message)
       }
 
-      calendar.events.push(amendment.proposedChanges)
-      await calendar.save()
-      const addedCalendarEvent = calendar.events[calendar.events.length - 1]
-
       await GymkhanaEvent.create({
         calendarId: amendment.calendarId,
-        calendarEventId: addedCalendarEvent?._id || null,
         title: amendment.proposedChanges.title,
         category: amendment.proposedChanges.category,
         scheduledStartDate: amendment.proposedChanges.startDate,
@@ -264,25 +261,6 @@ class AmendmentService extends BaseService {
       .sort({ createdAt: -1 })
 
     return success({ amendments })
-  }
-
-  _matchesCalendarEventForAmendment(calendarEvent, linkedEvent) {
-    const targetCalendarEventId = linkedEvent?.calendarEventId ? String(linkedEvent.calendarEventId) : null
-    if (targetCalendarEventId && String(calendarEvent?._id) === targetCalendarEventId) {
-      return true
-    }
-
-    return (
-      String(calendarEvent?.title || "") === String(linkedEvent?.title || "") &&
-      String(calendarEvent?.category || "") === String(linkedEvent?.category || "") &&
-      this._normalizeDateKey(calendarEvent?.startDate) === this._normalizeDateKey(linkedEvent?.scheduledStartDate) &&
-      this._normalizeDateKey(calendarEvent?.endDate) === this._normalizeDateKey(linkedEvent?.scheduledEndDate)
-    )
-  }
-
-  _normalizeDateKey(value) {
-    const parsed = new Date(value)
-    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10)
   }
 }
 

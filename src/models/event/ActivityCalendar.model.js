@@ -30,19 +30,6 @@ const CATEGORY_DEFINITION_SCHEMA = new mongoose.Schema(
   { _id: false }
 )
 
-const CalendarEventSchema = new mongoose.Schema({
-  title: { type: String, required: true, trim: true },
-  category: {
-    type: String,
-    required: true,
-    trim: true,
-  },
-  startDate: { type: Date, required: true },
-  endDate: { type: Date, required: true },
-  estimatedBudget: { type: Number, required: true, min: 0 },
-  description: { type: String, required: true, trim: true },
-})
-
 const ActivityCalendarSchema = new mongoose.Schema(
   {
     academicYear: {
@@ -108,7 +95,8 @@ const ActivityCalendarSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: () => ({}),
     },
-    events: [CalendarEventSchema],
+    // Events are stored as GymkhanaEvent documents keyed by calendarId
+    // (single source of truth). The calendar no longer embeds an events array.
     rejectionReason: { type: String },
     rejectedBy: {
       type: mongoose.Schema.Types.ObjectId,

@@ -202,7 +202,7 @@ export const getGlobalGymkhanaCategoryDefinitions = async ({
 
   return normalizeCalendarCategoryDefinitions(configuredDefinitions, {
     existingDefinitions: calendar?.categoryDefinitions || [],
-    events: events || calendar?.events || [],
+    events: events || [],
     budgetCaps: budgetCaps || calendar?.budgetCaps || {},
   })
 }

@@ -101,7 +101,6 @@ class CalendarService extends BaseService {
 
     const calendar = await this.model.create({
       academicYear: data.academicYear,
-      events: data.events || [],
       allowProposalBeforeApproval: Boolean(data.allowProposalBeforeApproval),
       overallBudget: overallBudgetValidation.overallBudget,
       categoryDefinitions: [],
@@ -115,11 +114,9 @@ class CalendarService extends BaseService {
       isLocked: false,
     })
 
-    if (calendar.allowProposalBeforeApproval && Array.isArray(calendar.events) && calendar.events.length > 0) {
-      await this._syncGymkhanaEventsForCalendar(calendar)
-    }
+    await this._writeCalendarEvents(calendar._id, data.events || [])
 
-    return created({ calendar }, "Activity calendar created")
+    return created({ calendar: await this._attachResolvedCategoryDefinitions(calendar) }, "Activity calendar created")
   }
 
   /**
@@ -231,8 +228,6 @@ class CalendarService extends BaseService {
       if (!budgetCapValidation.success) {
         return badRequest(budgetCapValidation.message)
       }
-
-      calendar.events = data.events
     }
 
     if ((isGS || isPresident) && calendar.status !== CALENDAR_STATUS.DRAFT) {
@@ -249,11 +244,11 @@ class CalendarService extends BaseService {
 
     await calendar.save()
 
-    if (calendar.status === CALENDAR_STATUS.APPROVED || calendar.allowProposalBeforeApproval) {
-      await this._syncGymkhanaEventsForCalendar(calendar)
+    if (data.events) {
+      await this._writeCalendarEvents(calendar._id, data.events)
     }
 
-    return success({ calendar }, 200, "Calendar updated successfully")
+    return success({ calendar: await this._attachResolvedCategoryDefinitions(calendar) }, 200, "Calendar updated successfully")
   }
 
   async updateCalendarSettings(calendarId, data, user) {
@@ -298,13 +293,14 @@ class CalendarService extends BaseService {
       return success({ calendar }, 200, "Calendar settings updated successfully")
     }
 
-    const categoryValidation = validateEventCategories(calendar.events || [], nextCategoryDefinitions)
+    const calendarEvents = await this._loadCalendarEvents(calendar._id)
+    const categoryValidation = validateEventCategories(calendarEvents, nextCategoryDefinitions)
     if (!categoryValidation.success) {
       return badRequest(categoryValidation.message)
     }
 
     const budgetCapValidation = validateCategoryBudgetCaps(
-      calendar.events || [],
+      calendarEvents,
       nextBudgetCaps,
       nextCategoryDefinitions
     )
@@ -321,49 +317,12 @@ class CalendarService extends BaseService {
       return badRequest("Cannot update calendar settings. " + overallBudgetValidation.message)
     }
 
-    if (
-      allowProposalSettingChanged &&
-      !nextAllowProposalBeforeApproval &&
-      calendar.status !== CALENDAR_STATUS.APPROVED
-    ) {
-      const linkedEvents = await GymkhanaEvent.find({
-        calendarId: calendar._id,
-        isMegaEvent: false,
-      }).select("_id proposalSubmitted proposalId expenseId")
-
-      const hasWorkflowData = linkedEvents.some(
-        (event) => event.proposalSubmitted || event.proposalId || event.expenseId
-      )
-
-      if (hasWorkflowData) {
-        return badRequest(
-          "Cannot disable early proposal submission because this calendar already has linked proposal or expense data"
-        )
-      }
-
-      if (linkedEvents.length > 0) {
-        await GymkhanaEvent.deleteMany({
-          calendarId: calendar._id,
-          isMegaEvent: false,
-          proposalSubmitted: false,
-          $or: [
-            { proposalId: { $exists: false }, expenseId: { $exists: false } },
-            { proposalId: null, expenseId: null },
-          ],
-        })
-      }
-    }
-
     calendar.allowProposalBeforeApproval = nextAllowProposalBeforeApproval
     calendar.overallBudget = overallBudgetValidation.overallBudget
     calendar.budgetCaps = nextBudgetCaps
     await calendar.save()
 
-    if (allowProposalSettingChanged && nextAllowProposalBeforeApproval) {
-      await this._syncGymkhanaEventsForCalendar(calendar)
-    }
-
-    return success({ calendar }, 200, "Calendar settings updated successfully")
+    return success({ calendar: await this._attachResolvedCategoryDefinitions(calendar) }, 200, "Calendar settings updated successfully")
   }
 
   /**
@@ -400,11 +359,12 @@ class CalendarService extends BaseService {
       return badRequest("This calendar cannot be submitted in its current status")
     }
 
-    if (!calendar.events || calendar.events.length === 0) {
+    const calendarEvents = await this._loadCalendarEvents(calendar._id)
+    if (calendarEvents.length === 0) {
       return badRequest("Calendar must have at least one event")
     }
 
-    const overlapAnalysis = this._analyzeOverlaps(calendar.events)
+    const overlapAnalysis = this._analyzeOverlaps(calendarEvents)
     if (overlapAnalysis.overlaps.length > 0 && !allowOverlappingDates) {
       return success({
         requiresOverlapConfirmation: true,
@@ -616,9 +576,6 @@ class CalendarService extends BaseService {
       calendar.isLocked = true
       calendar.lockedBy = user._id
       calendar.lockedAt = new Date()
-      
-      // Create individual events from calendar
-      await this._syncGymkhanaEventsForCalendar(calendar)
     } else {
       calendar.isLocked = true
       calendar.lockedBy = user._id
@@ -796,7 +753,8 @@ class CalendarService extends BaseService {
       endDate: eventData.endDate,
     }
 
-    const overlapAnalysis = this._analyzeOverlaps(calendar.events, {
+    const calendarEvents = await this._loadCalendarEvents(calendar._id)
+    const overlapAnalysis = this._analyzeOverlaps(calendarEvents, {
       excludeEventId: eventData.eventId,
       candidateEvent: candidate,
     })
@@ -813,74 +771,80 @@ class CalendarService extends BaseService {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /**
-   * Sync calendar events into GymkhanaEvent documents.
+   * Map a GymkhanaEvent document to the calendar-event shape used by
+   * validators, overlap analysis, and API responses.
    */
-  async _syncGymkhanaEventsForCalendar(calendar) {
-    const calendarEvents = Array.isArray(calendar?.events) ? calendar.events : []
-    if (calendarEvents.length === 0) {
-      return
+  _toCalendarEventShape(event) {
+    return {
+      _id: event._id,
+      title: event.title,
+      category: event.category,
+      startDate: event.scheduledStartDate,
+      endDate: event.scheduledEndDate,
+      estimatedBudget: event.estimatedBudget,
+      description: event.description,
+      status: event.status,
+      proposalSubmitted: event.proposalSubmitted,
+      proposalId: event.proposalId,
+      expenseId: event.expenseId,
+      proposalDueDate: event.proposalDueDate,
     }
+  }
 
-    const existingEvents = await GymkhanaEvent.find({
-      calendarId: calendar._id,
-      isMegaEvent: false,
+  /**
+   * Load a calendar's events from the GymkhanaEvent collection (single source of truth).
+   */
+  async _loadCalendarEvents(calendarId) {
+    const docs = await GymkhanaEvent.find({ calendarId, isMegaEvent: false }).sort({
+      scheduledStartDate: 1,
     })
+    return docs.map((doc) => this._toCalendarEventShape(doc))
+  }
 
-    const existingByCalendarEventId = new Map()
-    const fallbackBuckets = new Map()
+  /**
+   * Persist an incoming events array to the GymkhanaEvent collection by diffing
+   * against the existing documents: update existing (matched by _id), create new
+   * (no _id), and delete removed ones. Events carrying proposal/expense workflow
+   * data are never deleted.
+   */
+  async _writeCalendarEvents(calendarId, incomingEvents = []) {
+    const incoming = Array.isArray(incomingEvents) ? incomingEvents : []
+    const existing = await GymkhanaEvent.find({ calendarId, isMegaEvent: false })
+    const existingById = new Map(existing.map((event) => [String(event._id), event]))
+    const keptIds = new Set()
 
-    for (const existingEvent of existingEvents) {
-      if (existingEvent.calendarEventId) {
-        existingByCalendarEventId.set(String(existingEvent.calendarEventId), existingEvent)
-        continue
-      }
-
-      const fallbackKey = this._buildCalendarEventSyncKey(existingEvent)
-      if (!fallbackBuckets.has(fallbackKey)) {
-        fallbackBuckets.set(fallbackKey, [])
-      }
-      fallbackBuckets.get(fallbackKey).push(existingEvent)
-    }
-
-    for (const calendarEvent of calendarEvents) {
-      const calendarEventId = calendarEvent?._id ? String(calendarEvent._id) : null
-      let matchingEvent = calendarEventId ? existingByCalendarEventId.get(calendarEventId) : null
-
-      if (!matchingEvent) {
-        const fallbackKey = this._buildCalendarEventSyncKey(calendarEvent)
-        const bucket = fallbackBuckets.get(fallbackKey) || []
-        matchingEvent = bucket.shift() || null
-      }
-
-      const scheduledStartDate = new Date(calendarEvent.startDate)
-      const proposalDueDate = new Date(scheduledStartDate)
-      proposalDueDate.setDate(proposalDueDate.getDate() - 21)
-
+    for (const event of incoming) {
       const payload = {
-        calendarId: calendar._id,
-        ...(calendarEvent._id ? { calendarEventId: calendarEvent._id } : {}),
-        title: calendarEvent.title,
-        category: calendarEvent.category,
-        scheduledStartDate,
-        scheduledEndDate: calendarEvent.endDate,
-        estimatedBudget: calendarEvent.estimatedBudget,
-        description: calendarEvent.description,
-        proposalDueDate,
+        calendarId,
+        title: event.title,
+        category: event.category,
+        scheduledStartDate: event.startDate,
+        scheduledEndDate: event.endDate,
+        estimatedBudget: event.estimatedBudget,
+        description: event.description,
         isMegaEvent: false,
         megaEventSeriesId: null,
       }
 
-      if (matchingEvent) {
-        await GymkhanaEvent.findByIdAndUpdate(matchingEvent._id, payload, {
-          new: true,
-          runValidators: true,
-        })
+      const id = event._id ? String(event._id) : null
+      if (id && existingById.has(id)) {
+        keptIds.add(id)
+        await GymkhanaEvent.findByIdAndUpdate(id, payload, { new: true, runValidators: true })
       } else {
-        await GymkhanaEvent.create({
-          ...payload,
-          status: "upcoming",
-        })
+        const createdEvent = await GymkhanaEvent.create({ ...payload, status: "upcoming" })
+        keptIds.add(String(createdEvent._id))
       }
+    }
+
+    const removable = existing.filter(
+      (event) =>
+        !keptIds.has(String(event._id)) &&
+        !event.proposalSubmitted &&
+        !event.proposalId &&
+        !event.expenseId
+    )
+    if (removable.length > 0) {
+      await GymkhanaEvent.deleteMany({ _id: { $in: removable.map((event) => event._id) } })
     }
   }
 
@@ -895,6 +859,7 @@ class CalendarService extends BaseService {
 
     return {
       ...serializedCalendar,
+      events: await this._loadCalendarEvents(serializedCalendar._id),
       categoryDefinitions: resolvedCategoryDefinitions,
       budgetCaps: normalizeCategoryBudgetCaps(serializedCalendar.budgetCaps, resolvedCategoryDefinitions),
     }
@@ -978,21 +943,6 @@ class CalendarService extends BaseService {
     }
   }
 
-  _buildCalendarEventSyncKey(event) {
-    const startDate = event?.startDate || event?.scheduledStartDate
-    const endDate = event?.endDate || event?.scheduledEndDate
-    return [
-      event?.title || "",
-      event?.category || getDefaultCategoryDefinitions()[0].key,
-      this._normalizeSyncDate(startDate),
-      this._normalizeSyncDate(endDate),
-    ].join("|")
-  }
-
-  _normalizeSyncDate(value) {
-    const parsed = new Date(value)
-    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10)
-  }
 
   _validatePostStudentAffairsChain(nextApprovalStages = []) {
     if (!Array.isArray(nextApprovalStages) || nextApprovalStages.length === 0) {
