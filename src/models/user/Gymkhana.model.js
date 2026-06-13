@@ -13,9 +13,8 @@ const GymkhanaSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
-GymkhanaSchema.pre("save", function (next) {
+GymkhanaSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 GymkhanaSchema.index({ categories: 1 })

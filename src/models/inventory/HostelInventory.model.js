@@ -33,9 +33,8 @@ const HostelInventorySchema = new mongoose.Schema({
 // Create a compound index for hostelId and itemTypeId to ensure uniqueness
 HostelInventorySchema.index({ hostelId: 1, itemTypeId: 1 }, { unique: true })
 
-HostelInventorySchema.pre("save", function (next) {
+HostelInventorySchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 // Method to check if there's enough available inventory

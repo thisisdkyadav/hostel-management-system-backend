@@ -251,7 +251,7 @@ const MegaEventOccurrenceSchema = new mongoose.Schema(
   }
 )
 
-MegaEventOccurrenceSchema.pre("save", function (next) {
+MegaEventOccurrenceSchema.pre("save", function () {
   if (this.scheduledStartDate && (this.isModified("scheduledStartDate") || !this.proposalDueDate)) {
     const dueDate = new Date(this.scheduledStartDate)
     dueDate.setDate(dueDate.getDate() - 21)
@@ -264,8 +264,6 @@ MegaEventOccurrenceSchema.pre("save", function (next) {
     const estimated = Number(this.expense.estimatedBudget || 0)
     this.expense.budgetVariance = total - estimated
   }
-
-  next()
 })
 
 MegaEventOccurrenceSchema.index({ seriesId: 1 })

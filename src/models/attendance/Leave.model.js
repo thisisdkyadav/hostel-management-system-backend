@@ -22,9 +22,8 @@ const leaveSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
-leaveSchema.pre("save", function (next) {
+leaveSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 leaveSchema.index({ userId: 1, createdAt: -1 })

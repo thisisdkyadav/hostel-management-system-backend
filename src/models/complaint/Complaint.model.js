@@ -39,9 +39,8 @@ const ComplaintSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
-ComplaintSchema.pre("save", function (next) {
+ComplaintSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 // Optimize complaint list and stats queries that filter and sort by recency.

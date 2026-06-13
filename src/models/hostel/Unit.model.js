@@ -43,9 +43,8 @@ UnitSchema.virtual("occupancy").get(function () {
   return this.rooms.filter((room) => room.status === "Active").reduce((total, room) => total + room.occupancy, 0)
 })
 
-UnitSchema.pre("save", function (next) {
+UnitSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 const Unit = mongoose.model("Unit", UnitSchema)

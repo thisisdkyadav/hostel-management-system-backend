@@ -60,13 +60,12 @@ const GymkhanaEventSchema = new mongoose.Schema(
 )
 
 // Calculate proposal due date (21 days before event start)
-GymkhanaEventSchema.pre("save", function (next) {
+GymkhanaEventSchema.pre("save", function () {
   if (this.scheduledStartDate && (this.isModified("scheduledStartDate") || !this.proposalDueDate)) {
     const dueDate = new Date(this.scheduledStartDate)
     dueDate.setDate(dueDate.getDate() - 21)
     this.proposalDueDate = dueDate
   }
-  next()
 })
 
 // Virtual to check if proposal is overdue

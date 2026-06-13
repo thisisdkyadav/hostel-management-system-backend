@@ -13,9 +13,8 @@ const InventoryItemTypeSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
-InventoryItemTypeSchema.pre("save", function (next) {
+InventoryItemTypeSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 const InventoryItemType = mongoose.model("InventoryItemType", InventoryItemTypeSchema)

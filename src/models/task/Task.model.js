@@ -58,15 +58,13 @@ TaskSchema.index({ status: 1, category: 1, priority: 1, createdAt: -1 })
 TaskSchema.index({ assignedUsers: 1, status: 1, dueDate: 1 })
 TaskSchema.index({ status: 1, dueDate: 1 })
 
-TaskSchema.pre("save", function (next) {
+TaskSchema.pre("save", function () {
   this.updatedAt = Date.now()
 
   // If users are assigned and status is still "Created", change to "Assigned"
   if (this.assignedUsers && this.assignedUsers.length > 0 && this.status === "Created") {
     this.status = "Assigned"
   }
-
-  next()
 })
 
 const Task = mongoose.model("Task", TaskSchema)

@@ -27,9 +27,8 @@ const configurationSchema = new mongoose.Schema({
 })
 
 // Pre-save hook to update lastUpdated timestamp
-configurationSchema.pre("save", function (next) {
+configurationSchema.pre("save", function () {
   this.lastUpdated = Date.now()
-  next()
 })
 
 const Configuration = mongoose.model("Configuration", configurationSchema)

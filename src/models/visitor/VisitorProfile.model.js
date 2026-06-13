@@ -22,12 +22,11 @@ const VisitorProfileSchema = new mongoose.Schema({
 
 VisitorProfileSchema.index({ studentUserId: 1 })
 
-VisitorProfileSchema.pre(["findOneAndDelete", "findOneAndUpdate"], async function (next) {
+VisitorProfileSchema.pre(["findOneAndDelete", "findOneAndUpdate"], async function () {
   const docToModify = await this.model.findOne(this.getQuery())
   if (docToModify && docToModify.requests && docToModify.requests.length > 0) {
-    return next(new Error("Cannot delete or update visitor profile with previous requests."))
+    throw new Error("Cannot delete or update visitor profile with previous requests.")
   }
-  next()
 })
 
 const VisitorProfile = mongoose.model("VisitorProfile", VisitorProfileSchema)

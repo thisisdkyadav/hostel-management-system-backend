@@ -20,9 +20,8 @@ const HostelSchema = new mongoose.Schema(
   }
 )
 
-HostelSchema.pre("save", function (next) {
+HostelSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 HostelSchema.index({ isArchived: 1, name: 1 })

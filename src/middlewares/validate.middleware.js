@@ -29,7 +29,19 @@ export const validate = (schema, source = "body") => {
         throw new ValidationError("Validation failed", errors)
       }
 
-      req[source] = value // Replace with validated/sanitized data
+      // Replace with validated/sanitized data. In Express 5 `req.query` is a
+      // getter-only property and cannot be reassigned, so redefine it on this
+      // request; `body`/`params` remain writable so plain assignment is fine.
+      if (source === "query") {
+        Object.defineProperty(req, "query", {
+          value,
+          writable: true,
+          configurable: true,
+          enumerable: true,
+        })
+      } else {
+        req[source] = value
+      }
     }
 
     next()

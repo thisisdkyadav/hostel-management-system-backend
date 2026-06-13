@@ -115,16 +115,14 @@ const EventExpenseSchema = new mongoose.Schema(
 )
 
 // Calculate totals before save
-EventExpenseSchema.pre("save", function (next) {
+EventExpenseSchema.pre("save", function () {
   // Calculate total expenditure
   this.totalExpenditure = this.bills.reduce((sum, bill) => sum + (bill.amount || 0), 0)
-  
+
   // Calculate variance if estimated budget exists
   if (this.estimatedBudget !== undefined) {
     this.budgetVariance = this.totalExpenditure - this.estimatedBudget
   }
-  
-  next()
 })
 
 // Indexes

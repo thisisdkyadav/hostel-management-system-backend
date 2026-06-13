@@ -35,9 +35,8 @@ FaceScannerSchema.methods.toJSON = function () {
   return obj
 }
 
-FaceScannerSchema.pre("save", function (next) {
+FaceScannerSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 const FaceScanner = mongoose.model("FaceScanner", FaceScannerSchema)

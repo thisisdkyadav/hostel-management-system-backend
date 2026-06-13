@@ -47,9 +47,8 @@ eventSchema.virtual("hostel", {
   justOne: true,
 })
 
-eventSchema.pre(/^find/, function (next) {
+eventSchema.pre(/^find/, function () {
   this.populate("hostel", "name")
-  next()
 })
 
 eventSchema.index({ hostelId: 1, gender: 1, dateAndTime: 1 })

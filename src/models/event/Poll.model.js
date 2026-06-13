@@ -53,9 +53,8 @@ const pollSchema = new mongoose.Schema({
   },
 })
 
-pollSchema.pre("save", function (next) {
+pollSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 pollSchema.index({ createdBy: 1, createdAt: -1 })

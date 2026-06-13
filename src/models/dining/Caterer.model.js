@@ -46,7 +46,7 @@ const CatererSchema = new mongoose.Schema(
 
 CatererSchema.index({ isArchived: 1, name: 1 })
 
-CatererSchema.pre("validate", function (next) {
+CatererSchema.pre("validate", function () {
   if (this.name) {
     this.name = this.name.trim()
     this.nameLower = this.name.toLowerCase()
@@ -56,8 +56,6 @@ CatererSchema.pre("validate", function (next) {
     this.email = this.email.trim().toLowerCase()
     this.emailLower = this.email
   }
-
-  next()
 })
 
 CatererSchema.virtual("id").get(function () {

@@ -90,26 +90,23 @@ const visitorRequestSchema = new mongoose.Schema({
   },
 })
 
-visitorRequestSchema.pre("findOneAndDelete", async function (next) {
+visitorRequestSchema.pre("findOneAndDelete", async function () {
   const doc = await this.model.findOne(this.getFilter())
   if (doc && doc.status !== "Pending") {
-    return next(new Error("Cannot delete a request that is not pending"))
+    throw new Error("Cannot delete a request that is not pending")
   }
-  next()
 })
 
-visitorRequestSchema.post("save", async function (doc, next) {
+visitorRequestSchema.post("save", async function (doc) {
   if (doc.visitors && doc.visitors.length) {
     await VisitorProfile.updateMany({ _id: { $in: doc.visitors } }, { $addToSet: { requests: doc._id } })
   }
-  next()
 })
 
-visitorRequestSchema.post("findOneAndDelete", async function (doc, next) {
+visitorRequestSchema.post("findOneAndDelete", async function (doc) {
   if (doc && doc.visitors && doc.visitors.length) {
     await VisitorProfile.updateMany({ _id: { $in: doc.visitors } }, { $pull: { requests: doc._id } })
   }
-  next()
 })
 
 visitorRequestSchema.index({ userId: 1, createdAt: -1 })

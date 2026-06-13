@@ -143,9 +143,8 @@ RoomChangeRequestSchema.statics.findRequestsWithFilters = async function (hostel
   }
 }
 
-RoomChangeRequestSchema.pre("save", function (next) {
+RoomChangeRequestSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 RoomChangeRequestSchema.index({ hostelId: 1, status: 1, createdAt: -1 })

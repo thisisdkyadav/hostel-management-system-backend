@@ -107,7 +107,7 @@ UserSchema.virtual("hostel", {
   justOne: true,
 })
 
-UserSchema.pre(/^find/, function (next) {
+UserSchema.pre(/^find/, function () {
   this.populate({
     path: "hostel",
     populate: [
@@ -126,16 +126,15 @@ UserSchema.pre(/^find/, function (next) {
     ],
     options: { strictPopulate: false },
   })
-  next()
 })
 
-UserSchema.post(/^find/, function (docs, next) {
+UserSchema.post(/^find/, function (docs) {
   if (docs && !Array.isArray(docs)) {
     docs = [docs]
   }
 
   if (!docs) {
-    return next()
+    return
   }
 
   docs.forEach((doc) => {
@@ -166,13 +165,10 @@ UserSchema.post(/^find/, function (docs, next) {
       doc.hostel = null
     }
   })
-
-  next()
 })
 
-UserSchema.pre("save", function (next) {
+UserSchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 UserSchema.index({ role: 1, name: 1 })

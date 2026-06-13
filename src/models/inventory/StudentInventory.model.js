@@ -62,9 +62,8 @@ const StudentInventorySchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 })
 
-StudentInventorySchema.pre("save", function (next) {
+StudentInventorySchema.pre("save", function () {
   this.updatedAt = Date.now()
-  next()
 })
 
 StudentInventorySchema.index({ studentProfileId: 1, status: 1, issueDate: -1 })
