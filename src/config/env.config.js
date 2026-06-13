@@ -4,8 +4,9 @@
  */
 import dotenv from "dotenv"
 
-// Load .env file
-dotenv.config()
+// Load .env file. `quiet: true` suppresses the verbose injection banner that
+// dotenv v17 prints by default, preserving the prior (silent) load behavior.
+dotenv.config({ quiet: true })
 
 const parseSmtpAccounts = (rawValue) => {
   if (!rawValue) {

@@ -144,7 +144,7 @@ StudentInventorySchema.statics.getUnitInventorySummary = async function (unitId)
     { $unwind: "$room" },
     {
       $match: {
-        "room.unitId": mongoose.Types.ObjectId(unitId),
+        "room.unitId": new mongoose.Types.ObjectId(unitId),
         status: "Issued",
       },
     },
@@ -201,7 +201,7 @@ StudentInventorySchema.statics.getFloorInventorySummary = async function (hostel
     { $unwind: { path: "$unit", preserveNullAndEmptyArrays: true } },
     {
       $match: {
-        "allocation.hostelId": mongoose.Types.ObjectId(hostelId),
+        "allocation.hostelId": new mongoose.Types.ObjectId(hostelId),
         "unit.floor": floor,
         status: "Issued",
       },

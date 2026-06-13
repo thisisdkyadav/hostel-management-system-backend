@@ -26,7 +26,10 @@ router.get("/me", getMyAuthz)
 router.use(authorizeRoles(["Super Admin"]))
 router.use(requireRouteAccess("route.superAdmin.authz"))
 
-router.get("/users/:role?", getUsersByRole)
+// Express 5 (path-to-regexp v8) dropped the trailing "?" optional-param syntax.
+// Use two explicit routes instead of "/users/:role?".
+router.get("/users", getUsersByRole)
+router.get("/users/:role", getUsersByRole)
 router.get("/user/:userId", getUserAuthz)
 router.put("/user/:userId", updateUserAuthz)
 router.post("/user/:userId/reset", resetUserAuthz)
