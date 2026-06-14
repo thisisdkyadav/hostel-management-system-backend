@@ -159,46 +159,6 @@ export const baseEmailTemplate = (content) => `
 `;
 
 /**
- * Password reset email template
- * @param {string} userName - User's name
- * @param {string} resetLink - Password reset URL
- * @returns {string} HTML email content
- */
-export const passwordResetTemplate = (userName, resetLink) => {
-  const content = `
-    <h2>Password Reset Request</h2>
-    <p>Hello ${userName || 'User'},</p>
-    <p>We received a request to reset your password for your HMS account. Click the button below to create a new password:</p>
-    <div style="text-align: center;">
-      <a href="${resetLink}" class="button">Reset Password</a>
-    </div>
-    <div class="warning">
-      <strong>Important:</strong> This link will expire in 1 hour. If you didn't request a password reset, please ignore this email or contact support if you have concerns.
-    </div>
-    <p class="muted-text">If the button doesn't work, copy and paste this link into your browser:</p>
-    <p class="link-text">${resetLink}</p>
-  `;
-  return baseEmailTemplate(content);
-};
-
-/**
- * Password reset success email template
- * @param {string} userName - User's name
- * @returns {string} HTML email content
- */
-export const passwordResetSuccessTemplate = (userName) => {
-  const content = `
-    <h2>Password Changed Successfully</h2>
-    <p>Hello ${userName || 'User'},</p>
-    <p>Your password has been successfully changed. You can now log in with your new password.</p>
-    <p class="warning">
-      <strong>Security Notice:</strong> If you did not make this change, please contact support immediately.
-    </p>
-  `;
-  return baseEmailTemplate(content);
-};
-
-/**
  * Custom email template
  * Wraps custom content in base template styling
  * @param {string} body - Custom email body (can include HTML)
@@ -419,8 +379,6 @@ export const electionNominationReviewTemplate = ({
 
 export default {
   baseEmailTemplate,
-  passwordResetTemplate,
-  passwordResetSuccessTemplate,
   customEmailTemplate,
   complaintResolvedTemplate,
   electionSupportConfirmationTemplate,

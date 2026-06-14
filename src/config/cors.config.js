@@ -16,16 +16,6 @@ export const corsOptions = {
 }
 
 /**
- * SSO CORS options (public, no credentials)
- */
-export const ssoCorsOptions = {
-  origin: "*",
-  credentials: false,
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}
-
-/**
  * Scanner CORS options (public, Basic Auth)
  */
 export const scannerCorsOptions = {

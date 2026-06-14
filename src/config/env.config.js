@@ -68,7 +68,6 @@ export const env = {
   SESSION_TTL_SECONDS: parseInt(process.env.SESSION_TTL_SECONDS, 10) || 7 * 24 * 60 * 60,
 
   // Auth
-  JWT_SECRET: process.env.JWT_SECRET,
   SESSION_SECRET: process.env.SESSION_SECRET,
 
   // Azure Storage
@@ -126,7 +125,6 @@ export const env = {
 // ============================================
 export const isDevelopmentEnvironment = env.isDevelopment
 export const PORT = env.PORT
-export const JWT_SECRET = env.JWT_SECRET
 export const SESSION_SECRET = env.SESSION_SECRET
 export const MONGO_URI = env.MONGO_URI
 export const REDIS_URL = env.REDIS_URL

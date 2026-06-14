@@ -3,7 +3,7 @@
  */
 
 import Joi from 'joi';
-import { objectId, pagination } from './common.validation.js';
+import { objectId, withPagination } from './common.validation.js';
 
 /**
  * Event types
@@ -76,17 +76,14 @@ export const getEventByIdSchema = Joi.object({
  * Get events with filters
  * GET /api/events
  */
-export const getEventsSchema = Joi.object({
-  query: Joi.object({
-    ...pagination,
-    hostel: objectId,
-    eventType: Joi.string().valid(...eventTypes),
-    status: Joi.string().valid(...eventStatuses),
-    startDate: Joi.date().iso(),
-    endDate: Joi.date().iso(),
-    isPublic: Joi.boolean(),
-    search: Joi.string().max(200),
-  }),
+export const getEventsSchema = withPagination({
+  hostel: objectId,
+  eventType: Joi.string().valid(...eventTypes),
+  status: Joi.string().valid(...eventStatuses),
+  startDate: Joi.date().iso(),
+  endDate: Joi.date().iso(),
+  isPublic: Joi.boolean(),
+  search: Joi.string().max(200),
 });
 
 /**

@@ -16,13 +16,9 @@ import env from '../config/env.config.js';
 // Error Handlers
 import { errorHandler, notFoundHandler } from '../core/errors/errorHandler.js';
 
-// Controllers for special routes (SSO verify needs special CORS handling)
-import { verifySSOToken } from '../apps/auth/modules/sso/sso.module.js';
-
 // ═══════════════════════════════════════════════════════════════════════════════
 // SUB-APPLICATIONS
 // ═══════════════════════════════════════════════════════════════════════════════
-import authApp from '../apps/auth/index.js';
 import iamApp from '../apps/iam/index.js';
 import complaintsApp from '../apps/complaints/index.js';
 import administrationApp from '../apps/administration/index.js';
@@ -39,11 +35,6 @@ const __dirname = path.dirname(__filename);
 /**
  * CORS Configuration Options
  */
-const ssoCorsOptions = {
-  origin: '*',
-  credentials: false,
-};
-
 const scannerCorsOptions = {
   origin: '*',
   credentials: false,
@@ -98,9 +89,6 @@ export const initializeExpress = (app) => {
   // Special CORS Routes (before session/regular CORS)
   // ============================================
   
-  // SSO verify route with special CORS
-  app.use('/api/sso/verify', cors(ssoCorsOptions), express.json(), verifySSOToken);
-
   // Scanner routes with special CORS
   app.use('/api/face-scanner/ping', cors(scannerCorsOptions));
   app.use('/api/face-scanner/scan', cors(scannerCorsOptions));
@@ -131,8 +119,8 @@ export const initializeExpress = (app) => {
   // SUB-APPLICATIONS (API v1)
   // ═══════════════════════════════════════════════════════════════════════════
   
-  // Auth and Identity
-  app.use('/api/v1', authApp);
+  // Identity (auth/authz issuance handled by the Go backend; Express only
+  // reads the shared session and serves the transitional SSO verify endpoint)
   app.use('/api/v1', iamApp);
   app.use('/api/v1', complaintsApp);
   app.use('/api/v1', visitorsApp);

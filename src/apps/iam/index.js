@@ -6,16 +6,17 @@
  * @routes
  * All routes are mounted at /api/v1
  * - /users/*       -> User management routes
- * - /authz/*       -> Layer-3 authz routes
+ *
+ * Note: authz management endpoints (/authz/*) have moved to the Go backend.
+ * Express still enforces authz at runtime via src/middlewares/authz.middleware.js
+ * and src/core/authz, but no longer serves authz CRUD routes.
  */
 
 import express from 'express';
 import usersRoutes from './modules/users/users.routes.js';
-import authzRoutes from './modules/authz/authz.routes.js';
 
 const router = express.Router();
 
 router.use('/users', usersRoutes);
-router.use('/authz', authzRoutes);
 
 export default router;

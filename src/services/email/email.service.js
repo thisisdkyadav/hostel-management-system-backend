@@ -10,8 +10,6 @@ import { env } from '../../config/env.config.js';
 import logger from '../base/Logger.js';
 import { fileAccessService } from '../storage/file-access.service.js';
 import {
-  passwordResetTemplate,
-  passwordResetSuccessTemplate,
   customEmailTemplate,
   complaintResolvedTemplate,
   electionSupportConfirmationTemplate,
@@ -308,40 +306,6 @@ class EmailService {
       success: results.failed === 0,
       ...results,
     };
-  }
-
-  /**
-   * Send password reset email
-   * @param {string} email - Recipient email
-   * @param {string} resetToken - Password reset token
-   * @param {string} userName - User's name
-   * @returns {Promise<{success: boolean, error?: string}>}
-   */
-  async sendPasswordResetEmail(email, resetToken, userName) {
-    const resetLink = `${env.FRONTEND_URL}/reset-password?token=${resetToken}`;
-    const html = passwordResetTemplate(userName, resetLink);
-
-    return this.sendEmail({
-      to: email,
-      subject: 'Reset Your HMS Password',
-      html,
-    });
-  }
-
-  /**
-   * Send password reset success notification
-   * @param {string} email - Recipient email
-   * @param {string} userName - User's name
-   * @returns {Promise<{success: boolean, error?: string}>}
-   */
-  async sendPasswordResetSuccessEmail(email, userName) {
-    const html = passwordResetSuccessTemplate(userName);
-
-    return this.sendEmail({
-      to: email,
-      subject: 'Your HMS Password Has Been Changed',
-      html,
-    });
   }
 
   /**

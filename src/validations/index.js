@@ -5,8 +5,8 @@
  * Import validators from this file to use in route handlers.
  * 
  * @example
- * import { validate, authValidation } from '../validations/index.js';
- * router.post('/login', validate(authValidation.loginSchema), authController.login);
+ * import { validate, studentValidation } from '../validations/index.js';
+ * router.post('/', validate(studentValidation.createSchema), studentController.create);
  */
 
 // Validation middleware
@@ -14,9 +14,6 @@ export { validate } from '../middlewares/validate.middleware.js';
 
 // Common schemas (for building custom validators)
 export * as commonSchemas from './common.validation.js';
-
-// Auth validation
-export * as authValidation from './auth.validation.js';
 
 // Student validation
 export * as studentValidation from './student.validation.js';
@@ -47,10 +44,10 @@ export * as notificationValidation from './notification.validation.js';
  * This allows both import patterns:
  * 
  * Pattern 1: Import namespace
- * import { authValidation } from '../validations/index.js';
- * validate(authValidation.loginSchema)
- * 
+ * import { studentValidation } from '../validations/index.js';
+ * validate(studentValidation.createSchema)
+ *
  * Pattern 2: Direct import
- * import { loginSchema } from '../validations/auth.validation.js';
- * validate(loginSchema)
+ * import { createSchema } from '../validations/student.validation.js';
+ * validate(createSchema)
  */
