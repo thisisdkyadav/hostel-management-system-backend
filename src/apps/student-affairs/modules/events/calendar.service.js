@@ -15,6 +15,7 @@ import {
 import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import User from "../../../../models/user/User.model.js"
 import {
   CALENDAR_STATUS,
   APPROVAL_STAGES,
@@ -42,7 +43,7 @@ import {
   normalizeObjectId,
   resolvePostStudentAffairsAssignments,
 } from "./approval-assignments.utils.js"
-import { notifyAssignedApproverByEmail } from "./approval-email.utils.js"
+import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
 class CalendarService extends BaseService {
   constructor() {
@@ -404,6 +405,17 @@ class CalendarService extends BaseService {
           : `Resubmitted after edits from ${String(previousStatus).replace(/_/g, " ")}`,
     })
 
+    // Notify Student Affairs that a calendar awaits their review
+    await notifyStageApprovers({
+      entityType: "ActivityCalendar",
+      entityId: calendar._id,
+      entityLabel: calendar.academicYear,
+      stage: APPROVAL_STAGES.STUDENT_AFFAIRS,
+      linkParams: { academicYear: calendar.academicYear },
+      movedBy: user.name,
+      movedByStage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
+    })
+
     return success({
       calendar,
       overlapSummary: overlapAnalysis.summary,
@@ -594,15 +606,17 @@ class CalendarService extends BaseService {
       comments: normalizedComments,
     })
 
-    if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
-      await notifyAssignedApproverByEmail({
+    // Email whoever must act at the calendar's new stage (assigned user, else all sub-role holders)
+    if (calendar.status !== CALENDAR_STATUS.APPROVED && calendar.status !== CALENDAR_STATUS.REJECTED) {
+      await notifyStageApprovers({
         entityType: "ActivityCalendar",
         entityId: calendar._id,
         entityLabel: calendar.academicYear,
-        nextApproverUserId,
-        nextApproverStage,
-        approvedBy: user.name,
-        approvedByStage: currentStage,
+        stage: STATUS_TO_APPROVER[calendar.status],
+        assignedUserId: calendar.currentApproverUser || null,
+        linkParams: { academicYear: calendar.academicYear },
+        movedBy: user.name,
+        movedByStage: currentStage,
         comments: normalizedComments,
       })
     }
@@ -661,6 +675,22 @@ class CalendarService extends BaseService {
       performedBy: user._id,
       comments: reason,
     })
+
+    // Notify the Gymkhana President(s) who own the calendar so they can revise & resubmit
+    const presidents = await User.find({ role: ROLES.GYMKHANA, subRole: APPROVAL_STAGES.PRESIDENT_GYMKHANA }).select("_id")
+    for (const president of presidents) {
+      await notifySubmitterByEmail({
+        entityType: "ActivityCalendar",
+        entityId: calendar._id,
+        entityLabel: calendar.academicYear,
+        submitterUserId: president._id,
+        action: "rejected",
+        actorName: user.name,
+        actorStage: currentStage,
+        comments: reason,
+        linkParams: { academicYear: calendar.academicYear },
+      })
+    }
 
     return success({ calendar }, 200, "Calendar rejected")
   }

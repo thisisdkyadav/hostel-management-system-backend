@@ -14,6 +14,7 @@ import {
 import EventExpense from "../../../../models/event/EventExpense.model.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import EventProposal from "../../../../models/event/EventProposal.model.js"
+import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import {
   EVENT_STATUS,
@@ -32,7 +33,7 @@ import {
   normalizeObjectId,
   resolvePostStudentAffairsAssignments,
 } from "./approval-assignments.utils.js"
-import { notifyAssignedApproverByEmail } from "./approval-email.utils.js"
+import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
 class ExpenseService extends BaseService {
   constructor() {
@@ -97,7 +98,39 @@ class ExpenseService extends BaseService {
       performedBy: user._id,
     })
 
+    const submitContext = await this._expenseLinkContext(expense)
+    await notifyStageApprovers({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      entityLabel: submitContext.label,
+      stage: STATUS_TO_APPROVER[expense.approvalStatus],
+      assignedUserId: expense.currentApproverUser || null,
+      linkParams: submitContext.linkParams,
+      movedBy: user.name,
+      movedByStage: APPROVAL_STAGES.GS_GYMKHANA,
+    })
+
     return created({ expense }, "Expenses submitted successfully")
+  }
+
+  /**
+   * Build the deep-link context (label + params) for an expense's event.
+   */
+  async _expenseLinkContext(expense) {
+    const event = await GymkhanaEvent.findById(expense.eventId).select(
+      "title isMegaEvent megaEventSeriesId calendarId"
+    )
+    const label = event?.title || "Gymkhana Event Bills"
+    if (!event) return { label, linkParams: {} }
+    if (event.isMegaEvent || event.megaEventSeriesId) {
+      return { label, linkParams: { isMegaEvent: true, seriesId: event.megaEventSeriesId, occurrenceId: event._id } }
+    }
+    let academicYear = ""
+    if (event.calendarId) {
+      const calendar = await ActivityCalendar.findById(event.calendarId).select("academicYear")
+      academicYear = calendar?.academicYear || ""
+    }
+    return { label, linkParams: { isMegaEvent: false, eventId: event._id, academicYear } }
   }
 
   /**
@@ -290,16 +323,21 @@ class ExpenseService extends BaseService {
       comments: normalizedComments,
     })
 
-    if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
-      const eventForNotification = await GymkhanaEvent.findById(expense.eventId).select("title")
-      await notifyAssignedApproverByEmail({
+    // Email whoever must act at the expense's new stage (assigned user, else all sub-role holders)
+    if (
+      expense.approvalStatus !== EXPENSE_APPROVAL_STATUS.APPROVED &&
+      expense.approvalStatus !== EXPENSE_APPROVAL_STATUS.REJECTED
+    ) {
+      const approveContext = await this._expenseLinkContext(expense)
+      await notifyStageApprovers({
         entityType: "EventExpense",
         entityId: expense._id,
-        entityLabel: eventForNotification?.title || "Gymkhana Event Bills",
-        nextApproverUserId,
-        nextApproverStage,
-        approvedBy: user.name,
-        approvedByStage: effectiveStage,
+        entityLabel: approveContext.label,
+        stage: STATUS_TO_APPROVER[expense.approvalStatus],
+        assignedUserId: expense.currentApproverUser || null,
+        linkParams: approveContext.linkParams,
+        movedBy: user.name,
+        movedByStage: effectiveStage,
         comments: normalizedComments,
       })
     }
@@ -377,6 +415,20 @@ class ExpenseService extends BaseService {
       action: APPROVAL_ACTIONS.REJECTED,
       performedBy: user._id,
       comments: reason?.trim() || "",
+    })
+
+    // Notify the submitter that their expense was rejected
+    const rejectContext = await this._expenseLinkContext(expense)
+    await notifySubmitterByEmail({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      entityLabel: rejectContext.label,
+      submitterUserId: expense.submittedBy,
+      action: "rejected",
+      actorName: user.name,
+      actorStage: effectiveStage,
+      comments: reason,
+      linkParams: rejectContext.linkParams,
     })
 
     return success({ expense }, 200, "Expense rejected")

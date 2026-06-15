@@ -16,6 +16,7 @@ import User from "../../../../models/user/User.model.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import logger from "../../../../services/base/Logger.js"
 import { emailService } from "../../../../services/email/index.js"
+import { buildApprovalDeepLink } from "../events/approval-email.utils.js"
 import {
   getGlobalGymkhanaCategoryDefinitions,
   normalizeCategoryKey,
@@ -640,7 +641,13 @@ class PorService extends BaseService {
           <p><strong>Moved by:</strong> ${escapeHtml(movedByName)} (${escapeHtml(movedByRole)})</p>
         </div>
         ${commentsBlock}
-        <p>Please log in to HMS and review this POR request from your POR workspace.</p>
+        ${(() => {
+          const reviewerRole = recipients.find((recipient) => recipient?.role)?.role || ROLES.ADMIN
+          const link = buildApprovalDeepLink(reviewerRole, "PorRequest", { requestId: String(porRequestId) })
+          return link
+            ? `<p style="margin-top:18px;"><a href="${link}" class="button">Review &amp; Approve</a></p>`
+            : `<p>Please log in to HMS and review this POR request from your POR workspace.</p>`
+        })()}
       `
 
       const result = await emailService.sendCustomEmail({
@@ -725,7 +732,12 @@ class PorService extends BaseService {
           <p><strong>Reviewed by:</strong> ${escapeHtml(performedByName)} (${escapeHtml(performedByRole)})</p>
         </div>
         ${commentsBlock}
-        <p>Please log in to HMS to view the latest status in your POR workspace.</p>
+        ${(() => {
+          const link = buildApprovalDeepLink(ROLES.STUDENT, "PorRequest", { requestId: String(porRequestId) })
+          if (!link) return `<p>Please log in to HMS to view the latest status in your POR workspace.</p>`
+          const label = action === "approved" ? "View POR" : "Open & update"
+          return `<p style="margin-top:18px;"><a href="${link}" class="button">${label}</a></p>`
+        })()}
       `
 
       const result = await emailService.sendCustomEmail({

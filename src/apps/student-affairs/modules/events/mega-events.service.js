@@ -26,6 +26,7 @@ import {
   POST_STUDENT_AFFAIRS_APPROVERS,
 } from "./events.constants.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
+import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
 const parseDate = (value) => {
   const date = new Date(value)
@@ -378,6 +379,16 @@ class MegaEventsService extends BaseService {
 
     await occurrence.save()
 
+    await notifyStageApprovers({
+      entityType: "EventProposal",
+      entityId: occurrence._id,
+      entityLabel: occurrence.title,
+      stage: STATUS_TO_APPROVER[occurrence.proposal.status],
+      linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+      movedBy: user.name,
+      movedByStage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
+    })
+
     return created({ proposal: occurrence.proposal }, "Proposal submitted successfully")
   }
 
@@ -549,6 +560,23 @@ class MegaEventsService extends BaseService {
     occurrence.markModified("proposal")
     await occurrence.save()
 
+    if (
+      proposal.status !== PROPOSAL_STATUS.APPROVED &&
+      proposal.status !== PROPOSAL_STATUS.REJECTED &&
+      proposal.status !== PROPOSAL_STATUS.REVISION_REQUESTED
+    ) {
+      await notifyStageApprovers({
+        entityType: "EventProposal",
+        entityId: occurrence._id,
+        entityLabel: occurrence.title,
+        stage: STATUS_TO_APPROVER[proposal.status],
+        linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+        movedBy: user.name,
+        movedByStage: effectiveStage,
+        comments,
+      })
+    }
+
     return success(
       { proposal: occurrence.proposal },
       200,
@@ -606,6 +634,18 @@ class MegaEventsService extends BaseService {
     occurrence.markModified("proposal")
     await occurrence.save()
 
+    await notifySubmitterByEmail({
+      entityType: "EventProposal",
+      entityId: occurrence._id,
+      entityLabel: occurrence.title,
+      submitterUserId: proposal.submittedBy,
+      action: "rejected",
+      actorName: user.name,
+      actorStage: effectiveStage,
+      comments: reason,
+      linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+    })
+
     return success({ proposal: occurrence.proposal }, 200, "Proposal rejected")
   }
 
@@ -656,6 +696,18 @@ class MegaEventsService extends BaseService {
     occurrence.status = EVENT_STATUS.PROPOSAL_PENDING
     occurrence.markModified("proposal")
     await occurrence.save()
+
+    await notifySubmitterByEmail({
+      entityType: "EventProposal",
+      entityId: occurrence._id,
+      entityLabel: occurrence.title,
+      submitterUserId: proposal.submittedBy,
+      action: "revision_requested",
+      actorName: user.name,
+      actorStage: effectiveStage,
+      comments,
+      linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+    })
 
     return success({ proposal: occurrence.proposal }, 200, "Revision requested")
   }
@@ -742,6 +794,16 @@ class MegaEventsService extends BaseService {
     this._recalculateExpenseFields(occurrence.expense)
     occurrence.markModified("expense")
     await occurrence.save()
+
+    await notifyStageApprovers({
+      entityType: "EventExpense",
+      entityId: occurrence._id,
+      entityLabel: occurrence.title,
+      stage: STATUS_TO_APPROVER[occurrence.expense.approvalStatus],
+      linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+      movedBy: user.name,
+      movedByStage: APPROVAL_STAGES.GS_GYMKHANA,
+    })
 
     return created({ expense: occurrence.expense }, "Expenses submitted successfully")
   }
@@ -901,6 +963,22 @@ class MegaEventsService extends BaseService {
     occurrence.markModified("expense")
     await occurrence.save()
 
+    if (
+      expense.approvalStatus !== EXPENSE_APPROVAL_STATUS.APPROVED &&
+      expense.approvalStatus !== EXPENSE_APPROVAL_STATUS.REJECTED
+    ) {
+      await notifyStageApprovers({
+        entityType: "EventExpense",
+        entityId: occurrence._id,
+        entityLabel: occurrence.title,
+        stage: STATUS_TO_APPROVER[expense.approvalStatus],
+        linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+        movedBy: user.name,
+        movedByStage: effectiveStage,
+        comments,
+      })
+    }
+
     return success(
       { expense: occurrence.expense },
       200,
@@ -966,6 +1044,18 @@ class MegaEventsService extends BaseService {
 
     occurrence.markModified("expense")
     await occurrence.save()
+
+    await notifySubmitterByEmail({
+      entityType: "EventExpense",
+      entityId: occurrence._id,
+      entityLabel: occurrence.title,
+      submitterUserId: expense.submittedBy,
+      action: "rejected",
+      actorName: user.name,
+      actorStage: effectiveStage,
+      comments: reason,
+      linkParams: { isMegaEvent: true, seriesId: occurrence.seriesId, occurrenceId: occurrence._id },
+    })
 
     return success({ expense: occurrence.expense }, 200, "Expense rejected")
   }

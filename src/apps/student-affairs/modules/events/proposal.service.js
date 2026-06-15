@@ -32,7 +32,7 @@ import {
   normalizeObjectId,
   resolvePostStudentAffairsAssignments,
 } from "./approval-assignments.utils.js"
-import { notifyAssignedApproverByEmail } from "./approval-email.utils.js"
+import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
 class ProposalService extends BaseService {
   constructor() {
@@ -139,7 +139,40 @@ class ProposalService extends BaseService {
       performedBy: user._id,
     })
 
+    // Notify the first approver stage that a proposal awaits review
+    const submitContext = await this._proposalLinkContext(proposal)
+    await notifyStageApprovers({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      entityLabel: submitContext.label,
+      stage: STATUS_TO_APPROVER[proposal.status],
+      assignedUserId: proposal.currentApproverUser || null,
+      linkParams: submitContext.linkParams,
+      movedBy: user.name,
+      movedByStage: isPresident ? APPROVAL_STAGES.PRESIDENT_GYMKHANA : APPROVAL_STAGES.GS_GYMKHANA,
+    })
+
     return created({ proposal }, "Proposal submitted successfully")
+  }
+
+  /**
+   * Build the deep-link context (label + params) for a proposal's event.
+   */
+  async _proposalLinkContext(proposal) {
+    const event = await GymkhanaEvent.findById(proposal.eventId).select(
+      "title isMegaEvent megaEventSeriesId calendarId"
+    )
+    const label = event?.title || "Gymkhana Event Proposal"
+    if (!event) return { label, linkParams: {} }
+    if (event.isMegaEvent || event.megaEventSeriesId) {
+      return { label, linkParams: { isMegaEvent: true, seriesId: event.megaEventSeriesId, occurrenceId: event._id } }
+    }
+    let academicYear = ""
+    if (event.calendarId) {
+      const calendar = await ActivityCalendar.findById(event.calendarId).select("academicYear")
+      academicYear = calendar?.academicYear || ""
+    }
+    return { label, linkParams: { isMegaEvent: false, eventId: event._id, academicYear } }
   }
 
   /**
@@ -423,16 +456,22 @@ class ProposalService extends BaseService {
       comments: normalizedComments,
     })
 
-    if (notifyNextApprover && nextApproverUserId && nextApproverStage) {
-      const eventForNotification = await GymkhanaEvent.findById(proposal.eventId).select("title")
-      await notifyAssignedApproverByEmail({
+    // Email whoever must act at the proposal's new stage (assigned user, else all sub-role holders)
+    if (
+      proposal.status !== PROPOSAL_STATUS.APPROVED &&
+      proposal.status !== PROPOSAL_STATUS.REJECTED &&
+      proposal.status !== PROPOSAL_STATUS.REVISION_REQUESTED
+    ) {
+      const approveContext = await this._proposalLinkContext(proposal)
+      await notifyStageApprovers({
         entityType: "EventProposal",
         entityId: proposal._id,
-        entityLabel: eventForNotification?.title || "Gymkhana Event Proposal",
-        nextApproverUserId,
-        nextApproverStage,
-        approvedBy: user.name,
-        approvedByStage: currentStage,
+        entityLabel: approveContext.label,
+        stage: STATUS_TO_APPROVER[proposal.status],
+        assignedUserId: proposal.currentApproverUser || null,
+        linkParams: approveContext.linkParams,
+        movedBy: user.name,
+        movedByStage: currentStage,
         comments: normalizedComments,
       })
     }
@@ -491,6 +530,20 @@ class ProposalService extends BaseService {
       comments: reason,
     })
 
+    // Notify the submitter that their proposal was rejected
+    const rejectContext = await this._proposalLinkContext(proposal)
+    await notifySubmitterByEmail({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      entityLabel: rejectContext.label,
+      submitterUserId: proposal.submittedBy,
+      action: "rejected",
+      actorName: user.name,
+      actorStage: currentStage,
+      comments: reason,
+      linkParams: rejectContext.linkParams,
+    })
+
     return success({ proposal }, 200, "Proposal rejected")
   }
 
@@ -541,6 +594,20 @@ class ProposalService extends BaseService {
       action: APPROVAL_ACTIONS.REVISION_REQUESTED,
       performedBy: user._id,
       comments,
+    })
+
+    // Notify the submitter that changes are required
+    const revisionContext = await this._proposalLinkContext(proposal)
+    await notifySubmitterByEmail({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      entityLabel: revisionContext.label,
+      submitterUserId: proposal.submittedBy,
+      action: "revision_requested",
+      actorName: user.name,
+      actorStage: currentStage,
+      comments,
+      linkParams: revisionContext.linkParams,
     })
 
     return success({ proposal }, 200, "Revision requested")
