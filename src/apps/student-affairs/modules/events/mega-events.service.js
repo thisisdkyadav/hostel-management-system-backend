@@ -236,6 +236,37 @@ class MegaEventsService extends BaseService {
     return success({ series: summary })
   }
 
+  /**
+   * Count/list mega-event proposals pending the current approver's stage.
+   * Mega proposals are embedded on the occurrence and routed purely by status/stage
+   * (no per-user assignment), so we match occurrences whose proposal.status maps to
+   * the user's sub-role.
+   */
+  async getProposalsForApproval(user) {
+    const statusMap = {
+      [SUBROLES.STUDENT_AFFAIRS]: PROPOSAL_STATUS.PENDING_STUDENT_AFFAIRS,
+      [SUBROLES.OFFICER_SA]: PROPOSAL_STATUS.PENDING_OFFICER,
+      [SUBROLES.ASSOCIATE_DEAN_SA]: PROPOSAL_STATUS.PENDING_ASSOCIATE_DEAN,
+      [SUBROLES.DEAN_SA]: PROPOSAL_STATUS.PENDING_DEAN,
+    }
+
+    const status =
+      user.role === ROLES.SUPER_ADMIN
+        ? { $in: Object.values(statusMap) }
+        : statusMap[user.subRole]
+
+    if (!status) {
+      return success({ occurrences: [] })
+    }
+
+    const occurrences = await MegaEventOccurrence.find({ "proposal.status": status })
+      .select("title seriesId scheduledStartDate scheduledEndDate proposal.status")
+      .populate("seriesId", "name")
+      .sort({ scheduledStartDate: -1, createdAt: -1 })
+
+    return success({ occurrences })
+  }
+
   async createSeries(data, user) {
     if (!this._canManageSeries(user)) {
       return forbidden("Only admin users can create mega event series")

@@ -223,6 +223,13 @@ router.get(
   eventsController.getMegaSeries
 )
 
+router.get(
+  "/mega-proposals/pending",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...megaEventsViewAccess,
+  eventsController.getMegaProposalsForApproval
+)
+
 router.post(
   "/mega-series",
   authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),

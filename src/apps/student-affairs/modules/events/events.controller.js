@@ -407,6 +407,11 @@ export const getMegaSeries = asyncHandler(async (req, res) => {
   sendRawResponse(res, result)
 })
 
+export const getMegaProposalsForApproval = asyncHandler(async (req, res) => {
+  const result = await megaEventsService.getProposalsForApproval(req.user)
+  sendRawResponse(res, result)
+})
+
 export const createMegaSeries = asyncHandler(async (req, res) => {
   const result = await megaEventsService.createSeries(req.body, req.user)
   sendRawResponse(res, result)
