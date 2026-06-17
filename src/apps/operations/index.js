@@ -31,6 +31,7 @@ import onlineUsersRoutes from './modules/online-users/online-users.routes.js';
 import securityRoutes from './modules/security/security.routes.js';
 import faceScannerRoutes from './modules/face-scanner/face-scanner.routes.js';
 import diningMealVerificationRoutes from './modules/dining-meal-verification/dining-meal-verification.routes.js';
+import diningOfficeRoutes from './modules/dining-office/dining-office.routes.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import statsRoutes from './modules/stats/stats.routes.js';
 
@@ -47,6 +48,7 @@ router.use('/online-users', onlineUsersRoutes);
 router.use('/security', securityRoutes);
 router.use('/face-scanner', faceScannerRoutes);
 router.use('/dining-meal-verification', diningMealVerificationRoutes);
+router.use('/dining-office', diningOfficeRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/stats', statsRoutes);
 

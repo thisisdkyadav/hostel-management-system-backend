@@ -17,7 +17,7 @@ import {
 const normalizeKey = (value) => (typeof value === "string" ? value.trim() : "")
 
 const buildFallbackEffectiveAuthz = (req) => {
-  return buildEffectiveAuthz({ role: req?.user?.role, override: {} })
+  return buildEffectiveAuthz({ role: req?.user?.role, subRole: req?.user?.subRole ?? null, override: {} })
 }
 
 const getEffectiveAuthzFromRequest = (req) => {

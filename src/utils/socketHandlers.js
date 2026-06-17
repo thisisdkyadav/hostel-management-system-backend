@@ -38,7 +38,7 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
       socket.hostelId = user.hostel?._id || null
       socket.catererId = null
 
-      if (user.role === "Caterer") {
+      if (user.role === "Dining" && user.subRole === "Caterer") {
         const caterer = await Caterer.findOne({ userId: user._id, isArchived: false }).select("_id").lean()
         socket.catererId = caterer?._id || null
       }

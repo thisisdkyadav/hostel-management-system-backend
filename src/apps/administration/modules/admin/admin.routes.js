@@ -36,6 +36,12 @@ import {
   updateDiningBillingPeriodArchiveStatus,
 } from './diningBillingController.js';
 import {
+  getAllDiningOfficeStaff,
+  createDiningOfficeStaff,
+  updateDiningOfficeStaff,
+  deleteDiningOfficeStaff,
+} from './diningOfficeController.js';
+import {
   createSecurity,
   getAllSecurities,
   updateSecurity,
@@ -146,6 +152,11 @@ router.put('/dining-billing-periods/:id', requireRouteAccess('route.admin.dining
 router.put('/dining-billing-periods/:id/archive', requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriodArchiveStatus);
 router.get('/dining-billing-periods/:id/accounts', requireRouteAccess('route.admin.diningBilling'), getDiningBillingAccounts);
 router.post('/dining-billing-periods/:id/accounts/bulk', requireRouteAccess('route.admin.diningBilling'), bulkUpdateDiningBillingAccounts);
+
+router.get('/dining-office', requireRouteAccess('route.admin.diningOffice'), getAllDiningOfficeStaff);
+router.post('/dining-office', requireRouteAccess('route.admin.diningOffice'), createDiningOfficeStaff);
+router.put('/dining-office/:id', requireRouteAccess('route.admin.diningOffice'), updateDiningOfficeStaff);
+router.delete('/dining-office/:id', requireRouteAccess('route.admin.diningOffice'), deleteDiningOfficeStaff);
 
 // Warden management
 router.get('/wardens', requireRouteAccess('route.admin.wardens'), getAllWardens);

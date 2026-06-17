@@ -13,6 +13,7 @@ import {
   AUTHZ_CONSTRAINT_TYPES,
   AUTHZ_ROUTE_KEYS,
   AUTHZ_ROUTE_KEYS_BY_ROLE,
+  AUTHZ_ROUTE_KEYS_BY_SUBROLE,
 } from "./authz.catalog.js"
 
 const ROUTE_KEY_SET = new Set(AUTHZ_ROUTE_KEYS)
@@ -93,9 +94,19 @@ const buildDefaultConstraintMap = () => {
   return defaults
 }
 
-const buildDefaultRouteAccessMap = (role) => {
+const defaultRouteKeysFor = (role, subRole) => {
+  if (AUTHZ_ROUTE_KEYS_BY_ROLE[role]) {
+    return AUTHZ_ROUTE_KEYS_BY_ROLE[role]
+  }
+  if (subRole && AUTHZ_ROUTE_KEYS_BY_SUBROLE[subRole]) {
+    return AUTHZ_ROUTE_KEYS_BY_SUBROLE[subRole]
+  }
+  return []
+}
+
+const buildDefaultRouteAccessMap = (role, subRole) => {
   const defaults = {}
-  const allowedKeys = new Set(AUTHZ_ROUTE_KEYS_BY_ROLE[role] || [])
+  const allowedKeys = new Set(defaultRouteKeysFor(role, subRole))
 
   for (const definition of AUTHZ_CATALOG.routes) {
     defaults[definition.key] = allowedKeys.has(definition.key)
@@ -206,9 +217,9 @@ export const validateAuthzOverride = (input = {}) => {
   }
 }
 
-export const buildEffectiveAuthz = ({ role, override = {} }) => {
+export const buildEffectiveAuthz = ({ role, subRole = null, override = {} }) => {
   const normalizedOverride = normalizeAuthzOverride(override)
-  const routeAccess = buildDefaultRouteAccessMap(role)
+  const routeAccess = buildDefaultRouteAccessMap(role, subRole)
   const capabilities = buildDefaultCapabilityMap(role)
   const constraints = buildDefaultConstraintMap()
 
@@ -271,6 +282,7 @@ export const extractUserAuthzOverride = (userLike = {}) => {
 export const buildEffectiveAuthzForUser = (userLike = {}) => {
   return buildEffectiveAuthz({
     role: userLike.role,
+    subRole: userLike.subRole ?? null,
     override: extractUserAuthzOverride(userLike),
   })
 }

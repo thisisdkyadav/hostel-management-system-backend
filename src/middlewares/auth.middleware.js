@@ -10,6 +10,7 @@ const buildSessionAuthz = (userLike) => {
   const override = extractUserAuthzOverride(userLike)
   const effective = buildEffectiveAuthzForUser({
     role: userLike.role,
+    subRole: userLike.subRole ?? null,
     authz: { override },
   })
 
@@ -30,6 +31,7 @@ const withAuthzSessionData = (sessionUserData = {}) => {
   const fallbackOverride = sanitizedUserData?.authz?.override || {}
   const fallbackAuthz = buildEffectiveAuthzForUser({
     role: sanitizedUserData.role,
+    subRole: sanitizedUserData.subRole ?? null,
     authz: { override: fallbackOverride },
   })
   const nextUserData = {

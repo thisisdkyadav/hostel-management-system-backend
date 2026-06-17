@@ -11,7 +11,7 @@ import {
   conflict,
 } from '../../../../services/base/index.js';
 import { Caterer, User } from '../../../../models/index.js';
-import { ROLES } from '../../../../core/constants/roles.constants.js';
+import { ROLES, DINING_SUBROLES } from '../../../../core/constants/roles.constants.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -106,8 +106,8 @@ class CatererService extends BaseService {
     return User.create({
       name,
       email,
-      role: ROLES.CATERER,
-      subRole: null,
+      role: ROLES.DINING,
+      subRole: DINING_SUBROLES.CATERER,
       password: null,
     });
   }
@@ -127,8 +127,8 @@ class CatererService extends BaseService {
         const normalizedEmail = normalizeLower(caterer.email || caterer.emailLower);
         const userUpdate = {
           name: caterer.name,
-          role: ROLES.CATERER,
-          subRole: null,
+          role: ROLES.DINING,
+          subRole: DINING_SUBROLES.CATERER,
         };
 
         if (normalizedEmail && normalizeLower(linkedUser.email) !== normalizedEmail) {

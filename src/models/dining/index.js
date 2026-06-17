@@ -5,3 +5,4 @@ export { default as DiningMealVerification } from './DiningMealVerification.mode
 export { default as DiningRebate } from './DiningRebate.model.js'
 export { default as DiningBillingPeriod } from './DiningBillingPeriod.model.js'
 export { default as DiningBillingAccount } from './DiningBillingAccount.model.js'
+export { default as DiningOfficeStaff } from './DiningOfficeStaff.model.js'

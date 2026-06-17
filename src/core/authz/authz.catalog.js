@@ -7,7 +7,7 @@
  * - Layer-3 AuthZ is strict deny-by-default for unknown/missing route keys.
  */
 
-import { ROLES } from "../constants/roles.constants.js"
+import { ROLES, DINING_SUBROLES } from "../constants/roles.constants.js"
 
 export const AUTHZ_EFFECT = {
   ALLOW: "allow",
@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 10
+export const AUTHZ_CATALOG_VERSION = 11
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -47,6 +47,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.diningPeriods", "Dining Periods", ["/admin/dining-periods"]),
   route("route.admin.diningRebates", "Dining Rebates", ["/admin/dining-rebates"]),
   route("route.admin.diningBilling", "Dining Billing", ["/admin/dining-billing", "/admin/dining-billing/:billingPeriodId"]),
+  route("route.admin.diningOffice", "Dining Office", ["/admin/dining-office"]),
   route("route.admin.administrators", "Administrators", ["/admin/administrators"]),
   route("route.admin.wardens", "Wardens", ["/admin/wardens"]),
   route("route.admin.associateWardens", "Associate Wardens", ["/admin/associate-wardens"]),
@@ -182,10 +183,14 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.academics.bestPerformer", "Academics Best Performer", ["/academics", "/academics/overall-best-performer"]),
   route("route.academics.profile", "Academics Profile", ["/academics/profile"]),
 
-  // Caterer
+  // Dining — Caterer sub-role
   route("route.caterer.dashboard", "Caterer Dashboard", ["/caterer"]),
   route("route.caterer.students", "Caterer Students", ["/caterer/students"]),
   route("route.caterer.mealVerification", "Caterer Meal Verification", ["/caterer/meal-verification"]),
+
+  // Dining — Office sub-role
+  route("route.diningOffice.dashboard", "Dining Office Dashboard", ["/dining-office"]),
+  route("route.diningOffice.profile", "Dining Office Profile", ["/dining-office/profile"]),
 ]
 
 export const AUTHZ_CAPABILITY_DEFINITIONS = [
@@ -213,7 +218,14 @@ export const AUTHZ_ROUTE_KEYS_BY_ROLE = {
   [ROLES.STUDENT]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.student.")),
   [ROLES.GYMKHANA]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.gymkhana.")),
   [ROLES.ACADEMICS]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.academics.")),
-  [ROLES.CATERER]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
+  // ROLES.DINING route access is sub-role aware; see AUTHZ_ROUTE_KEYS_BY_SUBROLE.
+}
+
+// For roles whose default route access depends on the sub-role (currently only
+// ROLES.DINING). Keyed by subRole value.
+export const AUTHZ_ROUTE_KEYS_BY_SUBROLE = {
+  [DINING_SUBROLES.OFFICE]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.diningOffice.")),
+  [DINING_SUBROLES.CATERER]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
 }
 
 export const AUTHZ_CAPABILITY_DEFAULTS_BY_ROLE = Object.values(ROLES).reduce((acc, role) => {

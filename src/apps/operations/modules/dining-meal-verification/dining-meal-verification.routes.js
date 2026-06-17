@@ -13,14 +13,19 @@ import {
 const router = express.Router()
 
 router.use(authenticate)
-router.use(authorizeRoles(["Caterer"]))
+router.use(authorizeRoles(["Dining"]))
 
-const routeAccessByRole = {
-  Caterer: "route.caterer.mealVerification",
+// Meal verification is a Caterer sub-role capability. The Dining/Office sub-role
+// is excluded here because its effective authz lacks route.caterer.mealVerification.
+const routeKeyForRequest = (req) => {
+  if (req?.user?.role === "Dining" && req?.user?.subRole === "Caterer") {
+    return "route.caterer.mealVerification"
+  }
+  return null
 }
 
 router.use((req, res, next) => {
-  const routeKey = routeAccessByRole[req?.user?.role]
+  const routeKey = routeKeyForRequest(req)
   if (!routeKey) {
     return res.status(403).json({ success: false, message: "You do not have access to this route" })
   }

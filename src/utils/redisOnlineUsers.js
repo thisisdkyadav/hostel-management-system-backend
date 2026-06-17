@@ -24,7 +24,7 @@ const ALLOWED_USER_ROLES = new Set([
   "Hostel Gate",
   "Gymkhana",
   "Academics",
-  "Caterer",
+  "Dining",
 ])
 
 /**
