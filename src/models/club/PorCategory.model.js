@@ -37,7 +37,7 @@ const PorCategorySchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Club",
       default: null,
-      index: true,
+      // Indexed via PorCategorySchema.index({ legacyClubId: 1 }, { unique, sparse }) below.
     },
     legacyGymkhanaCategoryKey: {
       type: String,

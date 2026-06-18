@@ -286,30 +286,34 @@ class VisitorsService extends BaseService {
     return withTransaction(async (session) => {
       const hostelId = user.hostel._id;
 
-      const allocatedRoomIds = await Promise.all(
-        allocationData.map(async (room) => {
-          const roomNumber = room[0];
-          const unitNumber = room[1] || undefined;
+      // Sequential, not Promise.all: every query here shares one transaction
+      // session, and a ClientSession cannot run operations concurrently. Parallel
+      // queries race to start the transaction at the same txnNumber, which MongoDB
+      // rejects ("Only servers in a sharded cluster can start a new transaction at
+      // the active transaction number").
+      const allocatedRoomIds = [];
+      for (const room of allocationData) {
+        const roomNumber = room[0];
+        const unitNumber = room[1] || undefined;
 
-          let unitId;
-          if (unitNumber) {
-            const unit = await Unit.findOne({ unitNumber, hostelId }).session(session);
-            if (!unit) {
-              throw new Error(`Unit ${unitNumber} not found in hostel ${user.hostel.name}`);
-            }
-            unitId = unit._id;
+        let unitId;
+        if (unitNumber) {
+          const unit = await Unit.findOne({ unitNumber, hostelId }).session(session);
+          if (!unit) {
+            throw new Error(`Unit ${unitNumber} not found in hostel ${user.hostel.name}`);
           }
+          unitId = unit._id;
+        }
 
-          const foundRoom = await Room.findOne({ roomNumber, unitId, hostelId }).session(session);
-          if (!foundRoom) {
-            throw new Error(`Room ${roomNumber} not found in unit ${unitNumber}`);
-          }
-          if (foundRoom.occupancy) {
-            throw new Error(`Room ${roomNumber} in unit ${unitNumber} is already occupied by a student`);
-          }
-          return foundRoom._id;
-        })
-      );
+        const foundRoom = await Room.findOne({ roomNumber, unitId, hostelId }).session(session);
+        if (!foundRoom) {
+          throw new Error(`Room ${roomNumber} not found in unit ${unitNumber}`);
+        }
+        if (foundRoom.occupancy) {
+          throw new Error(`Room ${roomNumber} in unit ${unitNumber} is already occupied by a student`);
+        }
+        allocatedRoomIds.push(foundRoom._id);
+      }
 
       const updatedReq = await this.model.findByIdAndUpdate(
         requestId,

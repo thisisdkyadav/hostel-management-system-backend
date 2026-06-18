@@ -49,7 +49,7 @@ const ActionLinkTokenSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: true,
-      index: true,
+      // Indexed via ActionLinkTokenSchema.index({ expiresAt: 1 }, { expireAfterSeconds }) below (TTL).
     },
     usedAt: {
       type: Date,

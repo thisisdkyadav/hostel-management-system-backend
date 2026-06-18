@@ -193,10 +193,13 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
   const emails = chunkStudents.map((student) => student.email);
   const rollNumbers = chunkStudents.map((student) => student.rollNumber);
 
-  const [existingUsers, existingProfiles] = await Promise.all([
-    User.find({ email: { $in: emails } }).session(session),
-    StudentProfile.find({ rollNumber: { $in: rollNumbers } }).session(session),
-  ]);
+  // NOTE: operations within a single transaction/session must run sequentially.
+  // A ClientSession does not support concurrent operations — running both finds
+  // via Promise.all races both to start the transaction at the same txnNumber,
+  // which MongoDB rejects ("Only servers in a sharded cluster can start a new
+  // transaction at the active transaction number").
+  const existingUsers = await User.find({ email: { $in: emails } }).session(session);
+  const existingProfiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } }).session(session);
 
   const existingEmails = new Set(existingUsers.map((user) => user.email));
   const existingRollNumbers = new Set(existingProfiles.map((profile) => profile.rollNumber));
