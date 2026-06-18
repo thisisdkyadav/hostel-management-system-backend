@@ -5,6 +5,15 @@
 
 import mongoose from "mongoose"
 
+/**
+ * Allowed room statuses.
+ * "Active" is the only operational state: allocatable, counted in capacity/occupancy,
+ * and shown with bed-level detail. Every other value (the deactivated states) behaves
+ * the same way "Inactive" always has — capacity zeroed, allocations removed, excluded
+ * from stats — and exists so new code can distinguish *why* a room is out of service.
+ */
+export const ROOM_STATUSES = ["Active", "Inactive", "Guest", "Storage", "Maintenance"]
+
 const RoomSchema = new mongoose.Schema(
   {
     hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },
@@ -14,7 +23,7 @@ const RoomSchema = new mongoose.Schema(
     occupancy: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ["Active", "Inactive"],
+      enum: ROOM_STATUSES,
       default: "Active",
     },
     originalCapacity: { type: Number },
@@ -50,13 +59,17 @@ RoomSchema.virtual("students", {
   justOne: false,
 })
 
-RoomSchema.statics.deactivateRoom = async function (roomId) {
+RoomSchema.statics.deactivateRoom = async function (roomId, status = "Inactive") {
   const room = await this.findById(roomId)
   if (!room) return null
 
-  room.originalCapacity = room.capacity
+  // Only capture the real capacity when leaving the Active state, so transitions
+  // between non-active states (e.g. Inactive -> Guest) don't clobber it with 0.
+  if (room.status === "Active") {
+    room.originalCapacity = room.capacity
+  }
   room.capacity = 0
-  room.status = "Inactive"
+  room.status = status
   return await room.save()
 }
 
@@ -72,7 +85,7 @@ RoomSchema.statics.activateRoom = async function (roomId) {
   return await room.save()
 }
 
-RoomSchema.statics.deactivateRooms = async function (roomIds) {
+RoomSchema.statics.deactivateRooms = async function (roomIds, status = "Inactive") {
   // First, get all rooms to preserve originalCapacity values
   const rooms = await this.find({ _id: { $in: roomIds } })
 
@@ -82,10 +95,11 @@ RoomSchema.statics.deactivateRooms = async function (roomIds) {
       filter: { _id: room._id },
       update: {
         $set: {
-          originalCapacity: room.capacity,
+          // Preserve capacity only when leaving Active; keep it across non-active transitions.
+          originalCapacity: room.status === "Active" ? room.capacity : room.originalCapacity,
           capacity: 0,
           occupancy: 0,
-          status: "Inactive",
+          status,
         },
       },
     },

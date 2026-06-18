@@ -94,9 +94,9 @@ const normalizeRebateSettings = (value = {}) => {
   };
 };
 
-const getExistingAllocatedCountByCaterer = (period = {}) => {
+const getExistingAllocatedCountByCaterer = (period) => {
   const allocatedCountByCaterer = new Map();
-  (Array.isArray(period.catererCapacities) ? period.catererCapacities : []).forEach((entry) => {
+  (Array.isArray(period?.catererCapacities) ? period.catererCapacities : []).forEach((entry) => {
     const catererId = String(entry?.catererId?._id || entry?.catererId || '');
     if (!catererId) return;
 

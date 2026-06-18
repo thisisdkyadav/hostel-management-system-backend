@@ -18,6 +18,7 @@ import {
   RoomAllocation,
   StudentProfile,
 } from '../../../../models/index.js';
+import { ROOM_STATUSES } from '../../../../models/hostel/Room.model.js';
 
 /**
  * Helper function to create units
@@ -191,21 +192,21 @@ class HostelRoomsService extends BaseService {
    * Update room status
    */
   async updateRoomStatus(roomId, status) {
-    let updatedRoom;
-
-    if (status === 'Inactive') {
-      updatedRoom = await Room.deactivateRoom(roomId);
-    } else if (status === 'Active') {
-      updatedRoom = await Room.activateRoom(roomId);
-    } else {
+    if (!ROOM_STATUSES.includes(status)) {
       return badRequest('Invalid status value');
     }
+
+    // "Active" is the only operational state; every other status deactivates the room
+    // (capacity zeroed, allocations removed) while preserving its specific label.
+    const updatedRoom = status === 'Active'
+      ? await Room.activateRoom(roomId)
+      : await Room.deactivateRoom(roomId, status);
 
     if (!updatedRoom) {
       return notFound('Room not found');
     }
 
-    if (status === 'Inactive') {
+    if (status !== 'Active') {
       await RoomAllocation.deleteMany({ roomId });
     }
 
@@ -312,16 +313,16 @@ class HostelRoomsService extends BaseService {
   async updateRoom(roomId, updateData) {
     const { capacity, status } = updateData;
 
-    if (status === 'Inactive') {
-      await Room.deactivateRoom(roomId);
-    } else if (status === 'Active') {
-      await Room.activateRoom(roomId);
-      await Room.findByIdAndUpdate(roomId, { capacity }, { new: true });
-    } else {
+    if (!ROOM_STATUSES.includes(status)) {
       return badRequest('Invalid status value');
     }
 
-    if (status === 'Inactive') {
+    if (status === 'Active') {
+      await Room.activateRoom(roomId);
+      await Room.findByIdAndUpdate(roomId, { capacity }, { new: true });
+    } else {
+      // Any non-active status deactivates the room and clears its allocations.
+      await Room.deactivateRoom(roomId, status);
       await RoomAllocation.deleteMany({ roomId });
     }
 
@@ -356,7 +357,7 @@ class HostelRoomsService extends BaseService {
     }
 
     const roomsToActivate = [];
-    const roomsToDeactivate = [];
+    const roomsToDeactivate = {}; // target status -> [roomId], so each label is applied as-is
     const roomsToUpdateCapacity = [];
 
     if (hostel.type === 'unit-based') {
@@ -392,11 +393,11 @@ class HostelRoomsService extends BaseService {
           );
 
           if (roomData) {
-            if (roomData.status && room.status !== roomData.status) {
+            if (roomData.status && room.status !== roomData.status && ROOM_STATUSES.includes(roomData.status)) {
               if (roomData.status === 'Active') {
                 roomsToActivate.push(room._id);
-              } else if (roomData.status === 'Inactive') {
-                roomsToDeactivate.push(room._id);
+              } else {
+                (roomsToDeactivate[roomData.status] ||= []).push(room._id);
               }
             } else if (room.status === 'Active' && roomData.capacity && room.capacity !== roomData.capacity) {
               roomsToUpdateCapacity.push({ roomId: room._id, capacity: roomData.capacity });
@@ -411,11 +412,11 @@ class HostelRoomsService extends BaseService {
       existingRooms.forEach((room) => {
         const roomData = rooms.find((r) => r.roomNumber === room.roomNumber);
         if (roomData) {
-          if (roomData.status && room.status !== roomData.status) {
+          if (roomData.status && room.status !== roomData.status && ROOM_STATUSES.includes(roomData.status)) {
             if (roomData.status === 'Active') {
               roomsToActivate.push(room._id);
-            } else if (roomData.status === 'Inactive') {
-              roomsToDeactivate.push(room._id);
+            } else {
+              (roomsToDeactivate[roomData.status] ||= []).push(room._id);
             }
           } else if (room.status === 'Active' && roomData.capacity && room.capacity !== roomData.capacity) {
             roomsToUpdateCapacity.push({ roomId: room._id, capacity: roomData.capacity });
@@ -426,9 +427,11 @@ class HostelRoomsService extends BaseService {
       return badRequest('Unsupported hostel type');
     }
 
+    const roomsToDeactivateIds = Object.values(roomsToDeactivate).flat();
+
     if (
       roomsToActivate.length === 0
-      && roomsToDeactivate.length === 0
+      && roomsToDeactivateIds.length === 0
       && roomsToUpdateCapacity.length === 0
     ) {
       return success(null, 200, 'No rooms to update');
@@ -441,8 +444,9 @@ class HostelRoomsService extends BaseService {
       updatedRoomIds.push(...activatedRooms.map((room) => room._id));
     }
 
-    if (roomsToDeactivate.length > 0) {
-      const deactivatedRooms = await Room.deactivateRooms(roomsToDeactivate);
+    for (const [status, ids] of Object.entries(roomsToDeactivate)) {
+      if (ids.length === 0) continue;
+      const deactivatedRooms = await Room.deactivateRooms(ids, status);
       updatedRoomIds.push(...deactivatedRooms.map((room) => room._id));
     }
 
@@ -457,8 +461,8 @@ class HostelRoomsService extends BaseService {
       updatedRoomIds.push(...roomsToUpdateCapacity.map((room) => room.roomId));
     }
 
-    if (roomsToDeactivate.length > 0) {
-      await RoomAllocation.deleteMany({ roomId: { $in: roomsToDeactivate } });
+    if (roomsToDeactivateIds.length > 0) {
+      await RoomAllocation.deleteMany({ roomId: { $in: roomsToDeactivateIds } });
     }
 
     return success({ updatedRoomIds }, 200, 'Rooms updated successfully');

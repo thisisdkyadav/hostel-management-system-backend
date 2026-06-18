@@ -79,8 +79,8 @@ class SheetService {
           .sort((a, b) => a.roomNumber.localeCompare(b.roomNumber, undefined, { numeric: true }));
 
         for (const room of unitRooms) {
-          // For inactive rooms, add single row with bedNumber 0
-          if (room.status === 'Inactive') {
+          // For non-active rooms, add single collapsed row with bedNumber 0
+          if (room.status !== 'Active') {
             const row = this._buildSheetRow(unit, room, 0, null, true);
             sheetData.push(row);
           } else {
@@ -126,8 +126,8 @@ class SheetService {
 
       // Build flat data structure
       for (const room of sortedRooms) {
-        // For inactive rooms, add single row with bedNumber 0
-        if (room.status === 'Inactive') {
+        // For non-active rooms, add single collapsed row with bedNumber 0
+        if (room.status !== 'Active') {
           const row = this._buildSheetRow(null, room, 0, null, false);
           sheetData.push(row);
         } else {
@@ -167,7 +167,7 @@ class SheetService {
    * @private
    */
   _buildSheetRow(unit, room, bedNumber, allocation, isUnitBased) {
-    const isInactive = room.status === 'Inactive';
+    const isInactive = room.status !== 'Active';
     
     let displayRoom;
     if (isUnitBased && unit) {
