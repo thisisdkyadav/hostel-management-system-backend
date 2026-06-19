@@ -15,6 +15,8 @@ import EventProposal from "../../../../models/event/EventProposal.model.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { auditService } from "../../../../services/audit/audit.service.js"
+import { pickFields } from "../../../../utils/objectDiff.js"
 import {
   PROPOSAL_STATUS,
   EVENT_STATUS,
@@ -139,6 +141,15 @@ class ProposalService extends BaseService {
       performedBy: user._id,
     })
 
+    // Audit: data-mutation record of the proposal's initial content
+    await auditService.recordCreate({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      snapshot: proposalPayload,
+      actor: user,
+      feature: "gymkhana-events",
+    })
+
     // Notify the first approver stage that a proposal awaits review
     const submitContext = await this._proposalLinkContext(proposal)
     await notifyStageApprovers({
@@ -225,6 +236,8 @@ class ProposalService extends BaseService {
 
     const previousStatus = proposal.status
     const proposalPayload = this._prepareProposalPayload(data, event, proposal)
+    const trackedFields = Object.keys(proposalPayload)
+    const beforeSnapshot = pickFields(proposal.toObject(), trackedFields)
     Object.assign(proposal, proposalPayload)
 
     if (isGS) {
@@ -269,11 +282,173 @@ class ProposalService extends BaseService {
         : "Updated by President before approval",
     })
 
+    // Audit: field-level diff of the edited proposal content
+    await auditService.recordUpdate({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      before: beforeSnapshot,
+      after: pickFields(proposal.toObject(), trackedFields),
+      fields: trackedFields,
+      actor: user,
+      feature: "gymkhana-events",
+    })
+
     return success(
       { proposal },
       200,
       isGS ? "Proposal resubmitted successfully" : "Proposal updated successfully"
     )
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADMIN OVERRIDE OPERATIONS (Admin / Super Admin)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Admin override edit (surgical): correct proposal content WITHOUT changing
+   * its approval status/stage. Requires a reason; the field-level diff + reason
+   * are recorded in the audit log.
+   */
+  async adminUpdateProposal(proposalId, data, user) {
+    const { reason, ...fields } = data || {}
+
+    const proposal = await this.model.findById(proposalId)
+    if (!proposal) {
+      return notFound("Proposal")
+    }
+
+    const event = await GymkhanaEvent.findById(proposal.eventId)
+    if (!event) {
+      return notFound("Event")
+    }
+
+    const payload = this._prepareProposalPayload(fields, event, proposal)
+    const trackedFields = Object.keys(payload)
+    const beforeSnapshot = pickFields(proposal.toObject(), trackedFields)
+
+    Object.assign(proposal, payload)
+    await proposal.save()
+
+    await auditService.recordUpdate({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      before: beforeSnapshot,
+      after: pickFields(proposal.toObject(), trackedFields),
+      fields: trackedFields,
+      actor: user,
+      reason,
+      feature: "gymkhana-events",
+    })
+
+    return success({ proposal }, 200, "Proposal updated by admin")
+  }
+
+  /**
+   * Admin soft-delete (reversible): hide the proposal and unlink it from its
+   * event so a fresh proposal can be submitted. Snapshot + reason are audited.
+   */
+  async adminSoftDeleteProposal(proposalId, reason, user) {
+    const proposal = await this.model.findById(proposalId)
+    if (!proposal) {
+      return notFound("Proposal")
+    }
+
+    const contentFields = [
+      "proposalText",
+      "proposalDocumentUrl",
+      "externalGuestsDetails",
+      "chiefGuestDocumentUrl",
+      "proposalDetails",
+      "accommodationRequired",
+      "hasRegistrationFee",
+      "registrationFeeAmount",
+      "totalExpectedIncome",
+      "totalExpenditure",
+      "status",
+    ]
+    const snapshot = pickFields(proposal.toObject(), contentFields)
+
+    proposal.isDeleted = true
+    proposal.deletedAt = new Date()
+    proposal.deletedBy = user._id
+    proposal.deleteReason = reason
+    await proposal.save()
+
+    const event = await GymkhanaEvent.findById(proposal.eventId)
+    if (event && String(event.proposalId) === String(proposal._id)) {
+      event.proposalSubmitted = false
+      event.proposalId = null
+      event.status = EVENT_STATUS.UPCOMING
+      await event.save()
+    }
+
+    await auditService.recordDelete({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      snapshot,
+      actor: user,
+      reason,
+      feature: "gymkhana-events",
+    })
+
+    return success({ proposalId: proposal._id }, 200, "Proposal deleted")
+  }
+
+  /**
+   * Admin restore of a soft-deleted proposal. Re-links it to its event.
+   */
+  async adminRestoreProposal(proposalId, user) {
+    const proposal = await this.model
+      .findOne({ _id: proposalId })
+      .setOptions({ withDeleted: true })
+    if (!proposal) {
+      return notFound("Proposal")
+    }
+    if (!proposal.isDeleted) {
+      return badRequest("Proposal is not deleted")
+    }
+
+    proposal.isDeleted = false
+    proposal.deletedAt = null
+    proposal.deletedBy = null
+    proposal.deleteReason = null
+    await proposal.save()
+
+    const event = await GymkhanaEvent.findById(proposal.eventId)
+    if (event && !event.proposalId) {
+      event.proposalSubmitted = true
+      event.proposalId = proposal._id
+      event.status =
+        proposal.status === PROPOSAL_STATUS.APPROVED
+          ? EVENT_STATUS.PROPOSAL_APPROVED
+          : EVENT_STATUS.PROPOSAL_SUBMITTED
+      await event.save()
+    }
+
+    await auditService.recordRestore({
+      entityType: "EventProposal",
+      entityId: proposal._id,
+      snapshot: pickFields(proposal.toObject(), ["status"]),
+      actor: user,
+      feature: "gymkhana-events",
+    })
+
+    return success({ proposal }, 200, "Proposal restored")
+  }
+
+  /**
+   * List soft-deleted proposals (newest first) for the admin "deleted items" view.
+   */
+  async listDeletedProposals({ limit = 200 } = {}) {
+    const proposals = await this.model
+      .find({ isDeleted: true })
+      .sort({ deletedAt: -1 })
+      .limit(limit)
+      .populate("submittedBy", "name email")
+      .populate("deletedBy", "name email")
+      .populate("eventId", "title category")
+      .lean()
+    return success({ proposals })
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

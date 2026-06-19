@@ -104,6 +104,16 @@ const EventProposalSchema = new mongoose.Schema(
     
     // Revision tracking
     revisionCount: { type: Number, default: 0 },
+
+    // Soft delete (admin override)
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    deleteReason: { type: String, default: null },
   },
   {
     timestamps: true,
@@ -116,6 +126,17 @@ const EventProposalSchema = new mongoose.Schema(
 EventProposalSchema.index({ eventId: 1 })
 EventProposalSchema.index({ status: 1 })
 EventProposalSchema.index({ submittedBy: 1 })
+EventProposalSchema.index({ isDeleted: 1 })
+
+// Soft-delete guard: exclude deleted docs from all normal reads. Callers that
+// genuinely need deleted docs opt in via query option { withDeleted: true } or
+// by referencing `isDeleted` in their own filter (e.g. restore).
+EventProposalSchema.pre(/^find/, function () {
+  const filter = this.getFilter()
+  if (!("isDeleted" in filter) && !this.getOptions().withDeleted) {
+    this.where({ isDeleted: { $ne: true } })
+  }
+})
 
 const EventProposal = mongoose.model("EventProposal", EventProposalSchema)
 

@@ -16,6 +16,8 @@ import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import EventProposal from "../../../../models/event/EventProposal.model.js"
 import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { auditService } from "../../../../services/audit/audit.service.js"
+import { pickFields } from "../../../../utils/objectDiff.js"
 import {
   EVENT_STATUS,
   EXPENSE_APPROVAL_STATUS,
@@ -98,6 +100,15 @@ class ExpenseService extends BaseService {
       performedBy: user._id,
     })
 
+    // Audit: data-mutation record of the bill's initial content
+    await auditService.recordCreate({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      snapshot: { ...data, estimatedBudget },
+      actor: user,
+      feature: "gymkhana-events",
+    })
+
     const submitContext = await this._expenseLinkContext(expense)
     await notifyStageApprovers({
       entityType: "EventExpense",
@@ -151,6 +162,9 @@ class ExpenseService extends BaseService {
       return badRequest("Approved bills cannot be edited")
     }
 
+    const trackedFields = Object.keys(data || {})
+    const beforeSnapshot = pickFields(expense.toObject(), trackedFields)
+
     Object.assign(expense, data)
     expense.approvalStatus = EXPENSE_APPROVAL_STATUS.PENDING_STUDENT_AFFAIRS
     expense.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
@@ -165,7 +179,163 @@ class ExpenseService extends BaseService {
     expense.approvalComments = ""
     await expense.save()
 
+    // Audit: field-level diff of the edited bill content
+    await auditService.recordUpdate({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      before: beforeSnapshot,
+      after: pickFields(expense.toObject(), trackedFields),
+      fields: trackedFields,
+      actor: user,
+      feature: "gymkhana-events",
+    })
+
     return success({ expense }, 200, "Expenses updated successfully")
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ADMIN OVERRIDE OPERATIONS (Admin / Super Admin)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Admin override edit (surgical): correct bill content WITHOUT changing the
+   * approval status/stage. Requires a reason; diff + reason are audited.
+   */
+  async adminUpdateExpense(expenseId, data, user) {
+    const { reason, ...payload } = data || {}
+
+    const expense = await this.model.findById(expenseId)
+    if (!expense) {
+      return notFound("Expense")
+    }
+
+    const trackedFields = Object.keys(payload)
+    const beforeSnapshot = pickFields(expense.toObject(), trackedFields)
+
+    Object.assign(expense, payload)
+    await expense.save()
+
+    await auditService.recordUpdate({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      before: beforeSnapshot,
+      after: pickFields(expense.toObject(), trackedFields),
+      fields: trackedFields,
+      actor: user,
+      reason,
+      feature: "gymkhana-events",
+    })
+
+    return success({ expense }, 200, "Bill updated by admin")
+  }
+
+  /**
+   * Admin soft-delete (reversible): hide the bill and unlink it from its event.
+   */
+  async adminSoftDeleteExpense(expenseId, reason, user) {
+    const expense = await this.model.findById(expenseId)
+    if (!expense) {
+      return notFound("Expense")
+    }
+
+    const snapshot = pickFields(expense.toObject(), [
+      "bills",
+      "eventReportDocumentUrl",
+      "notes",
+      "totalExpenditure",
+      "estimatedBudget",
+      "approvalStatus",
+    ])
+
+    expense.isDeleted = true
+    expense.deletedAt = new Date()
+    expense.deletedBy = user._id
+    expense.deleteReason = reason
+    await expense.save()
+
+    const event = await GymkhanaEvent.findById(expense.eventId)
+    if (event && String(event.expenseId) === String(expense._id)) {
+      event.expenseId = null
+      if (event.status === EVENT_STATUS.COMPLETED) {
+        event.status = EVENT_STATUS.PROPOSAL_APPROVED
+      }
+      await event.save()
+    }
+
+    await auditService.recordDelete({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      snapshot,
+      actor: user,
+      reason,
+      feature: "gymkhana-events",
+    })
+
+    return success({ expenseId: expense._id }, 200, "Bill deleted")
+  }
+
+  /**
+   * Admin restore of a soft-deleted bill. Re-links it to its event.
+   */
+  async adminRestoreExpense(expenseId, user) {
+    const expense = await this.model
+      .findOne({ _id: expenseId })
+      .setOptions({ withDeleted: true })
+    if (!expense) {
+      return notFound("Expense")
+    }
+    if (!expense.isDeleted) {
+      return badRequest("Bill is not deleted")
+    }
+
+    // Only one active bill per event is allowed (partial-unique on eventId).
+    const activeExists = await this.model.findOne({
+      eventId: expense.eventId,
+      _id: { $ne: expense._id },
+    })
+    if (activeExists) {
+      return badRequest("A bill already exists for this event; cannot restore the deleted one")
+    }
+
+    expense.isDeleted = false
+    expense.deletedAt = null
+    expense.deletedBy = null
+    expense.deleteReason = null
+    await expense.save()
+
+    const event = await GymkhanaEvent.findById(expense.eventId)
+    if (event && !event.expenseId) {
+      event.expenseId = expense._id
+      if (expense.approvalStatus === EXPENSE_APPROVAL_STATUS.APPROVED) {
+        event.status = EVENT_STATUS.COMPLETED
+      }
+      await event.save()
+    }
+
+    await auditService.recordRestore({
+      entityType: "EventExpense",
+      entityId: expense._id,
+      snapshot: pickFields(expense.toObject(), ["approvalStatus", "totalExpenditure"]),
+      actor: user,
+      feature: "gymkhana-events",
+    })
+
+    return success({ expense }, 200, "Bill restored")
+  }
+
+  /**
+   * List soft-deleted bills (newest first) for the admin "deleted items" view.
+   */
+  async listDeletedExpenses({ limit = 200 } = {}) {
+    const expenses = await this.model
+      .find({ isDeleted: true })
+      .sort({ deletedAt: -1 })
+      .limit(limit)
+      .populate("submittedBy", "name email")
+      .populate("deletedBy", "name email")
+      .populate("eventId", "title category")
+      .lean()
+    return success({ expenses })
   }
 
   /**

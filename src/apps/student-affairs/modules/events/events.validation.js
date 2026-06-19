@@ -209,6 +209,26 @@ export const updateProposalSchema = Joi.object({
   totalExpenditure: Joi.number().min(0),
 }).min(1)
 
+// Admin override edit: same editable fields + a mandatory reason (audited).
+export const adminUpdateProposalSchema = Joi.object({
+  proposalText: Joi.string().trim().min(10).max(5000),
+  proposalDocumentUrl: Joi.string().trim().allow("").max(4000),
+  externalGuestsDetails: Joi.string().trim().allow("").max(3000),
+  chiefGuestDocumentUrl: Joi.string().trim().allow("").max(4000),
+  proposalDetails: proposalDetailsSchema,
+  accommodationRequired: Joi.boolean(),
+  hasRegistrationFee: Joi.boolean(),
+  registrationFeeAmount: Joi.number().min(0),
+  totalExpectedIncome: Joi.number().min(0),
+  totalExpenditure: Joi.number().min(0),
+  reason: Joi.string().trim().min(3).max(500).required(),
+}).min(2)
+
+// Reason-only body for admin soft-delete / restore actions (audited).
+export const adminReasonSchema = Joi.object({
+  reason: Joi.string().trim().min(3).max(500).required(),
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // EXPENSE SCHEMAS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -224,6 +244,14 @@ export const updateExpenseSchema = Joi.object({
   eventReportDocumentUrl: Joi.string().trim().allow("").max(4000),
   notes: Joi.string().trim().max(1000),
 }).min(1)
+
+// Admin override edit: same editable fields + a mandatory reason (audited).
+export const adminUpdateExpenseSchema = Joi.object({
+  bills: Joi.array().items(billSchema).min(1),
+  eventReportDocumentUrl: Joi.string().trim().allow("").max(4000),
+  notes: Joi.string().trim().max(1000),
+  reason: Joi.string().trim().min(3).max(500).required(),
+}).min(2)
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // AMENDMENT SCHEMAS

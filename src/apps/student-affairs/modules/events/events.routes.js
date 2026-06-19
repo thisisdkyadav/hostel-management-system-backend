@@ -423,6 +423,32 @@ router.put(
   eventsController.updateProposal
 )
 
+// Admin override edit of a proposal (Admin only) - surgical, status unchanged
+router.put(
+  "/proposals/:id/admin",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  validate(validation.adminUpdateProposalSchema),
+  eventsController.adminUpdateProposal
+)
+
+// Admin soft-delete of a proposal (Admin only). Reason via query (DELETE has no body).
+router.delete(
+  "/proposals/:id",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  validate(validation.adminReasonSchema, "query"),
+  eventsController.adminDeleteProposal
+)
+
+// Admin restore of a soft-deleted proposal (Admin only)
+router.post(
+  "/proposals/:id/restore",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  eventsController.adminRestoreProposal
+)
+
 // Approve proposal
 router.post(
   "/proposals/:id/approve",
@@ -456,6 +482,22 @@ router.get(
   authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
   ...eventsViewAccess,
   eventsController.getProposalHistory
+)
+
+// Merged edit + approval audit timeline for an event-area entity
+router.get(
+  "/audit/:entityType/:entityId",
+  authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]),
+  ...eventsViewAccess,
+  eventsController.getEntityAuditHistory
+)
+
+// Soft-deleted proposals + bills, for the admin "deleted items" / restore view (Admin only)
+router.get(
+  "/admin/deleted",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsViewAccess,
+  eventsController.getDeletedEventEntities
 )
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -494,6 +536,32 @@ router.put(
   ...eventsCreateAccess,
   validate(validation.updateExpenseSchema),
   eventsController.updateExpense
+)
+
+// Admin override edit of a bill (Admin only) - surgical, status unchanged
+router.put(
+  "/expenses/:id/admin",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  validate(validation.adminUpdateExpenseSchema),
+  eventsController.adminUpdateExpense
+)
+
+// Admin soft-delete of a bill (Admin only). Reason via query (DELETE has no body).
+router.delete(
+  "/expenses/:id",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  validate(validation.adminReasonSchema, "query"),
+  eventsController.adminDeleteExpense
+)
+
+// Admin restore of a soft-deleted bill (Admin only)
+router.post(
+  "/expenses/:id/restore",
+  authorizeRoles(ROLE_GROUPS.ADMIN_LEVEL),
+  ...eventsApproveAccess,
+  eventsController.adminRestoreExpense
 )
 
 // Get expense history

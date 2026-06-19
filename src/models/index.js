@@ -15,6 +15,9 @@ export * from './complaint/index.js'
 // Visitor Models
 export * from './visitor/index.js'
 
+// Accommodation Models
+export * from './accommodation/index.js'
+
 // Event Models
 export * from './event/index.js'
 
@@ -74,3 +77,6 @@ export * from './authz/index.js'
 
 // Action-link models
 export * from './action-link/index.js'
+
+// Generic audit-log models
+export * from './audit/index.js'

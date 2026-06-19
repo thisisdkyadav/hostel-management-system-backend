@@ -10,7 +10,8 @@ import { expenseService } from "./expense.service.js"
 import { amendmentService } from "./amendment.service.js"
 import { megaEventsService } from "./mega-events.service.js"
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
-import { success } from "../../../../services/base/ServiceResponse.js"
+import { success, badRequest } from "../../../../services/base/ServiceResponse.js"
+import { auditService } from "../../../../services/audit/audit.service.js"
 import { getConfigWithDefault } from "../../../../utils/configDefaults.js"
 import { getPostStudentAffairsApproverOptionsByStage } from "./approval-assignments.utils.js"
 
@@ -276,6 +277,21 @@ export const updateProposal = asyncHandler(async (req, res) => {
   sendRawResponse(res, result)
 })
 
+export const adminUpdateProposal = asyncHandler(async (req, res) => {
+  const result = await proposalService.adminUpdateProposal(req.params.id, req.body, req.user)
+  sendRawResponse(res, result)
+})
+
+export const adminDeleteProposal = asyncHandler(async (req, res) => {
+  const result = await proposalService.adminSoftDeleteProposal(req.params.id, req.query.reason, req.user)
+  sendRawResponse(res, result)
+})
+
+export const adminRestoreProposal = asyncHandler(async (req, res) => {
+  const result = await proposalService.adminRestoreProposal(req.params.id, req.user)
+  sendRawResponse(res, result)
+})
+
 export const approveProposal = asyncHandler(async (req, res) => {
   const result = await proposalService.approveProposal(
     req.params.id,
@@ -336,6 +352,35 @@ export const submitExpense = asyncHandler(async (req, res) => {
 export const updateExpense = asyncHandler(async (req, res) => {
   const result = await expenseService.updateExpense(req.params.id, req.body, req.user)
   sendRawResponse(res, result)
+})
+
+export const adminUpdateExpense = asyncHandler(async (req, res) => {
+  const result = await expenseService.adminUpdateExpense(req.params.id, req.body, req.user)
+  sendRawResponse(res, result)
+})
+
+export const adminDeleteExpense = asyncHandler(async (req, res) => {
+  const result = await expenseService.adminSoftDeleteExpense(req.params.id, req.query.reason, req.user)
+  sendRawResponse(res, result)
+})
+
+export const adminRestoreExpense = asyncHandler(async (req, res) => {
+  const result = await expenseService.adminRestoreExpense(req.params.id, req.user)
+  sendRawResponse(res, result)
+})
+
+export const getDeletedEventEntities = asyncHandler(async (_req, res) => {
+  const [proposalsRes, expensesRes] = await Promise.all([
+    proposalService.listDeletedProposals(),
+    expenseService.listDeletedExpenses(),
+  ])
+  sendRawResponse(
+    res,
+    success({
+      proposals: proposalsRes.data?.proposals || [],
+      expenses: expensesRes.data?.expenses || [],
+    })
+  )
 })
 
 export const getExpenseById = asyncHandler(async (req, res) => {
@@ -612,6 +657,40 @@ export const getCalendarView = asyncHandler(async (req, res) => {
 
   const enrichedEvents = events.map(enrichEventWithProposalDueDate)
   const holidays = await getHolidaysInRange(rangeStart, rangeEnd)
-  
+
   sendRawResponse(res, success({ events: enrichedEvents, holidays }))
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// AUDIT HISTORY CONTROLLER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// Entity types whose audit timeline is viewable through the events module.
+// Other features expose their own audit route with their own access control.
+const AUDITABLE_EVENT_ENTITY_TYPES = new Set([
+  "ActivityCalendar",
+  "GymkhanaEvent",
+  "EventProposal",
+  "EventExpense",
+  "CalendarAmendment",
+  "MegaEventOccurrence",
+])
+
+/**
+ * Merged edit + approval timeline for a single event-area entity.
+ * GET /audit/:entityType/:entityId
+ */
+export const getEntityAuditHistory = asyncHandler(async (req, res) => {
+  const { entityType, entityId } = req.params
+  if (!AUDITABLE_EVENT_ENTITY_TYPES.has(entityType)) {
+    return sendRawResponse(res, badRequest("Unsupported audit entity type"))
+  }
+
+  const result = await auditService.getEntityHistory({
+    entityType,
+    entityId,
+    page: req.query.page,
+    limit: req.query.limit,
+  })
+  sendRawResponse(res, result)
 })

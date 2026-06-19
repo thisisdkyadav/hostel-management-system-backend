@@ -40,7 +40,8 @@ const EventExpenseSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "GymkhanaEvent",
       required: true,
-      unique: true,
+      // Uniqueness enforced via a partial index below (excludes soft-deleted
+      // rows) so a bill can be re-submitted after an admin soft-deletes one.
     },
     submittedBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -106,6 +107,16 @@ const EventExpenseSchema = new mongoose.Schema(
     },
     approvedAt: { type: Date, default: null },
     approvalComments: { type: String, trim: true, default: "" },
+
+    // Soft delete (admin override)
+    isDeleted: { type: Boolean, default: false },
+    deletedAt: { type: Date, default: null },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    deleteReason: { type: String, default: null },
   },
   {
     timestamps: true,
@@ -128,6 +139,24 @@ EventExpenseSchema.pre("save", function () {
 // Indexes
 EventExpenseSchema.index({ submittedBy: 1 })
 EventExpenseSchema.index({ approvalStatus: 1 })
+EventExpenseSchema.index({ isDeleted: 1 })
+// One non-deleted bill per event. Partial filter lets a soft-deleted bill coexist
+// with a freshly re-submitted one. Requires backfilling isDeleted on existing
+// docs + dropping the old `eventId_1` unique index (see migration note in PR).
+EventExpenseSchema.index(
+  { eventId: 1 },
+  { unique: true, partialFilterExpression: { isDeleted: false } }
+)
+
+// Soft-delete guard: exclude deleted docs from all normal reads. Callers that
+// genuinely need deleted docs opt in via query option { withDeleted: true } or
+// by referencing `isDeleted` in their own filter (e.g. restore).
+EventExpenseSchema.pre(/^find/, function () {
+  const filter = this.getFilter()
+  if (!("isDeleted" in filter) && !this.getOptions().withDeleted) {
+    this.where({ isDeleted: { $ne: true } })
+  }
+})
 
 const EventExpense = mongoose.model("EventExpense", EventExpenseSchema)
 
