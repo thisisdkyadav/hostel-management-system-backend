@@ -11,10 +11,12 @@
 import express from 'express';
 import visitorsRoutes from './modules/visitors/visitors.routes.js';
 import appointmentsRoutes from './modules/appointments/appointments.routes.js';
+import accommodationRoutes from './modules/accommodation/accommodation.routes.js';
 
 const router = express.Router();
 
 router.use('/visitor', visitorsRoutes);
+router.use('/accommodation', accommodationRoutes);
 router.use('/appointments', appointmentsRoutes);
 router.use('/jr-appointments', appointmentsRoutes);
 

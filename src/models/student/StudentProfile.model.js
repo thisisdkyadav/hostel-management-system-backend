@@ -76,6 +76,11 @@ const StudentProfileSchema = new mongoose.Schema({
     trim: true,
     lowercase: true,
   },
+  facultyAdvisorEmail: {
+    type: String,
+    trim: true,
+    lowercase: true,
+  },
   currentRoomAllocation: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "RoomAllocation",
@@ -183,6 +188,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         guardianEmail: studentProfile.guardianEmail || "",
         guardianPhone: studentProfile.guardianPhone || "",
         secondaryEmail: studentProfile.secondaryEmail || "",
+        facultyAdvisorEmail: studentProfile.facultyAdvisorEmail || "",
         admissionDate: studentProfile.admissionDate,
         status: studentProfile.status || "",
         isDayScholar: studentProfile.isDayScholar || false,
@@ -434,7 +440,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
 
     if (missingFields.length > 0) {
       const userFieldSet = new Set(["name", "email", "phone", "profileImage"])
-      const profileFieldSet = new Set(["rollNumber", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "secondaryEmail", "familyMembers"])
+      const profileFieldSet = new Set(["rollNumber", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "secondaryEmail", "facultyAdvisorEmail", "familyMembers"])
 
       const andConditions = []
       for (const key of missingFields) {
@@ -536,7 +542,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
 
 // Expose allowed keys for frontend to build the missing filter UI
 StudentProfileSchema.statics.getMissingFieldOptions = function () {
-  return ["phone", "profileImage", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "secondaryEmail"]
+  return ["phone", "profileImage", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "secondaryEmail", "facultyAdvisorEmail"]
   // return ["name", "email", "phone", "profileImage", "rollNumber", "department", "degree", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"]
 }
 

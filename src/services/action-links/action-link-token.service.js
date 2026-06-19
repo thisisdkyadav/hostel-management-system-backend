@@ -13,6 +13,7 @@ export const ACTION_LINK_TOKEN_TYPE = {
   COMPLAINT_FEEDBACK: "complaint_feedback",
   ELECTION_NOMINATION_SUPPORT: "election_nomination_support",
   ELECTION_VOTING_BALLOT: "election_voting_ballot",
+  ACCOMMODATION_FA_RECOMMENDATION: "accommodation_fa_recommendation",
 }
 
 export const hashActionLinkToken = (rawToken) =>

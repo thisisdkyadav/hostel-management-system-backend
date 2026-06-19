@@ -52,6 +52,10 @@ export const SUBROLES = {
   OFFICER_SA: "Officer SA",
   ASSOCIATE_DEAN_SA: "Associate Dean SA",
   DEAN_SA: "Dean SA",
+  // Admin accommodation subroles
+  CHIEF_WARDEN: "Chief Warden",
+  CHIEF_WARDEN_OFFICE: "Chief Warden Office",
+  ACCOUNTANT: "Accountant",
 }
 
 export const ADMIN_SUBROLES = [
@@ -60,6 +64,9 @@ export const ADMIN_SUBROLES = [
   SUBROLES.OFFICER_SA,
   SUBROLES.ASSOCIATE_DEAN_SA,
   SUBROLES.DEAN_SA,
+  SUBROLES.CHIEF_WARDEN,
+  SUBROLES.CHIEF_WARDEN_OFFICE,
+  SUBROLES.ACCOUNTANT,
 ]
 
 /**

@@ -18,6 +18,7 @@ import {
   startElectionVotingEmailScheduler,
   stopElectionVotingEmailScheduler,
 } from './apps/student-affairs/modules/elections/elections-voting-dispatch.service.js';
+import { startJobScheduler, stopJobScheduler } from './jobs/scheduler.js';
 
 const PORT = env.PORT || 5000;
 
@@ -33,6 +34,7 @@ const startServer = async () => {
     });
     startCommonCacheScheduler();
     startElectionVotingEmailScheduler();
+    startJobScheduler();
 
     // 2. Create Express app
     const { app, sessionMiddleware } = createApp();
@@ -56,6 +58,7 @@ const startServer = async () => {
       await closeSocketIO();
       stopCommonCacheScheduler();
       stopElectionVotingEmailScheduler();
+      stopJobScheduler();
       await closeSessionRedisClient();
       await closeDataCacheClient();
       

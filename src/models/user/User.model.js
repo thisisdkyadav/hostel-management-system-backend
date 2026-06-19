@@ -62,6 +62,10 @@ const UserSchema = new mongoose.Schema(
         "Officer SA",
         "Associate Dean SA",
         "Dean SA",
+        // Admin accommodation subroles
+        "Chief Warden",
+        "Chief Warden Office",
+        "Accountant",
         // Dining subroles
         "Office",
         "Caterer",

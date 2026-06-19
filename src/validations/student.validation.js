@@ -24,6 +24,7 @@ const studentProfileBody = Joi.object({
   guardianPhone: phone,
   guardianEmail: email,
   secondaryEmail: email,
+  facultyAdvisorEmail: email,
   hostel: objectId,
   room: objectId,
   profileImage: mediaReference,
@@ -143,6 +144,7 @@ export const updateStudentProfileSchema = Joi.object({
     guardianPhone: phone,
     guardianEmail: email,
     secondaryEmail: email,
+    facultyAdvisorEmail: email,
     profileImage: mediaReference,
   }),
 });

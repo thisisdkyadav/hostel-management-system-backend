@@ -26,6 +26,16 @@ export const defaultConfigs = {
     value: { visitorPaymentLink: "" },
     description: "System-wide settings for the hostel management system",
   },
+  accommodation: {
+    value: {
+      defaultPaymentLink: "",
+      defaultPaymentQR: "",
+      feePerPersonPerNight: 0,
+      gstPercentage: 0,
+      gstin: "",
+    },
+    description: "Visitor accommodation settings: default payment link/QR, per-person-per-night fee, GST percentage, and GSTIN shown on invoices.",
+  },
   academicHolidays: {
     value: {},
     description: "Year-wise academic holidays map. Example: { \"2026\": [{ title, date }] }",
