@@ -16,6 +16,8 @@ import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js
 import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
 import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
 import User from "../../../../models/user/User.model.js"
+import { auditService } from "../../../../services/audit/audit.service.js"
+import { pickFields } from "../../../../utils/objectDiff.js"
 import {
   CALENDAR_STATUS,
   APPROVAL_STAGES,
@@ -115,7 +117,7 @@ class CalendarService extends BaseService {
       isLocked: false,
     })
 
-    await this._writeCalendarEvents(calendar._id, data.events || [])
+    await this._writeCalendarEvents(calendar._id, data.events || [], user)
 
     return created({ calendar: await this._attachResolvedCategoryDefinitions(calendar) }, "Activity calendar created")
   }
@@ -246,7 +248,7 @@ class CalendarService extends BaseService {
     await calendar.save()
 
     if (data.events) {
-      await this._writeCalendarEvents(calendar._id, data.events)
+      await this._writeCalendarEvents(calendar._id, data.events, user)
     }
 
     return success({ calendar: await this._attachResolvedCategoryDefinitions(calendar) }, 200, "Calendar updated successfully")
@@ -837,11 +839,21 @@ class CalendarService extends BaseService {
    * (no _id), and delete removed ones. Events carrying proposal/expense workflow
    * data are never deleted.
    */
-  async _writeCalendarEvents(calendarId, incomingEvents = []) {
+  async _writeCalendarEvents(calendarId, incomingEvents = [], actor = null) {
     const incoming = Array.isArray(incomingEvents) ? incomingEvents : []
     const existing = await GymkhanaEvent.find({ calendarId, isMegaEvent: false })
     const existingById = new Map(existing.map((event) => [String(event._id), event]))
     const keptIds = new Set()
+
+    // Content fields whose changes are worth auditing (skips workflow/ref fields).
+    const AUDIT_FIELDS = [
+      "title",
+      "category",
+      "scheduledStartDate",
+      "scheduledEndDate",
+      "estimatedBudget",
+      "description",
+    ]
 
     for (const event of incoming) {
       const payload = {
@@ -859,10 +871,27 @@ class CalendarService extends BaseService {
       const id = event._id ? String(event._id) : null
       if (id && existingById.has(id)) {
         keptIds.add(id)
+        const beforeSnapshot = pickFields(existingById.get(id).toObject(), AUDIT_FIELDS)
         await GymkhanaEvent.findByIdAndUpdate(id, payload, { new: true, runValidators: true })
+        await auditService.recordUpdate({
+          entityType: "GymkhanaEvent",
+          entityId: id,
+          before: beforeSnapshot,
+          after: pickFields(payload, AUDIT_FIELDS),
+          fields: AUDIT_FIELDS,
+          actor,
+          feature: "gymkhana-events",
+        })
       } else {
         const createdEvent = await GymkhanaEvent.create({ ...payload, status: "upcoming" })
         keptIds.add(String(createdEvent._id))
+        await auditService.recordCreate({
+          entityType: "GymkhanaEvent",
+          entityId: createdEvent._id,
+          snapshot: pickFields(payload, AUDIT_FIELDS),
+          actor,
+          feature: "gymkhana-events",
+        })
       }
     }
 
@@ -875,6 +904,15 @@ class CalendarService extends BaseService {
     )
     if (removable.length > 0) {
       await GymkhanaEvent.deleteMany({ _id: { $in: removable.map((event) => event._id) } })
+      for (const event of removable) {
+        await auditService.recordDelete({
+          entityType: "GymkhanaEvent",
+          entityId: event._id,
+          snapshot: pickFields(event.toObject(), AUDIT_FIELDS),
+          actor,
+          feature: "gymkhana-events",
+        })
+      }
     }
   }
 
