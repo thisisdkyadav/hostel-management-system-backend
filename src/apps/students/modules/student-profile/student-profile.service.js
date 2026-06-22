@@ -11,6 +11,7 @@ import { User } from '../../../../models/index.js';
 import { FamilyMember } from '../../../../models/index.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { Health } from '../../../../models/index.js';
+import { toDateOnly } from '../../../../utils/utils.js';
 
 const toStringArray = (value) => {
   if (!Array.isArray(value)) return [];
@@ -61,9 +62,7 @@ class StudentProfileService extends BaseService {
           editableProfile.gender = studentProfile.gender || '';
           break;
         case 'dateOfBirth':
-          editableProfile.dateOfBirth = studentProfile.dateOfBirth
-            ? studentProfile.dateOfBirth.toISOString().split('T')[0]
-            : '';
+          editableProfile.dateOfBirth = toDateOnly(studentProfile.dateOfBirth) || '';
           break;
         case 'address':
           editableProfile.address = studentProfile.address || '';
@@ -86,9 +85,7 @@ class StudentProfileService extends BaseService {
           editableProfile.bloodGroup = health?.bloodGroup || '';
           break;
         case 'admissionDate':
-          editableProfile.admissionDate = studentProfile.admissionDate
-            ? studentProfile.admissionDate.toISOString().split('T')[0]
-            : '';
+          editableProfile.admissionDate = toDateOnly(studentProfile.admissionDate) || '';
           break;
       }
     });
@@ -136,12 +133,8 @@ class StudentProfileService extends BaseService {
           break;
         case 'dateOfBirth':
           if (editableFields.includes('dateOfBirth')) {
-            try {
-              const date = new Date(body.dateOfBirth);
-              if (!isNaN(date.getTime())) updates.dateOfBirth = date;
-            } catch (err) {
-              // Invalid date, ignore
-            }
+            const normalized = toDateOnly(body.dateOfBirth);
+            if (normalized !== undefined) updates.dateOfBirth = normalized;
           }
           break;
         case 'address':
@@ -161,7 +154,10 @@ class StudentProfileService extends BaseService {
           if (editableFields.includes('bloodGroup')) updates.bloodGroup = body.bloodGroup;
           break;
         case 'admissionDate':
-          if (editableFields.includes('admissionDate')) updates.admissionDate = body.admissionDate;
+          if (editableFields.includes('admissionDate')) {
+            const normalized = toDateOnly(body.admissionDate);
+            if (normalized !== undefined) updates.admissionDate = normalized;
+          }
           break;
       }
     });

@@ -4,6 +4,7 @@
  */
 
 import mongoose from "mongoose"
+import { toDateOnly } from "../../utils/utils.js"
 
 const StudentProfileSchema = new mongoose.Schema({
   userId: {
@@ -38,14 +39,20 @@ const StudentProfileSchema = new mongoose.Schema({
     default: [],
   },
   admissionDate: {
-    type: Date,
+    // Date-only "YYYY-MM-DD" string (no time/timezone) to avoid day-shift bugs.
+    type: String,
+    trim: true,
+    match: [/^\d{4}-\d{2}-\d{2}$/, "admissionDate must be in YYYY-MM-DD format"],
   },
   address: {
     type: String,
     trim: true,
   },
   dateOfBirth: {
-    type: Date,
+    // Date-only "YYYY-MM-DD" string (no time/timezone) to avoid day-shift bugs.
+    type: String,
+    trim: true,
+    match: [/^\d{4}-\d{2}-\d{2}$/, "dateOfBirth must be in YYYY-MM-DD format"],
   },
   gender: {
     type: String,
@@ -157,16 +164,18 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
     }
 
     const formattedProfiles = studentProfiles.map((studentProfile) => {
+      // admissionDate is a date-only "YYYY-MM-DD" string; tolerate legacy Date too.
+      const admissionDateStr = toDateOnly(studentProfile.admissionDate) || ""
       let year
-      if (studentProfile.admissionDate) {
+      if (admissionDateStr) {
         const currentDate = new Date()
-        const admissionYear = studentProfile.admissionDate.getFullYear()
+        const admissionYear = Number(admissionDateStr.slice(0, 4))
         const currentYear = currentDate.getFullYear()
         const isNext = currentDate.getMonth() > 5 ? 1 : 0
         year = currentYear - admissionYear + isNext || ""
       }
 
-      const formattedDOB = studentProfile.dateOfBirth ? studentProfile.dateOfBirth.toISOString().split("T")[0] : ""
+      const formattedDOB = toDateOnly(studentProfile.dateOfBirth) || ""
 
       const fullData = {
         userId: studentProfile.userId?._id || "",
@@ -189,7 +198,7 @@ StudentProfileSchema.statics.getFullStudentData = async function (userId) {
         guardianPhone: studentProfile.guardianPhone || "",
         secondaryEmail: studentProfile.secondaryEmail || "",
         facultyAdvisorEmail: studentProfile.facultyAdvisorEmail || "",
-        admissionDate: studentProfile.admissionDate,
+        admissionDate: admissionDateStr,
         status: studentProfile.status || "",
         isDayScholar: studentProfile.isDayScholar || false,
         dayScholarDetails: studentProfile.dayScholarDetails || null,
@@ -321,9 +330,10 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   }
   if (gender) matchProfile.gender = gender
   if (admissionDateFrom || admissionDateTo) {
+    // admissionDate is a date-only "YYYY-MM-DD" string; lexical order == chronological.
     matchProfile.admissionDate = {}
-    if (admissionDateFrom) matchProfile.admissionDate.$gte = new Date(admissionDateFrom)
-    if (admissionDateTo) matchProfile.admissionDate.$lte = new Date(admissionDateTo)
+    if (admissionDateFrom) matchProfile.admissionDate.$gte = toDateOnly(admissionDateFrom)
+    if (admissionDateTo) matchProfile.admissionDate.$lte = toDateOnly(admissionDateTo)
   }
   if (status) matchProfile.status = status
   pipeline.push({ $match: matchProfile })

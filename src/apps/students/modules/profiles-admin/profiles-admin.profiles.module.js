@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { Configuration, StudentProfile, User } from '../../../../models/index.js';
 import { success, badRequest, forbidden, notFound } from '../../../../services/base/index.js';
 import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
-import { formatDate } from '../../../../utils/utils.js';
+import { toDateOnly } from '../../../../utils/utils.js';
 import { getIO } from '../../../../loaders/socket.loader.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import {
@@ -313,12 +313,12 @@ const buildProfileUpdatePayload = (student, currentUserId, batchValue) => {
   const profileUpdate = {};
 
   if (student.gender !== undefined) profileUpdate.gender = student.gender;
-  if (student.dateOfBirth !== undefined) profileUpdate.dateOfBirth = formatDate(student.dateOfBirth);
+  if (student.dateOfBirth !== undefined) profileUpdate.dateOfBirth = toDateOnly(student.dateOfBirth);
   if (student.department !== undefined) profileUpdate.department = student.department;
   if (student.degree !== undefined) profileUpdate.degree = student.degree;
   if (batchValue !== undefined) profileUpdate.batch = batchValue;
   if (student.address !== undefined) profileUpdate.address = student.address;
-  if (student.admissionDate !== undefined) profileUpdate.admissionDate = formatDate(student.admissionDate);
+  if (student.admissionDate !== undefined) profileUpdate.admissionDate = toDateOnly(student.admissionDate);
   if (student.guardian !== undefined) profileUpdate.guardian = student.guardian;
   if (student.guardianPhone !== undefined) profileUpdate.guardianPhone = student.guardianPhone;
   if (student.guardianEmail !== undefined) profileUpdate.guardianEmail = student.guardianEmail;
@@ -1021,11 +1021,11 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
   const profileUpdateData = {
     rollNumber,
     gender,
-    dateOfBirth,
+    dateOfBirth: toDateOnly(dateOfBirth),
     address,
     department,
     degree,
-    admissionDate,
+    admissionDate: toDateOnly(admissionDate),
     guardian,
     guardianPhone,
     guardianEmail,

@@ -6,6 +6,12 @@ import Joi from 'joi';
 import { objectId, email, phone, name, mediaReference } from './common.validation.js';
 import { MAX_BULK_RECORDS } from '../core/constants/system-limits.constants.js';
 
+// Date-only "YYYY-MM-DD" string (no time/timezone) for dateOfBirth / admissionDate.
+const dateOnly = Joi.string()
+  .pattern(/^\d{4}-\d{2}-\d{2}$/)
+  .allow('', null)
+  .messages({ 'string.pattern.base': '{#label} must be in YYYY-MM-DD format' });
+
 /**
  * Student profile schema (single)
  */
@@ -15,11 +21,11 @@ const studentProfileBody = Joi.object({
   rollNumber: Joi.string().required().trim(),
   phone: phone,
   gender: Joi.string().valid('Male', 'Female', 'Other'),
-  dateOfBirth: Joi.date().iso(),
+  dateOfBirth: dateOnly,
   address: Joi.string().max(500),
   department: Joi.string().max(100),
   degree: Joi.string().max(100),
-  admissionDate: Joi.date().iso(),
+  admissionDate: dateOnly,
   guardian: Joi.string().max(100),
   guardianPhone: phone,
   guardianEmail: email,
@@ -135,11 +141,11 @@ export const updateStudentProfileSchema = Joi.object({
     rollNumber: Joi.string().trim(),
     phone: phone,
     gender: Joi.string().valid('Male', 'Female', 'Other'),
-    dateOfBirth: Joi.date().iso(),
+    dateOfBirth: dateOnly,
     address: Joi.string().max(500),
     department: Joi.string().max(100),
     degree: Joi.string().max(100),
-    admissionDate: Joi.date().iso(),
+    admissionDate: dateOnly,
     guardian: Joi.string().max(100),
     guardianPhone: phone,
     guardianEmail: email,
