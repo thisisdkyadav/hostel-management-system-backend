@@ -107,4 +107,12 @@ router.get(
   controller.getApprovalHistory
 )
 
+router.get(
+  "/:id/certificate",
+  authorizeRoles([ROLES.STUDENT, ROLES.GYMKHANA, ROLES.ADMIN]),
+  requireMappedRouteAccess,
+  validate(validation.porRequestIdSchema, "params"),
+  controller.getPorCertificateData
+)
+
 export default router

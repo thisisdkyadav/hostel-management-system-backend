@@ -21,7 +21,43 @@ const STUDENT_GROUPS_KEY = "studentGroups"
 const DEGREES_KEY = "degrees"
 const DEPARTMENTS_KEY = "departments"
 const GYMKHANA_EVENT_CATEGORIES_KEY = GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY
+const POR_CERTIFICATE_TEMPLATE_KEY = "porCertificateTemplate"
+const CERTIFICATE_FONT_FAMILIES = ["Helvetica", "Times", "Courier"]
 const YEAR_KEY_REGEX = /^\d{4}$/
+
+const normalizePorCertificateTemplate = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { success: false, message: "porCertificateTemplate must be an object" }
+  }
+
+  const body = String(value.body || "").trim()
+  if (!body) {
+    return { success: false, message: "Certificate body text is required" }
+  }
+
+  const theme = value.theme && typeof value.theme === "object" ? value.theme : {}
+  const signatories = Array.isArray(value.signatories)
+    ? [...new Set(value.signatories.map((id) => String(id || "").trim()).filter(Boolean))]
+    : []
+
+  return {
+    success: true,
+    value: {
+      eyebrow: String(value.eyebrow || "").trim(),
+      title: String(value.title || "").trim(),
+      body,
+      logoRef: value.logoRef ? String(value.logoRef).trim() : null,
+      theme: {
+        orientation: theme.orientation === "portrait" ? "portrait" : "landscape",
+        fontFamily: CERTIFICATE_FONT_FAMILIES.includes(theme.fontFamily) ? theme.fontFamily : "Times",
+        accentColor: String(theme.accentColor || "#1360AB").trim() || "#1360AB",
+        textColor: String(theme.textColor || "#1f2937").trim() || "#1f2937",
+        border: theme.border !== false,
+      },
+      signatories,
+    },
+  }
+}
 
 const sortNames = (left, right) => left.localeCompare(right, undefined, { sensitivity: "base", numeric: true })
 
@@ -191,6 +227,12 @@ class ConfigService extends BaseService {
         return badRequest(validation.message)
       }
       normalizedValue = normalizeCalendarCategoryDefinitions(value)
+    } else if (key === POR_CERTIFICATE_TEMPLATE_KEY) {
+      const normalizedTemplate = normalizePorCertificateTemplate(value)
+      if (!normalizedTemplate.success) {
+        return badRequest(normalizedTemplate.message)
+      }
+      normalizedValue = normalizedTemplate.value
     }
 
     const result = await this.upsert(

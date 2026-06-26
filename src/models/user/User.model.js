@@ -31,6 +31,23 @@ const UserAuthzSchema = new mongoose.Schema(
   { _id: false }
 )
 
+const UserSignatureSchema = new mongoose.Schema(
+  {
+    // "image" -> render imageRef; "text" -> render text in a script font
+    type: { type: String, enum: ["image", "text"], default: "image" },
+    // Display name on the certificate (defaults to the user's name)
+    name: { type: String, trim: true, default: "" },
+    // Designation shown under the name (Students are forced to "Student")
+    position: { type: String, trim: true, default: "" },
+    // media:// ref of the (client-compressed) signature image when type === "image"
+    imageRef: { type: String, default: null },
+    // Text-only signature when type === "text"
+    text: { type: String, trim: true, default: "" },
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false }
+)
+
 const UserSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -78,6 +95,10 @@ const UserSchema = new mongoose.Schema(
     },
     pinnedTabs: {
       type: [String],
+      default: undefined,
+    },
+    signature: {
+      type: UserSignatureSchema,
       default: undefined,
     },
     password: { type: String, default: null },

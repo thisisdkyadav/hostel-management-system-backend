@@ -16,6 +16,8 @@ import User from "../../../../models/user/User.model.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import logger from "../../../../services/base/Logger.js"
 import { emailService } from "../../../../services/email/index.js"
+import { storageClient } from "../../../../services/storage/storage.client.js"
+import { getConfigWithDefault } from "../../../../utils/configDefaults.js"
 import { buildApprovalDeepLink } from "../events/approval-email.utils.js"
 import {
   getGlobalGymkhanaCategoryDefinitions,
@@ -58,6 +60,86 @@ const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g,
 const formatStageLabel = (stage) => {
   if (stage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) return "Office - Student Affairs"
   return stage || "POR Workflow"
+}
+
+const POR_CERTIFICATE_TEMPLATE_KEY = "porCertificateTemplate"
+
+const formatCertificateDate = (value) => {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+}
+
+/** Builds the {{variable}} substitution bag for a POR certificate from a serialized request. */
+const buildPorCertificateData = (request) => ({
+  name: normalizeText(request?.student?.name),
+  rollNumber: normalizeText(request?.student?.rollNumber),
+  email: normalizeText(request?.student?.email),
+  department: normalizeText(request?.student?.department),
+  degree: normalizeText(request?.student?.degree),
+  batch: normalizeText(request?.student?.batch),
+  club: normalizeText(request?.club?.name),
+  category: normalizeText(request?.porCategoryName),
+  position: normalizeText(request?.positionTitle),
+  positionTitle: normalizeText(request?.positionTitle),
+  tenure: normalizeText(request?.tenure),
+  status: normalizeText(request?.status),
+  approvedAt: formatCertificateDate(request?.approvedAt),
+  date: formatCertificateDate(new Date()),
+})
+
+/** Fetches a stored media ref server-side and returns it as a base64 data URL (embeds without CORS). */
+const fetchMediaAsDataUrl = async (ref) => {
+  if (!ref) return null
+  try {
+    const { buffer, contentType } = await storageClient.fetchBytes(ref)
+    return `data:${contentType || "image/png"};base64,${buffer.toString("base64")}`
+  } catch (err) {
+    logger.error?.(`Failed to fetch media for certificate (${ref}): ${err?.message}`)
+    return null
+  }
+}
+
+/**
+ * Resolves the admin-configured signatory user IDs into render-ready signature payloads,
+ * preserving the configured order and skipping users without a usable signature.
+ */
+const resolvePorCertificateSignatures = async (signatoryIds = []) => {
+  const ids = (Array.isArray(signatoryIds) ? signatoryIds : []).map((id) => normalizeObjectId(id)).filter(Boolean)
+  if (ids.length === 0) return []
+
+  const users = await User.find({ _id: { $in: ids } }).select("name signature").lean()
+  const byId = new Map(users.map((entry) => [normalizeObjectId(entry._id), entry]))
+
+  const signatures = []
+  for (const id of ids) {
+    const entry = byId.get(id)
+    const signature = entry?.signature
+    if (!signature) continue
+
+    const name = normalizeText(signature.name) || normalizeText(entry.name)
+    if (!name) continue
+
+    const payload = { name, position: normalizeText(signature.position) }
+
+    if (signature.type === "image" && signature.imageRef) {
+      const dataUrl = await fetchMediaAsDataUrl(signature.imageRef)
+      if (dataUrl) {
+        payload.image = dataUrl
+      } else if (normalizeText(signature.text)) {
+        payload.text = normalizeText(signature.text)
+      }
+    } else if (signature.type === "text" && normalizeText(signature.text)) {
+      payload.text = normalizeText(signature.text)
+    } else {
+      continue
+    }
+
+    signatures.push(payload)
+  }
+
+  return signatures
 }
 
 const buildCategoryLookup = async () => {
@@ -1035,6 +1117,61 @@ class PorService extends BaseService {
       .populate("performedBy", "name email subRole")
 
     return success({ history: logs })
+  }
+
+  /**
+   * Returns everything the client needs to render a certificate for a POR (on the go):
+   * the admin-configured template, the resolved {{variable}} data, the logo, and the
+   * configured signatures — all as inline data URLs so the browser can embed them
+   * directly. Scoped to viewers who can access the request.
+   */
+  async getPorCertificateData(id, user) {
+    const porRequest = await this.model.findById(id).populate("clubId", "userId gymkhanaCategoryKey")
+    if (!porRequest) {
+      return notFound("POR request")
+    }
+
+    await this.migrateLegacyRequestIfNeeded(porRequest)
+
+    const viewerContext = await this.getViewerContext(user)
+    if (!this.canAccessRequest(porRequest, user, viewerContext)) {
+      return forbidden("You cannot generate a certificate for this POR request")
+    }
+
+    const serialized = await this.getSerializedRequestById(id, user, viewerContext)
+    if (!serialized) {
+      return notFound("POR request")
+    }
+
+    if (serialized.status !== POR_STATUS.APPROVED) {
+      return badRequest("Certificates can only be generated for approved POR requests")
+    }
+
+    const config = await getConfigWithDefault(POR_CERTIFICATE_TEMPLATE_KEY)
+    const template = (config && config.value) || {}
+
+    const [signatures, logoDataUrl] = await Promise.all([
+      resolvePorCertificateSignatures(template.signatories),
+      fetchMediaAsDataUrl(template.logoRef),
+    ])
+
+    return success({
+      request: {
+        id: serialized.id,
+        status: serialized.status,
+        student: serialized.student,
+        positionTitle: serialized.positionTitle,
+      },
+      template: {
+        eyebrow: normalizeText(template.eyebrow),
+        title: normalizeText(template.title),
+        body: String(template.body || ""),
+        theme: template.theme || {},
+        logo: logoDataUrl ? { data: logoDataUrl, maxHeight: 64 } : null,
+      },
+      data: buildPorCertificateData(serialized),
+      signatures,
+    })
   }
 
   async getViewerContext(user) {

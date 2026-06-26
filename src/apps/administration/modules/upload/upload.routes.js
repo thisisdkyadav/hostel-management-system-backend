@@ -19,6 +19,7 @@ import {
   uploadPaymentScreenshot,
   uploadLostAndFoundImage,
   uploadCertificate,
+  uploadSignatureImage,
   uploadElectionNominationDocument,
   uploadOverallBestPerformerProofPDF,
   uploadPorDocumentPDF,
@@ -213,6 +214,9 @@ router.post(
 
 // Certificate upload
 router.post('/certificate', authorizeRoles(['Admin']), upload.any(), uploadCertificate);
+
+// Signature image upload (any authenticated user, for their own profile signature)
+router.post('/signature-image', upload.single('image'), uploadSignatureImage);
 
 // Election nomination document upload
 router.post(

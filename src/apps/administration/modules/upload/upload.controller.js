@@ -183,6 +183,23 @@ export const uploadLostAndFoundImage = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Upload signature image (any authenticated user, for their own signature)
+ */
+export const uploadSignatureImage = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadSignatureImage({
+    userId: req.user?._id,
+    userRole: req.user?.role,
+    file: req.file,
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
  * Upload certificate
  */
 export const uploadCertificate = asyncHandler(async (req, res) => {

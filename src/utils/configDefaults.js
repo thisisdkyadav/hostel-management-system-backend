@@ -49,6 +49,24 @@ export const defaultConfigs = {
     ],
     description: "Global Gymkhana event categories used across calendars, budgets, and related workflows.",
   },
+  porCertificateTemplate: {
+    value: {
+      eyebrow: "Indian Institute of Technology Indore",
+      title: "Certificate of Appointment",
+      body: "This is to certify that {{name}} ({{rollNumber}}) has been appointed as {{position}} of {{club}} for the tenure {{tenure}}.\n\nWe acknowledge their valuable contribution and wish them success in their role.",
+      logoRef: null,
+      theme: {
+        orientation: "landscape",
+        fontFamily: "Times",
+        accentColor: "#1360AB",
+        textColor: "#1f2937",
+        border: true,
+      },
+      signatories: [],
+    },
+    description:
+      "POR certificate template: top logo, eyebrow/title, body text with {{variables}} (name, rollNumber, email, department, degree, batch, club, category, position, tenure, status, date), theme, and configured signatory user IDs (each must have a usable signature).",
+  },
 }
 
 /**

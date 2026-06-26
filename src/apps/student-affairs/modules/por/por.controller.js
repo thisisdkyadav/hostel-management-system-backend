@@ -58,6 +58,11 @@ export const getApprovalHistory = asyncHandler(async (req, res) => {
   sendStandardResponse(res, result)
 })
 
+export const getPorCertificateData = asyncHandler(async (req, res) => {
+  const result = await porService.getPorCertificateData(req.params.id, req.user)
+  sendStandardResponse(res, result)
+})
+
 export default {
   getWorkspace,
   getStudentPorRequests,
@@ -69,4 +74,5 @@ export default {
   rejectPorRequest,
   requestPorRevision,
   getApprovalHistory,
+  getPorCertificateData,
 }

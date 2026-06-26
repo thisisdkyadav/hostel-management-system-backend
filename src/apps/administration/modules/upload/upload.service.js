@@ -207,6 +207,21 @@ class UploadService {
     });
   }
 
+  async uploadSignatureImage({ userId, userRole, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, IMAGE_MIME_TYPES);
+    if (!mimeValidation.ok) {
+      return errorResult(400, 'Only image files are allowed (png, jpg, jpeg, webp, gif)');
+    }
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'signature-image',
+      actorId: userId,
+      actorRole: userRole || 'User',
+      entityHint: String(userId || ''),
+    });
+  }
+
   async uploadCertificate({ userId, file }) {
     const mimeValidation = sanitizeMimeMatch(file, MIXED_MIME_TYPES);
     if (!mimeValidation.ok) return errorResult(400, 'Only PDF and image files are allowed');
