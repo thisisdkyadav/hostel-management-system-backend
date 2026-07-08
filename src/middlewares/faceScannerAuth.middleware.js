@@ -5,9 +5,11 @@
 // Using old model path until Phase 3 (Models Migration)
 import { FaceScanner } from "../models/index.js"
 import bcrypt from "bcrypt"
+import crypto from "crypto"
 import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
+import { getIO } from "../loaders/socket.loader.js"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const logDir = path.join(__dirname, "../../logs")
@@ -36,53 +38,124 @@ const logScannerRequest = (req) => {
   }
 }
 
+const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
 /**
- * Middleware to authenticate face scanner requests using custom header
+ * HTTP Basic Authentication (e.g. Easy TimePro / ZKTeco push).
+ * Device sends `Authorization: Basic base64(username:password)` where the
+ * username/password are the scanner credentials we issued.
+ * Returns the matching scanner document, or null.
+ */
+const tryBasicAuth = async (req) => {
+  const header = req.headers.authorization || req.headers.Authorization
+  if (!header || !/^basic\s+/i.test(header)) return null
+
+  let decoded
+  try {
+    decoded = Buffer.from(header.replace(/^basic\s+/i, "").trim(), "base64").toString("utf8")
+  } catch {
+    return null
+  }
+
+  const separatorIndex = decoded.indexOf(":")
+  if (separatorIndex === -1) return null
+
+  const username = decoded.slice(0, separatorIndex).trim()
+  const password = decoded.slice(separatorIndex + 1)
+  if (!username) return null
+
+  const scanner = await FaceScanner.findOne({
+    isActive: true,
+    username: new RegExp(`^${escapeRegExp(username)}$`, "i"),
+  })
+    .populate("hostelId", "name type")
+    .populate("catererId", "name email")
+
+  if (!scanner) return null
+
+  const isPasswordValid = await bcrypt.compare(password, scanner.passwordHash)
+  return isPasswordValid ? scanner : null
+}
+
+/**
+ * Legacy custom-header authentication (kept for existing devices).
+ * Device sends a header where the name = scanner username and the value =
+ * scanner password. Returns the matching scanner document, or null.
+ */
+const tryHeaderAuth = async (req) => {
+  const scanners = await FaceScanner.find({ isActive: true })
+    .populate("hostelId", "name type")
+    .populate("catererId", "name email")
+
+  for (const scanner of scanners) {
+    const headerValue = req.headers[scanner.username.toLowerCase()]
+    if (headerValue && (await bcrypt.compare(String(headerValue), scanner.passwordHash))) {
+      return scanner
+    }
+  }
+
+  return null
+}
+
+/**
+ * Broadcast a raw scanner hit to admin live monitors (the Face Scanners page
+ * "Live Monitor"). Fires for every request — success OR failure — so admins can
+ * see incoming REST hits, the parsed body, headers, the recognised scanner (if
+ * any), and whether auth passed. Never throws; telemetry must not block a scan.
+ */
+const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner }) => {
+  try {
+    getIO()
+      .to("role:Admin")
+      .to("role:Super Admin")
+      .emit("face-scanner:live", {
+        id: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        method: req.method,
+        path: req.originalUrl || req.url,
+        ip: req.ip || req.connection?.remoteAddress || null,
+        authSuccess,
+        authMethod, // "basic" | "header" | null
+        scanner: scanner
+          ? {
+              id: String(scanner._id),
+              name: scanner.name,
+              type: scanner.type,
+              direction: scanner.direction,
+            }
+          : null,
+        body: req.body ?? null,
+        headers: { ...req.headers },
+      })
+  } catch {
+    // Socket.IO not ready / no subscribers — ignore.
+  }
+}
+
+/**
+ * Middleware to authenticate face scanner requests.
  *
- * Authentication method:
- * - Scanner has username (header key) and password (header value)
- * - Device sends a custom header where:
- *   - Header name = scanner's username (e.g., "abc")
- *   - Header value = scanner's password (e.g., "123")
- * - We find all scanners and check if any header matches
+ * Supports BOTH schemes, whichever the device provides:
+ * 1. HTTP Basic Auth — `Authorization: Basic base64(username:password)`
+ * 2. Legacy custom header — header name = username, value = password
+ *
+ * Basic Auth is tried first (a single indexed lookup); if absent/invalid we
+ * fall back to scanning custom headers.
  */
 export const authenticateScanner = async (req, res, next) => {
   try {
     // Log the request to a file for debugging
     logScannerRequest(req)
 
-    // Get all active scanners
-    const scanners = await FaceScanner.find({ isActive: true })
-      .populate("hostelId", "name type")
-      .populate("catererId", "name email")
+    const basicScanner = await tryBasicAuth(req)
+    const authenticatedScanner = basicScanner || (await tryHeaderAuth(req))
+    const authMethod = basicScanner ? "basic" : authenticatedScanner ? "header" : null
 
-    if (scanners.length === 0) {
-      return res.status(401).json({
-        isSuccess: "N",
-        outputMessage: "No scanners registered",
-      })
-    }
-
-    // Check each scanner to see if its username (header key) exists in request headers
-    let authenticatedScanner = null
-
-    for (const scanner of scanners) {
-      const headerKey = scanner.username.toLowerCase()
-      const headerValue = req.headers[headerKey]
-
-      if (headerValue) {
-        // Header exists, verify the password
-        const isPasswordValid = await bcrypt.compare(headerValue, scanner.passwordHash)
-
-        if (isPasswordValid) {
-          authenticatedScanner = scanner
-          break
-        }
-      }
-    }
+    // Live broadcast to admin monitors (both success and failure).
+    emitLiveScanEvent(req, { authSuccess: Boolean(authenticatedScanner), authMethod, scanner: authenticatedScanner })
 
     if (!authenticatedScanner) {
-      console.log("No matching scanner auth header found")
+      console.log("No matching scanner credentials found")
       return res.status(401).json({
         isSuccess: "N",
         outputMessage: "Invalid credentials",
