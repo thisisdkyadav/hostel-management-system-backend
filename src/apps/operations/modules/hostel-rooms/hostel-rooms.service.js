@@ -18,7 +18,7 @@ import {
   RoomAllocation,
   StudentProfile,
 } from '../../../../models/index.js';
-import { ROOM_STATUSES } from '../../../../models/hostel/Room.model.js';
+import { MANUAL_ROOM_STATUSES } from '../../../../models/hostel/Room.model.js';
 
 /**
  * Helper function to create units
@@ -59,8 +59,9 @@ async function createRooms(hostelId, rooms, createdUnits, type, session) {
     const roomFields = {
       hostelId,
       roomNumber,
+      // "Guest" is system-managed; ignore it (and anything invalid) on manual create.
+      status: MANUAL_ROOM_STATUSES.includes(status) ? status : 'Active',
       capacity,
-      status: status || 'Active',
       occupancy: 0,
     };
 
@@ -192,8 +193,8 @@ class HostelRoomsService extends BaseService {
    * Update room status
    */
   async updateRoomStatus(roomId, status) {
-    if (!ROOM_STATUSES.includes(status)) {
-      return badRequest('Invalid status value');
+    if (!MANUAL_ROOM_STATUSES.includes(status)) {
+      return badRequest('Invalid status value ("Guest" is set automatically for accommodation bookings)');
     }
 
     // "Active" is the only operational state; every other status deactivates the room
@@ -313,8 +314,8 @@ class HostelRoomsService extends BaseService {
   async updateRoom(roomId, updateData) {
     const { capacity, status } = updateData;
 
-    if (!ROOM_STATUSES.includes(status)) {
-      return badRequest('Invalid status value');
+    if (!MANUAL_ROOM_STATUSES.includes(status)) {
+      return badRequest('Invalid status value ("Guest" is set automatically for accommodation bookings)');
     }
 
     if (status === 'Active') {
@@ -393,7 +394,7 @@ class HostelRoomsService extends BaseService {
           );
 
           if (roomData) {
-            if (roomData.status && room.status !== roomData.status && ROOM_STATUSES.includes(roomData.status)) {
+            if (roomData.status && room.status !== roomData.status && MANUAL_ROOM_STATUSES.includes(roomData.status)) {
               if (roomData.status === 'Active') {
                 roomsToActivate.push(room._id);
               } else {
@@ -412,7 +413,7 @@ class HostelRoomsService extends BaseService {
       existingRooms.forEach((room) => {
         const roomData = rooms.find((r) => r.roomNumber === room.roomNumber);
         if (roomData) {
-          if (roomData.status && room.status !== roomData.status && ROOM_STATUSES.includes(roomData.status)) {
+          if (roomData.status && room.status !== roomData.status && MANUAL_ROOM_STATUSES.includes(roomData.status)) {
             if (roomData.status === 'Active') {
               roomsToActivate.push(room._id);
             } else {

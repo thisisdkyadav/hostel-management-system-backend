@@ -92,6 +92,15 @@ router.post(
   ctrl.chiefWardenDecision
 )
 
+// Chief Warden / CW Office skip the faculty-advisor stage
+router.post(
+  "/requests/:requestId/bypass-fa",
+  authorizeRoles(["Admin"]),
+  requireAccommodationRouteAccess,
+  requireAdminSubRole([SUBROLES.CHIEF_WARDEN, SUBROLES.CHIEF_WARDEN_OFFICE]),
+  ctrl.bypassFacultyAdvisor
+)
+
 // Chief Warden Office issues the payment request
 router.post(
   "/requests/:requestId/payment-request",

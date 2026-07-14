@@ -14,6 +14,11 @@ import mongoose from "mongoose"
  */
 export const ROOM_STATUSES = ["Active", "Inactive", "Guest", "Storage", "Maintenance"]
 
+// "Guest" is set/cleared automatically by the guest-accommodation flow (a room is
+// flipped to Guest while a booking occupies it and back to Active afterwards). It
+// must never be applied by hand, so admin-facing status changes use this subset.
+export const MANUAL_ROOM_STATUSES = ROOM_STATUSES.filter((s) => s !== "Guest")
+
 const RoomSchema = new mongoose.Schema(
   {
     hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },

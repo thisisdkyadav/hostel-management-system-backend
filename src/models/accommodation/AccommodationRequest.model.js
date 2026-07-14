@@ -38,6 +38,7 @@ export const ACCOMMODATION_ACTIONS = {
   REJECT: "reject",
   APPROVE: "approve",
   AUTO_APPROVE: "auto_approve",
+  BYPASS_FA: "bypass_fa",
 }
 
 export const ADDRESS_PROOF_TYPES = ["PAN", "Voter ID", "Driving License", "Institute ID"]
@@ -53,8 +54,9 @@ const GuestSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     gender: { type: String, enum: ["Male", "Female", "Other"], required: true },
+    relation: { type: String, trim: true }, // relation to the student (required at submit)
+    aadharNumber: { type: String, trim: true }, // 12-digit Aadhaar (required at submit)
     occupation: { type: String, trim: true }, // designation/occupation (H2 Annexure)
-    relation: { type: String, trim: true }, // optional; matters for guest/intern types
     remarks: { type: String, trim: true },
   },
   { _id: false }
@@ -101,6 +103,7 @@ const PaymentSchema = new mongoose.Schema(
     status: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
     screenshotFileRef: { type: String, default: "" },
     transactionId: { type: String, default: "" },
+    remarks: { type: String, default: "" }, // CW Office note, e.g. why the amount differs
     submittedAt: { type: Date, default: null },
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     verifiedAt: { type: Date, default: null },

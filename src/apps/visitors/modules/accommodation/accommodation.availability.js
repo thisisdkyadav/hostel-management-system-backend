@@ -1,18 +1,20 @@
 /**
  * Guest-room availability.
  *
- * Guest inventory = rooms with status "Guest". A room's bookable bed count is its
- * preserved capacity (`originalCapacity` when it was deactivated, else `capacity`).
- * Guest occupancy is temporal (per stay window) and computed from overlapping
- * accommodation requests — Room.occupancy is left untouched (that's for students).
+ * Guest inventory is DYNAMIC: any fully-empty Active room (status "Active",
+ * occupancy 0 — no students living there) can host guests. When the supervisor
+ * assigns a room to a booking it is flipped to status "Guest" (held); the
+ * nightly invoice sweep flips it back to "Active". Nothing is marked "Guest"
+ * manually anymore.
+ *
+ * A room's bookable bed count is its live capacity when Active, or the preserved
+ * `originalCapacity` once it has been flipped to "Guest" (capacity is zeroed by
+ * the room-status machinery on deactivation).
  */
 
 import { Room, AccommodationRequest, Hostel, ACCOMMODATION_STATUS } from "../../../../models/index.js"
 
 const S = ACCOMMODATION_STATUS
-
-// Statuses that hold a guest bed during the stay window.
-export const OCCUPYING_STATUSES = [S.HOSTEL_ALLOTTED, S.ROOMS_ASSIGNED, S.CHECKED_IN]
 
 const bedCount = (room) => room.originalCapacity || room.capacity || 0
 
@@ -22,34 +24,39 @@ const overlapFilter = (from, to) => ({
   "stay.toDate": { $gt: new Date(from) },
 })
 
-// Hostel-level headroom (persons reserved by any allotted/occupying request).
-export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
-  const guestRooms = await Room.find({ hostelId, status: "Guest" }).lean()
-  const totalBeds = guestRooms.reduce((sum, room) => sum + bedCount(room), 0)
+// Fully-empty, Active rooms — the guest-eligible pool for a hostel.
+const emptyActiveRoomFilter = (hostelId) => ({ hostelId, status: "Active", occupancy: 0 })
 
+// Hostel-level headroom (CW Office allotment view).
+export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
+  const emptyRooms = await Room.find(emptyActiveRoomFilter(hostelId)).lean()
+  const totalBeds = emptyRooms.reduce((sum, room) => sum + bedCount(room), 0)
+
+  // Bookings already allotted here but not yet room-assigned still have a claim on
+  // the empty pool (their rooms aren't flipped to "Guest" until assignment). Once
+  // assigned, those rooms leave the Active-empty pool on their own.
   const filter = {
     "allotment.hostelId": hostelId,
-    status: { $in: OCCUPYING_STATUSES },
+    status: S.HOSTEL_ALLOTTED,
     ...overlapFilter(from, to),
   }
   if (excludeRequestId) filter._id = { $ne: excludeRequestId }
 
-  const overlapping = await AccommodationRequest.find(filter).select("persons").lean()
-  const committed = overlapping.reduce((sum, req) => sum + (req.persons || 0), 0)
+  const pending = await AccommodationRequest.find(filter).select("persons").lean()
+  const committed = pending.reduce((sum, req) => sum + (req.persons || 0), 0)
 
   return {
     hostelId,
-    roomCount: guestRooms.length,
+    roomCount: emptyRooms.length,
     totalBeds,
     committed,
     available: Math.max(0, totalBeds - committed),
   }
 }
 
-// Availability across every hostel that has guest rooms (CW Office allotment view).
+// Availability across every hostel that currently has empty Active rooms.
 export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId } = {}) => {
-  const guestRooms = await Room.find({ status: "Guest" }).select("hostelId").lean()
-  const hostelIds = [...new Set(guestRooms.map((room) => String(room.hostelId)))]
+  const hostelIds = await Room.distinct("hostelId", { status: "Active", occupancy: 0 })
   const hostels = await Hostel.find({ _id: { $in: hostelIds } }).select("name type gender").lean()
 
   const results = []
@@ -60,40 +67,25 @@ export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId 
   return results
 }
 
-// Per-room free beds within a hostel for the window (Supervisor assignment view).
-// Only assigned requests (ROOMS_ASSIGNED / CHECKED_IN) consume specific rooms.
-export const getGuestRoomAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
-  const guestRooms = await Room.find({ hostelId, status: "Guest" })
-    .populate("unitId", "unitNumber")
-    .lean()
-  const roomIds = guestRooms.map((room) => room._id)
+// Per-room list for the Supervisor: fully-empty Active rooms in the hostel, plus
+// the rooms this booking already holds (now status "Guest") so they show up for
+// reassignment. `includeRoomIds` are the current request's assigned room ids.
+export const getGuestRoomAvailability = async ({ hostelId, includeRoomIds = [] } = {}) => {
+  const filter = includeRoomIds.length
+    ? { $or: [emptyActiveRoomFilter(hostelId), { _id: { $in: includeRoomIds } }] }
+    : emptyActiveRoomFilter(hostelId)
 
-  const filter = {
-    status: { $in: [S.ROOMS_ASSIGNED, S.CHECKED_IN] },
-    "rooms.roomId": { $in: roomIds },
-    ...overlapFilter(from, to),
-  }
-  if (excludeRequestId) filter._id = { $ne: excludeRequestId }
+  const rooms = await Room.find(filter).populate("unitId", "unitNumber").lean()
 
-  const overlapping = await AccommodationRequest.find(filter).select("rooms").lean()
-  const usedByRoom = {}
-  for (const req of overlapping) {
-    for (const assignment of req.rooms || []) {
-      const rid = String(assignment.roomId)
-      usedByRoom[rid] = (usedByRoom[rid] || 0) + (assignment.guestIndexes?.length || 0)
-    }
-  }
-
-  return guestRooms.map((room) => {
+  return rooms.map((room) => {
     const beds = bedCount(room)
-    const used = usedByRoom[String(room._id)] || 0
     return {
       roomId: room._id,
       roomNumber: room.roomNumber,
       unitNumber: room.unitId?.unitNumber || null,
       beds,
-      used,
-      available: Math.max(0, beds - used),
+      used: 0,
+      available: beds,
     }
   })
 }

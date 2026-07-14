@@ -76,17 +76,43 @@ const buildStudentSummary = async (userId) => {
 const pad2 = (n) => String(n).padStart(2, "0")
 const ymd = (d) => `${d.getUTCFullYear()}${pad2(d.getUTCMonth() + 1)}${pad2(d.getUTCDate())}`
 
+// Minimum lead time (in working days, Mon–Fri) between today and the stay start.
+const MIN_LEAD_WORKING_DAYS = 2
+
+// Add `n` working days (skipping Sat/Sun) to a date, returning a new Date.
+const addWorkingDays = (start, n) => {
+  const d = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+  let added = 0
+  while (added < n) {
+    d.setDate(d.getDate() + 1)
+    const day = d.getDay()
+    if (day !== 0 && day !== 6) added++
+  }
+  return d
+}
+
+// Date-only key (YYYY-MM-DD) for calendar comparison, TZ-safe for date-only input.
+const dateKey = (v) => (typeof v === "string" ? v.slice(0, 10) : `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`)
+
 const validateGuestsAndStay = (body) => {
   const guests = Array.isArray(body.guests) ? body.guests : []
   if (guests.length === 0) return "At least one guest is required"
   for (const guest of guests) {
     if (!guest?.name || !guest?.gender) return "Each guest needs a name and gender"
+    if (!guest?.relation || !String(guest.relation).trim()) return "Each guest needs a relation to the student"
+    const aadhaar = String(guest?.aadharNumber || "").replace(/\s/g, "")
+    if (!aadhaar) return "Each guest needs an Aadhaar number"
+    if (!/^\d{12}$/.test(aadhaar)) return "Aadhaar number must be 12 digits"
   }
   const fromDate = body?.stay?.fromDate
   const toDate = body?.stay?.toDate
   if (!fromDate || !toDate) return "Stay from/to dates are required"
   if (new Date(toDate).getTime() <= new Date(fromDate).getTime()) {
     return "Stay end date must be after the start date"
+  }
+  const earliest = addWorkingDays(new Date(), MIN_LEAD_WORKING_DAYS)
+  if (dateKey(fromDate) < dateKey(earliest)) {
+    return `Requests must be raised at least ${MIN_LEAD_WORKING_DAYS} working days in advance. The earliest start date is ${dateKey(earliest)}.`
   }
   return null
 }
@@ -431,6 +457,32 @@ export const accommodationService = {
     return success(request, 200, "Decision recorded")
   },
 
+  // Chief Warden / CW Office skip the faculty-advisor stage and push the request
+  // straight into Chief Warden approval (e.g. the advisor is unresponsive).
+  async bypassFacultyAdvisor(requestId, user) {
+    const request = await AccommodationRequest.findById(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    if (request.status !== ACCOMMODATION_STATUS.PENDING_FA_RECOMMENDATION) {
+      return badRequest("This request is not awaiting a faculty advisor recommendation")
+    }
+
+    await invalidateActionLinkTokens({ type: FA_TOKEN_TYPE, subjectId: request._id }, "bypassed").catch(() => {})
+    request.approvals.push({
+      stage: STAGE.FACULTY_ADVISOR,
+      action: ACCOMMODATION_ACTIONS.BYPASS_FA,
+      actorUserId: user._id,
+      at: new Date(),
+    })
+    request.currentStage = STAGE.CHIEF_WARDEN
+    request.stageDeadlineAt = cwDeadline()
+    applyStatus(request, ACCOMMODATION_STATUS.PENDING_CW_APPROVAL, {
+      by: user._id,
+      note: "Faculty advisor bypassed",
+    })
+    await request.save()
+    return success(request, 200, "Faculty advisor bypassed — request moved to Chief Warden approval")
+  },
+
   // Sweeps requests whose Chief Warden window elapsed and auto-approves them.
   // Invoked by the lock-guarded hourly scheduler; safe to run on any instance.
   async autoApproveExpiredChiefWardenRequests() {
@@ -481,9 +533,16 @@ export const accommodationService = {
 
     const config = await getAccommodationConfig()
     const overrideAmount = Number(body?.amount)
-    request.payment.amount = overrideAmount > 0 ? overrideAmount : request.quote?.total || 0
-    request.payment.paymentLink = body?.paymentLink || config?.defaultPaymentLink || ""
-    request.payment.qrRef = body?.qrRef || config?.defaultPaymentQR || ""
+    const finalAmount = overrideAmount > 0 ? overrideAmount : request.quote?.total || 0
+    const remarks = String(body?.remarks || "").trim()
+    if (finalAmount !== (request.quote?.total || 0) && !remarks) {
+      return badRequest("Please add remarks explaining the custom amount")
+    }
+    request.payment.amount = finalAmount
+    // Payment link / QR always come from settings — no manual entry.
+    request.payment.paymentLink = config?.defaultPaymentLink || ""
+    request.payment.qrRef = config?.defaultPaymentQR || ""
+    request.payment.remarks = remarks
     request.payment.status = PAYMENT_STATUS.PENDING
     request.currentStage = null
     request.stageDeadlineAt = null
@@ -512,9 +571,11 @@ export const accommodationService = {
     }
     const screenshotFileRef = String(body?.screenshotFileRef || "").trim()
     if (!screenshotFileRef) return badRequest("A payment screenshot is required")
+    const transactionId = String(body?.transactionId || "").trim()
+    if (!transactionId) return badRequest("Transaction ID / UTR is required")
 
     request.payment.screenshotFileRef = screenshotFileRef
-    request.payment.transactionId = String(body?.transactionId || "").trim()
+    request.payment.transactionId = transactionId
     request.payment.status = PAYMENT_STATUS.SUBMITTED
     request.payment.submittedAt = new Date()
     applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_SUBMITTED, { by: user._id, note: "Payment submitted" })
@@ -633,9 +694,7 @@ export const accommodationService = {
     if (!request.allotment?.hostelId) return badRequest("A hostel has not been allotted yet")
     const rooms = await getGuestRoomAvailability({
       hostelId: request.allotment.hostelId,
-      from: request.stay?.fromDate,
-      to: request.stay?.toDate,
-      excludeRequestId: requestId,
+      includeRoomIds: (request.rooms || []).map((r) => r.roomId),
     })
     return success({ stay: request.stay, persons: request.persons, rooms })
   },
@@ -670,27 +729,18 @@ export const accommodationService = {
     if (uniqueIndexes.size !== allIndexes.length) return badRequest("A guest is assigned to more than one room")
     if (uniqueIndexes.size !== persons) return badRequest("Every guest must be assigned to exactly one room")
 
-    const roomIds = assignments.map((a) => a.roomId)
-    const rooms = await Room.find({ _id: { $in: roomIds }, hostelId, status: "Guest" }).lean()
-    if (rooms.length !== new Set(roomIds.map(String)).size) {
-      return badRequest("One or more rooms are invalid or not guest rooms in the allotted hostel")
-    }
-    const roomMap = new Map(rooms.map((r) => [String(r._id), r]))
-
-    const availability = await getGuestRoomAvailability({
-      hostelId,
-      from: request.stay?.fromDate,
-      to: request.stay?.toDate,
-      excludeRequestId: requestId,
-    })
-    const availableByRoom = new Map(availability.map((r) => [String(r.roomId), r.available]))
+    // Valid rooms = fully-empty Active rooms in the hostel, plus the ones this
+    // booking already holds (so a reassignment can keep them).
+    const prevRoomIds = new Set((request.rooms || []).map((r) => String(r.roomId)))
+    const availability = await getGuestRoomAvailability({ hostelId, includeRoomIds: [...prevRoomIds] })
+    const availById = new Map(availability.map((r) => [String(r.roomId), r]))
     for (const assignment of assignments) {
+      const info = availById.get(String(assignment.roomId))
+      if (!info) return badRequest("One or more selected rooms are no longer available")
       const need = assignment.guestIndexes.length
-      const free = availableByRoom.get(String(assignment.roomId)) ?? 0
-      if (need > free) {
-        return badRequest(
-          `Room ${roomMap.get(String(assignment.roomId))?.roomNumber || ""} has only ${free} free bed(s) for these dates`
-        )
+      if (need > info.available) {
+        const label = `${info.unitNumber ? `${info.unitNumber}-` : ""}${info.roomNumber}`
+        return badRequest(`Room ${label} has only ${info.available} bed(s)`)
       }
     }
 
@@ -708,6 +758,15 @@ export const accommodationService = {
       })
     }
     await request.save()
+
+    // Flip the newly-held rooms to "Guest" and release any dropped on reassignment.
+    const newRoomIds = new Set(assignments.map((a) => String(a.roomId)))
+    const toHold = [...newRoomIds].filter((id) => !prevRoomIds.has(id))
+    const toRelease = [...prevRoomIds].filter((id) => !newRoomIds.has(id))
+    await Promise.all([
+      ...toHold.map((id) => Room.deactivateRoom(id, "Guest").catch(() => {})),
+      ...toRelease.map((id) => Room.activateRoom(id).catch(() => {})),
+    ])
 
     const hostel = await Hostel.findById(hostelId).select("name").lean()
     accommodationEmails
@@ -773,6 +832,11 @@ export const accommodationService = {
       }
       applyStatus(request, ACCOMMODATION_STATUS.INVOICED, { note: "Invoice generated" })
       await request.save()
+
+      // Release the guest rooms back to the normal Active pool.
+      await Promise.all(
+        (request.rooms || []).map((r) => Room.activateRoom(r.roomId).catch(() => {}))
+      )
 
       const hostel = request.allotment?.hostelId
         ? await Hostel.findById(request.allotment.hostelId).select("name").lean()

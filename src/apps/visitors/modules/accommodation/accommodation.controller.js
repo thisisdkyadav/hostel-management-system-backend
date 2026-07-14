@@ -42,6 +42,10 @@ export const chiefWardenDecision = asyncHandler(async (req, res) => {
   )
 })
 
+export const bypassFacultyAdvisor = asyncHandler(async (req, res) => {
+  sendStandardResponse(res, await accommodationService.bypassFacultyAdvisor(req.params.requestId, req.user))
+})
+
 // Payment & allotment (Chief Warden Office + Accountant).
 export const issuePaymentRequest = asyncHandler(async (req, res) => {
   sendStandardResponse(res, await accommodationService.issuePaymentRequest(req.params.requestId, req.body, req.user))
