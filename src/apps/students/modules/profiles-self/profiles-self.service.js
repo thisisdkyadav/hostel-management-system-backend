@@ -8,6 +8,7 @@ import { success, notFound, forbidden } from '../../../../services/base/index.js
 import { StudentProfile } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
 import { RoomAllocation } from '../../../../models/index.js';
+import { Health } from '../../../../models/index.js';
 import { getStudentDashboardCache, setStudentDashboardCache } from '../../../../utils/redisCache.js';
 import {
   getCachedEvents,
@@ -29,6 +30,24 @@ const toObjectIdString = (value) => {
     if (asString && asString !== '[object Object]') return asString;
   }
   return null;
+};
+
+const buildInsuranceSummary = (health) => {
+  const insuranceNumber = health?.insurance?.insuranceNumber || null;
+  const provider = health?.insurance?.insuranceProvider;
+
+  if (!insuranceNumber && !provider) return null;
+
+  return {
+    insuranceNumber,
+    provider: provider
+      ? {
+          name: provider.name || null,
+          startDate: provider.startDate || null,
+          endDate: provider.endDate || null,
+        }
+      : null,
+  };
 };
 
 const isEventVisibleToStudent = (event, studentHostelId, studentGender) => {
@@ -88,6 +107,7 @@ class ProfilesSelfService extends BaseService {
         dateOfBirth: studentProfile.dateOfBirth || null,
       },
       roomInfo: null,
+      insurance: null,
       stats: {
         complaints: { pending: 0, inProgress: 0, resolved: 0, total: 0 },
         lostAndFound: { active: 0, claimed: 0, total: 0 },
@@ -156,6 +176,9 @@ class ProfilesSelfService extends BaseService {
         };
       }
     }
+
+    const health = await Health.findOne({ userId }).populate('insurance.insuranceProvider');
+    dashboardData.insurance = buildInsuranceSummary(health);
 
     const complaints = await Complaint.find({ userId });
 
