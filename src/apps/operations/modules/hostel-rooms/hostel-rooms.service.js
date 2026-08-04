@@ -21,29 +21,54 @@ import {
 import { MANUAL_ROOM_STATUSES } from '../../../../models/hostel/Room.model.js';
 
 /**
- * Helper function to create units
+ * Resolve the units a batch of rooms should attach to, creating only the ones
+ * that don't already exist. Returns a map of unitNumber -> unitId covering both
+ * pre-existing and newly created units, so callers can attach rooms to an
+ * existing unit as well as to a brand-new one in the same request.
  */
-async function createUnits(hostelId, units, session) {
-  const createdUnits = {};
-  if (!Array.isArray(units)) return createdUnits;
+async function resolveUnits(hostelId, units, session) {
+  const unitMap = {};
+  if (!Array.isArray(units)) return unitMap;
 
-  const unitsToInsert = units
-    .filter((unitData) => unitData.unitNumber)
-    .map((unitData) => ({
+  // Dedupe by unitNumber; entries may be plain strings or { unitNumber, ... } objects.
+  const requested = new Map();
+  for (const unitData of units) {
+    const unitNumber = typeof unitData === 'string' ? unitData : unitData?.unitNumber;
+    if (!unitNumber || requested.has(unitNumber)) continue;
+    requested.set(unitNumber, unitData);
+  }
+  if (requested.size === 0) return unitMap;
+
+  // Reuse units that already exist for this hostel; never re-insert them.
+  const existing = await Unit.find({
+    hostelId,
+    unitNumber: { $in: [...requested.keys()] },
+  }).session(session ?? null);
+
+  existing.forEach((unit) => {
+    unitMap[unit.unitNumber] = unit._id;
+  });
+
+  const unitsToInsert = [...requested.entries()]
+    .filter(([unitNumber]) => !unitMap[unitNumber])
+    .map(([unitNumber, unitData]) => ({
       hostelId,
-      unitNumber: unitData.unitNumber,
-      floor: unitData.floor || parseInt(unitData.unitNumber.charAt(0), 10) - 1 || 0,
-      commonAreaDetails: unitData.commonAreaDetails || '',
+      unitNumber,
+      floor:
+        (typeof unitData === 'object' && unitData?.floor)
+        || parseInt(unitNumber.charAt(0), 10) - 1
+        || 0,
+      commonAreaDetails: (typeof unitData === 'object' && unitData?.commonAreaDetails) || '',
     }));
 
   if (unitsToInsert.length > 0) {
     const savedUnits = await Unit.insertMany(unitsToInsert, { session });
     savedUnits.forEach((unit) => {
-      createdUnits[unit.unitNumber] = unit._id;
+      unitMap[unit.unitNumber] = unit._id;
     });
   }
 
-  return createdUnits;
+  return unitMap;
 }
 
 /**
@@ -341,9 +366,12 @@ class HostelRoomsService extends BaseService {
       return notFound('Hostel not found');
     }
 
-    const uniqueUnits = [...new Set(units)];
-    const createdUnits = await createUnits(hostelId, uniqueUnits);
-    await createRooms(hostelId, rooms, createdUnits, hostel.type);
+    // Units + rooms are written atomically so a failure part-way through the
+    // batch (e.g. a duplicate room number) never leaves half the batch behind.
+    await withTransaction(async (session) => {
+      const unitMap = await resolveUnits(hostelId, units, session);
+      await createRooms(hostelId, rooms, unitMap, hostel.type, session);
+    });
 
     return success(null, 200, 'Rooms added successfully');
   }
