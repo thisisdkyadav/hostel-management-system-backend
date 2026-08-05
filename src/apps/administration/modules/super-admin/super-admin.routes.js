@@ -1,7 +1,7 @@
 /**
  * Super Admin Routes
  * Handles super admin operations - admins, API clients, dashboard stats
- * 
+ *
  * Base path: /api/v1/super-admin
  */
 
@@ -20,35 +20,25 @@ import {
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const SUPER_ADMIN_ROUTE_KEYS_BY_ROLE = {
-  [ROLES.SUPER_ADMIN]: {
-    dashboard: 'route.superAdmin.dashboard',
-    admins: 'route.superAdmin.admins',
-    apiKeys: 'route.superAdmin.apiKeys',
-  },
-  [ROLES.ADMIN]: {
-    dashboard: 'route.admin.dashboard',
-    admins: 'route.admin.administrators',
-    apiKeys: 'route.admin.settings',
-  },
-};
-
-const requireRoleMappedRouteAccess = (routeArea) => (req, res, next) => {
-  const role = req?.user?.role;
-  const routeKey = SUPER_ADMIN_ROUTE_KEYS_BY_ROLE[role]?.[routeArea];
-  if (!routeKey) {
-    return next();
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-const requireSuperAdminDashboardRouteAccess = requireRoleMappedRouteAccess('dashboard');
-const requireSuperAdminAdminsRouteAccess = requireRoleMappedRouteAccess('admins');
-const requireSuperAdminApiKeysRouteAccess = requireRoleMappedRouteAccess('apiKeys');
+// One guard per route area (flattens the former role x area map). Access-only:
+// the Super Admin/Admin role gate is applied once via router.use below.
+const guardDashboard = routeGuard(
+  { [ROLES.SUPER_ADMIN]: 'route.superAdmin.dashboard', [ROLES.ADMIN]: 'route.admin.dashboard' },
+  { onUnmapped: 'allow' }
+);
+const guardAdmins = routeGuard(
+  { [ROLES.SUPER_ADMIN]: 'route.superAdmin.admins', [ROLES.ADMIN]: 'route.admin.administrators' },
+  { onUnmapped: 'allow' }
+);
+const guardApiKeys = routeGuard(
+  { [ROLES.SUPER_ADMIN]: 'route.superAdmin.apiKeys', [ROLES.ADMIN]: 'route.admin.settings' },
+  { onUnmapped: 'allow' }
+);
 
 // All routes require authentication and Super Admin/Admin role
 router.use(authenticate);
@@ -69,22 +59,18 @@ router.get(
 );
 
 // Dashboard
-router.get(
-  '/dashboard',
-  requireSuperAdminDashboardRouteAccess,
-  getDashboardStats
-);
+router.get('/dashboard', guardDashboard.access, getDashboardStats);
 
 // Admin management
-router.get('/admins', requireSuperAdminAdminsRouteAccess, getAdmins);
-router.post('/admins', requireSuperAdminAdminsRouteAccess, createAdmin);
-router.put('/admins/:adminId', requireSuperAdminAdminsRouteAccess, updateAdmin);
-router.delete('/admins/:adminId', requireSuperAdminAdminsRouteAccess, deleteAdmin);
+router.get('/admins', guardAdmins.access, getAdmins);
+router.post('/admins', guardAdmins.access, createAdmin);
+router.put('/admins/:adminId', guardAdmins.access, updateAdmin);
+router.delete('/admins/:adminId', guardAdmins.access, deleteAdmin);
 
 // API client management
-router.get('/api-clients', requireSuperAdminApiKeysRouteAccess, getApiClients);
-router.post('/api-clients', requireSuperAdminApiKeysRouteAccess, createApiClient);
-router.put('/api-clients/:clientId', requireSuperAdminApiKeysRouteAccess, updateApiClient);
-router.delete('/api-clients/:clientId', requireSuperAdminApiKeysRouteAccess, deleteApiClient);
+router.get('/api-clients', guardApiKeys.access, getApiClients);
+router.post('/api-clients', guardApiKeys.access, createApiClient);
+router.put('/api-clients/:clientId', guardApiKeys.access, updateApiClient);
+router.delete('/api-clients/:clientId', guardApiKeys.access, deleteApiClient);
 
 export default router;

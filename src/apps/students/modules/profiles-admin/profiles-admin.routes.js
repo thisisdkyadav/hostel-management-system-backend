@@ -39,6 +39,7 @@ import {
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { validate } from '../../../../middlewares/validate.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 import { checkMissingRollNumbersSchema } from '../../../../validations/student.validation.js';
@@ -47,114 +48,91 @@ const router = express.Router();
 
 router.use(authenticate);
 
-const STUDENTS_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.students',
   [ROLES.WARDEN]: 'route.warden.students',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.students',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.students',
-};
-
-const requireStudentsRouteAccess = (req, res, next) => {
-  const routeKey = STUDENTS_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 const requireAdminSettingsRouteAccess = requireRouteAccess('route.admin.settings');
 
 router.get(
   '/profiles',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudents
 );
 router.post(
   '/profiles',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   createStudentsProfiles
 );
 router.put(
   '/profiles',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireAnyCapability(['cap.students.edit.personal']),
   updateStudentsProfiles
 );
 router.post(
   '/profiles/ids',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getMultipleStudentDetails
 );
 router.post(
   '/profiles/export',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentExportDetails
 );
 router.get(
   '/profile/details/:userId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentDetails
 );
 router.put(
   '/profile/:userId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireAnyCapability(['cap.students.edit.personal']),
   updateStudentProfile
 );
 router.get(
   '/id/:userId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireStudentsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentId
 );
 router.post(
   '/profiles/check-roll-numbers',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   validate(checkMissingRollNumbersSchema),
   checkMissingRollNumbers
 );
 router.post(
   '/profiles/status',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   bulkUpdateStudentsStatus
 );
 router.put(
   '/profiles/day-scholar',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   bulkUpdateDayScholarDetails
 );
 router.put(
   '/profiles/batch',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   bulkUpdateStudentsBatch
 );
 router.put(
   '/profiles/groups',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   bulkUpdateStudentsGroups
 );
 router.put(
   '/hostels/:hostelId/room-allocations',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   updateRoomAllocations
 );
 router.get(
   '/room-allocations/student/:rollNumber',
-  authorizeRoles(['Admin']),
-  requireStudentsRouteAccess,
+  guard(['Admin']),
   getAllocationStudentByRollNumber
 );
 router.get(

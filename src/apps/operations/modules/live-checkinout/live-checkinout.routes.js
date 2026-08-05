@@ -14,27 +14,19 @@ import {
 } from './live-checkinout.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 
 const router = express.Router();
 
 // All routes require authentication and admin role
 router.use(authenticate);
 router.use(authorizeRoles(['Admin', 'Super Admin']));
-const LIVE_CHECKINOUT_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   Admin: 'route.admin.liveCheckInOut',
   'Super Admin': 'route.superAdmin.dashboard',
-};
+});
 
-const requireLiveCheckInOutRouteAccess = (req, res, next) => {
-  const routeKey = LIVE_CHECKINOUT_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-router.use(requireLiveCheckInOutRouteAccess);
+router.use(guard.access);
 
 // Get live check-in/out entries with filters
 router.get('/entries', getLiveCheckInOutEntries);

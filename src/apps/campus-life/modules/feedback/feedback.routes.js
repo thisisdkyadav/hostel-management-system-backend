@@ -16,27 +16,18 @@ import {
   deleteFeedback,
 } from './feedback.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const FEEDBACK_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.feedbacks',
   [ROLES.WARDEN]: 'route.warden.feedbacks',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.feedbacks',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.feedbacks',
   [ROLES.STUDENT]: 'route.student.feedbacks',
-};
-
-const requireFeedbackRouteAccess = (req, res, next) => {
-  const routeKey = FEEDBACK_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -44,52 +35,45 @@ router.use(authenticate);
 // Student feedback submission
 router.post(
   '/add',
-  authorizeRoles(['Student']),
-  requireFeedbackRouteAccess,
+  guard(['Student']),
   createFeedback
 );
 
 // Get all feedbacks
 router.get(
   '/',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
-  requireFeedbackRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
   getFeedbacks
 );
 
 // Get student-specific feedbacks
 router.get(
   '/student/:userId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireFeedbackRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentFeedbacks
 );
 
 // Student-only feedback updates
 router.put(
   '/:feedbackId',
-  authorizeRoles(['Student']),
-  requireFeedbackRouteAccess,
+  guard(['Student']),
   updateFeedback
 );
 router.delete(
   '/:feedbackId',
-  authorizeRoles(['Student']),
-  requireFeedbackRouteAccess,
+  guard(['Student']),
   deleteFeedback
 );
 
 // Staff feedback management
 router.put(
   '/update-status/:feedbackId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireFeedbackRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   updateFeedbackStatus
 );
 router.post(
   '/reply/:feedbackId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireFeedbackRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   replyToFeedback
 );
 

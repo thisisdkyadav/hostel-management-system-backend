@@ -1,7 +1,6 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
-import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
-import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
+import { routeGuard } from "../../../../lib/api-kit/index.js"
 import { validate } from "../../../../middlewares/validate.middleware.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
 import { MANAGER_ROLES, SCANNER_ROLES } from "./attendance.constants.js"
@@ -12,46 +11,39 @@ const router = express.Router()
 
 router.use(authenticate)
 
-const ROUTE_KEY_BY_ROLE = {
-  [ROLES.ADMIN]: "route.admin.attendance",
-  [ROLES.GYMKHANA]: "route.gymkhana.attendance",
-}
-
 // Super Admin (and any role without a mapped key) falls through — RBAC above is the gate.
-const requireMappedRouteAccess = (req, res, next) => {
-  const routeKey = ROUTE_KEY_BY_ROLE[req?.user?.role]
-  if (!routeKey) return next()
-  return requireRouteAccess(routeKey)(req, res, next)
-}
+const guard = routeGuard(
+  {
+    [ROLES.ADMIN]: "route.admin.attendance",
+    [ROLES.GYMKHANA]: "route.gymkhana.attendance",
+  },
+  { onUnmapped: "allow" }
+)
 
 router.get(
   "/",
-  authorizeRoles(SCANNER_ROLES),
-  requireMappedRouteAccess,
+  guard(SCANNER_ROLES),
   validate(validation.listQuerySchema, "query"),
   controller.listOccurrences
 )
 
 router.post(
   "/",
-  authorizeRoles(MANAGER_ROLES),
-  requireMappedRouteAccess,
+  guard(MANAGER_ROLES),
   validate(validation.createOccurrenceSchema),
   controller.createOccurrence
 )
 
 router.get(
   "/:id",
-  authorizeRoles(SCANNER_ROLES),
-  requireMappedRouteAccess,
+  guard(SCANNER_ROLES),
   validate(validation.occurrenceIdSchema, "params"),
   controller.getOccurrence
 )
 
 router.patch(
   "/:id",
-  authorizeRoles(MANAGER_ROLES),
-  requireMappedRouteAccess,
+  guard(MANAGER_ROLES),
   validate(validation.occurrenceIdSchema, "params"),
   validate(validation.updateOccurrenceSchema),
   controller.updateOccurrence
@@ -59,16 +51,14 @@ router.patch(
 
 router.delete(
   "/:id",
-  authorizeRoles(MANAGER_ROLES),
-  requireMappedRouteAccess,
+  guard(MANAGER_ROLES),
   validate(validation.occurrenceIdSchema, "params"),
   controller.deleteOccurrence
 )
 
 router.post(
   "/:id/roster",
-  authorizeRoles(MANAGER_ROLES),
-  requireMappedRouteAccess,
+  guard(MANAGER_ROLES),
   validate(validation.occurrenceIdSchema, "params"),
   validate(validation.rosterSchema),
   controller.uploadRoster
@@ -76,8 +66,7 @@ router.post(
 
 router.post(
   "/:id/scan",
-  authorizeRoles(SCANNER_ROLES),
-  requireMappedRouteAccess,
+  guard(SCANNER_ROLES),
   validate(validation.occurrenceIdSchema, "params"),
   validate(validation.scanSchema),
   controller.scanAttendance
@@ -85,8 +74,7 @@ router.post(
 
 router.post(
   "/:id/mark",
-  authorizeRoles(SCANNER_ROLES),
-  requireMappedRouteAccess,
+  guard(SCANNER_ROLES),
   validate(validation.occurrenceIdSchema, "params"),
   validate(validation.markSchema),
   controller.markAttendance
@@ -94,8 +82,7 @@ router.post(
 
 router.delete(
   "/:id/records/:recordId",
-  authorizeRoles(SCANNER_ROLES),
-  requireMappedRouteAccess,
+  guard(SCANNER_ROLES),
   validate(validation.recordParamsSchema, "params"),
   controller.deleteRecord
 )

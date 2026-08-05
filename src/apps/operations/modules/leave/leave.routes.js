@@ -17,6 +17,7 @@ import {
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
@@ -24,24 +25,16 @@ const router = express.Router();
 // All routes require authentication
 router.use(authenticate);
 
-const LEAVE_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.leaves',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.leaves',
   [ROLES.MAINTENANCE_STAFF]: 'route.maintenance.leaves',
-};
-
-const requireLeaveRouteAccess = (req, res, next) => {
-  const routeKey = LEAVE_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // Staff leave routes (Admin, Hostel Supervisor, Maintenance Staff)
 router.use(authorizeRoles(['Admin', 'Hostel Supervisor', 'Maintenance Staff']));
-router.get('/my-leaves', requireLeaveRouteAccess, getMyLeaves);
-router.post('/', requireLeaveRouteAccess, createLeave);
+router.get('/my-leaves', guard.access, getMyLeaves);
+router.post('/', guard.access, createLeave);
 
 // Admin-only leave management
 router.use(authorizeRoles(['Admin']));

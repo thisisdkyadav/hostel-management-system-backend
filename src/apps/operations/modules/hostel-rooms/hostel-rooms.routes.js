@@ -24,44 +24,34 @@ import { updateRoomAllocations } from '../../../students/modules/profiles-admin/
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
 
-const HOSTEL_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   Admin: 'route.admin.hostels',
   Warden: 'route.warden.hostels',
   'Associate Warden': 'route.associateWarden.hostels',
   'Hostel Supervisor': 'route.hostelSupervisor.hostels',
-};
-
-const requireHostelRouteAccess = (req, res, next) => {
-  const routeKey = HOSTEL_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // Routes accessible by Admin, Warden, Associate Warden, Hostel Supervisor
 router.get(
   '/units/:hostelId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireHostelRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getUnits
 );
 router.get(
   '/rooms/:unitId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireHostelRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getRoomsByUnit
 );
 router.get(
   '/rooms-room-only',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireHostelRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getRooms
 );
 

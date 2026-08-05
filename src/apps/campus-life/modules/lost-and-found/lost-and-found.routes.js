@@ -13,13 +13,12 @@ import {
   deleteLostAndFound,
 } from './lost-and-found.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const LOST_AND_FOUND_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.lostAndFound',
   [ROLES.WARDEN]: 'route.warden.lostAndFound',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.lostAndFound',
@@ -27,15 +26,7 @@ const LOST_AND_FOUND_ROUTE_KEY_BY_ROLE = {
   [ROLES.SECURITY]: 'route.security.lostAndFound',
   [ROLES.HOSTEL_GATE]: 'route.hostelGate.lostAndFound',
   [ROLES.STUDENT]: 'route.student.lostAndFound',
-};
-
-const requireLostAndFoundRouteAccess = (req, res, next) => {
-  const routeKey = LOST_AND_FOUND_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -43,7 +34,7 @@ router.use(authenticate);
 // Get lost and found items
 router.get(
   '/',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -52,14 +43,13 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
-  requireLostAndFoundRouteAccess,
   getLostAndFound
 );
 
 // Staff operations (excluding students)
 router.post(
   '/',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -67,12 +57,11 @@ router.post(
     'Security',
     'Hostel Gate',
   ]),
-  requireLostAndFoundRouteAccess,
   createLostAndFound
 );
 router.put(
   '/:id',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -80,12 +69,11 @@ router.put(
     'Security',
     'Hostel Gate',
   ]),
-  requireLostAndFoundRouteAccess,
   updateLostAndFound
 );
 router.delete(
   '/:id',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -93,7 +81,6 @@ router.delete(
     'Security',
     'Hostel Gate',
   ]),
-  requireLostAndFoundRouteAccess,
   deleteLostAndFound
 );
 

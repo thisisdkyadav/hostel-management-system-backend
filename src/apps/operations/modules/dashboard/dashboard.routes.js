@@ -16,27 +16,18 @@ import {
   getWardenHostelStatistics,
 } from './dashboard.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const DASHBOARD_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.dashboard',
   [ROLES.SUPER_ADMIN]: 'route.superAdmin.dashboard',
   [ROLES.WARDEN]: 'route.warden.dashboard',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.dashboard',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.dashboard',
-};
-
-const requireDashboardRouteAccess = (req, res, next) => {
-  const routeKey = DASHBOARD_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -44,30 +35,26 @@ router.use(authenticate);
 // Main dashboard - admin level access
 router.get(
   '/',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDashboardRouteAccess,
+  guard(['Admin', 'Super Admin']),
   getDashboardData
 );
 
 // Warden hostel statistics
 router.get(
   '/warden/hostel-statistics',
-  authorizeRoles(['Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireDashboardRouteAccess,
+  guard(['Warden', 'Associate Warden', 'Hostel Supervisor']),
   getWardenHostelStatistics
 );
 
 // Student statistics
 router.get(
   '/student-count',
-  authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireDashboardRouteAccess,
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentCount
 );
 router.get(
   '/student-statistics',
-  authorizeRoles(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireDashboardRouteAccess,
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentStatistics
 );
 

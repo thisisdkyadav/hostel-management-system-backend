@@ -1,7 +1,6 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
-import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
-import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
+import { routeGuard } from "../../../../lib/api-kit/index.js"
 import { validate } from "../../../../middlewares/validate.middleware.js"
 import * as controller from "./best-performer.controller.js"
 import * as validation from "./best-performer.validation.js"
@@ -10,45 +9,38 @@ import { ROLES } from "../../../../core/constants/roles.constants.js"
 const router = express.Router()
 router.use(authenticate)
 
-const ROUTE_KEY_BY_ROLE = {
-  [ROLES.ADMIN]: "route.admin.overallBestPerformer",
-  [ROLES.ACADEMICS]: "route.academics.bestPerformer",
-  [ROLES.STUDENT]: "route.student.overallBestPerformer",
-}
-
-const requireMappedRouteAccess = (req, res, next) => {
-  const routeKey = ROUTE_KEY_BY_ROLE[req?.user?.role]
-  if (!routeKey) return next()
-  return requireRouteAccess(routeKey)(req, res, next)
-}
+const guard = routeGuard(
+  {
+    [ROLES.ADMIN]: "route.admin.overallBestPerformer",
+    [ROLES.ACADEMICS]: "route.academics.bestPerformer",
+    [ROLES.STUDENT]: "route.student.overallBestPerformer",
+  },
+  { onUnmapped: "allow" }
+)
 
 router.get(
   "/occurrences/selector",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.ACADEMICS]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.ACADEMICS]),
   controller.getOccurrenceSelector
 )
 
 router.get(
   "/occurrences/:id",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.ACADEMICS]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.ACADEMICS]),
   validate(validation.occurrenceIdSchema, "params"),
   controller.getOccurrenceDetail
 )
 
 router.post(
   "/occurrences",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.createOccurrenceSchema),
   controller.createOccurrence
 )
 
 router.put(
   "/occurrences/:id",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.occurrenceIdSchema, "params"),
   validate(validation.updateOccurrenceSchema),
   controller.updateOccurrence
@@ -56,15 +48,13 @@ router.put(
 
 router.get(
   "/student/portal-state",
-  authorizeRoles([ROLES.STUDENT]),
-  requireMappedRouteAccess,
+  guard([ROLES.STUDENT]),
   controller.getStudentPortalState
 )
 
 router.post(
   "/occurrences/:id/application",
-  authorizeRoles([ROLES.STUDENT]),
-  requireMappedRouteAccess,
+  guard([ROLES.STUDENT]),
   validate(validation.occurrenceIdSchema, "params"),
   validate(validation.upsertApplicationSchema),
   controller.upsertStudentApplication
@@ -72,8 +62,7 @@ router.post(
 
 router.post(
   "/applications/:id/review",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.applicationIdSchema, "params"),
   validate(validation.reviewApplicationSchema),
   controller.reviewApplication
@@ -81,8 +70,7 @@ router.post(
 
 router.patch(
   "/applications/:id/item-type",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.applicationIdSchema, "params"),
   validate(validation.updateApplicationItemTypeSchema),
   controller.updateApplicationItemType
@@ -90,8 +78,7 @@ router.patch(
 
 router.patch(
   "/applications/:id/coursework-score",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.applicationIdSchema, "params"),
   validate(validation.updateApplicationCourseworkScoreSchema),
   controller.updateApplicationCourseworkScore
@@ -99,8 +86,7 @@ router.patch(
 
 router.patch(
   "/applications/:id/project-thesis-grades",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.applicationIdSchema, "params"),
   validate(validation.updateApplicationProjectThesisGradesSchema),
   controller.updateApplicationProjectThesisGrades
@@ -108,8 +94,7 @@ router.patch(
 
 router.post(
   "/applications/:id/hod-verification",
-  authorizeRoles([ROLES.ACADEMICS]),
-  requireMappedRouteAccess,
+  guard([ROLES.ACADEMICS]),
   validate(validation.applicationIdSchema, "params"),
   validate(validation.hodVerificationSchema),
   controller.addHodVerification

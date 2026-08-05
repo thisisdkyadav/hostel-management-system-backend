@@ -1,7 +1,7 @@
 /**
  * Upload Routes
  * Handles file uploads for various purposes
- * 
+ *
  * Base path: /api/v1/upload
  */
 
@@ -26,61 +26,41 @@ import {
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE = {
-  [ROLES.GYMKHANA]: 'route.gymkhana.events',
-  [ROLES.ADMIN]: 'route.admin.events',
-};
+const guardGymkhanaEvent = routeGuard(
+  {
+    [ROLES.GYMKHANA]: 'route.gymkhana.events',
+    [ROLES.ADMIN]: 'route.admin.events',
+  },
+  { onUnmapped: 'allow' }
+);
 
-const OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE = {
-  [ROLES.STUDENT]: 'route.student.overallBestPerformer',
-  [ROLES.ADMIN]: 'route.admin.overallBestPerformer',
-};
+const guardOverallBestPerformer = routeGuard(
+  {
+    [ROLES.STUDENT]: 'route.student.overallBestPerformer',
+    [ROLES.ADMIN]: 'route.admin.overallBestPerformer',
+  },
+  { onUnmapped: 'allow' }
+);
 
-const POR_UPLOAD_ROUTE_KEYS_BY_ROLE = {
-  [ROLES.STUDENT]: 'route.student.por',
-};
+const guardPor = routeGuard(
+  {
+    [ROLES.STUDENT]: 'route.student.por',
+  },
+  { onUnmapped: 'allow' }
+);
 
-const ELECTION_UPLOAD_ROUTE_KEYS_BY_ROLE = {
-  [ROLES.STUDENT]: 'route.student.elections',
-  [ROLES.ADMIN]: 'route.admin.elections',
-};
-
-const requireGymkhanaEventUploadRouteAccess = (req, res, next) => {
-  const routeKey = GYMKHANA_EVENT_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return next();
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-const requireOverallBestPerformerUploadRouteAccess = (req, res, next) => {
-  const routeKey = OVERALL_BEST_PERFORMER_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return next();
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-const requireElectionUploadRouteAccess = (req, res, next) => {
-  const routeKey = ELECTION_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return next();
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-const requirePorUploadRouteAccess = (req, res, next) => {
-  const routeKey = POR_UPLOAD_ROUTE_KEYS_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return next();
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+const guardElection = routeGuard(
+  {
+    [ROLES.STUDENT]: 'route.student.elections',
+    [ROLES.ADMIN]: 'route.admin.elections',
+  },
+  { onUnmapped: 'allow' }
+);
 
 // All routes require authentication
 router.use(authenticate);
@@ -148,8 +128,7 @@ router.post('/h2-form', authorizeRoles(['Student']), upload.any(), h2FormPDF);
 // Event proposal PDF upload
 router.post(
   '/event-proposal-pdf',
-  authorizeRoles(['Gymkhana']),
-  requireGymkhanaEventUploadRouteAccess,
+  guardGymkhanaEvent(['Gymkhana']),
   upload.any(),
   uploadEventProposalPDF
 );
@@ -157,8 +136,7 @@ router.post(
 // Event chief guest PDF upload
 router.post(
   '/event-chief-guest-pdf',
-  authorizeRoles(['Gymkhana']),
-  requireGymkhanaEventUploadRouteAccess,
+  guardGymkhanaEvent(['Gymkhana']),
   upload.any(),
   uploadEventChiefGuestPDF
 );
@@ -166,8 +144,7 @@ router.post(
 // Event bill PDF upload
 router.post(
   '/event-bill-pdf',
-  authorizeRoles(['Gymkhana']),
-  requireGymkhanaEventUploadRouteAccess,
+  guardGymkhanaEvent(['Gymkhana']),
   upload.any(),
   uploadEventBillPDF
 );
@@ -175,8 +152,7 @@ router.post(
 // Event report PDF upload
 router.post(
   '/event-report-pdf',
-  authorizeRoles(['Gymkhana']),
-  requireGymkhanaEventUploadRouteAccess,
+  guardGymkhanaEvent(['Gymkhana']),
   upload.any(),
   uploadEventReportPDF
 );
@@ -221,8 +197,7 @@ router.post('/signature-image', upload.single('image'), uploadSignatureImage);
 // Election nomination document upload
 router.post(
   '/election-nomination-document',
-  authorizeRoles(['Student', 'Admin', 'Super Admin']),
-  requireElectionUploadRouteAccess,
+  guardElection(['Student', 'Admin', 'Super Admin']),
   handleElectionNominationUpload,
   uploadElectionNominationDocument
 );
@@ -230,8 +205,7 @@ router.post(
 // Overall Best Performer proof PDF upload
 router.post(
   '/overall-best-performer-proof-pdf',
-  authorizeRoles(['Student', 'Admin', 'Super Admin']),
-  requireOverallBestPerformerUploadRouteAccess,
+  guardOverallBestPerformer(['Student', 'Admin', 'Super Admin']),
   upload.any(),
   uploadOverallBestPerformerProofPDF
 );
@@ -239,8 +213,7 @@ router.post(
 // POR supporting document PDF upload
 router.post(
   '/por-document-pdf',
-  authorizeRoles(['Student']),
-  requirePorUploadRouteAccess,
+  guardPor(['Student']),
   handleElectionNominationUpload,
   uploadPorDocumentPDF
 );

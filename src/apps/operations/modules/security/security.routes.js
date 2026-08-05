@@ -25,11 +25,12 @@ import {
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const SECURITY_ENTRIES_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.security',
   [ROLES.WARDEN]: 'route.warden.students',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.students',
@@ -37,15 +38,7 @@ const SECURITY_ENTRIES_ROUTE_KEY_BY_ROLE = {
   [ROLES.SECURITY]: 'route.security.attendance',
   [ROLES.HOSTEL_GATE]: 'route.hostelGate.entries',
   [ROLES.STUDENT]: 'route.student.security',
-};
-
-const requireSecurityEntriesRouteAccess = (req, res, next) => {
-  const routeKey = SECURITY_ENTRIES_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -56,7 +49,7 @@ router.get('/', getSecurity);
 // Student entries
 router.get(
   '/entries',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -65,7 +58,6 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
-  requireSecurityEntriesRouteAccess,
   getStudentEntries
 );
 router.get('/entries/recent', authorizeRoles(['Hostel Gate']), requireRouteAccess('route.hostelGate.dashboard'), getRecentEntries);

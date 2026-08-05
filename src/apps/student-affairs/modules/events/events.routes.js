@@ -7,6 +7,7 @@ import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
 import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
+import { routeGuard } from "../../../../lib/api-kit/index.js"
 import { validate } from "../../../../middlewares/validate.middleware.js"
 import * as eventsController from "./events.controller.js"
 import * as validation from "./events.validation.js"
@@ -15,34 +16,30 @@ import { ROLES, ROLE_GROUPS } from "../../../../core/constants/roles.constants.j
 const router = express.Router()
 router.use(authenticate)
 
-const EVENTS_ROUTE_KEY_BY_ROLE = {
-  [ROLES.ADMIN]: "route.admin.gymkhanaEvents",
-  [ROLES.GYMKHANA]: "route.gymkhana.events",
-}
+const guardEvents = routeGuard(
+  {
+    [ROLES.ADMIN]: "route.admin.gymkhanaEvents",
+    [ROLES.GYMKHANA]: "route.gymkhana.events",
+  },
+  { onUnmapped: "allow" }
+)
 
-const MEGA_EVENTS_ROUTE_KEY_BY_ROLE = {
-  [ROLES.ADMIN]: "route.admin.megaEvents",
-  [ROLES.GYMKHANA]: "route.gymkhana.megaEvents",
-}
+const guardMegaEvents = routeGuard(
+  {
+    [ROLES.ADMIN]: "route.admin.megaEvents",
+    [ROLES.GYMKHANA]: "route.gymkhana.megaEvents",
+  },
+  { onUnmapped: "allow" }
+)
 
-const requireRoleMappedRouteAccess = (routeKeyByRole) => (req, res, next) => {
-  const routeKey = routeKeyByRole[req?.user?.role]
-  if (!routeKey) {
-    return next()
-  }
-  return requireRouteAccess(routeKey)(req, res, next)
-}
-
-const requireEventsRouteAccess = requireRoleMappedRouteAccess(EVENTS_ROUTE_KEY_BY_ROLE)
-const requireMegaEventsRouteAccess = requireRoleMappedRouteAccess(MEGA_EVENTS_ROUTE_KEY_BY_ROLE)
 const requireGymkhanaDashboardRouteAccess = requireRouteAccess("route.gymkhana.dashboard")
 
-const eventsViewAccess = [requireEventsRouteAccess]
-const eventsCreateAccess = [requireEventsRouteAccess]
-const eventsApproveAccess = [requireEventsRouteAccess]
-const megaEventsViewAccess = [requireMegaEventsRouteAccess]
-const megaEventsCreateAccess = [requireMegaEventsRouteAccess]
-const megaEventsApproveAccess = [requireMegaEventsRouteAccess]
+const eventsViewAccess = [guardEvents.access]
+const eventsCreateAccess = [guardEvents.access]
+const eventsApproveAccess = [guardEvents.access]
+const megaEventsViewAccess = [guardMegaEvents.access]
+const megaEventsCreateAccess = [guardMegaEvents.access]
+const megaEventsApproveAccess = [guardMegaEvents.access]
 
 router.get(
   "/approval/post-student-affairs-approvers",

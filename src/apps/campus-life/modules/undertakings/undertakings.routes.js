@@ -24,76 +24,61 @@ import {
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(authenticate);
 
-const ADMIN_STAFF_UNDERTAKING_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   Admin: 'route.admin.others',
   Warden: 'route.warden.undertakings',
   'Associate Warden': 'route.associateWarden.undertakings',
   'Hostel Supervisor': 'route.hostelSupervisor.undertakings',
-};
-
-const requireAdminUndertakingRouteAccess = (req, res, next) => {
-  const routeKey = ADMIN_STAFF_UNDERTAKING_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // ============================================
 // Admin/Staff routes
 // ============================================
 router.get(
   '/admin/undertakings',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getAllUndertakings
 );
 router.post(
   '/admin/undertakings',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden']),
   createUndertaking
 );
 router.put(
   '/admin/undertakings/:undertakingId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden']),
   updateUndertaking
 );
 router.delete(
   '/admin/undertakings/:undertakingId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden']),
   deleteUndertaking
 );
 router.get(
   '/admin/undertakings/:undertakingId/students',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getAssignedStudents
 );
 router.post(
   '/admin/undertakings/:undertakingId/students/by-roll-numbers',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden']),
   addStudentsToUndertaking
 );
 router.delete(
   '/admin/undertakings/:undertakingId/students/:studentId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden']),
   removeStudentFromUndertaking
 );
 router.get(
   '/admin/undertakings/:undertakingId/status',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireAdminUndertakingRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getUndertakingStatus
 );
 

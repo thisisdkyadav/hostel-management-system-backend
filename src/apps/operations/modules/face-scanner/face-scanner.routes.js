@@ -8,7 +8,7 @@
 import express from 'express';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { authenticateScanner } from '../../../../middlewares/faceScannerAuth.middleware.js';
 import {
   createFaceScanner,
@@ -39,20 +39,12 @@ router.get('/test-auth', authenticateScanner, testScannerAuth);
 // =============================================
 router.use(authenticate);
 router.use(authorizeRoles(['Admin', 'Super Admin']));
-const FACE_SCANNER_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   Admin: 'route.admin.faceScanners',
   'Super Admin': 'route.superAdmin.dashboard',
-};
+});
 
-const requireFaceScannerRouteAccess = (req, res, next) => {
-  const routeKey = FACE_SCANNER_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-router.use(requireFaceScannerRouteAccess);
+router.use(guard.access);
 
 // CRUD operations for face scanners
 router.post('/', createFaceScanner);

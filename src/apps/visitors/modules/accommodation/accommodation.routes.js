@@ -9,21 +9,14 @@
 
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
-import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
-import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
+import { routeGuard } from "../../../../lib/api-kit/index.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import { ACCOMMODATION_ROUTE_KEY_BY_ROLE } from "./accommodation.constants.js"
 import * as ctrl from "./accommodation.controller.js"
 
 const router = express.Router()
 
-const requireAccommodationRouteAccess = (req, res, next) => {
-  const routeKey = ACCOMMODATION_ROUTE_KEY_BY_ROLE[req?.user?.role]
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: "You do not have access to this route" })
-  }
-  return requireRouteAccess(routeKey)(req, res, next)
-}
+const guard = routeGuard(ACCOMMODATION_ROUTE_KEY_BY_ROLE)
 
 const requireAdminSubRole = (subRoles) => (req, res, next) => {
   if (req?.user?.role !== ROLES.ADMIN || !subRoles.includes(req?.user?.subRole)) {
@@ -41,53 +34,45 @@ router.use(authenticate)
 
 router.get(
   "/types",
-  authorizeRoles(["Student", "Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Student", "Admin"]),
   ctrl.getAccommodationTypes
 )
 router.post(
   "/quote",
-  authorizeRoles(["Student", "Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Student", "Admin"]),
   ctrl.previewQuote
 )
 
 router.get(
   "/requests",
-  authorizeRoles(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
-  requireAccommodationRouteAccess,
+  guard(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
   ctrl.listRequests
 )
 router.get(
   "/requests/:requestId",
-  authorizeRoles(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
-  requireAccommodationRouteAccess,
+  guard(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
   ctrl.getRequestById
 )
 router.post(
   "/requests",
-  authorizeRoles(["Student"]),
-  requireAccommodationRouteAccess,
+  guard(["Student"]),
   ctrl.submitAccommodationRequest
 )
 router.post(
   "/requests/:requestId/resubmit",
-  authorizeRoles(["Student"]),
-  requireAccommodationRouteAccess,
+  guard(["Student"]),
   ctrl.resubmitRequest
 )
 router.post(
   "/requests/:requestId/cancel",
-  authorizeRoles(["Student"]),
-  requireAccommodationRouteAccess,
+  guard(["Student"]),
   ctrl.cancelRequest
 )
 
 // Chief Warden approve / request-modification / reject
 router.post(
   "/requests/:requestId/decision",
-  authorizeRoles(["Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Admin"]),
   requireAdminSubRole([SUBROLES.CHIEF_WARDEN]),
   ctrl.chiefWardenDecision
 )
@@ -95,8 +80,7 @@ router.post(
 // Chief Warden / CW Office skip the faculty-advisor stage
 router.post(
   "/requests/:requestId/bypass-fa",
-  authorizeRoles(["Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Admin"]),
   requireAdminSubRole([SUBROLES.CHIEF_WARDEN, SUBROLES.CHIEF_WARDEN_OFFICE]),
   ctrl.bypassFacultyAdvisor
 )
@@ -104,8 +88,7 @@ router.post(
 // Chief Warden Office issues the payment request
 router.post(
   "/requests/:requestId/payment-request",
-  authorizeRoles(["Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Admin"]),
   requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
   ctrl.issuePaymentRequest
 )
@@ -113,16 +96,14 @@ router.post(
 // Student submits the payment screenshot
 router.post(
   "/requests/:requestId/payment",
-  authorizeRoles(["Student"]),
-  requireAccommodationRouteAccess,
+  guard(["Student"]),
   ctrl.submitPayment
 )
 
 // Accountant verifies / rejects the payment
 router.post(
   "/requests/:requestId/payment-verify",
-  authorizeRoles(["Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Admin"]),
   requireAdminSubRole([SUBROLES.ACCOUNTANT]),
   ctrl.verifyPayment
 )
@@ -130,8 +111,7 @@ router.post(
 // Chief Warden Office: guest-bed availability across hostels for allotment
 router.get(
   "/requests/:requestId/allotment-availability",
-  authorizeRoles(["Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Admin"]),
   requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
   ctrl.getAllotmentAvailability
 )
@@ -139,8 +119,7 @@ router.get(
 // Chief Warden Office allots a hostel
 router.post(
   "/requests/:requestId/allot",
-  authorizeRoles(["Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Admin"]),
   requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
   ctrl.allotHostel
 )
@@ -148,28 +127,24 @@ router.post(
 // Hostel Supervisor (Guest House Manager): per-room availability + assign rooms
 router.get(
   "/requests/:requestId/room-availability",
-  authorizeRoles(["Hostel Supervisor", "Admin"]),
-  requireAccommodationRouteAccess,
+  guard(["Hostel Supervisor", "Admin"]),
   ctrl.getRoomAvailability
 )
 router.post(
   "/requests/:requestId/assign-rooms",
-  authorizeRoles(["Hostel Supervisor"]),
-  requireAccommodationRouteAccess,
+  guard(["Hostel Supervisor"]),
   ctrl.assignRooms
 )
 
 // Hostel Gate: check-in / check-out (optional)
 router.post(
   "/requests/:requestId/checkin",
-  authorizeRoles(["Hostel Gate"]),
-  requireAccommodationRouteAccess,
+  guard(["Hostel Gate"]),
   ctrl.checkIn
 )
 router.post(
   "/requests/:requestId/checkout",
-  authorizeRoles(["Hostel Gate"]),
-  requireAccommodationRouteAccess,
+  guard(["Hostel Gate"]),
   ctrl.checkOut
 )
 

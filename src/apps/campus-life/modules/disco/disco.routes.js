@@ -1,7 +1,7 @@
 /**
  * DisCo (Disciplinary Committee) Routes
  * Handles disciplinary actions for students
- * 
+ *
  * Base path: /api/v1/disCo
  */
 
@@ -23,39 +23,22 @@ import {
   finalizeProcessCase,
 } from './disco.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const DISCO_STUDENT_ROUTE_KEY_BY_ROLE = {
+const guardStudent = routeGuard({
   [ROLES.ADMIN]: 'route.admin.students',
   [ROLES.WARDEN]: 'route.warden.students',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.students',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.students',
-};
+});
 
-const DISCO_PROCESS_ROUTE_KEY_BY_ROLE = {
+const guardProcess = routeGuard({
   [ROLES.ADMIN]: 'route.admin.disciplinaryProcess',
   [ROLES.SUPER_ADMIN]: 'route.superAdmin.dashboard',
-};
-
-const requireDiscoStudentRouteAccess = (req, res, next) => {
-  const routeKey = DISCO_STUDENT_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
-
-const requireDiscoProcessRouteAccess = (req, res, next) => {
-  const routeKey = DISCO_PROCESS_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -63,90 +46,76 @@ router.use(authenticate);
 // Admin-only DisCo management
 router.post(
   '/add',
-  authorizeRoles(['Admin']),
-  requireDiscoStudentRouteAccess,
+  guardStudent(['Admin']),
   addDisCoAction
 );
 router.put(
   '/update/:disCoId',
-  authorizeRoles(['Admin']),
-  requireDiscoStudentRouteAccess,
+  guardStudent(['Admin']),
   updateDisCoAction
 );
 router.patch(
   '/update/:disCoId/reminders/:reminderItemId/done',
-  authorizeRoles(['Admin']),
-  requireDiscoStudentRouteAccess,
+  guardStudent(['Admin']),
   markDisCoReminderDone
 );
 router.delete(
   '/:disCoId',
-  authorizeRoles(['Admin']),
-  requireDiscoStudentRouteAccess,
+  guardStudent(['Admin']),
   deleteDisCoAction
 );
 
 // Admin disciplinary process workflows
 router.post(
   '/process/cases',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   submitProcessCase
 );
 router.get(
   '/process/cases',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   getAdminProcessCases
 );
 router.get(
   '/process/cases/:caseId',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   getProcessCaseById
 );
 router.get(
   '/process/cases/:caseId/export',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   exportProcessCaseBundle
 );
 router.patch(
   '/process/cases/:caseId/stage2',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   saveCaseStageTwo
 );
 router.post(
   '/process/cases/:caseId/send-email',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   sendCaseEmail
 );
 router.post(
   '/process/cases/:caseId/skip-email',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   skipCaseEmail
 );
 router.patch(
   '/process/cases/:caseId/committee-minutes',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   uploadCommitteeMinutes
 );
 router.patch(
   '/process/cases/:caseId/finalize',
-  authorizeRoles(['Admin', 'Super Admin']),
-  requireDiscoProcessRouteAccess,
+  guardProcess(['Admin', 'Super Admin']),
   finalizeProcessCase
 );
 
 // Get DisCo actions by student
 router.get(
   '/:studentId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireDiscoStudentRouteAccess,
+  guardStudent(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getDisCoActionsByStudent
 );
 

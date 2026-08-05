@@ -1,8 +1,7 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
-import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
-import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
 import { validate } from "../../../../middlewares/validate.middleware.js"
+import { routeGuard } from "../../../../lib/api-kit/index.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import * as controller from "./clubs.controller.js"
 import * as validation from "./clubs.validation.js"
@@ -11,16 +10,13 @@ const router = express.Router()
 
 router.use(authenticate)
 
-const ROUTE_KEY_BY_ROLE = {
-  [ROLES.ADMIN]: "route.admin.clubs",
-  [ROLES.GYMKHANA]: "route.gymkhana.club",
-}
-
-const requireMappedRouteAccess = (req, res, next) => {
-  const routeKey = ROUTE_KEY_BY_ROLE[req?.user?.role]
-  if (!routeKey) return next()
-  return requireRouteAccess(routeKey)(req, res, next)
-}
+const guard = routeGuard(
+  {
+    [ROLES.ADMIN]: "route.admin.clubs",
+    [ROLES.GYMKHANA]: "route.gymkhana.club",
+  },
+  { onUnmapped: "allow" }
+)
 
 const requireClubAccount = (req, res, next) => {
   if (req?.user?.role === ROLES.GYMKHANA && req?.user?.subRole === SUBROLES.CLUB) {
@@ -37,31 +33,27 @@ const requireClubAccount = (req, res, next) => {
 
 router.get(
   "/me",
-  authorizeRoles([ROLES.GYMKHANA]),
-  requireMappedRouteAccess,
+  guard([ROLES.GYMKHANA]),
   requireClubAccount,
   controller.getMyClub
 )
 
 router.get(
   "/",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   controller.listClubs
 )
 
 router.post(
   "/",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.createClubSchema),
   controller.createClub
 )
 
 router.put(
   "/:id",
-  authorizeRoles([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
-  requireMappedRouteAccess,
+  guard([ROLES.ADMIN, ROLES.SUPER_ADMIN]),
   validate(validation.clubIdSchema, "params"),
   validate(validation.updateClubSchema),
   controller.updateClub

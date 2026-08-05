@@ -27,13 +27,12 @@ import {
   updateVisitorProfile,
 } from './visitor-profile.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 
 const router = express.Router();
 
-const VISITORS_ROUTE_KEY_BY_ROLE = {
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.visitors',
   [ROLES.WARDEN]: 'route.warden.visitors',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.visitors',
@@ -41,15 +40,7 @@ const VISITORS_ROUTE_KEY_BY_ROLE = {
   [ROLES.STUDENT]: 'route.student.visitors',
   [ROLES.HOSTEL_GATE]: 'route.hostelGate.visitors',
   [ROLES.SECURITY]: 'route.security.attendance',
-};
-
-const requireVisitorsRouteAccess = (req, res, next) => {
-  const routeKey = VISITORS_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // All routes require authentication
 router.use(authenticate);
@@ -57,7 +48,7 @@ router.use(authenticate);
 // Visitor request summary
 router.get(
   '/requests/summary',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -66,22 +57,20 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
-  requireVisitorsRouteAccess,
   getVisitorRequests
 );
 
 // Student-specific visitor requests
 router.get(
   '/requests/student/:userId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireVisitorsRouteAccess,
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentVisitorRequests
 );
 
 // Visitor request operations
 router.get(
   '/requests/:requestId',
-  authorizeRoles([
+  guard([
     'Admin',
     'Warden',
     'Associate Warden',
@@ -90,95 +79,81 @@ router.get(
     'Hostel Gate',
     'Student',
   ]),
-  requireVisitorsRouteAccess,
   getVisitorRequestById
 );
 router.post(
   '/requests',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   createVisitorRequest
 );
 router.put(
   '/requests/:requestId',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   updateVisitorRequest
 );
 router.delete(
   '/requests/:requestId',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   deleteVisitorRequest
 );
 
 // Visitor profiles (Student only)
 router.get(
   '/profiles',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   getVisitorProfiles
 );
 router.post(
   '/profiles',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   createVisitorProfile
 );
 router.put(
   '/profiles/:visitorId',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   updateVisitorProfile
 );
 router.delete(
   '/profiles/:visitorId',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   deleteVisitorProfile
 );
 
 // Room allocation for visitor requests
 router.post(
   '/requests/:requestId/allocate',
-  authorizeRoles(['Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireVisitorsRouteAccess,
+  guard(['Warden', 'Associate Warden', 'Hostel Supervisor']),
   allocateRoomsToVisitorRequest
 );
 
 // Check-in/out operations
 router.post(
   '/requests/:requestId/checkin',
-  authorizeRoles(['Hostel Gate']),
-  requireVisitorsRouteAccess,
+  guard(['Hostel Gate']),
   checkInVisitor
 );
 router.post(
   '/requests/:requestId/checkout',
-  authorizeRoles(['Hostel Gate']),
-  requireVisitorsRouteAccess,
+  guard(['Hostel Gate']),
   checkOutVisitor
 );
 router.put(
   '/requests/:requestId/update-check-times',
-  authorizeRoles(['Hostel Gate']),
-  requireVisitorsRouteAccess,
+  guard(['Hostel Gate']),
   updateCheckTime
 );
 
 // Request status update
 router.post(
   '/requests/:requestId/:action',
-  authorizeRoles(['Admin']),
-  requireVisitorsRouteAccess,
+  guard(['Admin']),
   updateVisitorRequestStatus
 );
 
 // Payment info update
 router.put(
   '/requests/:requestId/payment-info',
-  authorizeRoles(['Student']),
-  requireVisitorsRouteAccess,
+  guard(['Student']),
   updatePaymentInfo
 );
 
