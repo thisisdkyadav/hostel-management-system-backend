@@ -1,7 +1,7 @@
 /**
  * Complaint Routes
  * Handles complaint management for all users
- * 
+ *
  * Base path: /api/complaint
  */
 
@@ -19,28 +19,21 @@ import {
   submitFeedbackByToken,
 } from './complaints.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
-import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
 
 const router = express.Router();
 
-const COMPLAINTS_ROUTE_KEY_BY_ROLE = {
+// role -> routeKey guard for this module (replaces the hand-rolled
+// ROUTE_KEY_BY_ROLE map + requireComplaintsRouteAccess wrapper)
+const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.complaints',
   [ROLES.WARDEN]: 'route.warden.complaints',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.complaints',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.complaints',
   [ROLES.STUDENT]: 'route.student.complaints',
   [ROLES.MAINTENANCE_STAFF]: 'route.maintenance.dashboard',
-};
-
-const requireComplaintsRouteAccess = (req, res, next) => {
-  const routeKey = COMPLAINTS_ROUTE_KEY_BY_ROLE[req?.user?.role];
-  if (!routeKey) {
-    return res.status(403).json({ success: false, message: 'You do not have access to this route' });
-  }
-  return requireRouteAccess(routeKey)(req, res, next);
-};
+});
 
 // ========== PUBLIC ROUTES (no authentication) ==========
 
@@ -55,86 +48,25 @@ router.post('/feedback/:token', submitFeedbackByToken);
 router.use(authenticate);
 
 // Create complaint
-router.post(
-  '/',
-  authorizeRoles([
-    'Admin',
-    'Warden',
-    'Associate Warden',
-    'Hostel Supervisor',
-    'Maintenance Staff',
-    'Student',
-  ]),
-  requireComplaintsRouteAccess,
-  createComplaint
-);
+router.post('/', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff', 'Student']), createComplaint);
 
 // Get all complaints
-router.get(
-  '/all',
-  authorizeRoles([
-    'Admin',
-    'Warden',
-    'Associate Warden',
-    'Hostel Supervisor',
-    'Maintenance Staff',
-    'Student',
-  ]),
-  requireComplaintsRouteAccess,
-  getAllComplaints
-);
+router.get('/all', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff', 'Student']), getAllComplaints);
 
 // Get student-specific complaints
-router.get(
-  '/student/complaints/:userId',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
-  requireComplaintsRouteAccess,
-  getStudentComplaints
-);
+router.get('/student/complaints/:userId', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']), getStudentComplaints);
 
 // Complaint status updates
-router.put(
-  '/update-status/:id',
-  authorizeRoles(['Maintenance Staff']),
-  requireComplaintsRouteAccess,
-  updateComplaintStatus
-);
-router.put(
-  '/:complaintId/status',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']),
-  requireComplaintsRouteAccess,
-  complaintStatusUpdate
-);
+router.put('/update-status/:id', guard(['Maintenance Staff']), updateComplaintStatus);
+router.put('/:complaintId/status', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']), complaintStatusUpdate);
 
 // Complaint resolution notes
-router.put(
-  '/:complaintId/resolution-notes',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']),
-  requireComplaintsRouteAccess,
-  updateComplaintResolutionNotes
-);
+router.put('/:complaintId/resolution-notes', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']), updateComplaintResolutionNotes);
 
 // Complaint feedback
-router.post(
-  '/:complaintId/feedback',
-  authorizeRoles(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']),
-  requireComplaintsRouteAccess,
-  updateComplaintFeedback
-);
+router.post('/:complaintId/feedback', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']), updateComplaintFeedback);
 
 // Statistics
-router.get(
-  '/stats',
-  authorizeRoles([
-    'Admin',
-    'Warden',
-    'Associate Warden',
-    'Hostel Supervisor',
-    'Maintenance Staff',
-    'Student',
-  ]),
-  requireComplaintsRouteAccess,
-  getStats
-);
+router.get('/stats', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff', 'Student']), getStats);
 
 export default router;

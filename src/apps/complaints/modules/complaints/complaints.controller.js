@@ -1,239 +1,136 @@
 /**
  * Complaint Controller
- * Handles HTTP layer for complaint operations
- * 
- * Business logic delegated to complaintService
- * 
+ * HTTP layer for complaint operations. Business logic is delegated to
+ * complaintService; every handler returns a ServiceResponse and the
+ * `handler()` adapter maps it to the standard response envelope.
+ *
  * @module controllers/complaintController
  */
 
 import { complaintService } from './complaints.service.js';
-import { asyncHandler } from '../../../../utils/index.js';
+import { handler } from '../../../../lib/api-kit/index.js';
 
 /**
  * Create a new complaint
  * POST /api/complaint
  */
-export const createComplaint = asyncHandler(async (req, res) => {
+export const createComplaint = handler(async (req) => {
   const user = req.user;
   const { userId, title, description, location, category, attachments } = req.body;
 
-  // Get allocation details via service
   const allocationResult = await complaintService.getAllocationDetails(user, userId);
-  
-  if (!allocationResult.success) {
-    return res.status(allocationResult.statusCode).json({ message: allocationResult.message ?? allocationResult.error });
-  }
+  if (!allocationResult.success) return allocationResult;
 
-  // Base service responses store payload under `data`.
-  // Keep legacy fallback for older callers that may still return `allocationDetails`.
-  const allocationDetails = allocationResult.data ?? allocationResult.allocationDetails ?? null;
-
-  // Create complaint via service
-  const result = await complaintService.createComplaint({
+  return complaintService.createComplaint({
     userId,
     title,
     description,
     location,
     category,
     attachments,
-    allocationDetails,
+    allocationDetails: allocationResult.data ?? null,
     requesterUser: user,
   });
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(201).json({ message: 'Complaint created successfully' });
 });
 
 /**
  * Get all complaints with filters
  * GET /api/complaint/all
  */
-export const getAllComplaints = asyncHandler(async (req, res) => {
-  const user = req.user;
-  const filters = req.query;
-
-  const result = await complaintService.getAllComplaints(user, filters);
-
-  res.status(200).json({
-    data: result.data?.items || [],
-    meta: {
-      total: result.data?.pagination?.total || 0,
-      currentPage: result.data?.pagination?.page || 1,
-      totalPages: result.data?.pagination?.totalPages || 0,
-    },
-    message: 'Complaints fetched successfully',
-    status: 'success',
-  });
-});
+export const getAllComplaints = handler((req) =>
+  complaintService.getAllComplaints(req.user, req.query)
+);
 
 /**
  * Get complaint by ID
  * GET /api/complaint/:id
  */
-export const getComplaintById = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const user = req.user;
-
-  const result = await complaintService.getComplaintById(id, user);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Complaint fetched successfully', data: result.data ?? result.complaint });
-});
+export const getComplaintById = handler((req) =>
+  complaintService.getComplaintById(req.params.id, req.user)
+);
 
 /**
  * Update complaint status (legacy endpoint)
  * PUT /api/complaint/update-status/:id
  */
-export const updateComplaintStatus = asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const { status, assignedTo, resolutionNotes, feedback, feedbackRating } = req.body;
-
-  const result = await complaintService.updateComplaintStatus(id, {
-    status,
-    assignedTo,
-    resolutionNotes,
-    feedback,
-    feedbackRating,
-  }, req.user);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Complaint updated successfully', data: result.data ?? result.complaint });
-});
+export const updateComplaintStatus = handler((req) =>
+  complaintService.updateComplaintStatus(
+    req.params.id,
+    {
+      status: req.body.status,
+      assignedTo: req.body.assignedTo,
+      resolutionNotes: req.body.resolutionNotes,
+      feedback: req.body.feedback,
+      feedbackRating: req.body.feedbackRating,
+    },
+    req.user
+  )
+);
 
 /**
  * Get complaint statistics
  * GET /api/complaint/stats
  */
-export const getStats = asyncHandler(async (req, res) => {
-  const user = req.user;
-  const { hostelId } = req.query;
-
-  const stats = await complaintService.getStats(user, hostelId);
-
-  res.status(200).json(stats);
-});
+export const getStats = handler((req) =>
+  complaintService.getStats(req.user, req.query.hostelId)
+);
 
 /**
  * Get complaints for a specific student
  * GET /api/complaint/student/complaints/:userId
  */
-export const getStudentComplaints = asyncHandler(async (req, res) => {
-  const { userId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-
-  const result = await complaintService.getStudentComplaints(userId, { page, limit }, req.user);
-
-  res.status(200).json({
-    data: result.data?.items || [],
-    meta: {
-      total: result.data?.pagination?.total || 0,
-      currentPage: result.data?.pagination?.page || 1,
-      totalPages: result.data?.pagination?.totalPages || 0,
-    },
-    message: 'Student complaints fetched successfully',
-  });
-});
+export const getStudentComplaints = handler((req) =>
+  complaintService.getStudentComplaints(
+    req.params.userId,
+    { page: req.query.page ?? 1, limit: req.query.limit ?? 10 },
+    req.user
+  )
+);
 
 /**
  * Update complaint status
  * PUT /api/complaint/:complaintId/status
  */
-export const complaintStatusUpdate = asyncHandler(async (req, res) => {
-  const { complaintId } = req.params;
-  const { status } = req.body;
-  const user = req.user;
-
-  const result = await complaintService.updateStatus(complaintId, status, user);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Complaint status updated successfully', data: result.data ?? result.complaint });
-});
+export const complaintStatusUpdate = handler((req) =>
+  complaintService.updateStatus(req.params.complaintId, req.body.status, req.user)
+);
 
 /**
  * Update resolution notes
  * PUT /api/complaint/:complaintId/resolution-notes
  */
-export const updateComplaintResolutionNotes = asyncHandler(async (req, res) => {
-  const { complaintId } = req.params;
-  const { resolutionNotes } = req.body;
-
-  const result = await complaintService.updateResolutionNotes(complaintId, resolutionNotes, req.user);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Complaint resolution notes updated successfully', data: result.data ?? result.complaint });
-});
+export const updateComplaintResolutionNotes = handler((req) =>
+  complaintService.updateResolutionNotes(req.params.complaintId, req.body.resolutionNotes, req.user)
+);
 
 /**
  * Update complaint feedback
  * POST /api/complaint/:complaintId/feedback
  */
-export const updateComplaintFeedback = asyncHandler(async (req, res) => {
-  const user = req.user;
-  const { complaintId } = req.params;
-  const { feedback, feedbackRating, satisfactionStatus } = req.body;
-
-  const result = await complaintService.updateFeedback(complaintId, user._id, {
-    feedback,
-    feedbackRating,
-    satisfactionStatus,
-  });
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Complaint feedback updated successfully', data: result.data ?? result.complaint });
-});
+export const updateComplaintFeedback = handler((req) =>
+  complaintService.updateFeedback(req.params.complaintId, req.user._id, {
+    feedback: req.body.feedback,
+    feedbackRating: req.body.feedbackRating,
+    satisfactionStatus: req.body.satisfactionStatus,
+  })
+);
 
 /**
  * Get complaint by feedback token (PUBLIC - no auth required)
  * GET /api/complaint/feedback/:token
  */
-export const getComplaintByToken = asyncHandler(async (req, res) => {
-  const { token } = req.params;
-
-  const result = await complaintService.getComplaintByToken(token);
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Complaint fetched successfully', data: result.data });
-});
+export const getComplaintByToken = handler((req) =>
+  complaintService.getComplaintByToken(req.params.token)
+);
 
 /**
  * Submit feedback using token (PUBLIC - no auth required)
  * POST /api/complaint/feedback/:token
  */
-export const submitFeedbackByToken = asyncHandler(async (req, res) => {
-  const { token } = req.params;
-  const { feedback, feedbackRating, satisfactionStatus } = req.body;
-
-  const result = await complaintService.submitFeedbackByToken(token, {
-    feedback,
-    feedbackRating,
-    satisfactionStatus,
-  });
-
-  if (!result.success) {
-    return res.status(result.statusCode).json({ message: result.message ?? result.error });
-  }
-
-  res.status(200).json({ message: 'Feedback submitted successfully' });
-});
+export const submitFeedbackByToken = handler((req) =>
+  complaintService.submitFeedbackByToken(req.params.token, {
+    feedback: req.body.feedback,
+    feedbackRating: req.body.feedbackRating,
+    satisfactionStatus: req.body.satisfactionStatus,
+  })
+);
