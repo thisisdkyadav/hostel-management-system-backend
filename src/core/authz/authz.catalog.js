@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 12
+export const AUTHZ_CATALOG_VERSION = 13
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -66,6 +66,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.events", "Events", ["/admin/events"]),
   route("route.admin.clubs", "Clubs", ["/admin/clubs"]),
   route("route.admin.por", "POR Verification", ["/admin/por"]),
+  route("route.admin.attendance", "Attendance", ["/admin/attendance", "/admin/attendance/:occurrenceId"]),
   route("route.admin.gymkhanaEvents", "Gymkhana Events", ["/admin/gymkhana-events"]),
   route("route.admin.megaEvents", "Mega Events", ["/admin/mega-events"]),
   route("route.admin.overallBestPerformer", "Overall Best Performer", ["/admin/overall-best-performer"]),
@@ -174,6 +175,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.gymkhana.dashboard", "Gymkhana Dashboard", ["/gymkhana"]),
   route("route.gymkhana.club", "Gymkhana Club Portal", ["/gymkhana/club"]),
   route("route.gymkhana.por", "Gymkhana POR", ["/gymkhana/por"]),
+  route("route.gymkhana.attendance", "Gymkhana Attendance", ["/gymkhana/attendance", "/gymkhana/attendance/:occurrenceId"]),
   route("route.gymkhana.events", "Gymkhana Events", ["/gymkhana/events"]),
   route("route.gymkhana.megaEvents", "Gymkhana Mega Events", ["/gymkhana/mega-events"]),
   route("route.gymkhana.elections", "Gymkhana Elections", ["/gymkhana/elections"]),

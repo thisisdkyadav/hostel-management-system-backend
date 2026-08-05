@@ -24,6 +24,7 @@ import bestPerformerRoutes from './modules/best-performer/best-performer.routes.
 import electionsRoutes from './modules/elections/elections.routes.js';
 import clubsRoutes from './modules/clubs/clubs.routes.js';
 import porRoutes from './modules/por/por.routes.js';
+import attendanceRoutes from './modules/attendance/attendance.routes.js';
 // import scholarshipRoutes from './modules/scholarship/scholarship.routes.js';
 // import counselingRoutes from './modules/counseling/counseling.routes.js';
 // import disciplinaryRoutes from './modules/disciplinary/disciplinary.routes.js';
@@ -57,6 +58,7 @@ router.use('/overall-best-performer', bestPerformerRoutes);
 router.use('/elections', electionsRoutes);
 router.use('/clubs', clubsRoutes);
 router.use('/por', porRoutes);
+router.use('/attendance', attendanceRoutes);
 // router.use('/scholarships', scholarshipRoutes);
 // router.use('/counseling', counselingRoutes);
 // router.use('/disciplinary', disciplinaryRoutes);
