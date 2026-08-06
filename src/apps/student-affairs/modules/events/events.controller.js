@@ -203,7 +203,7 @@ export const getGymkhanaDashboardSummary = asyncHandler(async (req, res) => {
   const parsedDaysUntilDue = Number.parseInt(req.query?.daysUntilDue, 10)
   const daysUntilDue = Number.isFinite(parsedDaysUntilDue) && parsedDaysUntilDue > 0
     ? parsedDaysUntilDue
-    : 21
+    : 60
 
   const [yearsResult, pendingResult] = await Promise.all([
     calendarService.getAcademicYears(),
@@ -325,7 +325,7 @@ export const getProposalByEvent = asyncHandler(async (req, res) => {
 })
 
 export const getPendingProposals = asyncHandler(async (req, res) => {
-  const daysUntilDue = req.query.daysUntilDue ? parseInt(req.query.daysUntilDue) : 21
+  const daysUntilDue = req.query.daysUntilDue ? parseInt(req.query.daysUntilDue) : 60
   const result = await proposalService.getPendingProposals(daysUntilDue)
   sendRawResponse(res, result)
 })

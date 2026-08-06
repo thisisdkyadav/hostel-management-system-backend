@@ -827,7 +827,7 @@ class ProposalService extends BaseService {
   /**
    * Get events needing proposals (for GS dashboard)
    */
-  async getPendingProposals(daysUntilDue = 21) {
+  async getPendingProposals(daysUntilDue = 60) {
     const today = new Date()
     const cutoffDate = new Date()
     cutoffDate.setDate(today.getDate() + daysUntilDue)
