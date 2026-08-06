@@ -13,7 +13,6 @@ import {
   getSecurityStaffStats,
   getMaintenanceStaffStats,
   getRoomStats,
-  getRoomChangeRequestStats,
   getVisitorStats,
   getEventStats,
   getWardenStats,
@@ -39,9 +38,6 @@ router.get('/maintenancestaff', authenticate, getMaintenanceStaffStats);
 
 // Room stats
 router.get('/room/:hostelId', authenticate, getRoomStats);
-
-// Room Change Request stats
-router.get('/room-change-requests/:hostelId', authenticate, getRoomChangeRequestStats);
 
 // Visitor stats
 router.get('/visitor/:hostelId', authenticate, getVisitorStats);

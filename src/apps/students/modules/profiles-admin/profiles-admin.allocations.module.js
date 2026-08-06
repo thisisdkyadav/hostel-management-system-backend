@@ -1,8 +1,10 @@
 import mongoose from 'mongoose';
-import { Hostel, Room, RoomAllocation, StudentProfile, Unit } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
 import { badRequest, notFound, success } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
+import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
 const normalizeAllocationRollNumber = (rollNumber) => (
   typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
@@ -81,7 +83,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     const results = [];
     const errors = [];
 
-    const hostelData = await Hostel.findById(hostelId).session(session);
+    const hostelData = await hostelQueries.findHostelById(hostelId, { session });
     if (!hostelData) {
       await session.abortTransaction();
       return sendStandardResponse(res, notFound('Hostel not found'));
@@ -132,7 +134,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
 
     if (selectedHostelType === 'unit-based') {
       const unitNumbers = [...new Set(validAllocations.map((a) => a.unit))];
-      const units = await Unit.find({ unitNumber: { $in: unitNumbers }, hostelId }).session(session);
+      const units = await hostelQueries.findUnitsByNumbers(hostelId, unitNumbers, { session });
 
       units.forEach((unit) => {
         unitMap[unit.unitNumber] = unit;
@@ -140,7 +142,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
 
       const unitIds = units.map((unit) => unit._id);
       const roomNumbers = [...new Set(validAllocations.map((a) => a.room))];
-      rooms = await Room.find({ unitId: { $in: unitIds }, roomNumber: { $in: roomNumbers } }).session(session);
+      rooms = await hostelQueries.findRoomsInUnitsByNumbers(unitIds, roomNumbers, { session });
 
       rooms.forEach((room) => {
         const unitNumber = units.find((u) => u._id.equals(room.unitId))?.unitNumber;
@@ -148,7 +150,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
       });
     } else {
       const roomNumbers = [...new Set(validAllocations.map((a) => a.room))];
-      rooms = await Room.find({ hostelId, roomNumber: { $in: roomNumbers }, unitId: { $exists: false } }).session(session);
+      rooms = await hostelQueries.findRoomOnlyByNumbers(hostelId, roomNumbers, { session });
 
       rooms.forEach((room) => {
         roomMap[room.roomNumber] = room;
@@ -157,10 +159,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
 
     const roomIds = rooms.map((room) => room._id);
     const bedNumbers = validAllocations.map((a) => a.bedNumber);
-    const existingAllocations = await RoomAllocation.find({
-      roomId: { $in: roomIds },
-      bedNumber: { $in: bedNumbers },
-    }).session(session);
+    const existingAllocations = await hostelQueries.findAllocationsByRoomsAndBeds(roomIds, bedNumbers, { session });
 
     const existingAllocMap = {};
     existingAllocations.forEach((alloc) => {
@@ -168,15 +167,18 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     });
 
     const studentIds = studentProfiles.map((profile) => profile._id);
-    const currentAllocations = await RoomAllocation.find({ studentProfileId: { $in: studentIds } }).session(session);
+    const currentAllocations = await hostelQueries.findAllocationsByStudentProfiles(studentIds, { session });
 
     const currentAllocMap = {};
     currentAllocations.forEach((alloc) => {
       currentAllocMap[alloc.studentProfileId.toString()] = alloc;
     });
 
-    const allocationsToDelete = [];
-    const allocationsToCreate = [];
+    // First pass: validate + resolve rooms + queue bed-conflict / stale-student
+    // deletes (deduped) so capacity can be enforced net of the beds they free.
+    const deleteMap = new Map();
+    const queueDelete = (allocation) => deleteMap.set(String(allocation._id), allocation);
+    const pending = [];
 
     for (const alloc of validAllocations) {
       const { unit, room, bedNumber, rollNumber } = alloc;
@@ -215,14 +217,43 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
       }
 
       const existingAlloc = existingAllocMap[`${roomDoc._id}:${bedNumber}`];
-      if (existingAlloc) allocationsToDelete.push(existingAlloc._id);
+      if (existingAlloc) queueDelete(existingAlloc);
 
       const currentAlloc = currentAllocMap[studentProfile._id.toString()];
       if (currentAlloc && (!currentAlloc.roomId.equals(roomDoc._id) || currentAlloc.bedNumber !== bedNumber)) {
-        allocationsToDelete.push(currentAlloc._id);
+        queueDelete(currentAlloc);
       }
 
-      const newAllocation = new RoomAllocation({
+      pending.push({ rollNumber, studentProfile, roomDoc, bedNumber });
+    }
+
+    const allocationsToDelete = [...deleteMap.values()].map((a) => a._id);
+    const deletesFromRoom = {};
+    for (const a of deleteMap.values()) {
+      const rid = a.roomId ? a.roomId.toString() : null;
+      if (rid) deletesFromRoom[rid] = (deletesFromRoom[rid] || 0) + 1;
+    }
+
+    // Second pass: enforce capacity. Available beds in a room = capacity minus the
+    // allocations that remain once the queued deletes free their beds. Overflow
+    // allocations are reported as errors instead of silently over-filling the room.
+    const availableByRoom = {};
+    const createInputs = [];
+    const createMeta = [];
+    for (const { rollNumber, studentProfile, roomDoc, bedNumber } of pending) {
+      const rid = roomDoc._id.toString();
+      if (availableByRoom[rid] === undefined) {
+        availableByRoom[rid] = Math.max(
+          0,
+          roomDoc.capacity - (roomDoc.occupancy - (deletesFromRoom[rid] || 0)),
+        );
+      }
+      if (availableByRoom[rid] <= 0) {
+        errors.push({ rollNumber, message: 'Room is already at full capacity' });
+        continue;
+      }
+      availableByRoom[rid] -= 1;
+      createInputs.push({
         userId: studentProfile.userId,
         studentProfileId: studentProfile._id,
         hostelId: roomDoc.hostelId,
@@ -230,18 +261,18 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
         unitId: roomDoc.unitId,
         bedNumber,
       });
-
-      allocationsToCreate.push(newAllocation);
-      results.push({ rollNumber, allocation: newAllocation });
+      createMeta.push(rollNumber);
     }
 
-    if (allocationsToDelete.length > 0) {
-      await RoomAllocation.deleteMany({ _id: { $in: allocationsToDelete } }).session(session);
-    }
-
-    if (allocationsToCreate.length > 0) {
-      await RoomAllocation.insertMany(allocationsToCreate, { session });
-    }
+    // Apply atomically through the owner: native delete + insert, then occupancy
+    // is recomputed from ground truth for every affected room.
+    const { createdDocs } = await roomOwner.applyAllocations(
+      { deleteIds: allocationsToDelete, createInputs },
+      session,
+    );
+    createdDocs.forEach((doc, index) => {
+      results.push({ rollNumber: createMeta[index], allocation: doc });
+    });
 
     await session.commitTransaction();
 

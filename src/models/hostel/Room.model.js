@@ -64,87 +64,10 @@ RoomSchema.virtual("students", {
   justOne: false,
 })
 
-RoomSchema.statics.deactivateRoom = async function (roomId, status = "Inactive") {
-  const room = await this.findById(roomId)
-  if (!room) return null
-
-  // Only capture the real capacity when leaving the Active state, so transitions
-  // between non-active states (e.g. Inactive -> Guest) don't clobber it with 0.
-  if (room.status === "Active") {
-    room.originalCapacity = room.capacity
-  }
-  room.capacity = 0
-  room.status = status
-  return await room.save()
-}
-
-RoomSchema.statics.activateRoom = async function (roomId) {
-  const room = await this.findById(roomId)
-  if (!room) return null
-
-  if (room.originalCapacity) {
-    room.capacity = room.originalCapacity
-    room.originalCapacity = undefined
-  }
-  room.status = "Active"
-  return await room.save()
-}
-
-RoomSchema.statics.deactivateRooms = async function (roomIds, status = "Inactive") {
-  // First, get all rooms to preserve originalCapacity values
-  const rooms = await this.find({ _id: { $in: roomIds } })
-
-  // Prepare bulk update operations
-  const bulkOps = rooms.map((room) => ({
-    updateOne: {
-      filter: { _id: room._id },
-      update: {
-        $set: {
-          // Preserve capacity only when leaving Active; keep it across non-active transitions.
-          originalCapacity: room.status === "Active" ? room.capacity : room.originalCapacity,
-          capacity: 0,
-          occupancy: 0,
-          status,
-        },
-      },
-    },
-  }))
-
-  // Execute bulk operation
-  if (bulkOps.length > 0) {
-    await this.bulkWrite(bulkOps)
-  }
-
-  // Return updated rooms
-  return await this.find({ _id: { $in: roomIds } })
-}
-
-RoomSchema.statics.activateRooms = async function (roomIds) {
-  // First, get all rooms to access their originalCapacity values
-  const rooms = await this.find({ _id: { $in: roomIds } })
-
-  // Prepare bulk update operations
-  const bulkOps = rooms.map((room) => ({
-    updateOne: {
-      filter: { _id: room._id },
-      update: {
-        $set: {
-          capacity: room.originalCapacity || room.capacity,
-          status: "Active",
-        },
-        $unset: { originalCapacity: "" },
-      },
-    },
-  }))
-
-  // Execute bulk operation
-  if (bulkOps.length > 0) {
-    await this.bulkWrite(bulkOps)
-  }
-
-  // Return updated rooms
-  return await this.find({ _id: { $in: roomIds } })
-}
+// Room capacity/status/occupancy transitions are owned by the room owner service
+// (src/services/hostel/roomOwner.service.js), which mutates rooms atomically. The
+// old read-modify-write statics (activate/deactivate) were removed to keep all
+// write logic in one place.
 
 const Room = mongoose.model("Room", RoomSchema)
 export default Room

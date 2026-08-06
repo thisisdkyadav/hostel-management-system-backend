@@ -5,17 +5,15 @@
  * @module services/stats
  */
 
-import { Hostel } from '../../../../models/index.js';
 import { Warden } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
 import { Event } from '../../../../models/index.js';
 import { LostAndFound } from '../../../../models/index.js';
 import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
-import { Room } from '../../../../models/index.js';
-import { RoomChangeRequest } from '../../../../models/index.js';
 import { Visitors } from '../../../../models/index.js';
 import { success } from '../../../../services/base/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
 class StatsService {
   /**
@@ -23,24 +21,14 @@ class StatsService {
    */
   async getHostelStats() {
     const [totalHostels, roomStats] = await Promise.all([
-      Hostel.countDocuments(),
-      Room.aggregate([
-        { $match: { status: 'Active' } },
-        {
-          $group: {
-            _id: null,
-            totalRooms: { $sum: 1 },
-            occupiedRooms: { $sum: { $cond: [{ $gt: ['$occupancy', 0] }, 1, 0] } },
-            availableRooms: { $sum: { $cond: [{ $eq: ['$occupancy', 0] }, 1, 0] } }
-          }
-        }
-      ])
+      hostelQueries.countHostels(),
+      hostelQueries.getGlobalActiveRoomStats()
     ]);
 
     let stats = { totalRooms: 0, occupiedRooms: 0, availableRooms: 0, occupancyRate: 0 };
 
-    if (roomStats.length > 0) {
-      const { totalRooms, occupiedRooms, availableRooms } = roomStats[0];
+    if (roomStats) {
+      const { totalRooms, occupiedRooms, availableRooms } = roomStats;
       stats = {
         totalRooms,
         occupiedRooms,
@@ -132,28 +120,9 @@ class StatsService {
    * @param {string} hostelId - Hostel ID
    */
   async getRoomStats(hostelId) {
-    const [totalRooms, availableRooms, occupiedRooms] = await Promise.all([
-      Room.countDocuments({ hostelId }),
-      Room.countDocuments({ occupancy: 0, hostelId }),
-      Room.countDocuments({ occupancy: { $gt: 0 }, hostelId })
-    ]);
+    const { totalRooms, availableRooms, occupiedRooms } = await hostelQueries.countRoomsByHostel(hostelId);
 
     return success({ totalRooms, availableRooms, occupiedRooms });
-  }
-
-  /**
-   * Get room change request statistics for a hostel
-   * @param {string} hostelId - Hostel ID
-   */
-  async getRoomChangeRequestStats(hostelId) {
-    const [total, pending, approved, rejected] = await Promise.all([
-      RoomChangeRequest.countDocuments({ hostelId }),
-      RoomChangeRequest.countDocuments({ status: 'Pending', hostelId }),
-      RoomChangeRequest.countDocuments({ status: 'Approved', hostelId }),
-      RoomChangeRequest.countDocuments({ status: 'Rejected', hostelId })
-    ]);
-
-    return success({ total, pending, approved, rejected });
   }
 
   /**

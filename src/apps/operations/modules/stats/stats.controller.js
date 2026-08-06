@@ -73,15 +73,6 @@ export const getRoomStats = asyncHandler(async (req, res) => {
 });
 
 /**
- * Get room change request statistics for a hostel
- * @route GET /api/stats/room-change-requests/:hostelId
- */
-export const getRoomChangeRequestStats = asyncHandler(async (req, res) => {
-  const result = await statsService.getRoomChangeRequestStats(req.params.hostelId);
-  res.status(result.statusCode).json(result.data);
-});
-
-/**
  * Get visitor statistics for a hostel
  * @route GET /api/stats/visitors/:hostelId
  */

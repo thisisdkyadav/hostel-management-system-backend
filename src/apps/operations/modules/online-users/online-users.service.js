@@ -10,8 +10,8 @@ import {
   getOnlineStats as getRedisOnlineStats,
   getUserOnlineData,
 } from '../../../../utils/redisOnlineUsers.js';
-import { Hostel } from '../../../../models/index.js';
 import { success, notFound, error } from '../../../../services/base/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
 class OnlineUsersService {
   /**
@@ -38,7 +38,7 @@ class OnlineUsersService {
       if (users.length > 0) {
         const hostelIds = [...new Set(users.filter((u) => u.hostelId).map((u) => u.hostelId))];
         if (hostelIds.length > 0) {
-          const hostels = await Hostel.find({ _id: { $in: hostelIds } }).select('name');
+          const hostels = await hostelQueries.findHostelsByIds(hostelIds, 'name');
           const hostelMap = {};
           hostels.forEach((h) => {
             hostelMap[h._id.toString()] = h.name;
@@ -91,7 +91,7 @@ class OnlineUsersService {
 
       // Populate hostel name
       if (userData.hostelId) {
-        const hostel = await Hostel.findById(userData.hostelId).select('name');
+        const hostel = await hostelQueries.findHostelById(userData.hostelId);
         if (hostel) {
           userData.hostelName = hostel.name;
         }

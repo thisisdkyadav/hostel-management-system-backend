@@ -9,14 +9,12 @@ import { Security } from '../../../../models/index.js';
 import { Warden } from '../../../../models/index.js';
 import { Visitors as Visitor } from '../../../../models/index.js';
 import { CheckInOut } from '../../../../models/index.js';
-import { RoomAllocation } from '../../../../models/index.js';
-import { Unit } from '../../../../models/index.js';
-import { Room } from '../../../../models/index.js';
 import { AssociateWarden } from '../../../../models/index.js';
 import { HostelSupervisor } from '../../../../models/index.js';
 import { decryptData } from '../../../../utils/qrUtils.js';
 import { User } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { getIO } from '../../../../loaders/socket.loader.js';
 import * as liveCheckInOutService from '../live-checkinout/live-checkinout.service.js';
 
@@ -54,19 +52,17 @@ class SecurityService extends BaseService {
    * Add student entry with room details
    */
   async addStudentEntry(user, { hostelId, unit, room, bed, date, time, status, reason }) {
-    const studentUnit = await Unit.findOne({ unitNumber: unit, hostelId });
+    const studentUnit = await hostelQueries.findUnitByNumber(hostelId, unit);
     if (!studentUnit) {
       return notFound('Unit not found');
     }
 
-    const studentRoom = await Room.findOne({ unitId: studentUnit._id, hostelId, roomNumber: room });
+    const studentRoom = await hostelQueries.findRoomByNumber(hostelId, room, { unitId: studentUnit._id });
     if (!studentRoom) {
       return notFound('Room not found');
     }
 
-    const roomAllocation = await RoomAllocation.findOne({ roomId: studentRoom._id, bedNumber: bed })
-      .populate('userId')
-      .exec();
+    const roomAllocation = await hostelQueries.findAllocationByRoomAndBed(studentRoom._id, bed);
 
     if (!roomAllocation) {
       return notFound('Room allocation not found');
@@ -103,10 +99,7 @@ class SecurityService extends BaseService {
       return notFound('User not found');
     }
 
-    const roomAllocation = await RoomAllocation.findOne({ userId: user._id })
-      .populate('roomId')
-      .populate('unitId')
-      .populate('hostelId');
+    const roomAllocation = await hostelQueries.findCurrentAllocationByUser(user._id);
 
     const isSameHostel = roomAllocation.hostelId === securityUser.hostel._id;
 

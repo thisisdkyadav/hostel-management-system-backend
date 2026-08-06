@@ -14,6 +14,7 @@
     "inspect:student-dates": "node scripts/inspect_student_dates.mjs",
     "migrate:student-dates": "node scripts/migrate_student_dates_to_dateonly.mjs",
     "repair:por-category-gs": "node scripts/repair_por_category_gs_reviewers.mjs",
+    "migrate:room-occupancy": "node scripts/migrate_room_occupancy.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

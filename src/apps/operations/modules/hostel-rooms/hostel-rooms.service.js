@@ -1,108 +1,24 @@
 /**
  * Hostel Rooms Service
  * Room, unit, and allocation operations under /api/v1/hostel.
+ *
+ * This module owns no direct model access: writes go through roomOwner and reads
+ * through hostelQueries, so Hostel/Room/Unit/RoomAllocation are touched only
+ * inside src/services/hostel/. This service keeps the request-facing shaping and
+ * permission checks.
  */
 
 import {
-  BaseService,
   success,
   notFound,
   badRequest,
   forbidden,
-  withTransaction,
 } from '../../../../services/base/index.js';
-import {
-  Hostel,
-  Room,
-  Unit,
-  RoomAllocation,
-  StudentProfile,
-} from '../../../../models/index.js';
 import { MANUAL_ROOM_STATUSES } from '../../../../models/hostel/Room.model.js';
+import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
-/**
- * Resolve the units a batch of rooms should attach to, creating only the ones
- * that don't already exist. Returns a map of unitNumber -> unitId covering both
- * pre-existing and newly created units, so callers can attach rooms to an
- * existing unit as well as to a brand-new one in the same request.
- */
-async function resolveUnits(hostelId, units, session) {
-  const unitMap = {};
-  if (!Array.isArray(units)) return unitMap;
-
-  // Dedupe by unitNumber; entries may be plain strings or { unitNumber, ... } objects.
-  const requested = new Map();
-  for (const unitData of units) {
-    const unitNumber = typeof unitData === 'string' ? unitData : unitData?.unitNumber;
-    if (!unitNumber || requested.has(unitNumber)) continue;
-    requested.set(unitNumber, unitData);
-  }
-  if (requested.size === 0) return unitMap;
-
-  // Reuse units that already exist for this hostel; never re-insert them.
-  const existing = await Unit.find({
-    hostelId,
-    unitNumber: { $in: [...requested.keys()] },
-  }).session(session ?? null);
-
-  existing.forEach((unit) => {
-    unitMap[unit.unitNumber] = unit._id;
-  });
-
-  const unitsToInsert = [...requested.entries()]
-    .filter(([unitNumber]) => !unitMap[unitNumber])
-    .map(([unitNumber, unitData]) => ({
-      hostelId,
-      unitNumber,
-      floor:
-        (typeof unitData === 'object' && unitData?.floor)
-        || parseInt(unitNumber.charAt(0), 10) - 1
-        || 0,
-      commonAreaDetails: (typeof unitData === 'object' && unitData?.commonAreaDetails) || '',
-    }));
-
-  if (unitsToInsert.length > 0) {
-    const savedUnits = await Unit.insertMany(unitsToInsert, { session });
-    savedUnits.forEach((unit) => {
-      unitMap[unit.unitNumber] = unit._id;
-    });
-  }
-
-  return unitMap;
-}
-
-/**
- * Helper function to create rooms
- */
-async function createRooms(hostelId, rooms, createdUnits, type, session) {
-  if (!Array.isArray(rooms)) return;
-
-  for (const roomData of rooms) {
-    const { unitNumber, roomNumber, capacity, status } = roomData;
-    if (!roomNumber || !capacity) continue;
-
-    const roomFields = {
-      hostelId,
-      roomNumber,
-      // "Guest" is system-managed; ignore it (and anything invalid) on manual create.
-      status: MANUAL_ROOM_STATUSES.includes(status) ? status : 'Active',
-      capacity,
-      occupancy: 0,
-    };
-
-    if (type === 'unit-based' && unitNumber && createdUnits[unitNumber]) {
-      roomFields.unitId = createdUnits[unitNumber];
-    }
-
-    await new Room(roomFields).save({ session });
-  }
-}
-
-class HostelRoomsService extends BaseService {
-  constructor() {
-    super(Hostel, 'Hostel');
-  }
-
+class HostelRoomsService {
   /**
    * Get units for a hostel
    */
@@ -111,9 +27,7 @@ class HostelRoomsService extends BaseService {
       return forbidden('You do not have permission to access this hostel');
     }
 
-    const unitsWithRooms = await Unit.find({ hostelId })
-      .populate('hostelId')
-      .populate('rooms');
+    const unitsWithRooms = await hostelQueries.findUnitsWithRooms(hostelId);
 
     const finalResult = unitsWithRooms.map((unit) => ({
       id: unit._id,
@@ -133,16 +47,7 @@ class HostelRoomsService extends BaseService {
    * Get rooms by unit
    */
   async getRoomsByUnit(unitId, user) {
-    const roomsWithStudents = await Room.find({ unitId })
-      .populate({
-        path: 'allocations',
-        populate: {
-          path: 'studentProfileId',
-          populate: { path: 'userId', select: 'name email profileImage' },
-        },
-      })
-      .populate('hostelId', 'name type')
-      .populate('unitId', 'unitNumber floor');
+    const roomsWithStudents = await hostelQueries.findRoomsByUnitWithAllocations(unitId);
 
     if (
       roomsWithStudents.length
@@ -184,13 +89,7 @@ class HostelRoomsService extends BaseService {
       return forbidden("You do not have permission to access this hostel's rooms");
     }
 
-    const roomsWithStudents = await Room.find({ hostelId }).populate({
-      path: 'allocations',
-      populate: {
-        path: 'studentProfileId',
-        populate: { path: 'userId', select: 'name email profileImage' },
-      },
-    });
+    const roomsWithStudents = await hostelQueries.findRoomsByHostelWithAllocations(hostelId);
 
     const finalResult = roomsWithStudents.map((room) => ({
       id: room._id,
@@ -218,109 +117,28 @@ class HostelRoomsService extends BaseService {
    * Update room status
    */
   async updateRoomStatus(roomId, status) {
-    if (!MANUAL_ROOM_STATUSES.includes(status)) {
-      return badRequest('Invalid status value ("Guest" is set automatically for accommodation bookings)');
-    }
-
-    // "Active" is the only operational state; every other status deactivates the room
-    // (capacity zeroed, allocations removed) while preserving its specific label.
-    const updatedRoom = status === 'Active'
-      ? await Room.activateRoom(roomId)
-      : await Room.deactivateRoom(roomId, status);
-
-    if (!updatedRoom) {
-      return notFound('Room not found');
-    }
-
-    if (status !== 'Active') {
-      await RoomAllocation.deleteMany({ roomId });
-    }
-
-    return success(updatedRoom, 200, 'Room status updated successfully');
+    return roomOwner.setRoomStatus(roomId, status, { manualStatuses: MANUAL_ROOM_STATUSES });
   }
 
   /**
    * Allocate room to student
    */
   async allocateRoom(allocationData) {
-    const { roomId, hostelId, unitId, studentId, bedNumber, userId } = allocationData;
-
-    if (!roomId || !hostelId || !studentId || !bedNumber || !userId) {
-      return badRequest('Missing required fields');
-    }
-
-    const hostel = await this.model.findById(hostelId);
-    if (!hostel) {
-      return notFound('Hostel not found');
-    }
-
-    if (hostel.type === 'unit-based' && !unitId) {
-      return badRequest('Unit ID is required for unit-based hostels');
-    }
-
-    const room = await Room.findById(roomId);
-    if (!room) {
-      return notFound('Room not found');
-    }
-
-    if (room.status !== 'Active') {
-      return badRequest('Cannot allocate an inactive room');
-    }
-
-    if (room.occupancy >= room.capacity) {
-      return badRequest('Room is already at full capacity');
-    }
-
-    if (bedNumber <= 0 || bedNumber > room.capacity) {
-      return badRequest(`Invalid bed number. Must be between 1 and ${room.capacity}`);
-    }
-
-    const existingBedAllocation = await RoomAllocation.findOne({ roomId, bedNumber });
-    if (existingBedAllocation) {
-      return badRequest('The selected bed is already occupied');
-    }
-
-    const existingAllocation = await RoomAllocation.findOne({ studentProfileId: studentId });
-    if (existingAllocation) {
-      return badRequest('Student already has a room allocation. Please deallocate first.');
-    }
-
-    const newAllocationData = {
-      userId,
-      roomId,
-      hostelId,
-      studentProfileId: studentId,
-      bedNumber,
-    };
-
-    if (hostel.type === 'unit-based') {
-      newAllocationData.unitId = unitId;
-    }
-
-    const newAllocation = new RoomAllocation(newAllocationData);
-    await newAllocation.save();
-
-    return success(newAllocation, 200, 'Room allocated successfully');
+    return roomOwner.allocate(allocationData);
   }
 
   /**
    * Delete room allocation
    */
   async deleteAllocation(allocationId) {
-    const allocation = await RoomAllocation.findByIdAndDelete(allocationId);
-
-    if (!allocation) {
-      return notFound('Allocation not found');
-    }
-
-    return success(null, 200, 'Room allocation deleted successfully');
+    return roomOwner.deallocate(allocationId);
   }
 
   /**
    * Get rooms for edit
    */
   async getRoomsForEdit(hostelId) {
-    const rooms = await Room.find({ hostelId }).populate('unitId');
+    const rooms = await hostelQueries.findRoomsForEdit(hostelId);
 
     const finalResult = rooms.map((room) => ({
       id: room._id,
@@ -344,14 +162,20 @@ class HostelRoomsService extends BaseService {
     }
 
     if (status === 'Active') {
-      await Room.activateRoom(roomId);
-      await Room.findByIdAndUpdate(roomId, { capacity }, { new: true });
-    } else {
-      // Any non-active status deactivates the room and clears its allocations.
-      await Room.deactivateRoom(roomId, status);
-      await RoomAllocation.deleteMany({ roomId });
+      const activated = await roomOwner.setRoomStatus(roomId, 'Active', { manualStatuses: MANUAL_ROOM_STATUSES });
+      if (!activated.success) return activated;
+      // Setting capacity below current occupancy force-vacates the highest beds.
+      if (capacity !== undefined && capacity !== null) {
+        const result = await roomOwner.setRoomCapacity(roomId, capacity);
+        if (!result.success) return result;
+        return success(result.data, 200, 'Room updated successfully');
+      }
+      return success(null, 200, 'Room updated successfully');
     }
 
+    // Any non-active status deactivates the room and clears its allocations.
+    const deactivated = await roomOwner.setRoomStatus(roomId, status, { manualStatuses: MANUAL_ROOM_STATUSES });
+    if (!deactivated.success) return deactivated;
     return success(null, 200, 'Room updated successfully');
   }
 
@@ -359,28 +183,14 @@ class HostelRoomsService extends BaseService {
    * Add rooms to hostel
    */
   async addRooms(hostelId, roomsData) {
-    const { rooms, units } = roomsData;
-
-    const hostel = await this.model.findById(hostelId);
-    if (!hostel) {
-      return notFound('Hostel not found');
-    }
-
-    // Units + rooms are written atomically so a failure part-way through the
-    // batch (e.g. a duplicate room number) never leaves half the batch behind.
-    await withTransaction(async (session) => {
-      const unitMap = await resolveUnits(hostelId, units, session);
-      await createRooms(hostelId, rooms, unitMap, hostel.type, session);
-    });
-
-    return success(null, 200, 'Rooms added successfully');
+    return roomOwner.addRooms(hostelId, roomsData);
   }
 
   /**
    * Bulk update rooms
    */
   async bulkUpdateRooms(hostelId, rooms) {
-    const hostel = await this.model.findById(hostelId);
+    const hostel = await hostelQueries.findHostelById(hostelId);
     if (!hostel) {
       return notFound('Hostel not found');
     }
@@ -391,7 +201,7 @@ class HostelRoomsService extends BaseService {
 
     if (hostel.type === 'unit-based') {
       const uniqueUnits = [...new Set(rooms.map((room) => room.unitNumber))];
-      const units = await Unit.find({ hostelId, unitNumber: { $in: uniqueUnits } });
+      const units = await hostelQueries.findUnitsByNumbers(hostelId, uniqueUnits);
 
       const unitMap = {};
       units.forEach((unit) => {
@@ -399,11 +209,11 @@ class HostelRoomsService extends BaseService {
       });
 
       const roomsToUpdate = rooms.map((room) => room.roomNumber);
-      const existingRooms = await Room.find({
+      const existingRooms = await hostelQueries.findRoomsByNumbersInUnits(
         hostelId,
-        roomNumber: { $in: roomsToUpdate },
-        unitId: { $in: Object.values(unitMap) },
-      }).populate('unitId', 'unitNumber');
+        roomsToUpdate,
+        Object.values(unitMap),
+      );
 
       const filteredExistingRooms = existingRooms.filter((room) =>
         rooms.some(
@@ -436,7 +246,7 @@ class HostelRoomsService extends BaseService {
       });
     } else if (hostel.type === 'room-only') {
       const roomsToUpdate = rooms.map((room) => room.roomNumber);
-      const existingRooms = await Room.find({ hostelId, roomNumber: { $in: roomsToUpdate } });
+      const existingRooms = await hostelQueries.findRoomsByNumbers(hostelId, roomsToUpdate);
 
       existingRooms.forEach((room) => {
         const roomData = rooms.find((r) => r.roomNumber === room.roomNumber);
@@ -468,30 +278,23 @@ class HostelRoomsService extends BaseService {
 
     const updatedRoomIds = [];
 
+    // All writes go through the owner: activation restores capacity atomically,
+    // deactivation zeroes capacity/occupancy and vacates allocations, and capacity
+    // changes force-vacate the highest beds if the new capacity is below occupancy.
     if (roomsToActivate.length > 0) {
-      const activatedRooms = await Room.activateRooms(roomsToActivate);
-      updatedRoomIds.push(...activatedRooms.map((room) => room._id));
+      await roomOwner.activateRooms(roomsToActivate);
+      updatedRoomIds.push(...roomsToActivate);
     }
 
     for (const [status, ids] of Object.entries(roomsToDeactivate)) {
       if (ids.length === 0) continue;
-      const deactivatedRooms = await Room.deactivateRooms(ids, status);
-      updatedRoomIds.push(...deactivatedRooms.map((room) => room._id));
+      await roomOwner.deactivateRooms(ids, status);
+      updatedRoomIds.push(...ids);
     }
 
     if (roomsToUpdateCapacity.length > 0) {
-      const bulkOps = roomsToUpdateCapacity.map((room) => ({
-        updateOne: {
-          filter: { _id: room.roomId },
-          update: { capacity: room.capacity },
-        },
-      }));
-      await Room.bulkWrite(bulkOps);
+      await roomOwner.setRoomsCapacity(roomsToUpdateCapacity);
       updatedRoomIds.push(...roomsToUpdateCapacity.map((room) => room.roomId));
-    }
-
-    if (roomsToDeactivateIds.length > 0) {
-      await RoomAllocation.deleteMany({ roomId: { $in: roomsToDeactivateIds } });
     }
 
     return success({ updatedRoomIds }, 200, 'Rooms updated successfully');
@@ -501,44 +304,14 @@ class HostelRoomsService extends BaseService {
    * Change hostel archive status
    */
   async changeArchiveStatus(hostelId, status) {
-    const hostel = await this.model.findById(hostelId);
-    if (!hostel) {
-      return notFound('Hostel not found');
-    }
-
-    hostel.isArchived = status;
-    await hostel.save();
-
-    return success(null, 200, 'Hostel archive status updated successfully');
+    return roomOwner.archiveHostel(hostelId, status);
   }
 
   /**
    * Delete all allocations for a hostel
    */
   async deleteAllAllocations(hostelId) {
-    return withTransaction(async (session) => {
-      const allocations = await RoomAllocation.find({ hostelId }).session(session);
-      const allocationIds = allocations.map((allocation) => allocation._id);
-
-      // Use native collection delete to bypass RoomAllocation deleteMany middleware
-      // that adjusts occupancy incrementally. For full hostel reset, we set occupancy
-      // deterministically to 0 below.
-      if (allocationIds.length > 0) {
-        await StudentProfile.updateMany(
-          { currentRoomAllocation: { $in: allocationIds } },
-          { $unset: { currentRoomAllocation: '' } },
-          { session },
-        );
-        await RoomAllocation.collection.deleteMany(
-          { _id: { $in: allocationIds } },
-          { session },
-        );
-      }
-
-      await Room.updateMany({ hostelId }, { occupancy: 0 }, { session });
-
-      return success(null, 200, 'All allocations deleted');
-    });
+    return roomOwner.deleteAllAllocations(hostelId);
   }
 }
 

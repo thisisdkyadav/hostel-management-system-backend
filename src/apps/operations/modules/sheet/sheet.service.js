@@ -5,10 +5,7 @@
  * @module services/sheet
  */
 
-import { Hostel } from '../../../../models/index.js';
-import { Unit } from '../../../../models/index.js';
-import { Room } from '../../../../models/index.js';
-import { RoomAllocation } from '../../../../models/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
 class SheetService {
   /**
@@ -27,7 +24,7 @@ class SheetService {
     }
 
     // Verify hostel exists and get its type
-    const hostel = await Hostel.findById(hostelId);
+    const hostel = await hostelQueries.findHostelById(hostelId);
     if (!hostel) {
       return {
         success: false,
@@ -42,28 +39,15 @@ class SheetService {
 
     if (isUnitBased) {
       // For unit-based hostels: fetch units with rooms
-      const units = await Unit.find({ hostelId })
-        .sort({ unitNumber: 1 })
-        .lean();
+      const units = await hostelQueries.findUnitsByHostelSorted(hostelId);
 
       const unitIds = units.map((u) => u._id);
 
       // Get all rooms for these units
-      const rooms = await Room.find({ hostelId, unitId: { $in: unitIds } })
-        .sort({ roomNumber: 1 })
-        .lean();
+      const rooms = await hostelQueries.findRoomsByHostelAndUnits(hostelId, unitIds);
 
       // Get all allocations for this hostel
-      const allocations = await RoomAllocation.find({ hostelId })
-        .populate({
-          path: 'studentProfileId',
-          select: 'rollNumber department degree gender admissionDate guardian guardianPhone status isDayScholar',
-          populate: {
-            path: 'userId',
-            select: 'name email phone profileImage',
-          },
-        })
-        .lean();
+      const allocations = await hostelQueries.findAllocationsWithStudentByHostel(hostelId);
 
       // Create a map for quick allocation lookup: roomId_bedNumber -> allocation
       const allocationMap = new Map();
@@ -96,21 +80,10 @@ class SheetService {
       }
     } else {
       // For room-only hostels: fetch rooms directly
-      const rooms = await Room.find({ hostelId })
-        .sort({ roomNumber: 1 })
-        .lean();
+      const rooms = await hostelQueries.findRoomsByHostelSorted(hostelId);
 
       // Get all allocations for this hostel
-      const allocations = await RoomAllocation.find({ hostelId })
-        .populate({
-          path: 'studentProfileId',
-          select: 'rollNumber department degree gender admissionDate guardian guardianPhone status isDayScholar',
-          populate: {
-            path: 'userId',
-            select: 'name email phone profileImage',
-          },
-        })
-        .lean();
+      const allocations = await hostelQueries.findAllocationsWithStudentByHostel(hostelId);
 
       // Create a map for quick allocation lookup: roomId_bedNumber -> allocation
       const allocationMap = new Map();
@@ -269,9 +242,7 @@ class SheetService {
    */
   async getAllocationSummary() {
     // Get all hostels (non-archived)
-    const hostels = await Hostel.find({ isArchived: { $ne: true } })
-      .sort({ name: 1 })
-      .lean();
+    const hostels = await hostelQueries.findNonArchivedHostelsSorted();
 
     if (hostels.length === 0) {
       return {
@@ -286,16 +257,7 @@ class SheetService {
     }
 
     // Get all allocations with student profile data
-    const allocations = await RoomAllocation.find({})
-      .populate({
-        path: 'studentProfileId',
-        select: 'degree',
-      })
-      .populate({
-        path: 'hostelId',
-        select: 'name',
-      })
-      .lean();
+    const allocations = await hostelQueries.findAllAllocationsForSummary();
 
     // Build count matrix: { degree: { hostelName: count } }
     const degreeHostelCount = {};

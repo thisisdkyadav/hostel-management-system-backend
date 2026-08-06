@@ -5,9 +5,10 @@
  * @module apps/operations/modules/inventory/hostel-inventory.service
  */
 
-import { HostelInventory, InventoryItemType, Hostel } from '../../../../models/index.js';
+import { HostelInventory, InventoryItemType } from '../../../../models/index.js';
 import mongoose from 'mongoose';
 import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
 class HostelInventoryService extends BaseService {
   constructor() {
@@ -23,7 +24,7 @@ class HostelInventoryService extends BaseService {
       return badRequest('Hostel ID, item type ID, and allocated count are required');
     }
 
-    const hostel = await Hostel.findById(hostelId);
+    const hostel = await hostelQueries.findHostelById(hostelId);
     if (!hostel) {
       return notFound('Hostel');
     }
@@ -74,7 +75,7 @@ class HostelInventoryService extends BaseService {
    * @param {string} hostelId - Hostel ID
    */
   async getHostelInventory(hostelId) {
-    const hostel = await Hostel.findById(hostelId);
+    const hostel = await hostelQueries.findHostelById(hostelId);
     if (!hostel) {
       return notFound('Hostel');
     }

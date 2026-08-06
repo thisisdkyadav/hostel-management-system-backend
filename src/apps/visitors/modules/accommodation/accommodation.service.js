@@ -16,12 +16,12 @@ import {
 import {
   AccommodationRequest,
   StudentProfile,
-  Hostel,
-  Room,
   ACCOMMODATION_STATUS,
   ACCOMMODATION_ACTIONS,
   PAYMENT_STATUS,
 } from "../../../../models/index.js"
+import { roomOwner } from "../../../../services/hostel/roomOwner.service.js"
+import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import {
   createActionLinkToken,
   findActionLinkTokenByRawToken,
@@ -313,10 +313,10 @@ export const accommodationService = {
     let assignedRooms = []
     if (Array.isArray(request.rooms) && request.rooms.length > 0) {
       try {
-        const roomDocs = await Room.find({ _id: { $in: request.rooms.map((r) => r.roomId) } })
-          .populate("unitId", "unitNumber")
-          .select("roomNumber unitId")
-          .lean()
+        const roomDocs = await hostelQueries.findRoomsByIds(
+          request.rooms.map((r) => r.roomId),
+          { select: "roomNumber unitId" }
+        )
         const roomMap = new Map(roomDocs.map((r) => [String(r._id), r]))
         assignedRooms = request.rooms.map((a) => {
           const doc = roomMap.get(String(a.roomId))
@@ -338,7 +338,7 @@ export const accommodationService = {
     let allottedHostelName = ""
     if (request.allotment?.hostelId) {
       try {
-        const hostel = await Hostel.findById(request.allotment.hostelId).select("name").lean()
+        const hostel = await hostelQueries.findHostelById(request.allotment.hostelId)
         allottedHostelName = hostel?.name || ""
       } catch {
         allottedHostelName = ""
@@ -643,7 +643,7 @@ export const accommodationService = {
       return badRequest("Payment must be verified before a hostel can be allotted")
     }
 
-    const hostel = await Hostel.findById(hostelId).lean()
+    const hostel = await hostelQueries.findHostelById(hostelId)
     if (!hostel) return notFound("Hostel not found")
 
     const availability = await getHostelGuestAvailability({
@@ -763,12 +763,16 @@ export const accommodationService = {
     const newRoomIds = new Set(assignments.map((a) => String(a.roomId)))
     const toHold = [...newRoomIds].filter((id) => !prevRoomIds.has(id))
     const toRelease = [...prevRoomIds].filter((id) => !newRoomIds.has(id))
-    await Promise.all([
-      ...toHold.map((id) => Room.deactivateRoom(id, "Guest").catch(() => {})),
-      ...toRelease.map((id) => Room.activateRoom(id).catch(() => {})),
-    ])
+    // Atomic guest holds/releases via the room owner (no capacity-clobbering RMW).
+    // Best-effort as before: a flip failure must not fail the already-saved request.
+    try {
+      await roomOwner.holdRoomsForGuest(toHold)
+      await roomOwner.releaseRooms(toRelease)
+    } catch (err) {
+      console.error("Guest room flip failed:", err.message)
+    }
 
-    const hostel = await Hostel.findById(hostelId).select("name").lean()
+    const hostel = await hostelQueries.findHostelById(hostelId)
     accommodationEmails
       .sendRoomsAssignedEmail({
         to: request.applicantEmail,
@@ -833,13 +837,13 @@ export const accommodationService = {
       applyStatus(request, ACCOMMODATION_STATUS.INVOICED, { note: "Invoice generated" })
       await request.save()
 
-      // Release the guest rooms back to the normal Active pool.
-      await Promise.all(
-        (request.rooms || []).map((r) => Room.activateRoom(r.roomId).catch(() => {}))
-      )
+      // Release the guest rooms back to the normal Active pool (atomic).
+      await roomOwner
+        .releaseRooms((request.rooms || []).map((r) => r.roomId))
+        .catch(() => {})
 
       const hostel = request.allotment?.hostelId
-        ? await Hostel.findById(request.allotment.hostelId).select("name").lean()
+        ? await hostelQueries.findHostelById(request.allotment.hostelId)
         : null
       try {
         await accommodationEmails.sendInvoiceEmail({

@@ -6,11 +6,10 @@
 
 import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { Hostel } from '../../../../models/index.js';
-import { Room } from '../../../../models/index.js';
 import { Event } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
 import { Leave } from '../../../../models/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import mongoose from 'mongoose';
 
 class DashboardService extends BaseService {
@@ -119,10 +118,10 @@ class DashboardService extends BaseService {
    * Get hostel statistics including room and occupancy details
    */
   async getHostelStats() {
-    const hostels = await Hostel.find({ isArchived: false });
+    const hostels = await hostelQueries.findActiveHostels();
 
     return Promise.all(hostels.map(async (hostel) => {
-      const rooms = await Room.find({ hostelId: hostel._id, status: 'Active' });
+      const rooms = await hostelQueries.findActiveRoomsForHostel(hostel._id);
 
       const totalRooms = rooms.length;
       const totalCapacity = rooms.reduce((sum, room) => sum + room.capacity, 0);
@@ -324,32 +323,17 @@ class DashboardService extends BaseService {
       return badRequest('User is not assigned to any hostel');
     }
 
-    const hostel = await Hostel.findById(hostelId, { _id: 1, name: 1, type: 1, gender: 1, isArchived: 1 });
+    const hostel = await hostelQueries.findHostelById(hostelId);
     if (!hostel) {
       return notFound('Hostel not found');
     }
 
     const [roomStats, maintenanceIssues] = await Promise.all([
-      Room.aggregate([
-        { $match: { hostelId: hostel._id } },
-        {
-          $group: {
-            _id: null,
-            totalRooms: { $sum: 1 },
-            totalActiveRooms: { $sum: { $cond: [{ $eq: ['$status', 'Active'] }, 1, 0] } },
-            occupiedRoomsCount: { $sum: { $cond: [{ $gt: ['$occupancy', 0] }, 1, 0] } },
-            vacantRoomsCount: { $sum: { $cond: [{ $and: [{ $eq: ['$occupancy', 0] }, { $eq: ['$status', 'Active'] }] }, 1, 0] } },
-            totalCapacity: { $sum: '$capacity' },
-            totalOccupancy: { $sum: '$occupancy' },
-            activeRoomsCapacity: { $sum: { $cond: [{ $eq: ['$status', 'Active'] }, '$capacity', 0] } },
-            activeRoomsOccupancy: { $sum: { $cond: [{ $eq: ['$status', 'Active'] }, '$occupancy', 0] } }
-          }
-        }
-      ]),
+      hostelQueries.getRoomStatsForHostel(hostel._id),
       Complaint.countDocuments({ hostelId: hostel._id, status: { $in: ['Pending', 'In Progress'] } })
     ]);
 
-    const stats = roomStats.length > 0 ? roomStats[0] : {
+    const stats = roomStats || {
       totalRooms: 0, totalActiveRooms: 0, occupiedRoomsCount: 0, vacantRoomsCount: 0,
       totalCapacity: 0, totalOccupancy: 0, activeRoomsCapacity: 0, activeRoomsOccupancy: 0
     };

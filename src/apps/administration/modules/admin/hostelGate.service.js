@@ -6,10 +6,10 @@
  */
 
 import { HostelGate } from '../../../../models/index.js';
-import { Hostel } from '../../../../models/index.js';
 import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
 import { BaseService, success, notFound, conflict, error } from '../../../../services/base/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
 class HostelGateService extends BaseService {
   constructor() {
@@ -24,7 +24,7 @@ class HostelGateService extends BaseService {
     try {
       const { hostelId, password } = data;
 
-      const hostel = await Hostel.findById(hostelId);
+      const hostel = await hostelQueries.findHostelById(hostelId);
       if (!hostel) {
         return notFound('Hostel');
       }

@@ -1,6 +1,20 @@
 /**
  * Room Allocation Model
- * Student room assignment tracking
+ * Student room assignment tracking.
+ *
+ * IMPORTANT: Room.occupancy and StudentProfile.currentRoomAllocation are
+ * maintained EXCLUSIVELY by the room owner service
+ * (src/services/hostel/roomOwner.service.js), which performs every allocation
+ * write atomically and transactionally. This model intentionally has NO
+ * lifecycle hooks — a raw Mongoose write here will NOT adjust occupancy or the
+ * student's current-allocation pointer. All allocation changes must go through
+ * roomOwner.
+ *
+ * The { roomId, bedNumber } index is UNIQUE — one student per bed, enforced at
+ * the database level. Before enabling this in an environment with historical
+ * data, run scripts/migrate_room_occupancy.mjs --apply --dedupe --build-index to
+ * clean duplicate beds and build the unique index (otherwise the autoIndex build
+ * fails on existing duplicates).
  */
 
 import mongoose from "mongoose"
@@ -21,7 +35,7 @@ const RoomAllocationSchema = new mongoose.Schema(
   }
 )
 
-RoomAllocationSchema.index({ roomId: 1, bedNumber: 1 })
+RoomAllocationSchema.index({ roomId: 1, bedNumber: 1 }, { unique: true })
 RoomAllocationSchema.index({ studentProfileId: 1 })
 RoomAllocationSchema.index({ userId: 1 })
 RoomAllocationSchema.index({ hostelId: 1 })
@@ -42,150 +56,6 @@ RoomAllocationSchema.virtual("displayRoomNumber").get(function () {
   } else {
     // For room-only hostels: <room>-<bed>
     return `${this.room.roomNumber}-${this.bedNumber}`
-  }
-})
-
-RoomAllocationSchema.post("save", async function () {
-  try {
-    const StudentProfile = mongoose.model("StudentProfile")
-    await StudentProfile.findByIdAndUpdate(this.studentProfileId, { currentRoomAllocation: this._id })
-
-    const Room = mongoose.model("Room")
-    await Room.findByIdAndUpdate(this.roomId, { $inc: { occupancy: 1 } })
-  } catch (error) {
-    console.error("Error in post-save hook:", error)
-  }
-})
-
-RoomAllocationSchema.post("insertMany", async function (docs) {
-  try {
-    if (!docs || docs.length === 0) return
-
-    const StudentProfile = mongoose.model("StudentProfile")
-    const Room = mongoose.model("Room")
-
-    const studentProfileUpdates = docs.map((doc) => ({
-      updateOne: {
-        filter: { _id: doc.studentProfileId },
-        update: { $set: { currentRoomAllocation: doc._id } },
-      },
-    }))
-    await StudentProfile.bulkWrite(studentProfileUpdates)
-
-    const roomUpdates = {}
-    docs.forEach((doc) => {
-      const roomId = doc.roomId.toString()
-      roomUpdates[roomId] = (roomUpdates[roomId] || 0) + 1
-    })
-
-    const roomBulkOps = Object.entries(roomUpdates).map(([roomId, count]) => ({
-      updateOne: {
-        filter: { _id: roomId },
-        update: { $inc: { occupancy: count } },
-      },
-    }))
-
-    if (roomBulkOps.length > 0) {
-      await Room.bulkWrite(roomBulkOps)
-    }
-  } catch (error) {
-    console.error("Error in post-insertMany hook:", error)
-  }
-})
-
-RoomAllocationSchema.pre("findOneAndUpdate", async function () {
-  try {
-    const update = this.getUpdate()
-    if (update && update.roomId) {
-      const allocation = await this.model.findOne(this.getQuery())
-
-      if (allocation) {
-        this._oldRoomId = allocation.roomId
-        this._newRoomId = update.roomId
-      }
-    }
-  } catch (error) {
-    console.error("Error in pre-findOneAndUpdate hook:", error)
-  }
-})
-
-RoomAllocationSchema.post("findOneAndUpdate", async function (result) {
-  try {
-    if (this._oldRoomId && this._newRoomId) {
-      const Room = mongoose.model("Room")
-
-      await Room.findByIdAndUpdate(this._oldRoomId, { $inc: { occupancy: -1 } })
-      await Room.findByIdAndUpdate(this._newRoomId, { $inc: { occupancy: 1 } })
-    }
-  } catch (error) {
-    console.error("Error in post-findOneAndUpdate hook:", error)
-  }
-})
-
-RoomAllocationSchema.pre("deleteOne", { query: true, document: false }, async function () {
-  try {
-    const query = this.getQuery()
-    const allocation = await this.model.findOne(query).lean()
-
-    if (allocation) {
-      const StudentProfile = mongoose.model("StudentProfile")
-      await StudentProfile.findByIdAndUpdate(allocation.studentProfileId, { $unset: { currentRoomAllocation: "" } })
-
-      const Room = mongoose.model("Room")
-      await Room.findByIdAndUpdate(allocation.roomId, { $inc: { occupancy: -1 } })
-    }
-  } catch (error) {
-    console.error("Error in pre-deleteOne hook (query middleware):", error)
-  }
-})
-
-RoomAllocationSchema.pre("findOneAndDelete", async function () {
-  try {
-    const allocation = await this.model.findOne(this.getQuery())
-
-    if (allocation) {
-      const StudentProfile = mongoose.model("StudentProfile")
-      await StudentProfile.findByIdAndUpdate(allocation.studentProfileId, { $unset: { currentRoomAllocation: "" } })
-
-      const Room = mongoose.model("Room")
-      await Room.findByIdAndUpdate(allocation.roomId, { $inc: { occupancy: -1 } })
-    }
-  } catch (error) {
-    console.error("Error in pre-findOneAndDelete hook:", error)
-  }
-})
-
-RoomAllocationSchema.pre("deleteMany", async function () {
-  try {
-    const query = this.getQuery()
-    const allocations = await this.model.find(query).lean()
-
-    if (allocations && allocations.length > 0) {
-      const StudentProfile = mongoose.model("StudentProfile")
-      const Room = mongoose.model("Room")
-
-      const studentProfileIds = allocations.map((a) => a.studentProfileId)
-      await StudentProfile.updateMany({ _id: { $in: studentProfileIds } }, { $unset: { currentRoomAllocation: "" } })
-
-      const roomUpdates = {}
-      allocations.forEach((allocation) => {
-        const roomId = allocation.roomId.toString()
-        roomUpdates[roomId] = (roomUpdates[roomId] || 0) + 1
-      })
-
-      const roomBulkOps = Object.entries(roomUpdates).map(([roomId, count]) => ({
-        updateOne: {
-          filter: { _id: roomId },
-          update: { $inc: { occupancy: -count } },
-        },
-      }))
-
-      if (roomBulkOps.length > 0) {
-        await Room.bulkWrite(roomBulkOps)
-      }
-    }
-  } catch (error) {
-    console.error("Error in pre-deleteMany hook:", error)
   }
 })
 

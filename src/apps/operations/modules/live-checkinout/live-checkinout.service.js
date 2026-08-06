@@ -4,7 +4,6 @@
  */
 
 import { CheckInOut } from '../../../../models/index.js';
-import { Hostel } from '../../../../models/index.js';
 
 /**
  * Get live check-in/out entries with advanced filters

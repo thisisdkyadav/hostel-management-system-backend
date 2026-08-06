@@ -6,7 +6,7 @@
 
 import { BaseService, success, notFound, forbidden, paginated, badRequest } from '../../../../services/base/index.js';
 import { Complaint, FeedbackToken } from '../../../../models/index.js';
-import { RoomAllocation } from '../../../../models/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { emailService } from '../../../../services/email/email.service.js';
 import mongoose from 'mongoose';
 import { getConstraintValue } from '../../../../core/authz/index.js';
@@ -190,7 +190,7 @@ class ComplaintService extends BaseService {
    */
   async getAllocationDetails(user, userId) {
     if (['Student'].includes(user.role)) {
-      const allocationDetails = await RoomAllocation.findOne({ userId });
+      const allocationDetails = await hostelQueries.findAllocationByUserId(userId);
       if (!allocationDetails) {
         return notFound('Room allocation not found');
       }

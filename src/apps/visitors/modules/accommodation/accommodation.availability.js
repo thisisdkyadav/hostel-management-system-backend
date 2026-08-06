@@ -12,7 +12,8 @@
  * the room-status machinery on deactivation).
  */
 
-import { Room, AccommodationRequest, Hostel, ACCOMMODATION_STATUS } from "../../../../models/index.js"
+import { AccommodationRequest, ACCOMMODATION_STATUS } from "../../../../models/index.js"
+import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 
 const S = ACCOMMODATION_STATUS
 
@@ -24,12 +25,9 @@ const overlapFilter = (from, to) => ({
   "stay.toDate": { $gt: new Date(from) },
 })
 
-// Fully-empty, Active rooms — the guest-eligible pool for a hostel.
-const emptyActiveRoomFilter = (hostelId) => ({ hostelId, status: "Active", occupancy: 0 })
-
 // Hostel-level headroom (CW Office allotment view).
 export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
-  const emptyRooms = await Room.find(emptyActiveRoomFilter(hostelId)).lean()
+  const emptyRooms = await hostelQueries.findEmptyActiveRooms(hostelId)
   const totalBeds = emptyRooms.reduce((sum, room) => sum + bedCount(room), 0)
 
   // Bookings already allotted here but not yet room-assigned still have a claim on
@@ -56,8 +54,8 @@ export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRe
 
 // Availability across every hostel that currently has empty Active rooms.
 export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId } = {}) => {
-  const hostelIds = await Room.distinct("hostelId", { status: "Active", occupancy: 0 })
-  const hostels = await Hostel.find({ _id: { $in: hostelIds } }).select("name type gender").lean()
+  const hostelIds = await hostelQueries.distinctHostelIdsWithEmptyActiveRooms()
+  const hostels = await hostelQueries.findHostelsByIds(hostelIds, "name type gender")
 
   const results = []
   for (const hostel of hostels) {
@@ -71,11 +69,7 @@ export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId 
 // the rooms this booking already holds (now status "Guest") so they show up for
 // reassignment. `includeRoomIds` are the current request's assigned room ids.
 export const getGuestRoomAvailability = async ({ hostelId, includeRoomIds = [] } = {}) => {
-  const filter = includeRoomIds.length
-    ? { $or: [emptyActiveRoomFilter(hostelId), { _id: { $in: includeRoomIds } }] }
-    : emptyActiveRoomFilter(hostelId)
-
-  const rooms = await Room.find(filter).populate("unitId", "unitNumber").lean()
+  const rooms = await hostelQueries.findGuestEligibleRooms(hostelId, includeRoomIds)
 
   return rooms.map((room) => {
     const beds = bedCount(room)

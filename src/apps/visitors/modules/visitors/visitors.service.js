@@ -5,7 +5,8 @@
  * @module apps/visitors/modules/visitors/service
  */
 
-import { VisitorRequest, Unit, Room, StudentProfile } from '../../../../models/index.js';
+import { VisitorRequest, StudentProfile } from '../../../../models/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import {
   BaseService,
@@ -298,14 +299,14 @@ class VisitorsService extends BaseService {
 
         let unitId;
         if (unitNumber) {
-          const unit = await Unit.findOne({ unitNumber, hostelId }).session(session);
+          const unit = await hostelQueries.findUnitByNumber(hostelId, unitNumber, { session });
           if (!unit) {
             throw new Error(`Unit ${unitNumber} not found in hostel ${user.hostel.name}`);
           }
           unitId = unit._id;
         }
 
-        const foundRoom = await Room.findOne({ roomNumber, unitId, hostelId }).session(session);
+        const foundRoom = await hostelQueries.findRoomByNumber(hostelId, roomNumber, { unitId, session });
         if (!foundRoom) {
           throw new Error(`Room ${roomNumber} not found in unit ${unitNumber}`);
         }

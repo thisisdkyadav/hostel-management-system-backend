@@ -7,8 +7,8 @@ import BaseService from '../../../../services/base/BaseService.js';
 import { success, notFound, forbidden } from '../../../../services/base/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { Complaint } from '../../../../models/index.js';
-import { RoomAllocation } from '../../../../models/index.js';
 import { Health } from '../../../../models/index.js';
+import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { getStudentDashboardCache, setStudentDashboardCache } from '../../../../utils/redisCache.js';
 import {
   getCachedEvents,
@@ -119,19 +119,13 @@ class ProfilesSelfService extends BaseService {
     };
 
     if (studentProfile.allocationId) {
-      const roomAllocation = await RoomAllocation.findById(studentProfile.allocationId)
-        .populate({ path: 'roomId', populate: { path: 'unitId', select: 'unitNumber' } })
-        .populate('hostelId', 'name type');
+      const roomAllocation = await hostelQueries.findAllocationByIdWithRoom(studentProfile.allocationId);
 
       if (roomAllocation) {
-        const allRoomAllocations = await RoomAllocation.find({
-          roomId: roomAllocation.roomId._id,
-          _id: { $ne: studentProfile.allocationId },
-        }).populate({
-          path: 'studentProfileId',
-          select: 'rollNumber userId',
-          populate: { path: 'userId', select: 'name profileImage' },
-        });
+        const allRoomAllocations = await hostelQueries.findRoommateAllocations(
+          roomAllocation.roomId._id,
+          studentProfile.allocationId,
+        );
 
         const roomCapacity = roomAllocation.roomId.capacity || 0;
 
