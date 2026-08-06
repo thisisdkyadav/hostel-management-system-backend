@@ -11,8 +11,6 @@ import mongoose from 'mongoose';
 import { success, notFound, badRequest } from '../../../../services/base/index.js';
 import {
   DiningAllocation,
-  DiningBillingAccount,
-  DiningBillingPeriod,
   DiningPeriod,
   DiningRebate,
   StudentProfile,
@@ -20,6 +18,8 @@ import {
 } from '../../../../models/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { listDayKeys, normalizeDay } from '../../../../services/dining-rebate.service.js';
+import { billingOwner } from '../../../../services/dining/billingOwner.service.js';
+import { billingQueries } from '../../../../services/dining/billingQueries.service.js';
 
 const APPROVED_STATUS = 'approved';
 const VALID_MODES = new Set(['add', 'deduct', 'set']);
@@ -176,7 +176,7 @@ const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()) => {
       ? DiningRebate.find({ periodId: { $in: periodIds }, status: APPROVED_STATUS })
         .select('periodId studentUserId dateKeys').lean()
       : [],
-    DiningBillingAccount.find({ billingPeriodId: billingPeriod._id }).lean(),
+    billingQueries.findAccountsByPeriod(billingPeriod._id),
   ]);
 
   const studentMap = new Map();
@@ -291,11 +291,7 @@ const validateBillingPeriodPayload = async (payload = {}) => {
 };
 
 export const getBillingPeriods = async (archive = 'false') => {
-  const billingPeriods = await DiningBillingPeriod
-    .find({ isArchived: archive === 'true' })
-    .populate({ path: 'diningPeriodIds', select: 'startDate endDate dailyRate' })
-    .sort({ createdAt: -1 })
-    .lean();
+  const billingPeriods = await billingQueries.findBillingPeriods(archive);
 
   const asOf = new Date();
   const serialized = await Promise.all(
@@ -312,10 +308,7 @@ export const createBillingPeriod = async (payload = {}) => {
   const validation = await validateBillingPeriodPayload(payload);
   if (validation.error) return badRequest(validation.error);
 
-  const created = await new DiningBillingPeriod(validation.data).save();
-  const populated = await DiningBillingPeriod.findById(created._id)
-    .populate({ path: 'diningPeriodIds', select: 'startDate endDate dailyRate' })
-    .lean();
+  const populated = await billingOwner.createBillingPeriod(validation.data);
 
   return success(serializeBillingPeriod(populated), 201, 'Billing period created successfully');
 };
@@ -326,10 +319,7 @@ export const updateBillingPeriod = async (billingPeriodId, payload = {}) => {
   const validation = await validateBillingPeriodPayload(payload);
   if (validation.error) return badRequest(validation.error);
 
-  const updated = await DiningBillingPeriod
-    .findByIdAndUpdate(billingPeriodId, validation.data, { new: true, runValidators: true })
-    .populate({ path: 'diningPeriodIds', select: 'startDate endDate dailyRate' })
-    .lean();
+  const updated = await billingOwner.updateBillingPeriod(billingPeriodId, validation.data);
 
   if (!updated) return notFound('Billing period');
 
@@ -340,10 +330,7 @@ export const updateBillingPeriod = async (billingPeriodId, payload = {}) => {
 export const changeBillingPeriodArchiveStatus = async (billingPeriodId, status) => {
   if (!mongoose.Types.ObjectId.isValid(billingPeriodId)) return badRequest('Invalid billing period');
 
-  const updated = await DiningBillingPeriod
-    .findByIdAndUpdate(billingPeriodId, { isArchived: Boolean(status) }, { new: true })
-    .populate({ path: 'diningPeriodIds', select: 'startDate endDate dailyRate' })
-    .lean();
+  const updated = await billingOwner.setBillingPeriodArchived(billingPeriodId, status);
 
   if (!updated) return notFound('Billing period');
 
@@ -357,9 +344,7 @@ export const changeBillingPeriodArchiveStatus = async (billingPeriodId, status) 
 export const getBillingPeriodAccounts = async (billingPeriodId) => {
   if (!mongoose.Types.ObjectId.isValid(billingPeriodId)) return badRequest('Invalid billing period');
 
-  const billingPeriod = await DiningBillingPeriod.findById(billingPeriodId)
-    .populate({ path: 'diningPeriodIds', select: 'startDate endDate dailyRate' })
-    .lean();
+  const billingPeriod = await billingQueries.findBillingPeriodById(billingPeriodId);
 
   if (!billingPeriod) return notFound('Billing period');
 
@@ -380,7 +365,7 @@ export const bulkUpdateBillingAccounts = async (billingPeriodId, { mode, entries
   if (!Array.isArray(entries) || entries.length === 0) return badRequest('Please provide at least one row');
   if (entries.length > MAX_BULK_RECORDS) return badRequest(`Maximum ${MAX_BULK_RECORDS} rows are allowed per upload`);
 
-  const billingPeriod = await DiningBillingPeriod.findById(billingPeriodId).lean();
+  const billingPeriod = await billingQueries.findBillingPeriodById(billingPeriodId, { populate: false });
   if (!billingPeriod) return notFound('Billing period');
   if (billingPeriod.isArchived) return badRequest('Cannot modify funds for an archived billing period');
 
@@ -413,44 +398,17 @@ export const bulkUpdateBillingAccounts = async (billingPeriodId, { mode, entries
       continue;
     }
 
+    // Atomic per-account upsert via the owner (no read-modify-write race).
     // eslint-disable-next-line no-await-in-loop
-    const account = await DiningBillingAccount.findOne({
+    await billingOwner.applyFundAdjustment({
       billingPeriodId,
       studentUserId: profile.userId,
-    });
-    const current = account ? Number(account.allocatedAmount || 0) : 0;
-    let next;
-    if (normalizedMode === 'add') next = current + entry.amount;
-    else if (normalizedMode === 'deduct') next = current - entry.amount;
-    else next = entry.amount;
-    next = round2(next);
-
-    const adjustment = {
+      studentProfileId: profile._id,
+      rollNumber: entry.rollNumber,
       mode: normalizedMode,
-      amount: round2(entry.amount),
-      allocatedAfter: next,
-      performedBy: performedBy || null,
-      performedAt: new Date(),
-    };
-
-    if (account) {
-      account.allocatedAmount = next;
-      account.rollNumber = entry.rollNumber;
-      account.studentProfileId = profile._id;
-      account.adjustments.push(adjustment);
-      // eslint-disable-next-line no-await-in-loop
-      await account.save();
-    } else {
-      // eslint-disable-next-line no-await-in-loop
-      await DiningBillingAccount.create({
-        billingPeriodId,
-        studentUserId: profile.userId,
-        studentProfileId: profile._id,
-        rollNumber: entry.rollNumber,
-        allocatedAmount: next,
-        adjustments: [adjustment],
-      });
-    }
+      amount: entry.amount,
+      performedBy,
+    });
     updated += 1;
   }
 
@@ -477,7 +435,7 @@ const computeStudentBillingForPeriod = async (billingPeriod, userId, asOf = new 
       ? DiningRebate.find({ studentUserId: userId, periodId: { $in: periodIds }, status: APPROVED_STATUS })
         .select('periodId dateKeys').lean()
       : [],
-    DiningBillingAccount.findOne({ billingPeriodId: billingPeriod._id, studentUserId: userId }).lean(),
+    billingQueries.findAccountByPeriodAndUser(billingPeriod._id, userId),
   ]);
 
   const participatingPeriodIds = new Set(allocations.map((allocation) => String(allocation.periodId)));
@@ -503,7 +461,7 @@ export const getStudentDiningBilling = async (userId) => {
   if (!profile) return success({ billingPeriods: [] });
 
   const [accounts, allocations] = await Promise.all([
-    DiningBillingAccount.find({ studentUserId: userId }).select('billingPeriodId').lean(),
+    billingQueries.findAccountBillingPeriodIdsByUser(userId),
     DiningAllocation.find({ studentUserId: userId }).select('periodId').lean(),
   ]);
 
@@ -511,18 +469,13 @@ export const getStudentDiningBilling = async (userId) => {
 
   const allocationPeriodIds = allocations.map((allocation) => allocation.periodId);
   if (allocationPeriodIds.length > 0) {
-    const matchingBillingPeriods = await DiningBillingPeriod
-      .find({ isArchived: false, diningPeriodIds: { $in: allocationPeriodIds } })
-      .select('_id').lean();
+    const matchingBillingPeriods = await billingQueries.findActiveBillingPeriodIdsByDiningPeriods(allocationPeriodIds);
     matchingBillingPeriods.forEach((billingPeriod) => billingPeriodIds.add(String(billingPeriod._id)));
   }
 
   if (billingPeriodIds.size === 0) return success({ billingPeriods: [] });
 
-  const billingPeriods = await DiningBillingPeriod
-    .find({ _id: { $in: [...billingPeriodIds] }, isArchived: false })
-    .populate({ path: 'diningPeriodIds', select: 'startDate endDate dailyRate' })
-    .lean();
+  const billingPeriods = await billingQueries.findActiveBillingPeriodsByIds([...billingPeriodIds]);
 
   const asOf = new Date();
   const result = await Promise.all(
