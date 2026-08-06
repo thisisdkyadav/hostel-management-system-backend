@@ -183,7 +183,7 @@ export const renameGroup = asyncHandler(async (req, res) => {
           },
         },
       ],
-      { session }
+      { session, updatePipeline: true }
     );
 
     studentGroups.value = studentGroups.value.map((group) => (

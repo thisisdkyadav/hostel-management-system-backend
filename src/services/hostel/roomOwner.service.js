@@ -98,7 +98,7 @@ async function activateRoomsRaw(roomIds, session) {
       { $set: { capacity: { $ifNull: ["$originalCapacity", "$capacity"] }, status: "Active" } },
       { $unset: "originalCapacity" },
     ],
-    { session }
+    { session, updatePipeline: true }
   )
 }
 
@@ -125,7 +125,7 @@ async function deactivateRoomsRaw(roomIds, status, session) {
         },
       },
     ],
-    { session }
+    { session, updatePipeline: true }
   )
 
   const allocations = await RoomAllocation.find({ roomId: { $in: ids } })
@@ -596,7 +596,7 @@ export const roomOwner = {
     await Room.updateMany(
       { _id: { $in: ids }, status: "Active" },
       [{ $set: { originalCapacity: "$capacity", capacity: 0, status: "Guest" } }],
-      { session }
+      { session, updatePipeline: true }
     )
   },
 
