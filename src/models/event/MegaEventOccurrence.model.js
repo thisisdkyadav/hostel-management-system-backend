@@ -254,7 +254,7 @@ const MegaEventOccurrenceSchema = new mongoose.Schema(
 MegaEventOccurrenceSchema.pre("save", function () {
   if (this.scheduledStartDate && (this.isModified("scheduledStartDate") || !this.proposalDueDate)) {
     const dueDate = new Date(this.scheduledStartDate)
-    dueDate.setDate(dueDate.getDate() - 21)
+    dueDate.setDate(dueDate.getDate() - 60)
     this.proposalDueDate = dueDate
   }
 

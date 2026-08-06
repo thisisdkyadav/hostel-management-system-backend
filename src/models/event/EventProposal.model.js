@@ -1,6 +1,6 @@
 /**
  * Event Proposal Model
- * Detailed proposal submitted by GS 21 days before event
+ * Detailed proposal submitted by GS 60 days before event
  */
 
 import mongoose from "mongoose"

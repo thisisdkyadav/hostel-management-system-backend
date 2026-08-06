@@ -27,7 +27,7 @@ const computeProposalDueDate = (event) => {
   }
 
   const dueDate = new Date(startDate)
-  dueDate.setDate(dueDate.getDate() - 21)
+  dueDate.setDate(dueDate.getDate() - 60)
   return dueDate
 }
 

@@ -35,7 +35,7 @@ const GymkhanaEventSchema = new mongoose.Schema(
       ],
       default: "upcoming",
     },
-    proposalDueDate: { type: Date }, // scheduledStartDate - 21 days
+    proposalDueDate: { type: Date }, // scheduledStartDate - 60 days
     proposalSubmitted: { type: Boolean, default: false },
     proposalId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -59,11 +59,11 @@ const GymkhanaEventSchema = new mongoose.Schema(
   }
 )
 
-// Calculate proposal due date (21 days before event start)
+// Calculate proposal due date (60 days before event start)
 GymkhanaEventSchema.pre("save", function () {
   if (this.scheduledStartDate && (this.isModified("scheduledStartDate") || !this.proposalDueDate)) {
     const dueDate = new Date(this.scheduledStartDate)
-    dueDate.setDate(dueDate.getDate() - 21)
+    dueDate.setDate(dueDate.getDate() - 60)
     this.proposalDueDate = dueDate
   }
 })

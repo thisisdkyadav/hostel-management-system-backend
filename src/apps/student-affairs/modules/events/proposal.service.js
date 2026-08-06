@@ -1,6 +1,6 @@
 /**
  * @fileoverview Proposal Service
- * @description Business logic for Event Proposals (21 days before event)
+ * @description Business logic for Event Proposals (60 days before event)
  */
 
 import { BaseService } from "../../../../services/base/BaseService.js"
@@ -978,7 +978,7 @@ class ProposalService extends BaseService {
     }
 
     const dueDate = new Date(startDate)
-    dueDate.setDate(dueDate.getDate() - 21)
+    dueDate.setDate(dueDate.getDate() - 60)
     return dueDate
   }
 

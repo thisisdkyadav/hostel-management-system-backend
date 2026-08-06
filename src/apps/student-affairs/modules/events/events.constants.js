@@ -133,4 +133,4 @@ export const EVENT_CATEGORY = {
 // NOTIFICATION CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export const PROPOSAL_DUE_DAYS = 21 // Days before event when proposal is due
+export const PROPOSAL_DUE_DAYS = 60 // Days before event when proposal is due
