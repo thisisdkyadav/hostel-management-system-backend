@@ -2,9 +2,9 @@ import {
   ActionLinkToken,
   Election,
   ElectionNomination,
-  ElectionVote,
   StudentProfile,
 } from "../../../../models/index.js"
+import { voteQueries } from "../../../../services/elections/voteQueries.service.js"
 import { emailService } from "../../../../services/email/email.service.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
 import {
@@ -258,7 +258,7 @@ export const resolveElectionVotingRecipients = async (
   const voterIdsWithVotes = includeVoted
     ? new Set()
     : new Set(
-        (await ElectionVote.distinct("voterUserId", { electionId: election._id })).map((value) =>
+        (await voteQueries.distinctVoterIds(election._id)).map((value) =>
           String(value)
         )
       )
@@ -390,9 +390,7 @@ const getReceivedVotingRecipientStatusKeys = async (election) => {
         },
       ],
     }).select("recipientUserId"),
-    ElectionVote.distinct("voterUserId", {
-      electionId: election._id,
-    }),
+    voteQueries.distinctVoterIds(election._id),
   ])
 
   return new Set(

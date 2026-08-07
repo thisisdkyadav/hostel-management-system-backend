@@ -2,10 +2,11 @@ import mongoose from "mongoose"
 import {
   Election,
   ElectionNomination,
-  ElectionVote,
   StudentProfile,
   User,
 } from "../../../../models/index.js"
+import { voteOwner } from "../../../../services/elections/voteOwner.service.js"
+import { voteQueries } from "../../../../services/elections/voteQueries.service.js"
 import {
   badRequest,
   created,
@@ -805,7 +806,6 @@ const countStudentsForScope = async (scope = {}) => {
 }
 
 const buildElectionVotingLiveStats = async (election) => {
-  const electionId = new mongoose.Types.ObjectId(String(election._id))
   const mockRollNumbers = normalizeRollNumbers(election?.mockSettings?.voterRollNumbers)
   const isMockElection = Boolean(election?.mockSettings?.enabled)
 
@@ -816,38 +816,9 @@ const buildElectionVotingLiveStats = async (election) => {
     })
       .populate({ path: "candidateUserId", select: "name email profileImage" })
       .lean(),
-    ElectionVote.aggregate([
-      {
-        $match: {
-          electionId,
-        },
-      },
-      {
-        $group: {
-          _id: "$postId",
-          count: { $sum: 1 },
-          lastCastAt: { $max: "$castAt" },
-        },
-      },
-    ]),
-    ElectionVote.aggregate([
-      {
-        $match: {
-          electionId,
-        },
-      },
-      {
-        $group: {
-          _id: {
-            postId: "$postId",
-            candidateNominationId: "$candidateNominationId",
-            isNota: "$isNota",
-          },
-          count: { $sum: 1 },
-        },
-      },
-    ]),
-    ElectionVote.distinct("voterUserId", { electionId: election._id }),
+    voteQueries.aggregateVoteCountsByPost(election._id),
+    voteQueries.aggregateCandidateVoteCounts(election._id),
+    voteQueries.distinctVoterIds(election._id),
   ])
 
   const verifiedNominationMap = verifiedNominations.reduce((acc, nomination) => {
@@ -1050,23 +1021,7 @@ const buildElectionResults = async (election) => {
     status: NOMINATION_STATUS.VERIFIED,
   }).populate({ path: "candidateUserId", select: "name email profileImage" })
 
-  const voteCounts = await ElectionVote.aggregate([
-    {
-      $match: {
-        electionId: new mongoose.Types.ObjectId(String(election._id)),
-      },
-    },
-    {
-      $group: {
-        _id: {
-          postId: "$postId",
-          candidateNominationId: "$candidateNominationId",
-          isNota: "$isNota",
-        },
-        count: { $sum: 1 },
-      },
-    },
-  ])
+  const voteCounts = await voteQueries.aggregateCandidateVoteCounts(election._id)
 
   const voteMap = new Map(
     voteCounts.map((item) => [
@@ -1187,19 +1142,7 @@ const getNominationCountsByPost = async (electionId) => {
 }
 
 const getVoteCountsByPost = async (electionId) => {
-  const counts = await ElectionVote.aggregate([
-    {
-      $match: {
-        electionId: new mongoose.Types.ObjectId(String(electionId)),
-      },
-    },
-    {
-      $group: {
-        _id: "$postId",
-        count: { $sum: 1 },
-      },
-    },
-  ])
+  const counts = await voteQueries.aggregateVoteCountsByPost(electionId)
 
   return counts.reduce((acc, item) => {
     acc[String(item._id)] = item.count
@@ -1481,7 +1424,7 @@ const submitElectionVotesForUser = async (
     tokenDoc = null,
   } = {}
 ) => {
-  const existingVote = await ElectionVote.findOne({
+  const existingVote = await voteQueries.findVoteByElectionAndVoter({
     electionId: election._id,
     voterUserId,
   })
@@ -1564,7 +1507,13 @@ const submitElectionVotesForUser = async (
     voteDoc.candidateUserId = candidateUserId
   }
 
-  await ElectionVote.insertMany(voteDocs)
+  const castResult = await voteOwner.castBallot({ voteDocs })
+  if (!castResult.ok) {
+    // Concurrent double-submit lost the unique-index race: this voter already
+    // has a ballot for this election. Report it as the same graceful message,
+    // not a raw duplicate-key error.
+    return badRequest("Your vote has already been submitted")
+  }
 
   if (tokenDoc) {
     await consumeActionLinkToken(tokenDoc, {
@@ -1999,9 +1948,9 @@ class ElectionsService {
           electionId: election._id,
           postId: { $in: removedPostIds.map((postId) => new mongoose.Types.ObjectId(postId)) },
         }),
-        ElectionVote.countDocuments({
+        voteQueries.countVotesForPosts({
           electionId: election._id,
-          postId: { $in: removedPostIds.map((postId) => new mongoose.Types.ObjectId(postId)) },
+          postIds: removedPostIds,
         }),
       ])
 
@@ -2129,8 +2078,8 @@ class ElectionsService {
         electionId: { $in: electionIds },
         candidateUserId: user._id,
       }),
-      ElectionVote.distinct("electionId", {
-        electionId: { $in: electionIds },
+      voteQueries.distinctVotedElectionIds({
+        electionIds,
         voterUserId: user._id,
       }),
     ])
@@ -2202,8 +2151,8 @@ class ElectionsService {
       })
         .populate({ path: "candidateUserId", select: "name email profileImage" })
         .populate({ path: "candidateProfileId", select: "idCard" }),
-      ElectionVote.find({
-        electionId: { $in: electionIds },
+      voteQueries.findVotesByVoter({
+        electionIds,
         voterUserId: user._id,
       }),
     ])
@@ -2540,7 +2489,7 @@ class ElectionsService {
       return notFound("Election")
     }
 
-    const existingVote = await ElectionVote.findOne({
+    const existingVote = await voteQueries.findVoteByElectionAndVoter({
       electionId: election._id,
       voterUserId: tokenDoc.recipientUserId,
     })
