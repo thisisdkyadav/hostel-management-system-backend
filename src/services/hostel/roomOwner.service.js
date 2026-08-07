@@ -41,6 +41,24 @@ const uniqueObjectIds = (roomIds) =>
   [...new Set((roomIds || []).map((id) => String(id)).filter(Boolean))].map(toObjectId)
 
 /**
+ * Coerce a bed number to the positive integer the schema declares (type: Number).
+ * The native-driver inserts below bypass Mongoose casting, so without this a
+ * string "1" from a request body would be persisted as a string — which then
+ * fails to match the Number-cast bed-conflict reads and slips past the unique
+ * { roomId, bedNumber } index (string "1" != number 1). Coercing here is the
+ * single guard that keeps every persisted bedNumber a real number.
+ */
+const toBedNumber = (value) => {
+  const n = typeof value === "number" ? value : Number(String(value).trim())
+  if (!Number.isInteger(n) || n <= 0) {
+    const err = new Error(`Invalid bed number: ${JSON.stringify(value)}`)
+    err.statusCode = 400
+    throw err
+  }
+  return n
+}
+
+/**
  * Build a plain RoomAllocation document for a native insert (bypasses hooks).
  * Mirrors the schema's required fields + timestamps.
  */
@@ -52,7 +70,7 @@ const buildAllocationDoc = ({ userId, studentProfileId, hostelId, roomId, unitId
     studentProfileId: toObjectId(studentProfileId),
     hostelId: toObjectId(hostelId),
     roomId: toObjectId(roomId),
-    bedNumber,
+    bedNumber: toBedNumber(bedNumber),
     createdAt: now,
     updatedAt: now,
   }

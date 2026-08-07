@@ -10,6 +10,38 @@ const normalizeAllocationRollNumber = (rollNumber) => (
   typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
 );
 
+/**
+ * Pull { roomId, bedNumber } out of a MongoDB duplicate-key error so the caller
+ * can tell the admin the EXACT bed that clashed instead of a raw stack trace.
+ * Handles both a single MongoServerError and the MongoBulkWriteError thrown by
+ * insertMany, falling back to parsing the error message when keyValue is absent.
+ */
+const extractDuplicateBed = (error) => {
+  const isDup =
+    error?.code === 11000 ||
+    (Array.isArray(error?.writeErrors) &&
+      error.writeErrors.some((e) => (e?.code ?? e?.err?.code) === 11000));
+  if (!isDup) return null;
+
+  let keyValue = error?.keyValue;
+  if (!keyValue && Array.isArray(error?.writeErrors) && error.writeErrors.length > 0) {
+    const first = error.writeErrors[0];
+    keyValue = first?.err?.keyValue || first?.keyValue;
+  }
+  if (keyValue && keyValue.roomId !== undefined && keyValue.bedNumber !== undefined) {
+    return { roomId: String(keyValue.roomId), bedNumber: keyValue.bedNumber };
+  }
+
+  // Fallback: parse "dup key: { roomId: ObjectId('...'), bedNumber: 1 }".
+  const message = error?.errmsg || error?.message || '';
+  const roomMatch = message.match(/roomId:\s*ObjectId\('([0-9a-fA-F]{24})'\)/);
+  const bedMatch = message.match(/bedNumber:\s*"?([^",}]+)"?/);
+  if (roomMatch && bedMatch) {
+    return { roomId: roomMatch[1], bedNumber: bedMatch[1].trim() };
+  }
+  return null;
+};
+
 export const getAllocationStudentByRollNumber = asyncHandler(async (req, res) => {
   const rollNumber = normalizeAllocationRollNumber(req.params.rollNumber);
 
@@ -73,6 +105,9 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest('A valid hostel must be selected'));
   }
   const allocationsData = req.body;
+  // roomId -> human label (unit-room / room), populated once rooms are resolved.
+  // Declared out here so the catch block can name the exact bed on a dup-key error.
+  const roomLabelById = new Map();
   const session = await mongoose.startSession();
 
   try {
@@ -113,9 +148,22 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
           rollNumber: rollNumber || 'Unknown',
           message: `Missing required fields: ${requiredFields.join(', ')}`,
         });
-      } else {
-        validAllocations.push({ ...alloc, rollNumber: rollNumber.toUpperCase() });
+        continue;
       }
+
+      // Normalise bedNumber to the positive integer the schema expects. The
+      // request body / CSV can deliver it as a string ("1"), and a string bed
+      // silently defeats bed-conflict detection and the unique index downstream.
+      const parsedBed = Number(bedNumber);
+      if (!Number.isInteger(parsedBed) || parsedBed <= 0) {
+        errors.push({
+          rollNumber: rollNumber || 'Unknown',
+          message: `Invalid bed number "${bedNumber}" - must be a positive whole number`,
+        });
+        continue;
+      }
+
+      validAllocations.push({ ...alloc, bedNumber: parsedBed, rollNumber: rollNumber.toUpperCase() });
     }
 
     if (validAllocations.length === 0) {
@@ -134,10 +182,11 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     const unitMap = {};
     const roomMap = {};
     let rooms = [];
+    let units = [];
 
     if (selectedHostelType === 'unit-based') {
       const unitNumbers = [...new Set(validAllocations.map((a) => a.unit))];
-      const units = await hostelQueries.findUnitsByNumbers(hostelId, unitNumbers, { session });
+      units = await hostelQueries.findUnitsByNumbers(hostelId, unitNumbers, { session });
 
       units.forEach((unit) => {
         unitMap[unit.unitNumber] = unit;
@@ -159,6 +208,19 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
         roomMap[room.roomNumber] = room;
       });
     }
+
+    // Cache a readable label for every resolved room so a dup-key error can name
+    // the exact bed instead of surfacing a raw roomId.
+    rooms.forEach((room) => {
+      const unitNumber =
+        selectedHostelType === 'unit-based'
+          ? units.find((u) => u._id.equals(room.unitId))?.unitNumber
+          : null;
+      roomLabelById.set(
+        String(room._id),
+        unitNumber ? `${unitNumber}-${room.roomNumber}` : `${room.roomNumber}`,
+      );
+    });
 
     const roomIds = rooms.map((room) => room._id);
     const bedNumbers = validAllocations.map((a) => a.bedNumber);
@@ -241,10 +303,24 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     // allocations that remain once the queued deletes free their beds. Overflow
     // allocations are reported as errors instead of silently over-filling the room.
     const availableByRoom = {};
+    const claimedBeds = new Set();
     const createInputs = [];
     const createMeta = [];
     for (const { rollNumber, studentProfile, roomDoc, bedNumber } of pending) {
       const rid = roomDoc._id.toString();
+
+      // Reject two rows in the SAME upload targeting the same bed. Without this
+      // both reach insertMany and collide on the unique { roomId, bedNumber }
+      // index - a cryptic E11000 instead of a clear per-row message.
+      const bedKey = `${rid}:${bedNumber}`;
+      if (claimedBeds.has(bedKey)) {
+        errors.push({
+          rollNumber,
+          message: `Bed ${bedNumber} in room ${roomLabelById.get(rid) || roomDoc.roomNumber} is assigned to more than one student in this upload`,
+        });
+        continue;
+      }
+
       if (availableByRoom[rid] === undefined) {
         availableByRoom[rid] = Math.max(
           0,
@@ -256,6 +332,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
         continue;
       }
       availableByRoom[rid] -= 1;
+      claimedBeds.add(bedKey);
       createInputs.push({
         userId: studentProfile.userId,
         studentProfileId: studentProfile._id,
@@ -293,6 +370,20 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     await session.abortTransaction();
+
+    // Turn a duplicate-bed collision into a precise, actionable message naming
+    // the exact bed instead of leaking a MongoBulkWriteError / "Invalid ID" 500.
+    const dup = extractDuplicateBed(error);
+    if (dup) {
+      const roomLabel = roomLabelById.get(dup.roomId) || `room ${dup.roomId}`;
+      return sendStandardResponse(
+        res,
+        badRequest(
+          `Bed ${dup.bedNumber} in room ${roomLabel} is already occupied. Deallocate the current occupant first, or choose a different bed.`,
+        ),
+      );
+    }
+
     throw error;
   } finally {
     await session.endSession();
