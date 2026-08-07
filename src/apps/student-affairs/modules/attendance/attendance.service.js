@@ -5,12 +5,9 @@
  */
 
 import { success, notFound, badRequest, forbidden } from "../../../../services/base/index.js"
-import {
-  AttendanceOccurrence,
-  AttendanceRecord,
-  User,
-  StudentProfile,
-} from "../../../../models/index.js"
+import { User, StudentProfile } from "../../../../models/index.js"
+import { attendanceOwner } from "../../../../services/attendance/attendanceOwner.service.js"
+import { attendanceQueries } from "../../../../services/attendance/attendanceQueries.service.js"
 import { decryptData } from "../../../../utils/qrUtils.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
 import {
@@ -56,19 +53,12 @@ class AttendanceService {
     if (status) query.status = status
     if (search) query.title = { $regex: escapeRegex(search), $options: "i" }
 
-    const occurrences = await AttendanceOccurrence.find(query)
-      .sort({ createdAt: -1 })
-      .populate("createdBy", "name email role")
-      .populate("assignedUsers", "name email role")
-      .lean()
+    const occurrences = await attendanceQueries.listOccurrences(query)
 
     const ids = occurrences.map((o) => o._id)
     const countsByOccurrence = new Map()
     if (ids.length) {
-      const counts = await AttendanceRecord.aggregate([
-        { $match: { occurrenceId: { $in: ids } } },
-        { $group: { _id: "$occurrenceId", count: { $sum: 1 } } },
-      ])
+      const counts = await attendanceQueries.aggregateRecordCountsByOccurrences(ids)
       counts.forEach((c) => countsByOccurrence.set(String(c._id), c.count))
     }
 
@@ -82,18 +72,11 @@ class AttendanceService {
   }
 
   async getOccurrence(id, user) {
-    const occurrence = await AttendanceOccurrence.findById(id)
-      .populate("createdBy", "name email role")
-      .populate("assignedUsers", "name email role")
-      .lean()
+    const occurrence = await attendanceQueries.findOccurrenceByIdPopulated(id)
     if (!occurrence) return notFound("Attendance occurrence")
     if (!this.canAccess(user, occurrence)) return forbidden("You do not have access to this occurrence")
 
-    const records = await AttendanceRecord.find({ occurrenceId: id })
-      .sort({ scannedAt: -1 })
-      .populate("userId", "name email profileImage")
-      .populate("scannedBy", "name email")
-      .lean()
+    const records = await attendanceQueries.findRecordsByOccurrence(id)
 
     const rosterSet = new Set((occurrence.roster || []).map(normalizeRoll))
     const presentSet = new Set(records.map((r) => normalizeRoll(r.rollNumber)))
@@ -130,7 +113,7 @@ class AttendanceService {
 
   async createOccurrence(data, user) {
     const assignedUsers = await this.normalizeAssignedUsers(data.assignedUsers)
-    const occurrence = await AttendanceOccurrence.create({
+    const occurrence = await attendanceOwner.createOccurrence({
       title: data.title,
       description: data.description || "",
       location: data.location || "",
@@ -140,16 +123,13 @@ class AttendanceService {
       status: ATTENDANCE_STATUS.OPEN,
     })
 
-    const populated = await AttendanceOccurrence.findById(occurrence._id)
-      .populate("createdBy", "name email role")
-      .populate("assignedUsers", "name email role")
-      .lean()
+    const populated = await attendanceQueries.findOccurrenceByIdPopulated(occurrence._id)
 
     return success({ occurrence: populated }, 201, "Attendance occurrence created")
   }
 
   async updateOccurrence(id, data, user) {
-    const occurrence = await AttendanceOccurrence.findById(id)
+    const occurrence = await attendanceQueries.findOccurrenceById(id)
     if (!occurrence) return notFound("Attendance occurrence")
 
     if (data.title !== undefined) occurrence.title = data.title
@@ -161,28 +141,24 @@ class AttendanceService {
       occurrence.assignedUsers = await this.normalizeAssignedUsers(data.assignedUsers)
     }
 
-    await occurrence.save()
+    await attendanceOwner.persistOccurrence(occurrence)
 
-    const populated = await AttendanceOccurrence.findById(id)
-      .populate("createdBy", "name email role")
-      .populate("assignedUsers", "name email role")
-      .lean()
+    const populated = await attendanceQueries.findOccurrenceByIdPopulated(id)
 
     return success({ occurrence: populated }, 200, "Attendance occurrence updated")
   }
 
   async deleteOccurrence(id, user) {
-    const occurrence = await AttendanceOccurrence.findById(id)
+    const occurrence = await attendanceQueries.findOccurrenceById(id)
     if (!occurrence) return notFound("Attendance occurrence")
 
-    await AttendanceRecord.deleteMany({ occurrenceId: id })
-    await occurrence.deleteOne()
+    await attendanceOwner.deleteOccurrenceById(id)
 
     return success(null, 200, "Attendance occurrence deleted")
   }
 
   async uploadRoster(id, rollNumbers, user) {
-    const occurrence = await AttendanceOccurrence.findById(id)
+    const occurrence = await attendanceQueries.findOccurrenceById(id)
     if (!occurrence) return notFound("Attendance occurrence")
 
     const normalized = [
@@ -191,7 +167,7 @@ class AttendanceService {
 
     occurrence.roster = normalized
     occurrence.rosterUpdatedAt = new Date()
-    await occurrence.save()
+    await attendanceOwner.persistOccurrence(occurrence)
 
     return success({ rosterCount: normalized.length }, 200, "Roster updated")
   }
@@ -243,30 +219,28 @@ class AttendanceService {
       ? occurrence.roster.map(normalizeRoll).includes(rollNumber)
       : null
 
-    try {
-      const record = await AttendanceRecord.create({
-        occurrenceId: occurrence._id,
-        studentId: studentProfile._id,
-        userId: userDoc?._id || studentProfile.userId,
-        rollNumber,
-        scannedBy: scannedBy._id,
-        source,
-      })
-      return { result: SCAN_RESULT.MARKED, record, inRoster }
-    } catch (err) {
-      if (err?.code === 11000) {
-        const record = await AttendanceRecord.findOne({
-          occurrenceId: occurrence._id,
-          studentId: studentProfile._id,
-        }).lean()
-        return { result: SCAN_RESULT.DUPLICATE, record, inRoster }
-      }
-      throw err
+    const outcome = await attendanceOwner.createRecord({
+      occurrenceId: occurrence._id,
+      studentId: studentProfile._id,
+      userId: userDoc?._id || studentProfile.userId,
+      rollNumber,
+      scannedBy: scannedBy._id,
+      source,
+    })
+    if (outcome.ok) {
+      return { result: SCAN_RESULT.MARKED, record: outcome.record, inRoster }
     }
+    // Repeat/concurrent scan hit the unique (occurrenceId, studentId) index —
+    // idempotent: return the existing record as a DUPLICATE.
+    const record = await attendanceQueries.findRecordByOccurrenceAndStudent(
+      occurrence._id,
+      studentProfile._id
+    )
+    return { result: SCAN_RESULT.DUPLICATE, record, inRoster }
   }
 
   async scanAttendance(id, { email, encryptedData, source }, user) {
-    const occurrence = await AttendanceOccurrence.findById(id)
+    const occurrence = await attendanceQueries.findOccurrenceById(id)
     if (!occurrence) return notFound("Attendance occurrence")
     if (!this.canAccess(user, occurrence)) return forbidden("You do not have access to this occurrence")
     if (occurrence.status === ATTENDANCE_STATUS.CLOSED)
@@ -291,7 +265,7 @@ class AttendanceService {
   }
 
   async markByRollNumber(id, { rollNumber, source }, user) {
-    const occurrence = await AttendanceOccurrence.findById(id)
+    const occurrence = await attendanceQueries.findOccurrenceById(id)
     if (!occurrence) return notFound("Attendance occurrence")
     if (!this.canAccess(user, occurrence)) return forbidden("You do not have access to this occurrence")
     if (occurrence.status === ATTENDANCE_STATUS.CLOSED)
@@ -321,14 +295,11 @@ class AttendanceService {
   }
 
   async deleteRecord(id, recordId, user) {
-    const occurrence = await AttendanceOccurrence.findById(id).lean()
+    const occurrence = await attendanceQueries.findOccurrenceByIdLean(id)
     if (!occurrence) return notFound("Attendance occurrence")
     if (!this.canAccess(user, occurrence)) return forbidden("You do not have access to this occurrence")
 
-    const record = await AttendanceRecord.findOneAndDelete({
-      _id: recordId,
-      occurrenceId: id,
-    })
+    const record = await attendanceOwner.deleteRecord({ recordId, occurrenceId: id })
     if (!record) return notFound("Attendance record")
 
     return success(null, 200, "Attendance record removed")
