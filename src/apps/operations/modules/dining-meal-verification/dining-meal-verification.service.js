@@ -1,11 +1,11 @@
 import mongoose from "mongoose"
 import {
   Caterer,
-  DiningAllocation,
   DiningMealVerification,
   DiningPeriod,
   StudentProfile,
 } from "../../../../models/index.js"
+import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { badRequest, notFound, success } from "../../../../services/base/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
 import {
@@ -294,10 +294,10 @@ export const verifyDiningMeal = async ({
     return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[OUTSIDE_MEAL_TIME_STATUS])
   }
 
-  const allocation = await DiningAllocation.findOne({
-    periodId: period._id,
-    studentUserId: studentProfile.userId?._id || studentProfile.userId,
-  }).lean()
+  const allocation = await allocationQueries.findAllocation(
+    period._id,
+    studentProfile.userId?._id || studentProfile.userId
+  )
 
   if (!allocation) {
     const record = await createVerificationRecord({
@@ -501,17 +501,9 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
   }
 
   const mealSlot = getMealSlotForDate(period, now)
-  const allocations = await DiningAllocation.find({
-    periodId: period._id,
-    catererId: caterer._id,
+  const allocations = await allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id, {
+    populateStudent: true,
   })
-    .populate({
-      path: "studentProfileId",
-      select: "rollNumber department degree batch userId",
-      populate: { path: "userId", select: "name email profileImage" },
-    })
-    .sort({ rollNumber: 1 })
-    .lean()
 
   const studentUserIds = allocations.map((allocation) => allocation.studentUserId).filter(Boolean)
   const verificationQuery = {

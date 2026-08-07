@@ -10,12 +10,12 @@
 import mongoose from 'mongoose';
 import { success, notFound, badRequest } from '../../../../services/base/index.js';
 import {
-  DiningAllocation,
   DiningPeriod,
   DiningRebate,
   StudentProfile,
   User,
 } from '../../../../models/index.js';
+import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { listDayKeys, normalizeDay } from '../../../../services/dining-rebate.service.js';
 import { billingOwner } from '../../../../services/dining/billingOwner.service.js';
@@ -169,8 +169,7 @@ const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()) => {
 
   const [allocations, rebates, accountDocs] = await Promise.all([
     periodIds.length
-      ? DiningAllocation.find({ periodId: { $in: periodIds } })
-        .select('periodId studentUserId studentProfileId rollNumber').lean()
+      ? allocationQueries.findAllocationSummariesByPeriods(periodIds)
       : [],
     periodIds.length
       ? DiningRebate.find({ periodId: { $in: periodIds }, status: APPROVED_STATUS })
@@ -429,7 +428,7 @@ const computeStudentBillingForPeriod = async (billingPeriod, userId, asOf = new 
 
   const [allocations, rebates, account] = await Promise.all([
     periodIds.length
-      ? DiningAllocation.find({ studentUserId: userId, periodId: { $in: periodIds } }).select('periodId').lean()
+      ? allocationQueries.findAllocationPeriodIdsByUser(userId, periodIds)
       : [],
     periodIds.length
       ? DiningRebate.find({ studentUserId: userId, periodId: { $in: periodIds }, status: APPROVED_STATUS })
@@ -462,7 +461,7 @@ export const getStudentDiningBilling = async (userId) => {
 
   const [accounts, allocations] = await Promise.all([
     billingQueries.findAccountBillingPeriodIdsByUser(userId),
-    DiningAllocation.find({ studentUserId: userId }).select('periodId').lean(),
+    allocationQueries.findAllocationPeriodIdsByUser(userId),
   ]);
 
   const billingPeriodIds = new Set(accounts.map((account) => String(account.billingPeriodId)));

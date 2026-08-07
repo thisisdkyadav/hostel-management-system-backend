@@ -7,7 +7,8 @@
  * @module services/dining-office-dashboard
  */
 
-import { Caterer, DiningAllocation, DiningMealVerification, DiningRebate } from "../../../../models/index.js"
+import { Caterer, DiningMealVerification, DiningRebate } from "../../../../models/index.js"
+import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { success } from "../../../../services/base/index.js"
 import { getCurrentMealScope } from "../dining-meal-verification/dining-meal-verification.service.js"
 import { getBillingPeriods } from "../../../administration/modules/admin/dining-billing.service.js"
@@ -55,7 +56,7 @@ export const getDiningOfficeDashboard = async () => {
 
   if (period) {
     const [allocated, verified, onRebate] = await Promise.all([
-      DiningAllocation.countDocuments({ periodId: period._id }),
+      allocationQueries.countAllocationsByPeriod(period._id),
       DiningMealVerification.countDocuments({
         periodId: period._id,
         status: "verified",

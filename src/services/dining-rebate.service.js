@@ -2,11 +2,11 @@ import crypto from "crypto"
 import mongoose from "mongoose"
 import {
   Caterer,
-  DiningAllocation,
   DiningPeriod,
   DiningRebate,
   StudentProfile,
 } from "../models/index.js"
+import { allocationQueries } from "./dining/allocationQueries.service.js"
 import { badRequest, notFound, success } from "./base/index.js"
 
 const APPROVED_STATUS = "approved"
@@ -216,10 +216,7 @@ const buildValidatedRebateSegments = async ({ userId, startDate, endDate, reason
   }
 
   const periodIds = periodSegments.map((segment) => segment.period._id)
-  const allocations = await DiningAllocation.find({
-    studentUserId: userId,
-    periodId: { $in: periodIds },
-  }).lean()
+  const allocations = await allocationQueries.findAllocationsByUserAndPeriods(userId, periodIds)
   const allocationByPeriod = new Map(allocations.map((allocation) => [String(allocation.periodId), allocation]))
 
   const missingAllocation = periodSegments.find((segment) => !allocationByPeriod.has(String(segment.period._id)))
@@ -423,10 +420,7 @@ export const getCatererDiningRebateSummary = async ({ catererId }) => {
     }
 
     const [allocatedStudentCount, approvedRebateCount] = await Promise.all([
-      DiningAllocation.countDocuments({
-        periodId: period._id,
-        catererId,
-      }),
+      allocationQueries.countAllocationsByPeriodAndCaterer(period._id, catererId),
       DiningRebate.countDocuments({
         periodId: period._id,
         catererId,

@@ -13,6 +13,7 @@ import {
 import { Caterer, DiningPeriod, StudentProfile } from '../../../../models/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { catererService } from './caterer.service.js';
+import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
@@ -122,6 +123,8 @@ const getAllocationStatus = (period) => {
   const allocationEndAt = period.allocationEndAt ? new Date(period.allocationEndAt) : null;
 
   if (period.isArchived) return 'Archived';
+  // Registration disabled -> no self-registration window; admin assigns manually.
+  if (period.registrationEnabled === false) return 'Manual';
   if (!allocationStartAt || !allocationEndAt) return 'Not configured';
   if (now < allocationStartAt) return 'Not started';
   if (now > allocationEndAt) return 'Closed';
@@ -166,6 +169,7 @@ const serializePeriod = (period, activeStudentCount = 0) => {
     id: period._id || period.id,
     startDate: period.startDate,
     endDate: period.endDate,
+    registrationEnabled: period.registrationEnabled !== false,
     allocationStartAt: period.allocationStartAt,
     allocationEndAt: period.allocationEndAt,
     catererIds: rawCatererIds,
@@ -208,21 +212,25 @@ class DiningPeriodService extends BaseService {
     const mealSlots = normalizeMealSlots(payload.mealSlots);
     const rebateSettings = normalizeRebateSettings(payload.rebateSettings);
     const dailyRate = Math.max(0, Number(payload.dailyRate || 0));
+    // Optional: when disabled the period has no self-registration window and the
+    // admin assigns caterers manually. Backward-compatible default is enabled.
+    const registrationEnabled = payload.registrationEnabled !== false;
 
     if (!startDate || Number.isNaN(startDate.getTime()) || !endDate || Number.isNaN(endDate.getTime())) {
       return { error: 'Start date and end date are required' };
     }
 
-    if (!allocationStartAt || Number.isNaN(allocationStartAt.getTime()) || !allocationEndAt || Number.isNaN(allocationEndAt.getTime())) {
-      return { error: 'Allocation start time and end time are required' };
+    if (registrationEnabled) {
+      if (!allocationStartAt || Number.isNaN(allocationStartAt.getTime()) || !allocationEndAt || Number.isNaN(allocationEndAt.getTime())) {
+        return { error: 'Allocation start time and end time are required' };
+      }
+      if (allocationStartAt > allocationEndAt) {
+        return { error: 'Allocation start time must be before or equal to allocation end time' };
+      }
     }
 
     if (startDate > endDate) {
       return { error: 'Start date must be before or equal to end date' };
-    }
-
-    if (allocationStartAt > allocationEndAt) {
-      return { error: 'Allocation start time must be before or equal to allocation end time' };
     }
 
     if (catererIds.length === 0) {
@@ -335,8 +343,11 @@ class DiningPeriodService extends BaseService {
       eligibleStudentCount = resolvedRollNumbers.length;
     }
 
+    // Only meaningful for self-registration: students race for seats, so total
+    // capacity must exceed demand. With manual assignment the admin controls the
+    // fit directly (and can force-override), so the constraint is lifted.
     const totalCapacity = catererCapacities.reduce((sum, entry) => sum + entry.maxStudentCount, 0);
-    if (totalCapacity <= eligibleStudentCount) {
+    if (registrationEnabled && totalCapacity <= eligibleStudentCount) {
       return { error: 'Total caterer capacity must be greater than the eligible student count' };
     }
 
@@ -344,8 +355,9 @@ class DiningPeriodService extends BaseService {
       data: {
         startDate,
         endDate,
-        allocationStartAt,
-        allocationEndAt,
+        registrationEnabled,
+        allocationStartAt: registrationEnabled ? allocationStartAt : null,
+        allocationEndAt: registrationEnabled ? allocationEndAt : null,
         catererIds,
         catererCapacities,
         mealSlots,
@@ -412,8 +424,15 @@ class DiningPeriodService extends BaseService {
       return badRequest(error.message || 'Unable to create caterer logins for selected caterers');
     }
 
+    await this.model.findByIdAndUpdate(periodId, validation.data, { new: false, runValidators: true });
+
+    // The update rewrote catererCapacities using allocatedCount from a prior
+    // read; recompute the seat counters from the actual allocation rows so a
+    // concurrent self-select isn't clobbered by this edit.
+    await allocationOwner.reconcileAllocatedCounts(periodId);
+
     const updatedPeriod = await this.model
-      .findByIdAndUpdate(periodId, validation.data, { new: true, runValidators: true })
+      .findById(periodId)
       .populate({ path: 'catererIds', select: 'name email' })
       .lean();
 

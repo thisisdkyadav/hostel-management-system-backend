@@ -28,6 +28,13 @@ import {
   updateDiningPeriodArchiveStatus,
 } from './diningPeriodController.js';
 import {
+  getPeriodAllocations,
+  assignStudentAllocation,
+  bulkAssignAllocations,
+  removeStudentAllocation,
+  reconcileAllocations,
+} from './diningAllocationController.js';
+import {
   bulkUpdateDiningBillingAccounts,
   createDiningBillingPeriod,
   getDiningBillingAccounts,
@@ -141,6 +148,13 @@ router.get('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), g
 router.post('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), createDiningPeriod);
 router.put('/dining-periods/:id', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriod);
 router.put('/dining-periods/:id/archive', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriodArchiveStatus);
+// Manual caterer-wise student allocation management (per period)
+router.get('/dining-periods/:id/allocations', requireRouteAccess('route.admin.diningPeriods'), getPeriodAllocations);
+router.post('/dining-periods/:id/allocations', requireRouteAccess('route.admin.diningPeriods'), assignStudentAllocation);
+router.post('/dining-periods/:id/allocations/bulk', requireRouteAccess('route.admin.diningPeriods'), bulkAssignAllocations);
+router.post('/dining-periods/:id/allocations/reconcile', requireRouteAccess('route.admin.diningPeriods'), reconcileAllocations);
+router.delete('/dining-periods/:id/allocations/:studentUserId', requireRouteAccess('route.admin.diningPeriods'), removeStudentAllocation);
+
 router.get('/dining-rebates', requireRouteAccess('route.admin.diningPeriods'), getDiningRebateRequests);
 router.put('/dining-rebates/:id/approve', requireRouteAccess('route.admin.diningPeriods'), approveDiningRebateRequest);
 router.put('/dining-rebates/:id/reject', requireRouteAccess('route.admin.diningPeriods'), rejectDiningRebateRequest);

@@ -10,7 +10,9 @@ import {
   badRequest,
   forbidden,
 } from '../../../../services/base/index.js';
-import { DiningAllocation, DiningPeriod, StudentProfile } from '../../../../models/index.js';
+import { DiningPeriod, StudentProfile } from '../../../../models/index.js';
+import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
+import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import {
   createStudentDiningRebate,
   getStudentDiningRebates,
@@ -19,16 +21,15 @@ import { getStudentDiningBilling } from '../../../administration/modules/admin/d
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
-const MAX_CAPACITY_UPDATE_ATTEMPTS = 4;
 
 const normalizeRollNumber = (value = '') => String(value || '').trim().toUpperCase();
-
-const toObjectId = (value) => new mongoose.Types.ObjectId(String(value));
 
 const getAllocationStatus = (period) => {
   const now = new Date();
   if (!period) return 'Unavailable';
   if (period.isArchived) return 'Archived';
+  // No self-registration window: the admin assigns caterers manually.
+  if (period.registrationEnabled === false) return 'Manual';
   if (now < new Date(period.allocationStartAt)) return 'Not started';
   if (now > new Date(period.allocationEndAt)) return 'Closed';
   return 'Open';
@@ -134,6 +135,7 @@ const getStudentVisiblePeriod = async (profile, session = null) => {
   const now = new Date();
   const query = DiningPeriod.findOne({
     isArchived: false,
+    registrationEnabled: true,
     allocationStartAt: { $lte: now },
     allocationEndAt: { $gte: now },
     $or: [
@@ -168,6 +170,7 @@ export const getStudentDiningPortalState = async (userId) => {
       .lean(),
     DiningPeriod.findOne({
       ...eligiblePeriodFilter,
+      registrationEnabled: true,
       allocationStartAt: { $lte: now },
       allocationEndAt: { $gte: now },
     })
@@ -176,6 +179,7 @@ export const getStudentDiningPortalState = async (userId) => {
       .lean(),
     DiningPeriod.findOne({
       ...eligiblePeriodFilter,
+      registrationEnabled: true,
       allocationStartAt: { $gt: now },
     })
       .populate({ path: 'catererIds', select: 'name email' })
@@ -190,12 +194,7 @@ export const getStudentDiningPortalState = async (userId) => {
   ].filter(Boolean);
   const uniquePeriodIds = [...new Set(periodIds.map((periodId) => String(periodId)))];
   const allocations = uniquePeriodIds.length > 0
-    ? await DiningAllocation.find({
-      periodId: { $in: uniquePeriodIds },
-      studentUserId: userId,
-    })
-      .populate({ path: 'catererId', select: 'name email' })
-      .lean()
+    ? await allocationQueries.findUserAllocationsByPeriods(userId, uniquePeriodIds)
     : [];
   const allocationByPeriod = mapAllocationsByPeriod(allocations);
   const activeAllocation = activeAllocationPeriod
@@ -226,146 +225,44 @@ export const getStudentDiningPortalState = async (userId) => {
   });
 };
 
-const incrementCatererCapacity = async ({ periodId, catererId, session }) => {
-  for (let attempt = 0; attempt < MAX_CAPACITY_UPDATE_ATTEMPTS; attempt += 1) {
-    const period = await DiningPeriod.findById(periodId).session(session).lean();
-    if (!period) return { success: false, message: 'Dining period not found' };
-
-    const capacityEntry = (period.catererCapacities || []).find((entry) => String(entry.catererId) === String(catererId));
-    if (!capacityEntry) return { success: false, message: 'Selected caterer is not available in this period' };
-
-    const allocatedCount = Number(capacityEntry.allocatedCount || 0);
-    const maxStudentCount = Number(capacityEntry.maxStudentCount || 0);
-
-    if (allocatedCount >= maxStudentCount) {
-      return { success: false, message: 'This caterer is full. Please select another caterer.' };
-    }
-
-    const updateResult = await DiningPeriod.updateOne(
-      {
-        _id: periodId,
-        catererCapacities: {
-          $elemMatch: {
-            catererId: toObjectId(catererId),
-            allocatedCount,
-          },
-        },
-      },
-      {
-        $inc: { 'catererCapacities.$.allocatedCount': 1 },
-      },
-      { session },
-    );
-
-    if (updateResult.modifiedCount === 1) {
-      return { success: true };
-    }
-  }
-
-  return { success: false, message: 'Seat availability changed. Please try again.' };
-};
-
-const decrementCatererCapacity = async ({ periodId, catererId, session }) => {
-  await DiningPeriod.updateOne(
-    {
-      _id: periodId,
-      catererCapacities: {
-        $elemMatch: {
-          catererId: toObjectId(catererId),
-          allocatedCount: { $gt: 0 },
-        },
-      },
-    },
-    {
-      $inc: { 'catererCapacities.$.allocatedCount': -1 },
-    },
-    { session },
-  );
-};
-
 export const selectStudentDiningCaterer = async (userId, catererId) => {
   if (!mongoose.Types.ObjectId.isValid(catererId)) {
     return badRequest('Invalid caterer selected');
   }
 
-  const session = await mongoose.startSession();
-  let responsePayload = null;
+  const profile = await getStudentProfileForUser(userId);
+  if (!profile) return notFound('Student profile');
 
-  try {
-    await session.withTransaction(async () => {
-      const profile = await getStudentProfileForUser(userId, session);
-      if (!profile) {
-        responsePayload = notFound('Student profile');
-        return;
-      }
+  const period = await getStudentVisiblePeriod(profile);
+  if (!period) return badRequest('No dining allocation period is open right now');
 
-      const period = await getStudentVisiblePeriod(profile, session);
-      if (!period) {
-        responsePayload = badRequest('No dining allocation period is open right now');
-        return;
-      }
-
-      if (!isStudentEligibleForPeriod(period, profile)) {
-        responsePayload = forbidden('You are not eligible for this dining allocation period');
-        return;
-      }
-
-      const existingAllocation = await DiningAllocation.findOne({
-        periodId: period._id,
-        studentUserId: userId,
-      }).session(session);
-
-      if (existingAllocation && String(existingAllocation.catererId) === String(catererId)) {
-        responsePayload = success({ selected: true }, 200, 'This caterer is already selected');
-        return;
-      }
-
-      const incrementResult = await incrementCatererCapacity({
-        periodId: period._id,
-        catererId,
-        session,
-      });
-
-      if (!incrementResult.success) {
-        responsePayload = badRequest(incrementResult.message);
-        return;
-      }
-
-      let allocation = existingAllocation;
-      if (existingAllocation) {
-        const previousCatererId = existingAllocation.catererId;
-        existingAllocation.catererId = toObjectId(catererId);
-        existingAllocation.selectedAt = new Date();
-        allocation = await existingAllocation.save({ session });
-        await decrementCatererCapacity({
-          periodId: period._id,
-          catererId: previousCatererId,
-          session,
-        });
-      } else {
-        allocation = await DiningAllocation.create([{
-          periodId: period._id,
-          studentUserId: userId,
-          studentProfileId: profile._id,
-          rollNumber: profile.rollNumber,
-          catererId,
-          selectedAt: new Date(),
-        }], { session });
-        allocation = allocation[0];
-      }
-
-      responsePayload = success({ selected: true }, 200, 'Caterer selected successfully');
-    });
-
-    if (!responsePayload?.success) {
-      return responsePayload || badRequest('Unable to select caterer');
-    }
-
-    const refreshedPortalState = await getStudentDiningPortalState(userId);
-    return success(refreshedPortalState.data, 200, responsePayload.message || 'Caterer selected successfully');
-  } finally {
-    await session.endSession();
+  if (!isStudentEligibleForPeriod(period, profile)) {
+    return forbidden('You are not eligible for this dining allocation period');
   }
+
+  // The seat counter + allocation row are updated atomically inside the owner
+  // (capacity-guarded, race-safe); self-select never forces past a full caterer.
+  const result = await allocationOwner.assignStudent({
+    periodId: period._id,
+    studentUserId: userId,
+    studentProfileId: profile._id,
+    rollNumber: profile.rollNumber,
+    catererId,
+    force: false,
+  });
+
+  if (!result.ok) {
+    const messageByReason = {
+      full: 'This caterer is full. Please select another caterer.',
+      'caterer-not-in-period': 'Selected caterer is not available in this period',
+      contention: 'Seat availability changed. Please try again.',
+    };
+    return badRequest(messageByReason[result.reason] || 'Unable to select caterer');
+  }
+
+  const message = result.status === 'unchanged' ? 'This caterer is already selected' : 'Caterer selected successfully';
+  const refreshedPortalState = await getStudentDiningPortalState(userId);
+  return success(refreshedPortalState.data, 200, message);
 };
 
 export const requestStudentDiningRebate = async (userId, payload = {}) => (

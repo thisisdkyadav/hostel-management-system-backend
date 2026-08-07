@@ -10,13 +10,20 @@ const DiningPeriodSchema = new mongoose.Schema(
       type: Date,
       required: true,
     },
+    // Student self-registration window. Optional: when registrationEnabled is
+    // false the period has no self-registration and these stay null — the admin
+    // assigns caterers manually from the Manage Students surface instead.
+    registrationEnabled: {
+      type: Boolean,
+      default: true,
+    },
     allocationStartAt: {
       type: Date,
-      required: true,
+      default: null,
     },
     allocationEndAt: {
       type: Date,
-      required: true,
+      default: null,
     },
     catererIds: {
       type: [mongoose.Schema.Types.ObjectId],
