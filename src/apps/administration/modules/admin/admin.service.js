@@ -11,7 +11,7 @@ import bcrypt from 'bcrypt';
 import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
 import { Task } from '../../../../models/index.js';
-import { Complaint } from '../../../../models/index.js';
+import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { Gymkhana } from '../../../../models/index.js';
 import { ROLES, SUBROLES } from '../../../../core/constants/roles.constants.js';
 import {
@@ -648,8 +648,8 @@ class AdminService extends BaseService {
    */
   async getMaintenanceStaffStats(staffId) {
     const [totalWorkDone, todayWorkDone] = await Promise.all([
-      Complaint.countDocuments({ resolvedBy: staffId }),
-      Complaint.countDocuments({
+      complaintQueries.countComplaints({ resolvedBy: staffId }),
+      complaintQueries.countComplaints({
         resolvedBy: staffId,
         resolvedDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
       })

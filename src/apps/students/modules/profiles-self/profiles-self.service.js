@@ -6,7 +6,7 @@
 import BaseService from '../../../../services/base/BaseService.js';
 import { success, notFound, forbidden } from '../../../../services/base/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { Complaint } from '../../../../models/index.js';
+import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { Health } from '../../../../models/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { getStudentDashboardCache, setStudentDashboardCache } from '../../../../utils/redisCache.js';
@@ -174,7 +174,7 @@ class ProfilesSelfService extends BaseService {
     const health = await Health.findOne({ userId }).populate('insurance.insuranceProvider');
     dashboardData.insurance = buildInsuranceSummary(health);
 
-    const complaints = await Complaint.find({ userId });
+    const complaints = await complaintQueries.findComplaintsByUser(userId);
 
     if (complaints.length > 0) {
       dashboardData.stats.complaints = {

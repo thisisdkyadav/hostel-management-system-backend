@@ -4,8 +4,9 @@
  * @module services/complaint.service
  */
 
-import { BaseService, success, notFound, forbidden, paginated, badRequest } from '../../../../services/base/index.js';
-import { Complaint, FeedbackToken } from '../../../../models/index.js';
+import { success, notFound, forbidden, paginated, badRequest } from '../../../../services/base/index.js';
+import { complaintOwner } from '../../../../services/complaint/complaintOwner.service.js';
+import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { emailService } from '../../../../services/email/email.service.js';
 import mongoose from 'mongoose';
@@ -142,11 +143,7 @@ function formatStudentComplaint(complaint) {
   };
 }
 
-class ComplaintService extends BaseService {
-  constructor() {
-    super(Complaint, 'Complaint');
-  }
-
+class ComplaintService {
   getComplaintScopeContext(user) {
     const effectiveAuthz = user?.authz?.effective || null;
     const enforceConstraints = Boolean(effectiveAuthz);
@@ -220,7 +217,7 @@ class ComplaintService extends BaseService {
       return forbidden('You are not authorized to create complaints for this hostel');
     }
 
-    const complaint = await this.model.create({
+    const complaint = await complaintOwner.createComplaint({
       userId,
       title,
       description,
@@ -338,17 +335,8 @@ class ComplaintService extends BaseService {
     const limitNum = parseInt(limit);
 
     const [totalCount, complaints] = await Promise.all([
-      this.model.countDocuments(query),
-      this.model.find(query)
-        .populate('userId', 'name email phone profileImage role')
-        .populate('hostelId', 'name')
-        .populate('unitId', 'unitNumber')
-        .populate('roomId', 'roomNumber')
-        .populate('assignedTo', 'name email phone profileImage')
-        .populate('resolvedBy', 'name email phone profileImage')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
+      complaintQueries.countComplaints(query),
+      complaintQueries.listComplaintsPopulated(query, { skip, limit: limitNum })
     ]);
 
     return paginated(complaints.map(formatComplaint), { page: parseInt(page), limit: limitNum, total: totalCount });
@@ -359,13 +347,7 @@ class ComplaintService extends BaseService {
    */
   async getComplaintById(complaintId, user) {
     const scopeContext = this.getComplaintScopeContext(user);
-    const complaint = await this.model.findById(complaintId)
-      .populate('userId', 'name email phone profileImage role')
-      .populate('hostelId', 'name')
-      .populate('unitId', 'unitNumber')
-      .populate('roomId', 'roomNumber')
-      .populate('assignedTo', 'name email phone profileImage')
-      .populate('resolvedBy', 'name email phone profileImage');
+    const complaint = await complaintQueries.findComplaintByIdFull(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
@@ -394,7 +376,7 @@ class ComplaintService extends BaseService {
   async updateComplaintStatus(complaintId, updateData, user) {
     const { status, assignedTo, resolutionNotes, feedback, feedbackRating } = updateData;
 
-    const complaint = await this.model.findById(complaintId);
+    const complaint = await complaintQueries.findComplaintById(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
@@ -411,7 +393,7 @@ class ComplaintService extends BaseService {
     complaint.feedback = feedback;
     complaint.feedbackRating = feedbackRating;
     complaint.resolutionDate = status === 'Resolved' ? new Date() : null;
-    await complaint.save();
+    await complaintOwner.persistComplaint(complaint);
 
     return success(complaint);
   }
@@ -452,11 +434,11 @@ class ComplaintService extends BaseService {
     }
 
     const [total, pending, inProgress, resolved, forwardedToIDO] = await Promise.all([
-      this.model.countDocuments(query),
-      this.model.countDocuments({ ...query, status: 'Pending' }),
-      this.model.countDocuments({ ...query, status: 'In Progress' }),
-      this.model.countDocuments({ ...query, status: 'Resolved' }),
-      this.model.countDocuments({ ...query, status: 'Forwarded to IDO' })
+      complaintQueries.countComplaints(query),
+      complaintQueries.countComplaints({ ...query, status: 'Pending' }),
+      complaintQueries.countComplaints({ ...query, status: 'In Progress' }),
+      complaintQueries.countComplaints({ ...query, status: 'Resolved' }),
+      complaintQueries.countComplaints({ ...query, status: 'Forwarded to IDO' })
     ]);
 
     return success({ total, pending, inProgress, resolved, forwardedToIDO });
@@ -482,17 +464,8 @@ class ComplaintService extends BaseService {
     const limitNum = parseInt(limit);
 
     const [totalCount, complaints] = await Promise.all([
-      this.model.countDocuments(query),
-      this.model.find(query)
-        .populate('userId', 'name email phone profileImage role')
-        .populate('hostelId', 'name')
-        .populate('unitId', 'unitNumber')
-        .populate('roomId', 'roomNumber')
-        .populate('assignedTo', 'name email phone profileImage')
-        .populate('resolvedBy', 'name email phone profileImage')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum)
+      complaintQueries.countComplaints(query),
+      complaintQueries.listComplaintsPopulated(query, { skip, limit: limitNum })
     ]);
 
     return paginated(complaints.map(formatStudentComplaint), { page: parseInt(page), limit: limitNum, total: totalCount });
@@ -507,7 +480,7 @@ class ComplaintService extends BaseService {
       ? { status, resolvedBy: user._id, resolutionDate: new Date() }
       : { status };
 
-    const complaint = await this.model.findById(complaintId).populate('userId', 'name email');
+    const complaint = await complaintQueries.findComplaintByIdWithUser(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
@@ -521,7 +494,7 @@ class ComplaintService extends BaseService {
     complaint.status = updateData.status;
     complaint.resolvedBy = updateData.resolvedBy || null;
     complaint.resolutionDate = updateData.resolutionDate || null;
-    await complaint.save();
+    await complaintOwner.persistComplaint(complaint);
 
     // Send feedback email when complaint is resolved
     if (status === 'Resolved' && complaint.userId?.email) {
@@ -558,7 +531,7 @@ class ComplaintService extends BaseService {
    * Update resolution notes
    */
   async updateResolutionNotes(complaintId, resolutionNotes, user) {
-    const complaint = await this.model.findById(complaintId);
+    const complaint = await complaintQueries.findComplaintById(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
@@ -570,7 +543,7 @@ class ComplaintService extends BaseService {
     }
 
     complaint.resolutionNotes = resolutionNotes;
-    await complaint.save();
+    await complaintOwner.persistComplaint(complaint);
 
     return success(complaint);
   }
@@ -581,7 +554,7 @@ class ComplaintService extends BaseService {
   async updateFeedback(complaintId, userId, feedbackData) {
     const { feedback, feedbackRating, satisfactionStatus } = feedbackData;
 
-    const existingComplaint = await this.model.findById(complaintId);
+    const existingComplaint = await complaintQueries.findComplaintById(complaintId);
     if (!existingComplaint) {
       return notFound('Complaint not found');
     }
@@ -590,11 +563,11 @@ class ComplaintService extends BaseService {
       return forbidden('You are not authorized to update feedback for this complaint');
     }
 
-    const complaint = await this.model.findByIdAndUpdate(
-      complaintId,
-      { feedback, feedbackRating, satisfactionStatus },
-      { new: true }
-    );
+    const complaint = await complaintOwner.updateComplaintById(complaintId, {
+      feedback,
+      feedbackRating,
+      satisfactionStatus,
+    });
 
     return success(complaint);
   }
@@ -607,7 +580,7 @@ class ComplaintService extends BaseService {
       type: ACTION_LINK_TOKEN_TYPE.COMPLAINT_FEEDBACK,
       includeUsed: true,
     });
-    const legacyFeedbackToken = !actionLinkToken ? await FeedbackToken.findOne({ token }) : null;
+    const legacyFeedbackToken = !actionLinkToken ? await complaintQueries.findFeedbackTokenByToken(token) : null;
 
     if (!actionLinkToken && !legacyFeedbackToken) {
       return notFound('Invalid feedback link');
@@ -622,12 +595,7 @@ class ComplaintService extends BaseService {
     }
 
     const complaintId = actionLinkToken?.subjectId || legacyFeedbackToken?.complaintId
-    const complaint = await this.model.findById(complaintId)
-      .populate('userId', 'name email')
-      .populate('hostelId', 'name')
-      .populate('unitId', 'unitNumber')
-      .populate('roomId', 'roomNumber')
-      .populate('resolvedBy', 'name');
+    const complaint = await complaintQueries.findComplaintByIdPublic(complaintId);
 
     if (!complaint) {
       return notFound('Complaint not found');
@@ -668,7 +636,7 @@ class ComplaintService extends BaseService {
       type: ACTION_LINK_TOKEN_TYPE.COMPLAINT_FEEDBACK,
       includeUsed: true,
     });
-    const legacyFeedbackToken = !actionLinkToken ? await FeedbackToken.findOne({ token }) : null;
+    const legacyFeedbackToken = !actionLinkToken ? await complaintQueries.findFeedbackTokenByToken(token) : null;
 
     if (!actionLinkToken && !legacyFeedbackToken) {
       return notFound('Invalid feedback link');
@@ -687,10 +655,9 @@ class ComplaintService extends BaseService {
     }
 
     // Update complaint with feedback
-    const complaint = await this.model.findByIdAndUpdate(
+    const complaint = await complaintOwner.updateComplaintById(
       actionLinkToken?.subjectId || legacyFeedbackToken?.complaintId,
-      { feedback, feedbackRating, satisfactionStatus },
-      { new: true }
+      { feedback, feedbackRating, satisfactionStatus }
     );
 
     if (!complaint) {
@@ -703,8 +670,7 @@ class ComplaintService extends BaseService {
         satisfactionStatus,
       });
     } else if (legacyFeedbackToken) {
-      legacyFeedbackToken.used = true;
-      await legacyFeedbackToken.save();
+      await complaintOwner.markFeedbackTokenUsed(legacyFeedbackToken);
     }
 
     return success({ message: 'Feedback submitted successfully' });

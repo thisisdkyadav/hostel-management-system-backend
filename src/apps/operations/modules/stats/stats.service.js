@@ -6,7 +6,7 @@
  */
 
 import { Warden } from '../../../../models/index.js';
-import { Complaint } from '../../../../models/index.js';
+import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { Event } from '../../../../models/index.js';
 import { LostAndFound } from '../../../../models/index.js';
 import { Security } from '../../../../models/index.js';
@@ -149,10 +149,10 @@ class StatsService {
    */
   async getComplaintsStats() {
     const [total, pending, resolved, inProgress] = await Promise.all([
-      Complaint.countDocuments(),
-      Complaint.countDocuments({ status: 'Pending' }),
-      Complaint.countDocuments({ status: 'Resolved' }),
-      Complaint.countDocuments({ status: 'In Progress' })
+      complaintQueries.countComplaints(),
+      complaintQueries.countComplaints({ status: 'Pending' }),
+      complaintQueries.countComplaints({ status: 'Resolved' }),
+      complaintQueries.countComplaints({ status: 'In Progress' })
     ]);
 
     return success({ total, pending, resolved, inProgress });

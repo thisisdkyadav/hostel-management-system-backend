@@ -8,7 +8,7 @@
  */
 
 import { success } from '../../../../services/base/index.js';
-import { Complaint } from '../../../../models/index.js';
+import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
@@ -30,7 +30,7 @@ class HostelService {
       hostels.map(async (hostel) => {
         const [roomStats, maintenanceIssues] = await Promise.all([
           hostelQueries.getRoomStatsForHostel(hostel._id),
-          Complaint.countDocuments({
+          complaintQueries.countComplaints({
             hostelId: hostel._id,
             status: { $in: ['Pending', 'In Progress'] },
           }),

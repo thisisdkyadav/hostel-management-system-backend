@@ -7,7 +7,7 @@
 import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { Event } from '../../../../models/index.js';
-import { Complaint } from '../../../../models/index.js';
+import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { Leave } from '../../../../models/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import mongoose from 'mongoose';
@@ -167,23 +167,17 @@ class DashboardService extends BaseService {
    */
   async getComplaintStats() {
     const [statusCounts, categoryCounts, resolvedToday, overdueCount, recentComplaints] = await Promise.all([
-      Complaint.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-      Complaint.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }]),
-      Complaint.countDocuments({
+      complaintQueries.countGroupedBy('status'),
+      complaintQueries.countGroupedBy('category'),
+      complaintQueries.countComplaints({
         status: 'Resolved',
         resolutionDate: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
       }),
-      Complaint.countDocuments({
+      complaintQueries.countComplaints({
         status: { $nin: ['Resolved', 'Rejected'] },
         createdAt: { $lt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000) }
       }),
-      Complaint.find()
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .populate('userId', 'name')
-        .populate('hostelId', 'name')
-        .populate('roomId', 'roomNumber')
-        .populate('unitId', 'unitNumber')
+      complaintQueries.findRecentPopulated(5)
     ]);
 
     const total = statusCounts.reduce((sum, s) => sum + s.count, 0);
@@ -330,7 +324,7 @@ class DashboardService extends BaseService {
 
     const [roomStats, maintenanceIssues] = await Promise.all([
       hostelQueries.getRoomStatsForHostel(hostel._id),
-      Complaint.countDocuments({ hostelId: hostel._id, status: { $in: ['Pending', 'In Progress'] } })
+      complaintQueries.countComplaints({ hostelId: hostel._id, status: { $in: ['Pending', 'In Progress'] } })
     ]);
 
     const stats = roomStats || {
