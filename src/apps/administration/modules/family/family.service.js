@@ -5,17 +5,14 @@
  * @module services/familyMember.service
  */
 
-import { FamilyMember } from '../../../../models/index.js';
 import { User } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import { familyOwner } from '../../../../services/family/familyOwner.service.js';
+import { familyQueries } from '../../../../services/family/familyQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
-class FamilyMemberService extends BaseService {
-  constructor() {
-    super(FamilyMember, 'Family member');
-  }
-
+class FamilyMemberService {
   /**
    * Create a family member
    * @param {string} userId - User ID
@@ -27,11 +24,8 @@ class FamilyMemberService extends BaseService {
       return notFound('User');
     }
 
-    const result = await this.create({ userId, ...data });
-    if (result.success) {
-      return success({ message: 'Family member created successfully', familyMember: result.data }, 201);
-    }
-    return result;
+    const familyMember = await familyOwner.create({ userId, ...data });
+    return success({ message: 'Family member created successfully', familyMember }, 201);
   }
 
   /**
@@ -39,11 +33,8 @@ class FamilyMemberService extends BaseService {
    * @param {string} userId - User ID
    */
   async getFamilyMembers(userId) {
-    const result = await this.findAll({ userId });
-    if (result.success) {
-      return success({ message: 'Family members fetched successfully', data: result.data });
-    }
-    return result;
+    const familyMembers = await familyQueries.findByUserId(userId);
+    return success({ message: 'Family members fetched successfully', data: familyMembers });
   }
 
   /**
@@ -52,11 +43,11 @@ class FamilyMemberService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateFamilyMember(id, data) {
-    const result = await this.updateById(id, data);
-    if (result.success) {
-      return success({ message: 'Family member updated successfully', familyMember: result.data });
+    const familyMember = await familyOwner.updateById(id, data);
+    if (!familyMember) {
+      return notFound('Family member');
     }
-    return result;
+    return success({ message: 'Family member updated successfully', familyMember });
   }
 
   /**
@@ -64,11 +55,11 @@ class FamilyMemberService extends BaseService {
    * @param {string} id - Family member ID
    */
   async deleteFamilyMember(id) {
-    const result = await this.deleteById(id);
-    if (result.success) {
-      return success({ message: 'Family member deleted successfully' });
+    const familyMember = await familyOwner.deleteById(id);
+    if (!familyMember) {
+      return notFound('Family member');
     }
-    return result;
+    return success({ message: 'Family member deleted successfully' });
   }
 
   /**
@@ -106,7 +97,7 @@ class FamilyMemberService extends BaseService {
       // Delete existing if requested
       if (familyData.deleteExisting) {
         const userIds = studentProfiles.map((p) => p.userId);
-        await this.model.deleteMany({ userId: { $in: userIds } }).session(session);
+        await familyOwner.deleteManyByUserIds(userIds, { session });
       }
 
       // Prepare family members
@@ -137,7 +128,7 @@ class FamilyMemberService extends BaseService {
       }
 
       if (familyMembersToCreate.length > 0) {
-        await this.model.insertMany(familyMembersToCreate, { session });
+        await familyOwner.insertMany(familyMembersToCreate, { session });
       }
 
       return success({

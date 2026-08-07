@@ -8,7 +8,8 @@ import BaseService from '../../../../services/base/BaseService.js';
 import { success, notFound, badRequest, forbidden } from '../../../../services/base/ServiceResponse.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { User } from '../../../../models/index.js';
-import { FamilyMember } from '../../../../models/index.js';
+import { familyOwner } from '../../../../services/family/familyOwner.service.js';
+import { familyQueries } from '../../../../services/family/familyQueries.service.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { Health } from '../../../../models/index.js';
 import { toDateOnly } from '../../../../utils/utils.js';
@@ -203,7 +204,7 @@ class StudentProfileService extends BaseService {
    * Get family members
    */
   async getFamilyMembers(userId) {
-    const familyMembers = await FamilyMember.find({ userId });
+    const familyMembers = await familyQueries.findByUserId(userId);
     return success(familyMembers, 200, 'Family members fetched successfully');
   }
 
@@ -211,7 +212,7 @@ class StudentProfileService extends BaseService {
    * Add family member
    */
   async addFamilyMember(userId, { name, relationship, phone, email, address }) {
-    const familyMember = await FamilyMember.create({ userId, name, relationship, phone, email, address });
+    const familyMember = await familyOwner.create({ userId, name, relationship, phone, email, address });
     return success(familyMember, 201, 'Family member added successfully');
   }
 
@@ -219,7 +220,7 @@ class StudentProfileService extends BaseService {
    * Update family member
    */
   async updateFamilyMember(userId, memberId, { name, relationship, phone, email, address }) {
-    const familyMember = await FamilyMember.findById(memberId);
+    const familyMember = await familyQueries.findById(memberId);
     if (!familyMember) {
       return notFound('Family member');
     }
@@ -228,11 +229,13 @@ class StudentProfileService extends BaseService {
       return forbidden("You don't have permission to update this family member");
     }
 
-    const updatedFamilyMember = await FamilyMember.findByIdAndUpdate(
-      memberId,
-      { name, relationship, phone, email, address },
-      { new: true }
-    );
+    const updatedFamilyMember = await familyOwner.updateById(memberId, {
+      name,
+      relationship,
+      phone,
+      email,
+      address,
+    });
 
     return success(updatedFamilyMember, 200, 'Family member updated successfully');
   }
@@ -241,7 +244,7 @@ class StudentProfileService extends BaseService {
    * Delete family member
    */
   async deleteFamilyMember(userId, memberId) {
-    const familyMember = await FamilyMember.findById(memberId);
+    const familyMember = await familyQueries.findById(memberId);
     if (!familyMember) {
       return notFound('Family member');
     }
@@ -250,7 +253,7 @@ class StudentProfileService extends BaseService {
       return forbidden("You don't have permission to delete this family member");
     }
 
-    await FamilyMember.findByIdAndDelete(memberId);
+    await familyOwner.deleteById(memberId);
 
     return success(null, 200, 'Family member deleted successfully');
   }

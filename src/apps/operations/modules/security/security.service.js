@@ -7,7 +7,6 @@
 import { BaseService, success, notFound, badRequest, forbidden, paginated } from '../../../../services/base/index.js';
 import { Security } from '../../../../models/index.js';
 import { Warden } from '../../../../models/index.js';
-import { Visitors as Visitor } from '../../../../models/index.js';
 import { CheckInOut } from '../../../../models/index.js';
 import { AssociateWarden } from '../../../../models/index.js';
 import { HostelSupervisor } from '../../../../models/index.js';
@@ -15,6 +14,8 @@ import { decryptData } from '../../../../utils/qrUtils.js';
 import { User } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
+import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 import { getIO } from '../../../../loaders/socket.loader.js';
 import * as liveCheckInOutService from '../live-checkinout/live-checkinout.service.js';
 
@@ -213,7 +214,7 @@ class SecurityService extends BaseService {
       return notFound('Security not found');
     }
 
-    const visitor = await Visitor.create({
+    const visitor = await visitorOwner.createVisitor({
       hostelId: security.hostelId._id,
       name,
       phone,
@@ -249,7 +250,7 @@ class SecurityService extends BaseService {
       return notFound('Hostel not found');
     }
 
-    const visitors = await Visitor.find({ hostelId }).exec();
+    const visitors = await visitorQueries.findVisitorsByHostel(hostelId);
     return success(visitors);
   }
 
@@ -257,13 +258,13 @@ class SecurityService extends BaseService {
    * Update a visitor
    */
   async updateVisitor(visitorId, { name, phone, DateTime, room, status }) {
-    const visitor = await Visitor.findById(visitorId);
+    const visitor = await visitorQueries.findVisitorById(visitorId);
     if (!visitor) {
       return notFound('Visitor not found');
     }
 
     Object.assign(visitor, { name, phone, DateTime, room, status });
-    await visitor.save();
+    await visitorOwner.persistVisitor(visitor);
 
     return success({ visitor }, 200, 'Visitor updated successfully');
   }
@@ -284,7 +285,7 @@ class SecurityService extends BaseService {
    * Delete a visitor
    */
   async deleteVisitor(visitorId) {
-    const visitor = await Visitor.findByIdAndDelete(visitorId);
+    const visitor = await visitorOwner.deleteVisitorById(visitorId);
     if (!visitor) {
       return notFound('Visitor not found');
     }

@@ -1,32 +1,28 @@
 /**
  * Visitor Profile Service
  * Handles saved visitor profile operations
- * 
+ *
  * @module apps/visitors/modules/visitors/visitor-profile.service
  */
 
-import { VisitorProfile } from '../../../../models/index.js';
-import { BaseService, success } from '../../../../services/base/index.js';
+import { success, notFound, error } from '../../../../services/base/index.js';
+import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
+import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 
-class VisitorProfileService extends BaseService {
-  constructor() {
-    super(VisitorProfile, 'Visitor profile');
-  }
+const ENTITY = 'Visitor profile';
 
+class VisitorProfileService {
   /**
    * Get visitor profiles for a student
    * @param {string} userId - Student user ID
    */
   async getVisitorProfiles(userId) {
-    const result = await this.findAll({ studentUserId: userId });
-    if (result.success) {
-      return success({
-        message: 'Visitor profiles fetched successfully',
-        success: true,
-        data: result.data || []
-      });
-    }
-    return result;
+    const profiles = await visitorQueries.findProfilesByStudent(userId);
+    return success({
+      message: 'Visitor profiles fetched successfully',
+      success: true,
+      data: profiles || []
+    });
   }
 
   /**
@@ -35,18 +31,15 @@ class VisitorProfileService extends BaseService {
    * @param {Object} data - Profile data
    */
   async createVisitorProfile(userId, data) {
-    const result = await this.create({
+    const visitorProfile = await visitorOwner.createProfile({
       studentUserId: userId,
       ...data
     });
 
-    if (result.success) {
-      return success(
-        { message: 'Visitor profile created successfully', visitorProfile: result.data, success: true },
-        201
-      );
-    }
-    return result;
+    return success(
+      { message: 'Visitor profile created successfully', visitorProfile, success: true },
+      201
+    );
   }
 
   /**
@@ -55,11 +48,16 @@ class VisitorProfileService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateVisitorProfile(visitorId, data) {
-    const result = await this.updateById(visitorId, data);
-    if (result.success) {
-      return success({ message: 'Visitor profile updated successfully', visitorProfile: result.data });
+    try {
+      const visitorProfile = await visitorOwner.updateProfileById(visitorId, data);
+      if (!visitorProfile) {
+        return notFound(ENTITY);
+      }
+      return success({ message: 'Visitor profile updated successfully', visitorProfile });
+    } catch (err) {
+      // pre('findOneAndUpdate') guard throws when the profile has linked requests.
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
   }
 
   /**
@@ -67,11 +65,16 @@ class VisitorProfileService extends BaseService {
    * @param {string} visitorId - Visitor profile ID
    */
   async deleteVisitorProfile(visitorId) {
-    const result = await this.deleteById(visitorId);
-    if (result.success) {
+    try {
+      const deleted = await visitorOwner.deleteProfileById(visitorId);
+      if (!deleted) {
+        return notFound(ENTITY);
+      }
       return success({ message: 'Visitor profile deleted successfully', success: true });
+    } catch (err) {
+      // pre('findOneAndDelete') guard throws when the profile has linked requests.
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
   }
 }
 

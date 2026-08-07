@@ -5,15 +5,16 @@
  */
 
 import mongoose from "mongoose";
-import { Appointment, User } from "../../../../models/index.js";
+import { User } from "../../../../models/index.js";
 import {
-  BaseService,
   success,
   badRequest,
   forbidden,
   notFound,
   paginated,
 } from "../../../../services/base/index.js";
+import { appointmentOwner } from "../../../../services/appointment/appointmentOwner.service.js";
+import { appointmentQueries } from "../../../../services/appointment/appointmentQueries.service.js";
 import { emailCustomService } from "../../../administration/modules/email/email.service.js";
 import { ROLES, SUBROLES } from "../../../../core/constants/index.js";
 
@@ -154,11 +155,7 @@ const buildDecisionEmailBody = ({ appointment, action, description, approvedDate
   return lines.join("\n");
 };
 
-class AppointmentsService extends BaseService {
-  constructor() {
-    super(Appointment, "Appointment");
-  }
-
+class AppointmentsService {
   async getPublicTargets() {
     const users = await User.find({
       role: ROLES.ADMIN,
@@ -235,16 +232,13 @@ class AppointmentsService extends BaseService {
       return badRequest("Preferred date must be at least day-after-tomorrow");
     }
 
-    const created = await Appointment.create({
+    const created = await appointmentOwner.create({
       ...normalized,
       targetAdminUserId: targetOfficial._id,
       targetSubRole: targetOfficial.subRole,
     });
 
-    const createdWithTarget = await Appointment.findById(created._id).populate(
-      "targetAdminUserId",
-      "name email subRole"
-    );
+    const createdWithTarget = await appointmentQueries.findByIdWithTarget(created._id);
 
     return success(
       {
@@ -332,14 +326,8 @@ class AppointmentsService extends BaseService {
     }
 
     const [items, total] = await Promise.all([
-      Appointment.find(filter)
-        .populate("targetAdminUserId", "name email subRole")
-        .populate("review.reviewedBy", "name email subRole")
-        .populate("gateEntry.markedBy", "name email")
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit),
-      Appointment.countDocuments(filter),
+      appointmentQueries.listFull(filter, { skip: (page - 1) * limit, limit }),
+      appointmentQueries.count(filter),
     ]);
 
     return paginated(items.map(toAppointmentView), { page, limit, total });
@@ -354,10 +342,7 @@ class AppointmentsService extends BaseService {
       return badRequest("Invalid appointment id");
     }
 
-    const appointment = await Appointment.findById(appointmentId)
-      .populate("targetAdminUserId", "name email subRole")
-      .populate("review.reviewedBy", "name email subRole")
-      .populate("gateEntry.markedBy", "name email");
+    const appointment = await appointmentQueries.findByIdFull(appointmentId);
 
     if (!appointment) {
       return notFound("Appointment");
@@ -389,10 +374,7 @@ class AppointmentsService extends BaseService {
       return badRequest("Rejection description is required");
     }
 
-    const appointment = await Appointment.findById(appointmentId).populate(
-      "targetAdminUserId",
-      "name email subRole"
-    );
+    const appointment = await appointmentQueries.findByIdWithTarget(appointmentId);
 
     if (!appointment) {
       return notFound("Appointment");
@@ -444,12 +426,9 @@ class AppointmentsService extends BaseService {
       };
     }
 
-    await appointment.save();
+    await appointmentOwner.persist(appointment);
 
-    const refreshed = await Appointment.findById(appointment._id)
-      .populate("targetAdminUserId", "name email subRole")
-      .populate("review.reviewedBy", "name email subRole")
-      .populate("gateEntry.markedBy", "name email");
+    const refreshed = await appointmentQueries.findByIdFull(appointment._id);
 
     const mappedAppointment = toAppointmentView(refreshed);
 
@@ -517,14 +496,12 @@ class AppointmentsService extends BaseService {
     }
 
     const [items, total] = await Promise.all([
-      Appointment.find(filter)
-        .populate("targetAdminUserId", "name email subRole")
-        .populate("review.reviewedBy", "name email subRole")
-        .populate("gateEntry.markedBy", "name email")
-        .sort({ "approvedMeeting.date": 1, "approvedMeeting.time": 1, createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit),
-      Appointment.countDocuments(filter),
+      appointmentQueries.listFull(filter, {
+        skip: (page - 1) * limit,
+        limit,
+        sort: { "approvedMeeting.date": 1, "approvedMeeting.time": 1, createdAt: -1 },
+      }),
+      appointmentQueries.count(filter),
     ]);
 
     return paginated(items.map(toAppointmentView), { page, limit, total });
@@ -539,7 +516,7 @@ class AppointmentsService extends BaseService {
       return badRequest("Invalid appointment id");
     }
 
-    const appointment = await Appointment.findById(appointmentId);
+    const appointment = await appointmentQueries.findByIdRaw(appointmentId);
     if (!appointment) {
       return notFound("Appointment");
     }
@@ -559,12 +536,9 @@ class AppointmentsService extends BaseService {
       note: payload.note?.trim() || "",
     };
 
-    await appointment.save();
+    await appointmentOwner.persist(appointment);
 
-    const refreshed = await Appointment.findById(appointment._id)
-      .populate("targetAdminUserId", "name email subRole")
-      .populate("review.reviewedBy", "name email subRole")
-      .populate("gateEntry.markedBy", "name email");
+    const refreshed = await appointmentQueries.findByIdFull(appointment._id);
 
     return success({
       message: "Visitor marked as entered",

@@ -11,9 +11,9 @@ import { Event } from '../../../../models/index.js';
 import { LostAndFound } from '../../../../models/index.js';
 import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
-import { Visitors } from '../../../../models/index.js';
 import { success } from '../../../../services/base/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 
 class StatsService {
   /**
@@ -135,10 +135,10 @@ class StatsService {
     const todayEnd = new Date(currentDate.setHours(23, 59, 59, 999));
 
     const [total, checkedIn, checkedOut, todays] = await Promise.all([
-      Visitors.countDocuments({ hostelId }),
-      Visitors.countDocuments({ status: 'Checked In', hostelId }),
-      Visitors.countDocuments({ status: 'Checked Out', hostelId }),
-      Visitors.countDocuments({ hostelId, checkIn: { $gte: todayStart, $lt: todayEnd } })
+      visitorQueries.countVisitors({ hostelId }),
+      visitorQueries.countVisitors({ status: 'Checked In', hostelId }),
+      visitorQueries.countVisitors({ status: 'Checked Out', hostelId }),
+      visitorQueries.countVisitors({ hostelId, checkIn: { $gte: todayStart, $lt: todayEnd } })
     ]);
 
     return success({ total, checkedIn, checkedOut, todays });

@@ -4,7 +4,9 @@
  * are added as documents, not code.
  */
 
-import { AccommodationType, ACCOMMODATION_TYPE_KEYS } from "../../../../models/index.js"
+import { ACCOMMODATION_TYPE_KEYS } from "../../../../models/index.js"
+import { accommodationOwner } from "../../../../services/accommodation/accommodationOwner.service.js"
+import { accommodationQueries } from "../../../../services/accommodation/accommodationQueries.service.js"
 import { STAGE, CW_AUTO_APPROVE_HOURS } from "./accommodation.constants.js"
 
 export const DEFAULT_ACCOMMODATION_TYPES = [
@@ -39,16 +41,16 @@ export const DEFAULT_ACCOMMODATION_TYPES = [
 // Idempotent: seeds any missing default types without overwriting edited ones.
 export const ensureDefaultAccommodationTypes = async () => {
   for (const type of DEFAULT_ACCOMMODATION_TYPES) {
-    await AccommodationType.updateOne({ key: type.key }, { $setOnInsert: type }, { upsert: true })
+    await accommodationOwner.upsertDefaultType(type.key, type)
   }
 }
 
 export const getAccommodationType = async (key) => {
   await ensureDefaultAccommodationTypes()
-  return AccommodationType.findOne({ key, isActive: true }).lean()
+  return accommodationQueries.findActiveTypeByKey(key)
 }
 
 export const listAccommodationTypes = async () => {
   await ensureDefaultAccommodationTypes()
-  return AccommodationType.find({ isActive: true }).lean()
+  return accommodationQueries.listActiveTypes()
 }

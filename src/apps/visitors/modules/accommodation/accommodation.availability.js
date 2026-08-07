@@ -12,18 +12,10 @@
  * the room-status machinery on deactivation).
  */
 
-import { AccommodationRequest, ACCOMMODATION_STATUS } from "../../../../models/index.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
-
-const S = ACCOMMODATION_STATUS
+import { accommodationQueries } from "../../../../services/accommodation/accommodationQueries.service.js"
 
 const bedCount = (room) => room.originalCapacity || room.capacity || 0
-
-// Half-open overlap: [aFrom, aTo) intersects [bFrom, bTo) iff aFrom < bTo && bFrom < aTo.
-const overlapFilter = (from, to) => ({
-  "stay.fromDate": { $lt: new Date(to) },
-  "stay.toDate": { $gt: new Date(from) },
-})
 
 // Hostel-level headroom (CW Office allotment view).
 export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
@@ -33,14 +25,12 @@ export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRe
   // Bookings already allotted here but not yet room-assigned still have a claim on
   // the empty pool (their rooms aren't flipped to "Guest" until assignment). Once
   // assigned, those rooms leave the Active-empty pool on their own.
-  const filter = {
-    "allotment.hostelId": hostelId,
-    status: S.HOSTEL_ALLOTTED,
-    ...overlapFilter(from, to),
-  }
-  if (excludeRequestId) filter._id = { $ne: excludeRequestId }
-
-  const pending = await AccommodationRequest.find(filter).select("persons").lean()
+  const pending = await accommodationQueries.findOverlappingAllotted({
+    hostelId,
+    from,
+    to,
+    excludeRequestId,
+  })
   const committed = pending.reduce((sum, req) => sum + (req.persons || 0), 0)
 
   return {

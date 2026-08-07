@@ -14,7 +14,6 @@ import {
   forbidden,
 } from "../../../../services/base/index.js"
 import {
-  AccommodationRequest,
   StudentProfile,
   ACCOMMODATION_STATUS,
   ACCOMMODATION_ACTIONS,
@@ -22,6 +21,8 @@ import {
 } from "../../../../models/index.js"
 import { roomOwner } from "../../../../services/hostel/roomOwner.service.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
+import { accommodationOwner } from "../../../../services/accommodation/accommodationOwner.service.js"
+import { accommodationQueries } from "../../../../services/accommodation/accommodationQueries.service.js"
 import {
   createActionLinkToken,
   findActionLinkTokenByRawToken,
@@ -168,7 +169,7 @@ export const accommodationService = {
     const facultyAdvisorEmail =
       String(body.facultyAdvisorEmail || profile?.facultyAdvisorEmail || "").toLowerCase() || null
 
-    const request = new AccommodationRequest({
+    const request = accommodationOwner.buildRequest({
       typeKey,
       requesterUserId: user._id,
       applicantName: body.applicantName || user.name,
@@ -187,7 +188,7 @@ export const accommodationService = {
     request.timeline.push({ status: ACCOMMODATION_STATUS.SUBMITTED, by: user._id, at: new Date() })
 
     await this._routeAfterSubmit(request, type)
-    await request.save()
+    await accommodationOwner.persist(request)
 
     accommodationEmails
       .sendStudentSubmittedEmail({ to: user.email, studentName: request.applicantName, quote, request })
@@ -248,12 +249,11 @@ export const accommodationService = {
     if (query.status) filter.status = query.status
     if (query.queue === "chiefWarden") filter.status = ACCOMMODATION_STATUS.PENDING_CW_APPROVAL
 
-    const total = await AccommodationRequest.countDocuments(filter)
-    const items = await AccommodationRequest.find(filter)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .lean()
+    const total = await accommodationQueries.countRequests(filter)
+    const items = await accommodationQueries.listRequests(filter, {
+      skip: (page - 1) * limit,
+      limit,
+    })
 
     // For staff queues, attach a compact requester-student summary so the
     // table can show who raised each request (name, roll, department, photo).
@@ -294,7 +294,7 @@ export const accommodationService = {
   },
 
   async getRequestById(requestId, user) {
-    const request = await AccommodationRequest.findById(requestId).lean()
+    const request = await accommodationQueries.findRequestByIdLean(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (user.role === "Student" && !isOwner(request, user)) {
       return forbidden("You do not have access to this request")
@@ -349,7 +349,7 @@ export const accommodationService = {
   },
 
   async cancelRequest(requestId, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!isOwner(request, user)) return forbidden("You do not have access to this request")
     if (!CANCELLABLE_STATUSES.includes(request.status)) {
@@ -360,12 +360,12 @@ export const accommodationService = {
     request.currentStage = null
     request.stageDeadlineAt = null
     applyStatus(request, ACCOMMODATION_STATUS.CANCELLED, { by: user._id })
-    await request.save()
+    await accommodationOwner.persist(request)
     return success(request, 200, "Accommodation request cancelled")
   },
 
   async resubmitRequest(requestId, body, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!isOwner(request, user)) return forbidden("You do not have access to this request")
     if (request.status !== ACCOMMODATION_STATUS.RETURNED_TO_STUDENT) {
@@ -394,7 +394,7 @@ export const accommodationService = {
     await invalidateActionLinkTokens({ type: FA_TOKEN_TYPE, subjectId: request._id }, "resubmitted").catch(() => {})
     applyStatus(request, ACCOMMODATION_STATUS.SUBMITTED, { by: user._id, note: "Resubmitted" })
     await this._routeAfterSubmit(request, type)
-    await request.save()
+    await accommodationOwner.persist(request)
     return success(request, 200, "Accommodation request resubmitted")
   },
 
@@ -402,7 +402,7 @@ export const accommodationService = {
     const allowed = [CW_DECISION.APPROVE, CW_DECISION.REQUEST_MODIFICATION, CW_DECISION.REJECT]
     if (!allowed.includes(action)) return badRequest("Invalid decision")
 
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.PENDING_CW_APPROVAL) {
       return badRequest("This request is not awaiting Chief Warden approval")
@@ -444,7 +444,7 @@ export const accommodationService = {
       applyStatus(request, ACCOMMODATION_STATUS.REJECTED, { by: user._id, note: reason })
     }
 
-    await request.save()
+    await accommodationOwner.persist(request)
     accommodationEmails
       .sendStudentDecisionEmail({
         requestId: request._id,
@@ -460,7 +460,7 @@ export const accommodationService = {
   // Chief Warden / CW Office skip the faculty-advisor stage and push the request
   // straight into Chief Warden approval (e.g. the advisor is unresponsive).
   async bypassFacultyAdvisor(requestId, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.PENDING_FA_RECOMMENDATION) {
       return badRequest("This request is not awaiting a faculty advisor recommendation")
@@ -479,17 +479,14 @@ export const accommodationService = {
       by: user._id,
       note: "Faculty advisor bypassed",
     })
-    await request.save()
+    await accommodationOwner.persist(request)
     return success(request, 200, "Faculty advisor bypassed — request moved to Chief Warden approval")
   },
 
   // Sweeps requests whose Chief Warden window elapsed and auto-approves them.
   // Invoked by the lock-guarded hourly scheduler; safe to run on any instance.
   async autoApproveExpiredChiefWardenRequests() {
-    const due = await AccommodationRequest.find({
-      status: ACCOMMODATION_STATUS.PENDING_CW_APPROVAL,
-      stageDeadlineAt: { $ne: null, $lte: new Date() },
-    })
+    const due = await accommodationQueries.findPendingCwApprovalDue()
 
     let count = 0
     for (const request of due) {
@@ -503,7 +500,7 @@ export const accommodationService = {
       request.currentStage = null
       request.stageDeadlineAt = null
       applyStatus(request, ACCOMMODATION_STATUS.CW_APPROVED, { note: "Auto-approved (timeout)" })
-      await request.save()
+      await accommodationOwner.persist(request)
 
       accommodationEmails
         .sendStudentDecisionEmail({
@@ -525,7 +522,7 @@ export const accommodationService = {
   // Chief Warden Office issues the payment request (amount + link/QR). Freezes the
   // form on the frontend; the QR section unlocks for the student.
   async issuePaymentRequest(requestId, body, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.CW_APPROVED) {
       return badRequest("This request is not approved and ready for a payment request")
@@ -547,7 +544,7 @@ export const accommodationService = {
     request.currentStage = null
     request.stageDeadlineAt = null
     applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, { by: user._id, note: "Payment requested" })
-    await request.save()
+    await accommodationOwner.persist(request)
 
     accommodationEmails
       .sendPaymentRequestEmail({
@@ -563,7 +560,7 @@ export const accommodationService = {
 
   // Student uploads proof of the QR payment.
   async submitPayment(requestId, body, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!isOwner(request, user)) return forbidden("You do not have access to this request")
     if (request.status !== ACCOMMODATION_STATUS.PAYMENT_REQUESTED) {
@@ -579,7 +576,7 @@ export const accommodationService = {
     request.payment.status = PAYMENT_STATUS.SUBMITTED
     request.payment.submittedAt = new Date()
     applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_SUBMITTED, { by: user._id, note: "Payment submitted" })
-    await request.save()
+    await accommodationOwner.persist(request)
 
     accommodationEmails
       .sendStudentDecisionEmail({
@@ -598,7 +595,7 @@ export const accommodationService = {
     if (![PAYMENT_DECISION.VERIFY, PAYMENT_DECISION.REJECT].includes(action)) {
       return badRequest("Invalid action")
     }
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.PAYMENT_SUBMITTED) {
       return badRequest("No payment is awaiting verification for this request")
@@ -618,7 +615,7 @@ export const accommodationService = {
       // Back to PAYMENT_REQUESTED so the student can pay again.
       applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, { by: user._id, note })
     }
-    await request.save()
+    await accommodationOwner.persist(request)
 
     accommodationEmails
       .sendStudentDecisionEmail({
@@ -637,7 +634,7 @@ export const accommodationService = {
     const hostelId = body?.hostelId
     if (!hostelId) return badRequest("hostelId is required")
 
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.PAYMENT_VERIFIED) {
       return badRequest("Payment must be verified before a hostel can be allotted")
@@ -660,7 +657,7 @@ export const accommodationService = {
 
     request.allotment = { hostelId, allottedBy: user._id, allottedAt: new Date() }
     applyStatus(request, ACCOMMODATION_STATUS.HOSTEL_ALLOTTED, { by: user._id, note: `Allotted to ${hostel.name}` })
-    await request.save()
+    await accommodationOwner.persist(request)
 
     accommodationEmails
       .sendAllotmentEmail({
@@ -677,7 +674,7 @@ export const accommodationService = {
 
   // CW Office allotment view: per-hostel guest-bed availability for the dates.
   async getAllotmentAvailability(requestId) {
-    const request = await AccommodationRequest.findById(requestId).lean()
+    const request = await accommodationQueries.findRequestByIdLean(requestId)
     if (!request) return notFound("Accommodation request not found")
     const hostels = await listHostelsGuestAvailability({
       from: request.stay?.fromDate,
@@ -689,7 +686,7 @@ export const accommodationService = {
 
   // Supervisor assignment view: per-room free beds in the allotted hostel.
   async getRoomAvailability(requestId) {
-    const request = await AccommodationRequest.findById(requestId).lean()
+    const request = await accommodationQueries.findRequestByIdLean(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!request.allotment?.hostelId) return badRequest("A hostel has not been allotted yet")
     const rooms = await getGuestRoomAvailability({
@@ -701,7 +698,7 @@ export const accommodationService = {
 
   // Supervisor assigns specific guest rooms/beds (mandatory step).
   async assignRooms(requestId, body, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (![ACCOMMODATION_STATUS.HOSTEL_ALLOTTED, ACCOMMODATION_STATUS.ROOMS_ASSIGNED].includes(request.status)) {
       return badRequest("Rooms can be assigned only after a hostel is allotted")
@@ -757,7 +754,7 @@ export const accommodationService = {
         note: "Rooms re-assigned",
       })
     }
-    await request.save()
+    await accommodationOwner.persist(request)
 
     // Flip the newly-held rooms to "Guest" and release any dropped on reassignment.
     const newRoomIds = new Set(assignments.map((a) => String(a.roomId)))
@@ -785,43 +782,33 @@ export const accommodationService = {
   },
 
   async checkIn(requestId, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.ROOMS_ASSIGNED) {
       return badRequest("Guests can be checked in only after rooms are assigned")
     }
     request.checkInAt = new Date()
     applyStatus(request, ACCOMMODATION_STATUS.CHECKED_IN, { by: user._id, note: "Checked in" })
-    await request.save()
+    await accommodationOwner.persist(request)
     return success(request, 200, "Guests checked in")
   },
 
   async checkOut(requestId, user) {
-    const request = await AccommodationRequest.findById(requestId)
+    const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (request.status !== ACCOMMODATION_STATUS.CHECKED_IN) {
       return badRequest("Guests must be checked in before checking out")
     }
     request.checkOutAt = new Date()
     applyStatus(request, ACCOMMODATION_STATUS.CHECKED_OUT, { by: user._id, note: "Checked out" })
-    await request.save()
+    await accommodationOwner.persist(request)
     return success(request, 200, "Guests checked out")
   },
 
   // Nightly sweep: invoice requests whose stay has ended (gate check-out optional).
   // Allotted-but-never-assigned requests are intentionally skipped (flagged elsewhere).
   async generateStayEndInvoices() {
-    const due = await AccommodationRequest.find({
-      status: {
-        $in: [
-          ACCOMMODATION_STATUS.ROOMS_ASSIGNED,
-          ACCOMMODATION_STATUS.CHECKED_IN,
-          ACCOMMODATION_STATUS.CHECKED_OUT,
-        ],
-      },
-      "stay.toDate": { $lt: new Date() },
-      "invoice.generatedAt": null,
-    })
+    const due = await accommodationQueries.findDueForInvoicing()
 
     const config = await getAccommodationConfig()
     let count = 0
@@ -835,7 +822,7 @@ export const accommodationService = {
         emailedAt: null,
       }
       applyStatus(request, ACCOMMODATION_STATUS.INVOICED, { note: "Invoice generated" })
-      await request.save()
+      await accommodationOwner.persist(request)
 
       // Release the guest rooms back to the normal Active pool (atomic).
       await roomOwner
@@ -856,7 +843,7 @@ export const accommodationService = {
           request,
         })
         request.invoice.emailedAt = new Date()
-        await request.save()
+        await accommodationOwner.persist(request)
       } catch {
         // email failure shouldn't block invoicing
       }
@@ -872,7 +859,7 @@ export const accommodationService = {
     if (!tokenDoc) return notFound("Invalid or already-used recommendation link")
     if (isActionLinkTokenExpired(tokenDoc)) return badRequest("This recommendation link has expired")
 
-    const request = await AccommodationRequest.findById(tokenDoc.subjectId).lean()
+    const request = await accommodationQueries.findRequestByIdLean(tokenDoc.subjectId)
     if (!request) return notFound("Request not found")
 
     const student = await buildStudentSummary(request.requesterUserId)
@@ -903,7 +890,7 @@ export const accommodationService = {
     if (!tokenDoc) return notFound("Invalid or already-used recommendation link")
     if (isActionLinkTokenExpired(tokenDoc)) return badRequest("This recommendation link has expired")
 
-    const request = await AccommodationRequest.findById(tokenDoc.subjectId)
+    const request = await accommodationQueries.findRequestById(tokenDoc.subjectId)
     if (!request) return notFound("Request not found")
     if (request.status !== ACCOMMODATION_STATUS.PENDING_FA_RECOMMENDATION) {
       return badRequest("This request has already been processed")
@@ -940,7 +927,7 @@ export const accommodationService = {
       })
     }
 
-    await request.save()
+    await accommodationOwner.persist(request)
     await consumeActionLinkToken(tokenDoc, { decision, reason })
     accommodationEmails
       .sendStudentDecisionEmail({

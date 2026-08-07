@@ -1,27 +1,27 @@
 /**
  * Visitors Service
  * Contains all business logic for visitor request operations.
- * 
+ *
  * @module apps/visitors/modules/visitors/service
  */
 
-import { VisitorRequest, StudentProfile } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
+import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import {
-  BaseService,
   success,
   notFound,
   badRequest,
   forbidden,
+  error,
   withTransaction,
 } from '../../../../services/base/index.js';
 
-class VisitorsService extends BaseService {
-  constructor() {
-    super(VisitorRequest, 'Visitor request');
-  }
+const ENTITY = 'Visitor request';
 
+class VisitorsService {
   /**
    * Create a new visitor request
    * @param {Object} data - Visitor request data
@@ -30,24 +30,21 @@ class VisitorsService extends BaseService {
   async createVisitorRequest(data, user) {
     const { visitors, reason, fromDate, toDate, h2FormUrl } = data;
 
-    const result = await this.create({
+    const created = await visitorOwner.createRequest({
       visitors,
       reason,
       fromDate,
       toDate,
       userId: user._id,
-      h2FormUrl
+      h2FormUrl,
     });
 
-    if (result.success) {
-      return {
-        success: true,
-        statusCode: 201,
-        message: 'Visitor request submitted successfully',
-        data: result.data
-      };
-    }
-    return result;
+    return {
+      success: true,
+      statusCode: 201,
+      message: 'Visitor request submitted successfully',
+      data: created,
+    };
   }
 
   /**
@@ -91,13 +88,8 @@ class VisitorsService extends BaseService {
     const skip = (page - 1) * limit;
 
     const [visitorRequests, total] = await Promise.all([
-      this.model.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('userId', 'name email profileImage')
-        .populate('visitors'),
-      this.model.countDocuments(query),
+      visitorQueries.findRequestsForList(query, { skip, limit }),
+      visitorQueries.countRequests(query),
     ]);
 
     const formattedRequests = visitorRequests.map((request) => {
@@ -144,17 +136,10 @@ class VisitorsService extends BaseService {
     const systemSettings = await getConfigWithDefault('systemSettings');
     const visitorPaymentLink = systemSettings?.value?.visitorPaymentLink;
 
-    const visitorRequest = await this.model.findById(requestId)
-      .populate('userId', 'name email profileImage')
-      .populate('visitors')
-      .populate({
-        path: 'allocatedRooms',
-        populate: { path: 'unitId', select: 'unitNumber' }
-      })
-      .populate('hostelId', 'name');
+    const visitorRequest = await visitorQueries.findRequestByIdDetailed(requestId);
 
     if (!visitorRequest) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     let studentProfile = null;
@@ -219,20 +204,20 @@ class VisitorsService extends BaseService {
   async updateVisitorRequest(requestId, data) {
     const { reason, fromDate, toDate, h2FormUrl } = data;
 
-    const request = await this.model.findById(requestId);
+    const request = await visitorQueries.findRequestById(requestId);
     if (!request) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     if (request.status !== 'Pending') {
       return badRequest('Cannot update a request that is not pending');
     }
 
-    const result = await this.updateById(requestId, { reason, fromDate, toDate, h2FormUrl });
-    if (result.success) {
-      return success({ message: 'Visitor request updated successfully', data: result.data });
+    const updated = await visitorOwner.updateRequestById(requestId, { reason, fromDate, toDate, h2FormUrl });
+    if (!updated) {
+      return notFound(ENTITY);
     }
-    return result;
+    return success({ message: 'Visitor request updated successfully', data: updated });
   }
 
   /**
@@ -240,11 +225,16 @@ class VisitorsService extends BaseService {
    * @param {string} requestId - Request ID
    */
   async deleteVisitorRequest(requestId) {
-    const result = await this.deleteById(requestId);
-    if (result.success) {
+    try {
+      const deleted = await visitorOwner.deleteRequestById(requestId);
+      if (!deleted) {
+        return notFound(ENTITY);
+      }
       return success({ message: 'Visitor request deleted successfully' });
+    } catch (err) {
+      // pre('findOneAndDelete') guard throws for a non-pending request.
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
   }
 
   /**
@@ -262,7 +252,7 @@ class VisitorsService extends BaseService {
 
     const status = action === 'approve' ? 'Approved' : 'Rejected';
     const updateData = { status };
-    
+
     if (action === 'reject') {
       updateData.reasonForRejection = reason;
     } else {
@@ -270,11 +260,11 @@ class VisitorsService extends BaseService {
       updateData.approveInfo = approvalInformation;
     }
 
-    const result = await this.updateById(requestId, updateData);
-    if (result.success) {
-      return success({ message: `Visitor request status updated to ${status}`, data: result.data });
+    const updated = await visitorOwner.updateRequestById(requestId, updateData);
+    if (!updated) {
+      return notFound(ENTITY);
     }
-    return result;
+    return success({ message: `Visitor request status updated to ${status}`, data: updated });
   }
 
   /**
@@ -316,10 +306,10 @@ class VisitorsService extends BaseService {
         allocatedRoomIds.push(foundRoom._id);
       }
 
-      const updatedReq = await this.model.findByIdAndUpdate(
+      const updatedReq = await visitorOwner.updateRequestById(
         requestId,
         { allocatedRooms: allocatedRoomIds },
-        { new: true, session }
+        { session }
       );
 
       if (!updatedReq) {
@@ -338,11 +328,11 @@ class VisitorsService extends BaseService {
   async checkInVisitor(requestId, data) {
     const { checkInTime, notes: securityNotes } = data;
 
-    const result = await this.updateById(requestId, { checkInTime, securityNotes });
-    if (result.success) {
-      return success({ message: 'Check-in successful', data: result.data });
+    const updated = await visitorOwner.updateRequestById(requestId, { checkInTime, securityNotes });
+    if (!updated) {
+      return notFound(ENTITY);
     }
-    return result;
+    return success({ message: 'Check-in successful', data: updated });
   }
 
   /**
@@ -353,11 +343,11 @@ class VisitorsService extends BaseService {
   async checkOutVisitor(requestId, data) {
     const { checkOutTime, notes: securityNotes } = data;
 
-    const result = await this.updateById(requestId, { checkOutTime, securityNotes });
-    if (result.success) {
-      return success({ message: 'Check-out successful', data: result.data });
+    const updated = await visitorOwner.updateRequestById(requestId, { checkOutTime, securityNotes });
+    if (!updated) {
+      return notFound(ENTITY);
     }
-    return result;
+    return success({ message: 'Check-out successful', data: updated });
   }
 
   /**
@@ -368,11 +358,15 @@ class VisitorsService extends BaseService {
   async updateCheckTime(requestId, data) {
     const { checkInTime, checkOutTime, notes: securityNotes } = data;
 
-    const result = await this.updateById(requestId, { checkInTime, checkOutTime, securityNotes });
-    if (result.success) {
-      return success({ message: 'Check-in/out time updated successfully', data: result.data });
+    const updated = await visitorOwner.updateRequestById(requestId, {
+      checkInTime,
+      checkOutTime,
+      securityNotes,
+    });
+    if (!updated) {
+      return notFound(ENTITY);
     }
-    return result;
+    return success({ message: 'Check-in/out time updated successfully', data: updated });
   }
 
   /**
@@ -380,9 +374,7 @@ class VisitorsService extends BaseService {
    * @param {string} userId - User ID
    */
   async getStudentVisitorRequests(userId) {
-    const visitorRequests = await this.model.find({ userId })
-      .populate('userId', 'name email profileImage')
-      .populate('visitors');
+    const visitorRequests = await visitorQueries.findRequestsByUser(userId);
 
     const formattedRequests = visitorRequests.map((request) => ({
       ...request._doc,
@@ -403,23 +395,22 @@ class VisitorsService extends BaseService {
   async updatePaymentInfo(requestId, data, user) {
     const { amount, dateOfPayment, screenshot, additionalInfo, transactionId } = data;
 
-    const visitorRequest = await this.model.findById(requestId);
+    const visitorRequest = await visitorQueries.findRequestById(requestId);
     if (!visitorRequest) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     if (visitorRequest.userId.toString() !== user._id.toString()) {
       return forbidden('You are not authorized to update this payment information');
     }
 
-    const result = await this.updateById(requestId, {
+    const updated = await visitorOwner.updateRequestById(requestId, {
       paymentInfo: { amount, dateOfPayment, screenshot, additionalInfo, transactionId }
     });
-
-    if (result.success) {
-      return success({ message: 'Payment information updated successfully', data: result.data });
+    if (!updated) {
+      return notFound(ENTITY);
     }
-    return result;
+    return success({ message: 'Payment information updated successfully', data: updated });
   }
 }
 
