@@ -71,54 +71,12 @@ StudentInventorySchema.index({ hostelInventoryId: 1, status: 1 })
 StudentInventorySchema.index({ itemTypeId: 1, status: 1 })
 StudentInventorySchema.index({ status: 1 })
 
-// Update hostel inventory counts when a student inventory is created
-StudentInventorySchema.post("save", async function () {
-  try {
-    if (this.isNew) {
-      const HostelInventory = mongoose.model("HostelInventory")
-      await HostelInventory.updateAvailableCount(this.hostelInventoryId, this.itemTypeId, -this.count)
-    }
-  } catch (error) {
-    console.error("Error updating hostel inventory:", error)
-  }
-})
-
-// Update hostel inventory counts when a student inventory is returned
-StudentInventorySchema.statics.returnItems = async function (studentInventoryId, returnedBy, condition, notes) {
-  const studentInventory = await this.findById(studentInventoryId)
-
-  if (!studentInventory) {
-    throw new Error("Student inventory record not found")
-  }
-
-  if (studentInventory.status === "Returned") {
-    throw new Error("Items already returned")
-  }
-
-  const oldStatus = studentInventory.status
-
-  studentInventory.status = "Returned"
-  studentInventory.returnDate = new Date()
-  studentInventory.returnedBy = returnedBy
-
-  if (condition) {
-    studentInventory.condition = condition
-  }
-
-  if (notes) {
-    studentInventory.notes = notes
-  }
-
-  await studentInventory.save()
-
-  // Only update hostel inventory if items were not previously marked as lost
-  if (oldStatus !== "Lost") {
-    const HostelInventory = mongoose.model("HostelInventory")
-    await HostelInventory.updateAvailableCount(studentInventory.hostelInventoryId, studentInventory.itemTypeId, studentInventory.count)
-  }
-
-  return studentInventory
-}
+// NOTE: hostel availableCount is adjusted on issue/return by the inventory owner
+// service (src/services/inventory/inventoryOwner.service.js) inside a transaction
+// with the atomic reserve/release. The old post('save') hook + `returnItems`
+// static that did this via HostelInventory.updateAvailableCount were removed:
+// the hook passed mismatched args (hostelInventoryId as hostelId) so it always
+// threw and was silently swallowed — a dead no-op — and the RMW oversold.
 
 // Get inventory summary by unit
 StudentInventorySchema.statics.getUnitInventorySummary = async function (unitId) {

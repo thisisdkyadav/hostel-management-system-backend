@@ -1,18 +1,18 @@
 /**
  * Student Inventory Service
  * Contains all business logic for student inventory operations.
- * 
+ *
  * @module apps/operations/modules/inventory/student-inventory.service
  */
 
-import { StudentInventory, HostelInventory, StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { success, notFound, badRequest } from '../../../../services/base/index.js';
+import { inventoryOwner } from '../../../../services/inventory/inventoryOwner.service.js';
+import { inventoryQueries } from '../../../../services/inventory/inventoryQueries.service.js';
 
-class StudentInventoryService extends BaseService {
-  constructor() {
-    super(StudentInventory, 'Student inventory');
-  }
+const ENTITY = 'Student inventory';
 
+class StudentInventoryService {
   /**
    * Assign inventory items to a student
    * @param {Object} data - Assignment data
@@ -30,7 +30,7 @@ class StudentInventoryService extends BaseService {
       return notFound('Student');
     }
 
-    const hostelInventory = await HostelInventory.findById(hostelInventoryId);
+    const hostelInventory = await inventoryQueries.findHostelInventoryById(hostelInventoryId);
     if (!hostelInventory) {
       return notFound('Hostel inventory record');
     }
@@ -48,7 +48,9 @@ class StudentInventoryService extends BaseService {
       return badRequest(`Not enough items available. Only ${hostelInventory.availableCount} items available.`);
     }
 
-    const result = await this.create({
+    // Atomic reserve + create in one transaction (guarded $inc prevents
+    // overselling the last unit under concurrent issues).
+    const issue = await inventoryOwner.issueToStudent({
       studentProfileId,
       hostelInventoryId,
       itemTypeId,
@@ -58,18 +60,13 @@ class StudentInventoryService extends BaseService {
       issuedBy: user._id
     });
 
-    if (!result.success) return result;
+    if (!issue.ok) {
+      // Raced out of stock between the check above and the atomic reserve.
+      const fresh = await inventoryQueries.findHostelInventoryById(hostelInventoryId);
+      return badRequest(`Not enough items available. Only ${fresh?.availableCount ?? 0} items available.`);
+    }
 
-    // Update hostel inventory available count
-    hostelInventory.availableCount -= itemCount;
-    await hostelInventory.save();
-
-    const populatedInventory = await this.model.findById(result.data._id)
-      .populate('studentProfileId', 'rollNumber')
-      .populate({ path: 'studentProfileId', populate: { path: 'userId', select: 'name email' } })
-      .populate('itemTypeId', 'name description')
-      .populate('issuedBy', 'name');
-
+    const populatedInventory = await inventoryQueries.findStudentInventoryByIdDetailed(issue.doc._id);
     return success(populatedInventory, 201);
   }
 
@@ -83,15 +80,7 @@ class StudentInventoryService extends BaseService {
       return notFound('Student');
     }
 
-    const inventory = await this.model.find({
-      studentProfileId,
-      status: { $ne: 'Returned' }
-    })
-      .populate('itemTypeId', 'name description')
-      .populate('hostelInventoryId')
-      .populate('issuedBy', 'name')
-      .sort({ issueDate: -1 });
-
+    const inventory = await inventoryQueries.findActiveByStudent(studentProfileId);
     return success(inventory);
   }
 
@@ -109,6 +98,9 @@ class StudentInventoryService extends BaseService {
     if (itemTypeId) query.itemTypeId = itemTypeId;
     if (status && status !== 'All') query.status = status;
 
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
     // Filter by roll number
     if (rollNumber) {
       const studentProfile = await StudentProfile.findOne({ rollNumber: { $regex: rollNumber, $options: 'i' } });
@@ -117,7 +109,7 @@ class StudentInventoryService extends BaseService {
       } else {
         return success({
           data: [],
-          pagination: { totalCount: 0, totalPages: 0, currentPage: parseInt(page), limit: parseInt(limit) }
+          pagination: { totalCount: 0, totalPages: 0, currentPage: pageNum, limit: limitNum }
         });
       }
     }
@@ -126,37 +118,35 @@ class StudentInventoryService extends BaseService {
 
     // Filter by hostel
     if (hostel_id) {
-      const hostelInventories = await HostelInventory.find({ hostelId: hostel_id });
+      const hostelInventories = await inventoryQueries.findHostelInventoriesByHostel(hostel_id);
       if (hostelInventories?.length > 0) {
         query.hostelInventoryId = { $in: hostelInventories.map((hi) => hi._id) };
       } else {
         return success({
           data: [],
-          pagination: { totalCount: 0, totalPages: 0, currentPage: parseInt(page), limit: parseInt(limit) }
+          pagination: { totalCount: 0, totalPages: 0, currentPage: pageNum, limit: limitNum }
         });
       }
     }
 
-    const totalCount = await this.model.countDocuments(query);
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
-    const inventory = await this.model.find(query)
-      .populate('itemTypeId', 'name description')
-      .populate('studentProfileId', 'rollNumber')
-      .populate({ path: 'studentProfileId', populate: { path: 'userId', select: 'name email' } })
-      .populate('hostelInventoryId')
-      .populate('issuedBy', 'name')
-      .sort({ [sortBy]: sortDirection })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit));
+    const [totalCount, inventory] = await Promise.all([
+      inventoryQueries.countStudentInventory(query),
+      inventoryQueries.listStudentInventory(query, {
+        skip: (pageNum - 1) * limitNum,
+        limit: limitNum,
+        sort: { [sortBy]: sortDirection },
+      }),
+    ]);
 
     return success({
       data: inventory,
       pagination: {
         totalCount,
-        totalPages: Math.ceil(totalCount / parseInt(limit)),
-        currentPage: parseInt(page),
-        limit: parseInt(limit)
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentPage: pageNum,
+        limit: limitNum
       }
     });
   }
@@ -170,37 +160,25 @@ class StudentInventoryService extends BaseService {
   async returnStudentInventory(id, data, user) {
     const { condition, notes } = data;
 
-    const studentInventory = await this.model.findById(id);
+    const studentInventory = await inventoryQueries.findStudentInventoryById(id);
     if (!studentInventory) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     if (studentInventory.status === 'Returned') {
       return badRequest('This item has already been returned');
     }
 
-    // Update student inventory
-    studentInventory.status = 'Returned';
-    studentInventory.returnDate = new Date();
-    studentInventory.returnedBy = user._id;
-    if (condition) studentInventory.condition = condition;
-    if (notes) studentInventory.notes = notes;
-    await studentInventory.save();
+    // Flip to Returned and release the stock back atomically (one transaction).
+    await inventoryOwner.returnFromStudent(studentInventory, (si) => {
+      si.status = 'Returned';
+      si.returnDate = new Date();
+      si.returnedBy = user._id;
+      if (condition) si.condition = condition;
+      if (notes) si.notes = notes;
+    });
 
-    // Update hostel inventory count
-    const hostelInventory = await HostelInventory.findById(studentInventory.hostelInventoryId);
-    if (hostelInventory) {
-      hostelInventory.availableCount += studentInventory.count;
-      await hostelInventory.save();
-    }
-
-    const populatedInventory = await this.model.findById(id)
-      .populate('itemTypeId', 'name description')
-      .populate('studentProfileId', 'rollNumber')
-      .populate({ path: 'studentProfileId', populate: { path: 'userId', select: 'name email' } })
-      .populate('issuedBy', 'name')
-      .populate('returnedBy', 'name');
-
+    const populatedInventory = await inventoryQueries.findStudentInventoryByIdDetailed(id);
     return success(populatedInventory);
   }
 
@@ -220,9 +198,9 @@ class StudentInventoryService extends BaseService {
       return badRequest('Valid condition (Excellent, Good, Fair, or Poor) is required');
     }
 
-    const studentInventory = await this.model.findById(id);
+    const studentInventory = await inventoryQueries.findStudentInventoryById(id);
     if (!studentInventory) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     if (studentInventory.status === 'Returned') {
@@ -232,14 +210,9 @@ class StudentInventoryService extends BaseService {
     studentInventory.status = status;
     if (condition) studentInventory.condition = condition;
     if (notes) studentInventory.notes = notes;
-    await studentInventory.save();
+    await inventoryOwner.persistStudentInventory(studentInventory);
 
-    const populatedInventory = await this.model.findById(id)
-      .populate('itemTypeId', 'name description')
-      .populate('studentProfileId', 'rollNumber')
-      .populate({ path: 'studentProfileId', populate: { path: 'userId', select: 'name email' } })
-      .populate('issuedBy', 'name');
-
+    const populatedInventory = await inventoryQueries.findStudentInventoryByIdDetailed(id);
     return success(populatedInventory);
   }
 
@@ -251,7 +224,7 @@ class StudentInventoryService extends BaseService {
     const matchStage = { status: 'Issued' };
 
     if (hostelId) {
-      const hostelInventories = await HostelInventory.find({ hostelId });
+      const hostelInventories = await inventoryQueries.findHostelInventoriesByHostel(hostelId);
       if (hostelInventories?.length > 0) {
         matchStage.hostelInventoryId = { $in: hostelInventories.map((hi) => hi._id) };
       } else {
@@ -259,36 +232,7 @@ class StudentInventoryService extends BaseService {
       }
     }
 
-    const summary = await this.model.aggregate([
-      { $match: matchStage },
-      { $lookup: { from: 'studentprofiles', localField: 'studentProfileId', foreignField: '_id', as: 'student' } },
-      { $unwind: '$student' },
-      { $lookup: { from: 'users', localField: 'student.userId', foreignField: '_id', as: 'user' } },
-      { $unwind: '$user' },
-      { $lookup: { from: 'inventoryitemtypes', localField: 'itemTypeId', foreignField: '_id', as: 'itemType' } },
-      { $unwind: '$itemType' },
-      {
-        $group: {
-          _id: '$studentProfileId',
-          studentName: { $first: '$user.name' },
-          rollNumber: { $first: '$student.rollNumber' },
-          totalItems: { $sum: '$count' },
-          items: {
-            $push: {
-              id: '$_id',
-              itemTypeId: '$itemTypeId',
-              itemName: '$itemType.name',
-              count: '$count',
-              issueDate: '$issueDate',
-              status: '$status',
-              condition: '$condition'
-            }
-          }
-        }
-      },
-      { $sort: { rollNumber: 1 } }
-    ]);
-
+    const summary = await inventoryQueries.summaryByStudent(matchStage);
     return success(summary);
   }
 
@@ -300,7 +244,7 @@ class StudentInventoryService extends BaseService {
     const matchStage = { status: 'Issued' };
 
     if (hostelId) {
-      const hostelInventories = await HostelInventory.find({ hostelId });
+      const hostelInventories = await inventoryQueries.findHostelInventoriesByHostel(hostelId);
       if (hostelInventories?.length > 0) {
         matchStage.hostelInventoryId = { $in: hostelInventories.map((hi) => hi._id) };
       } else {
@@ -308,29 +252,7 @@ class StudentInventoryService extends BaseService {
       }
     }
 
-    const summary = await this.model.aggregate([
-      { $match: matchStage },
-      { $lookup: { from: 'inventoryitemtypes', localField: 'itemTypeId', foreignField: '_id', as: 'itemType' } },
-      { $unwind: '$itemType' },
-      {
-        $group: {
-          _id: '$itemTypeId',
-          itemName: { $first: '$itemType.name' },
-          totalAssigned: { $sum: '$count' },
-          studentCount: { $addToSet: '$studentProfileId' }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          itemName: 1,
-          totalAssigned: 1,
-          studentCount: { $size: '$studentCount' }
-        }
-      },
-      { $sort: { itemName: 1 } }
-    ]);
-
+    const summary = await inventoryQueries.summaryByItemType(matchStage);
     return success(summary);
   }
 }

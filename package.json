@@ -15,6 +15,7 @@
     "migrate:student-dates": "node scripts/migrate_student_dates_to_dateonly.mjs",
     "repair:por-category-gs": "node scripts/repair_por_category_gs_reviewers.mjs",
     "migrate:room-occupancy": "node scripts/migrate_room_occupancy.mjs",
+    "reconcile:inventory-available": "node scripts/reconcile_inventory_available.mjs",
     "migrate:proposal-due-days": "node scripts/migrate_proposal_due_days.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

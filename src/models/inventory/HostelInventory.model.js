@@ -42,21 +42,11 @@ HostelInventorySchema.methods.hasAvailable = function (count) {
   return this.availableCount >= count
 }
 
-// Static method to update available count
-HostelInventorySchema.statics.updateAvailableCount = async function (hostelId, itemTypeId, change) {
-  const inventory = await this.findOne({ hostelId, itemTypeId })
-  if (!inventory) {
-    throw new Error("Inventory record not found")
-  }
-
-  const newCount = inventory.availableCount + change
-  if (newCount < 0) {
-    throw new Error("Not enough inventory available")
-  }
-
-  inventory.availableCount = newCount
-  return inventory.save()
-}
+// NOTE: availableCount is mutated ONLY by the inventory owner service
+// (src/services/inventory/inventoryOwner.service.js) via atomic guarded $inc.
+// The old read-modify-write `updateAvailableCount` static was removed — it
+// oversold under concurrency and its only caller (a StudentInventory post-save
+// hook) passed mismatched args and silently failed.
 
 const HostelInventory = mongoose.model("HostelInventory", HostelInventorySchema)
 export default HostelInventory

@@ -1,20 +1,16 @@
 /**
  * Hostel Inventory Service
  * Contains all business logic for hostel inventory operations.
- * 
+ *
  * @module apps/operations/modules/inventory/hostel-inventory.service
  */
 
-import { HostelInventory, InventoryItemType } from '../../../../models/index.js';
-import mongoose from 'mongoose';
-import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { success, notFound, badRequest } from '../../../../services/base/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import { inventoryOwner } from '../../../../services/inventory/inventoryOwner.service.js';
+import { inventoryQueries } from '../../../../services/inventory/inventoryQueries.service.js';
 
-class HostelInventoryService extends BaseService {
-  constructor() {
-    super(HostelInventory, 'Hostel inventory');
-  }
-
+class HostelInventoryService {
   /**
    * Assign inventory items to a hostel
    * @param {Object} params - Assignment parameters
@@ -29,7 +25,7 @@ class HostelInventoryService extends BaseService {
       return notFound('Hostel');
     }
 
-    const itemType = await InventoryItemType.findById(itemTypeId);
+    const itemType = await inventoryQueries.findItemTypeById(itemTypeId);
     if (!itemType) {
       return notFound('Inventory item type');
     }
@@ -38,14 +34,9 @@ class HostelInventoryService extends BaseService {
       return badRequest('Allocated count must be a positive number');
     }
 
-    const existingAllocations = await this.model.aggregate([
-      { $match: { itemTypeId: new mongoose.Types.ObjectId(itemTypeId) } },
-      { $group: { _id: null, totalAllocated: { $sum: '$allocatedCount' } } }
-    ]);
+    const totalAllocated = await inventoryQueries.sumAllocatedByItemType(itemTypeId);
 
-    const totalAllocated = existingAllocations.length > 0 ? existingAllocations[0].totalAllocated : 0;
-
-    const existingAllocation = await this.model.findOne({ hostelId, itemTypeId });
+    const existingAllocation = await inventoryQueries.findByHostelAndItemType(hostelId, itemTypeId);
     const currentAllocation = existingAllocation ? existingAllocation.allocatedCount : 0;
     const additionalAllocation = allocatedCount - currentAllocation;
 
@@ -55,15 +46,17 @@ class HostelInventoryService extends BaseService {
 
     let hostelInventory;
     if (existingAllocation) {
-      existingAllocation.allocatedCount = allocatedCount;
-      existingAllocation.availableCount = existingAllocation.availableCount + additionalAllocation;
-      hostelInventory = await existingAllocation.save();
+      // Atomic: set new allocatedCount, $inc availableCount by the delta so a
+      // concurrent student issue can't clobber availableCount.
+      hostelInventory = await inventoryOwner.adjustHostelAllocation(existingAllocation._id, {
+        newAllocatedCount: allocatedCount,
+        availableDelta: additionalAllocation,
+      });
     } else {
-      hostelInventory = await this.model.create({
+      hostelInventory = await inventoryOwner.createHostelAllocation({
         hostelId,
         itemTypeId,
         allocatedCount,
-        availableCount: allocatedCount
       });
     }
 
@@ -80,10 +73,7 @@ class HostelInventoryService extends BaseService {
       return notFound('Hostel');
     }
 
-    const inventory = await this.model.find({ hostelId })
-      .populate('itemTypeId', 'name description')
-      .populate('hostelId', 'name');
-
+    const inventory = await inventoryQueries.findByHostelPopulated(hostelId);
     return success(inventory);
   }
 
@@ -98,20 +88,24 @@ class HostelInventoryService extends BaseService {
     if (itemTypeId) query.itemTypeId = itemTypeId;
     if (user.hostel) query.hostelId = user.hostel._id;
 
-    const totalCount = await this.model.countDocuments(query);
-    const inventory = await this.model.find(query)
-      .populate('itemTypeId', 'name description')
-      .populate('hostelId', 'name')
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit));
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    const [totalCount, inventory] = await Promise.all([
+      inventoryQueries.countHostelInventory(query),
+      inventoryQueries.listHostelInventory(query, {
+        skip: (pageNum - 1) * limitNum,
+        limit: limitNum,
+      }),
+    ]);
 
     return success({
       data: inventory,
       pagination: {
         totalCount,
-        totalPages: Math.ceil(totalCount / parseInt(limit)),
-        currentPage: parseInt(page),
-        limit: parseInt(limit)
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentPage: pageNum,
+        limit: limitNum
       }
     });
   }
@@ -130,27 +124,20 @@ class HostelInventoryService extends BaseService {
       return badRequest('Allocated count must be a positive number');
     }
 
-    const hostelInventory = await this.model.findById(id);
+    const hostelInventory = await inventoryQueries.findHostelInventoryById(id);
     if (!hostelInventory) {
       return notFound('Hostel inventory record');
     }
 
-    const itemType = await InventoryItemType.findById(hostelInventory.itemTypeId);
+    const itemType = await inventoryQueries.findItemTypeById(hostelInventory.itemTypeId);
     if (!itemType) {
       return notFound('Inventory item type');
     }
 
-    const existingAllocations = await this.model.aggregate([
-      {
-        $match: {
-          itemTypeId: hostelInventory.itemTypeId,
-          _id: { $ne: new mongoose.Types.ObjectId(id) }
-        }
-      },
-      { $group: { _id: null, totalAllocated: { $sum: '$allocatedCount' } } }
-    ]);
-
-    const totalAllocatedElsewhere = existingAllocations.length > 0 ? existingAllocations[0].totalAllocated : 0;
+    const totalAllocatedElsewhere = await inventoryQueries.sumAllocatedByItemType(
+      hostelInventory.itemTypeId,
+      { excludeId: id }
+    );
 
     if (totalAllocatedElsewhere + allocatedCount > itemType.totalCount) {
       return badRequest(`Cannot allocate ${allocatedCount} items. Only ${itemType.totalCount - totalAllocatedElsewhere} available globally.`);
@@ -162,10 +149,13 @@ class HostelInventoryService extends BaseService {
       return badRequest(`Cannot reduce allocation below ${itemsInUse} as these items are currently assigned to students.`);
     }
 
-    hostelInventory.allocatedCount = allocatedCount;
-    hostelInventory.availableCount = allocatedCount - itemsInUse;
-
-    const updatedHostelInventory = await hostelInventory.save();
+    // Atomic: newAvailable - oldAvailable == newAllocated - oldAllocated, so
+    // apply that delta with $inc (correct against concurrent issues) while
+    // setting the new allocatedCount.
+    const updatedHostelInventory = await inventoryOwner.adjustHostelAllocation(id, {
+      newAllocatedCount: allocatedCount,
+      availableDelta: allocatedCount - hostelInventory.allocatedCount,
+    });
     return success(updatedHostelInventory);
   }
 
@@ -174,7 +164,7 @@ class HostelInventoryService extends BaseService {
    * @param {string} id - Hostel inventory ID
    */
   async deleteHostelInventory(id) {
-    const hostelInventory = await this.model.findById(id);
+    const hostelInventory = await inventoryQueries.findHostelInventoryById(id);
     if (!hostelInventory) {
       return notFound('Hostel inventory record');
     }
@@ -184,7 +174,7 @@ class HostelInventoryService extends BaseService {
       return badRequest(`Cannot delete allocation as ${itemsInUse} items are currently assigned to students.`);
     }
 
-    await this.model.findByIdAndDelete(id);
+    await inventoryOwner.deleteHostelAllocationById(id);
     return success({ message: 'Hostel inventory allocation removed' });
   }
 
@@ -192,43 +182,7 @@ class HostelInventoryService extends BaseService {
    * Get inventory summary by hostel
    */
   async getInventorySummaryByHostel() {
-    const summary = await this.model.aggregate([
-      {
-        $lookup: {
-          from: 'hostels',
-          localField: 'hostelId',
-          foreignField: '_id',
-          as: 'hostel'
-        }
-      },
-      { $unwind: '$hostel' },
-      {
-        $lookup: {
-          from: 'inventoryitemtypes',
-          localField: 'itemTypeId',
-          foreignField: '_id',
-          as: 'itemType'
-        }
-      },
-      { $unwind: '$itemType' },
-      {
-        $group: {
-          _id: '$hostelId',
-          hostelName: { $first: '$hostel.name' },
-          totalAllocated: { $sum: '$allocatedCount' },
-          totalAvailable: { $sum: '$availableCount' },
-          items: {
-            $push: {
-              itemTypeId: '$itemTypeId',
-              itemName: '$itemType.name',
-              allocated: '$allocatedCount',
-              available: '$availableCount'
-            }
-          }
-        }
-      }
-    ]);
-
+    const summary = await inventoryQueries.getInventorySummaryByHostel();
     return success(summary);
   }
 }

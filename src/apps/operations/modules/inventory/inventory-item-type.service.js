@@ -1,29 +1,23 @@
 /**
  * Inventory Item Type Service
  * Handles inventory item type operations
- * 
+ *
  * @module apps/operations/modules/inventory/inventory-item-type.service
  */
 
 import {
-  InventoryItemType,
-  HostelInventory,
-  StudentInventory,
-} from '../../../../models/index.js';
-import {
-  BaseService,
   success,
   badRequest,
   notFound,
   conflict,
   error,
 } from '../../../../services/base/index.js';
+import { inventoryOwner } from '../../../../services/inventory/inventoryOwner.service.js';
+import { inventoryQueries } from '../../../../services/inventory/inventoryQueries.service.js';
 
-class InventoryItemTypeService extends BaseService {
-  constructor() {
-    super(InventoryItemType, 'Inventory item type');
-  }
+const ENTITY = 'Inventory item type';
 
+class InventoryItemTypeService {
   /**
    * Create inventory item type
    * @param {Object} data - Item type data
@@ -36,21 +30,18 @@ class InventoryItemTypeService extends BaseService {
     }
 
     // Check if exists
-    const existing = await this.model.findOne({ name });
+    const existing = await inventoryQueries.findItemTypeByName(name);
     if (existing) {
       return conflict('Inventory item type already exists');
     }
 
-    const result = await this.create({
+    const created = await inventoryOwner.createItemType({
       name,
       description,
       totalCount: totalCount || 0
     });
 
-    if (result.success) {
-      return success(result.data, 201);
-    }
-    return result;
+    return success(created, 201);
   }
 
   /**
@@ -65,24 +56,24 @@ class InventoryItemTypeService extends BaseService {
       queryObj.name = { $regex: search, $options: 'i' };
     }
 
-    const result = await this.findPaginated(queryObj, {
-      page,
-      limit,
-      sort: { name: 1 }
-    });
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
 
-    if (result.success) {
-      return success({
-        data: result.data.items,
-        pagination: {
-          totalCount: result.data.pagination.total,
-          totalPages: result.data.pagination.totalPages,
-          currentPage: result.data.pagination.page,
-          limit: result.data.pagination.limit
-        }
-      });
-    }
-    return result;
+    const [items, totalCount] = await Promise.all([
+      inventoryQueries.listItemTypes(queryObj, { skip, limit: limitNum, sort: { name: 1 } }),
+      inventoryQueries.countItemTypes(queryObj),
+    ]);
+
+    return success({
+      data: items,
+      pagination: {
+        totalCount,
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentPage: pageNum,
+        limit: limitNum
+      }
+    });
   }
 
   /**
@@ -90,7 +81,11 @@ class InventoryItemTypeService extends BaseService {
    * @param {string} id - Item type ID
    */
   async getInventoryItemTypeById(id) {
-    return this.findById(id);
+    const itemType = await inventoryQueries.findItemTypeById(id);
+    if (!itemType) {
+      return notFound(ENTITY);
+    }
+    return success(itemType);
   }
 
   /**
@@ -101,14 +96,14 @@ class InventoryItemTypeService extends BaseService {
   async updateInventoryItemType(id, data) {
     const { name, description, totalCount } = data;
 
-    const itemType = await this.model.findById(id);
+    const itemType = await inventoryQueries.findItemTypeById(id);
     if (!itemType) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     // Check name uniqueness if changing
     if (name && name !== itemType.name) {
-      const existing = await this.model.findOne({ name });
+      const existing = await inventoryQueries.findItemTypeByName(name);
       if (existing) {
         return badRequest('An inventory item type with this name already exists');
       }
@@ -119,7 +114,11 @@ class InventoryItemTypeService extends BaseService {
     if (description !== undefined) updateData.description = description;
     if (totalCount !== undefined) updateData.totalCount = totalCount;
 
-    return this.updateById(id, updateData);
+    const updated = await inventoryOwner.updateItemTypeById(id, updateData);
+    if (!updated) {
+      return notFound(ENTITY);
+    }
+    return success(updated);
   }
 
   /**
@@ -128,28 +127,28 @@ class InventoryItemTypeService extends BaseService {
    */
   async deleteInventoryItemType(id) {
     try {
-      const itemType = await this.model.findById(id);
+      const itemType = await inventoryQueries.findItemTypeById(id);
       if (!itemType) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
 
       // Check usage in hostel inventory
-      const hostelCount = await HostelInventory.countDocuments({ itemTypeId: id });
+      const hostelCount = await inventoryQueries.countHostelInventoryByItemType(id);
       if (hostelCount > 0) {
         return badRequest('Cannot delete inventory item type that is assigned to hostels');
       }
 
       // Check usage in student inventory
-      const studentCount = await StudentInventory.countDocuments({ itemTypeId: id });
+      const studentCount = await inventoryQueries.countStudentInventoryByItemType(id);
       if (studentCount > 0) {
         return badRequest('Cannot delete inventory item type that is assigned to students');
       }
 
-      const result = await this.deleteById(id);
-      if (result.success) {
-        return success({ message: 'Inventory item type removed' });
+      const deleted = await inventoryOwner.deleteItemTypeById(id);
+      if (!deleted) {
+        return notFound(ENTITY);
       }
-      return result;
+      return success({ message: 'Inventory item type removed' });
     } catch (err) {
       return error('Server error', 500, err.message);
     }
@@ -167,7 +166,11 @@ class InventoryItemTypeService extends BaseService {
       return badRequest('Total count is required');
     }
 
-    return this.updateById(id, { totalCount });
+    const updated = await inventoryOwner.updateItemTypeById(id, { totalCount });
+    if (!updated) {
+      return notFound(ENTITY);
+    }
+    return success(updated);
   }
 }
 
