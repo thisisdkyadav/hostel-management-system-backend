@@ -69,6 +69,9 @@ export const getAllocationStudentByRollNumber = asyncHandler(async (req, res) =>
 
 export const updateRoomAllocations = asyncHandler(async (req, res) => {
   const { hostelId } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(hostelId)) {
+    return sendStandardResponse(res, badRequest('A valid hostel must be selected'));
+  }
   const allocationsData = req.body;
   const session = await mongoose.startSession();
 
