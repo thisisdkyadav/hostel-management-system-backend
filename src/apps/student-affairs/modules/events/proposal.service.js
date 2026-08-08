@@ -3,7 +3,6 @@
  * @description Business logic for Event Proposals (60 days before event)
  */
 
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   success,
   created,
@@ -11,10 +10,13 @@ import {
   badRequest,
   forbidden,
 } from "../../../../services/base/ServiceResponse.js"
-import EventProposal from "../../../../models/event/EventProposal.model.js"
-import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
-import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
-import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { eventProposalOwner } from "../../../../services/gymkhana/eventProposalOwner.service.js"
+import { eventProposalQueries } from "../../../../services/gymkhana/eventProposalQueries.service.js"
+import { gymkhanaEventOwner } from "../../../../services/gymkhana/gymkhanaEventOwner.service.js"
+import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
+import { activityCalendarQueries } from "../../../../services/gymkhana/activityCalendarQueries.service.js"
+import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
+import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import { auditService } from "../../../../services/audit/audit.service.js"
 import { pickFields } from "../../../../utils/objectDiff.js"
 import {
@@ -36,11 +38,7 @@ import {
 } from "./approval-assignments.utils.js"
 import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
-class ProposalService extends BaseService {
-  constructor() {
-    super(EventProposal, "EventProposal")
-  }
-
+class ProposalService {
   static LEGACY_PENDING_STATUS = "pending"
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -59,7 +57,7 @@ class ProposalService extends BaseService {
       return forbidden("Only GS or President Gymkhana can submit proposals")
     }
 
-    const event = await GymkhanaEvent.findById(eventId)
+    const event = await gymkhanaEventQueries.findEventById(eventId)
     if (!event) {
       return notFound("Event")
     }
@@ -81,9 +79,7 @@ class ProposalService extends BaseService {
     }
 
     if (!isMegaEvent && event.calendarId) {
-      const calendar = await ActivityCalendar.findById(event.calendarId).select(
-        "status allowProposalBeforeApproval academicYear"
-      )
+      const calendar = await activityCalendarQueries.findCalendarStatusFields(event.calendarId)
 
       if (
         calendar &&
@@ -110,7 +106,7 @@ class ProposalService extends BaseService {
     const startsAtStudentAffairs = isMegaEvent && isPresident
 
     // Create proposal
-    const proposal = await this.model.create({
+    const proposal = await eventProposalOwner.createProposal({
       eventId,
       submittedBy: user._id,
       ...proposalPayload,
@@ -130,10 +126,10 @@ class ProposalService extends BaseService {
     event.proposalSubmitted = true
     event.proposalId = proposal._id
     event.status = EVENT_STATUS.PROPOSAL_SUBMITTED
-    await event.save()
+    await gymkhanaEventOwner.persistEvent(event)
 
     // Log submission
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventProposal",
       entityId: proposal._id,
       stage: isPresident ? APPROVAL_STAGES.PRESIDENT_GYMKHANA : APPROVAL_STAGES.GS_GYMKHANA,
@@ -170,9 +166,7 @@ class ProposalService extends BaseService {
    * Build the deep-link context (label + params) for a proposal's event.
    */
   async _proposalLinkContext(proposal) {
-    const event = await GymkhanaEvent.findById(proposal.eventId).select(
-      "title isMegaEvent megaEventSeriesId calendarId"
-    )
+    const event = await gymkhanaEventQueries.findEventByIdLinkFields(proposal.eventId)
     const label = event?.title || "Gymkhana Event Proposal"
     if (!event) return { label, linkParams: {} }
     if (event.isMegaEvent || event.megaEventSeriesId) {
@@ -180,7 +174,7 @@ class ProposalService extends BaseService {
     }
     let academicYear = ""
     if (event.calendarId) {
-      const calendar = await ActivityCalendar.findById(event.calendarId).select("academicYear")
+      const calendar = await activityCalendarQueries.findCalendarAcademicYear(event.calendarId)
       academicYear = calendar?.academicYear || ""
     }
     return { label, linkParams: { isMegaEvent: false, eventId: event._id, academicYear } }
@@ -199,7 +193,7 @@ class ProposalService extends BaseService {
       return forbidden("Only GS or President Gymkhana can update proposals")
     }
 
-    const proposal = await this.model.findById(proposalId)
+    const proposal = await eventProposalQueries.findProposalById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
@@ -213,7 +207,7 @@ class ProposalService extends BaseService {
       return badRequest("GS can only update proposals after revision request or rejection")
     }
 
-    const event = await GymkhanaEvent.findById(proposal.eventId)
+    const event = await gymkhanaEventQueries.findEventById(proposal.eventId)
     if (!event) {
       return notFound("Event")
     }
@@ -268,10 +262,10 @@ class ProposalService extends BaseService {
       proposal.rejectedAt = null
     }
 
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
     // Log update/resubmission
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventProposal",
       entityId: proposal._id,
       stage: user.subRole,
@@ -312,12 +306,12 @@ class ProposalService extends BaseService {
   async adminUpdateProposal(proposalId, data, user) {
     const { reason, ...fields } = data || {}
 
-    const proposal = await this.model.findById(proposalId)
+    const proposal = await eventProposalQueries.findProposalById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
 
-    const event = await GymkhanaEvent.findById(proposal.eventId)
+    const event = await gymkhanaEventQueries.findEventById(proposal.eventId)
     if (!event) {
       return notFound("Event")
     }
@@ -327,7 +321,7 @@ class ProposalService extends BaseService {
     const beforeSnapshot = pickFields(proposal.toObject(), trackedFields)
 
     Object.assign(proposal, payload)
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
     await auditService.recordUpdate({
       entityType: "EventProposal",
@@ -348,7 +342,7 @@ class ProposalService extends BaseService {
    * event so a fresh proposal can be submitted. Snapshot + reason are audited.
    */
   async adminSoftDeleteProposal(proposalId, reason, user) {
-    const proposal = await this.model.findById(proposalId)
+    const proposal = await eventProposalQueries.findProposalById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
@@ -372,14 +366,14 @@ class ProposalService extends BaseService {
     proposal.deletedAt = new Date()
     proposal.deletedBy = user._id
     proposal.deleteReason = reason
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
-    const event = await GymkhanaEvent.findById(proposal.eventId)
+    const event = await gymkhanaEventQueries.findEventById(proposal.eventId)
     if (event && String(event.proposalId) === String(proposal._id)) {
       event.proposalSubmitted = false
       event.proposalId = null
       event.status = EVENT_STATUS.UPCOMING
-      await event.save()
+      await gymkhanaEventOwner.persistEvent(event)
     }
 
     await auditService.recordDelete({
@@ -398,9 +392,7 @@ class ProposalService extends BaseService {
    * Admin restore of a soft-deleted proposal. Re-links it to its event.
    */
   async adminRestoreProposal(proposalId, user) {
-    const proposal = await this.model
-      .findOne({ _id: proposalId })
-      .setOptions({ withDeleted: true })
+    const proposal = await eventProposalQueries.findProposalByIdWithDeleted(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
@@ -412,9 +404,9 @@ class ProposalService extends BaseService {
     proposal.deletedAt = null
     proposal.deletedBy = null
     proposal.deleteReason = null
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
-    const event = await GymkhanaEvent.findById(proposal.eventId)
+    const event = await gymkhanaEventQueries.findEventById(proposal.eventId)
     if (event && !event.proposalId) {
       event.proposalSubmitted = true
       event.proposalId = proposal._id
@@ -422,7 +414,7 @@ class ProposalService extends BaseService {
         proposal.status === PROPOSAL_STATUS.APPROVED
           ? EVENT_STATUS.PROPOSAL_APPROVED
           : EVENT_STATUS.PROPOSAL_SUBMITTED
-      await event.save()
+      await gymkhanaEventOwner.persistEvent(event)
     }
 
     await auditService.recordRestore({
@@ -440,14 +432,7 @@ class ProposalService extends BaseService {
    * List soft-deleted proposals (newest first) for the admin "deleted items" view.
    */
   async listDeletedProposals({ limit = 200 } = {}) {
-    const proposals = await this.model
-      .find({ isDeleted: true })
-      .sort({ deletedAt: -1 })
-      .limit(limit)
-      .populate("submittedBy", "name email")
-      .populate("deletedBy", "name email")
-      .populate("eventId", "title category")
-      .lean()
+    const proposals = await eventProposalQueries.listDeletedProposals({ limit })
     return success({ proposals })
   }
 
@@ -466,7 +451,7 @@ class ProposalService extends BaseService {
     nextApprovers = [],
     directApprove = false
   ) {
-    const proposal = await this.model.findById(proposalId)
+    const proposal = await eventProposalQueries.findProposalById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
@@ -614,15 +599,15 @@ class ProposalService extends BaseService {
       proposal.currentApproverUser = null
 
       // Update event status
-      await GymkhanaEvent.findByIdAndUpdate(proposal.eventId, {
+      await gymkhanaEventOwner.updateEventById(proposal.eventId, {
         status: EVENT_STATUS.PROPOSAL_APPROVED,
       })
     }
 
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
     // Log approval
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventProposal",
       entityId: proposal._id,
       stage: currentStage,
@@ -664,7 +649,7 @@ class ProposalService extends BaseService {
    * Reject proposal
    */
   async rejectProposal(proposalId, reason, user) {
-    const proposal = await this.model.findById(proposalId)
+    const proposal = await eventProposalQueries.findProposalById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
@@ -693,10 +678,10 @@ class ProposalService extends BaseService {
     proposal.customApprovalChain = []
     proposal.currentChainIndex = null
     clearCustomApprovalAssignments(proposal)
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
     // Log rejection
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventProposal",
       entityId: proposal._id,
       stage: currentStage,
@@ -726,7 +711,7 @@ class ProposalService extends BaseService {
    * Request revision on proposal
    */
   async requestRevision(proposalId, comments, user) {
-    const proposal = await this.model.findById(proposalId)
+    const proposal = await eventProposalQueries.findProposalById(proposalId)
     if (!proposal) {
       return notFound("Proposal")
     }
@@ -747,7 +732,7 @@ class ProposalService extends BaseService {
 
     const currentStage = user.subRole
 
-    const event = await GymkhanaEvent.findById(proposal.eventId).select("megaEventSeriesId")
+    const event = await gymkhanaEventQueries.findEventByIdSelectMega(proposal.eventId)
     const isMegaEvent = Boolean(event?.megaEventSeriesId)
 
     proposal.status = PROPOSAL_STATUS.REVISION_REQUESTED
@@ -759,10 +744,10 @@ class ProposalService extends BaseService {
     proposal.customApprovalChain = []
     proposal.currentChainIndex = null
     clearCustomApprovalAssignments(proposal)
-    await proposal.save()
+    await eventProposalOwner.persistProposal(proposal)
 
     // Log revision request
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventProposal",
       entityId: proposal._id,
       stage: currentStage,
@@ -796,10 +781,7 @@ class ProposalService extends BaseService {
    * Get proposal by ID
    */
   async getProposalById(proposalId) {
-    const proposal = await this.model.findById(proposalId)
-      .populate("eventId")
-      .populate("submittedBy", "name email")
-      .populate("rejectedBy", "name email")
+    const proposal = await eventProposalQueries.findProposalByIdDetailed(proposalId)
 
     if (!proposal) {
       return notFound("Proposal")
@@ -812,10 +794,7 @@ class ProposalService extends BaseService {
    * Get proposal for an event
    */
   async getProposalByEvent(eventId) {
-    const proposal = await this.model.findOne({ eventId })
-      .populate("eventId")
-      .populate("submittedBy", "name email")
-      .populate("rejectedBy", "name email")
+    const proposal = await eventProposalQueries.findProposalByEventPopulated(eventId)
 
     if (!proposal) {
       return notFound("Proposal")
@@ -832,12 +811,12 @@ class ProposalService extends BaseService {
     const cutoffDate = new Date()
     cutoffDate.setDate(today.getDate() + daysUntilDue)
 
-    const events = await GymkhanaEvent.find({
+    const events = await gymkhanaEventQueries.findEventsNeedingProposals({
       proposalSubmitted: false,
       isMegaEvent: false,
       scheduledStartDate: { $gte: today, $lte: cutoffDate },
       status: { $nin: [EVENT_STATUS.CANCELLED, EVENT_STATUS.COMPLETED] },
-    }).sort({ proposalDueDate: 1 })
+    })
 
     const enrichedEvents = events.map((event) => {
       const serialized = event.toObject()
@@ -880,7 +859,7 @@ class ProposalService extends BaseService {
         ? { status: { $in: [ProposalService.LEGACY_PENDING_STATUS, assignedStatus] } }
         : { status: assignedStatus }
 
-    const proposals = await this.model.find({
+    const proposals = await eventProposalQueries.findProposalsForApproval({
       ...filter,
       $or: [
         { currentApproverUser: user._id },
@@ -888,9 +867,6 @@ class ProposalService extends BaseService {
         { currentApproverUser: { $exists: false } },
       ],
     })
-      .populate("eventId")
-      .populate("submittedBy", "name email")
-      .sort({ createdAt: -1 })
 
     return success({ proposals })
   }
@@ -899,12 +875,7 @@ class ProposalService extends BaseService {
    * Get approval history for a proposal
    */
   async getApprovalHistory(proposalId) {
-    const logs = await ApprovalLog.find({
-      entityType: "EventProposal",
-      entityId: proposalId,
-    })
-      .sort({ createdAt: 1 })
-      .populate("performedBy", "name email subRole")
+    const logs = await approvalLogQueries.findLogsByEntity("EventProposal", proposalId)
 
     return success({ history: logs })
   }
@@ -991,7 +962,7 @@ class ProposalService extends BaseService {
 
     if (!event.proposalDueDate || Number.isNaN(new Date(event.proposalDueDate).getTime())) {
       event.proposalDueDate = dueDate
-      await event.save()
+      await gymkhanaEventOwner.persistEvent(event)
     }
 
     return dueDate

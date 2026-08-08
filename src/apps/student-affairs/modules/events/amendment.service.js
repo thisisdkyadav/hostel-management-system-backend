@@ -3,7 +3,6 @@
  * @description Business logic for calendar amendment requests
  */
 
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   success,
   created,
@@ -11,10 +10,12 @@ import {
   badRequest,
   forbidden,
 } from "../../../../services/base/ServiceResponse.js"
-import CalendarAmendment from "../../../../models/event/CalendarAmendment.model.js"
-import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
-import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
-import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { calendarAmendmentOwner } from "../../../../services/gymkhana/calendarAmendmentOwner.service.js"
+import { calendarAmendmentQueries } from "../../../../services/gymkhana/calendarAmendmentQueries.service.js"
+import { activityCalendarQueries } from "../../../../services/gymkhana/activityCalendarQueries.service.js"
+import { gymkhanaEventOwner } from "../../../../services/gymkhana/gymkhanaEventOwner.service.js"
+import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
+import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
 import { AMENDMENT_STATUS, CALENDAR_STATUS, APPROVAL_ACTIONS, APPROVAL_STAGES } from "./events.constants.js"
 import { SUBROLES, ROLES } from "../../../../core/constants/roles.constants.js"
 import { validateCategoryBudgetCaps } from "./budget-caps.utils.js"
@@ -23,11 +24,7 @@ import {
   validateEventCategories,
 } from "./category-definitions.utils.js"
 
-class AmendmentService extends BaseService {
-  constructor() {
-    super(CalendarAmendment, "CalendarAmendment")
-  }
-
+class AmendmentService {
   /**
    * Request an amendment (GS only)
    */
@@ -38,29 +35,28 @@ class AmendmentService extends BaseService {
 
     // For edits, verify event exists
     if (data.type === "edit" && data.eventId) {
-      const event = await GymkhanaEvent.findById(data.eventId)
+      const event = await gymkhanaEventQueries.findEventById(data.eventId)
       if (!event) {
         return notFound("Event to edit")
       }
       data.calendarId = event.calendarId
     } else if (data.type === "new_event") {
       // Get current approved calendar
-      const calendar = await ActivityCalendar.findOne({ status: CALENDAR_STATUS.APPROVED })
-        .sort({ createdAt: -1 })
+      const calendar = await activityCalendarQueries.findLatestCalendarByStatus(CALENDAR_STATUS.APPROVED)
       if (!calendar) {
         return badRequest("No approved calendar exists to add events to")
       }
       data.calendarId = calendar._id
     }
 
-    const amendment = await this.model.create({
+    const amendment = await calendarAmendmentOwner.createAmendment({
       ...data,
       requestedBy: user._id,
       status: AMENDMENT_STATUS.PENDING,
     })
 
     // Log amendment request
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "CalendarAmendment",
       entityId: amendment._id,
       stage: SUBROLES.GS_GYMKHANA,
@@ -79,7 +75,7 @@ class AmendmentService extends BaseService {
       return forbidden("Only admins can approve amendments")
     }
 
-    const amendment = await this.model.findById(amendmentId)
+    const amendment = await calendarAmendmentQueries.findAmendmentById(amendmentId)
     if (!amendment) {
       return notFound("Amendment")
     }
@@ -88,7 +84,7 @@ class AmendmentService extends BaseService {
       return badRequest("Amendment is not pending")
     }
 
-    const calendar = await ActivityCalendar.findById(amendment.calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(amendment.calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -99,7 +95,7 @@ class AmendmentService extends BaseService {
 
     // Load the calendar's events from the GymkhanaEvent collection (single source of truth)
     const calendarEvents = (
-      await GymkhanaEvent.find({ calendarId: calendar._id, isMegaEvent: false })
+      await gymkhanaEventQueries.findCalendarEvents(calendar._id)
     ).map((event) => ({
       _id: event._id,
       title: event.title,
@@ -111,7 +107,7 @@ class AmendmentService extends BaseService {
     }))
 
     if (amendment.type === "edit") {
-      const linkedEvent = await GymkhanaEvent.findById(amendment.eventId)
+      const linkedEvent = await gymkhanaEventQueries.findEventById(amendment.eventId)
       if (!linkedEvent) {
         return notFound("Event to edit")
       }
@@ -151,7 +147,7 @@ class AmendmentService extends BaseService {
       linkedEvent.scheduledEndDate = amendment.proposedChanges.endDate
       linkedEvent.estimatedBudget = amendment.proposedChanges.estimatedBudget
       linkedEvent.description = amendment.proposedChanges.description
-      await linkedEvent.save()
+      await gymkhanaEventOwner.persistEvent(linkedEvent)
     } else if (amendment.type === "new_event") {
       const updatedEvents = [...calendarEvents, amendment.proposedChanges]
       const categoryValidation = validateEventCategories(updatedEvents, categoryDefinitions)
@@ -168,7 +164,7 @@ class AmendmentService extends BaseService {
         return badRequest(budgetCapValidation.message)
       }
 
-      await GymkhanaEvent.create({
+      await gymkhanaEventOwner.createEvent({
         calendarId: amendment.calendarId,
         title: amendment.proposedChanges.title,
         category: amendment.proposedChanges.category,
@@ -184,12 +180,12 @@ class AmendmentService extends BaseService {
     amendment.reviewedBy = user._id
     amendment.reviewedAt = new Date()
     amendment.reviewComments = reviewComments
-    await amendment.save()
+    await calendarAmendmentOwner.persistAmendment(amendment)
 
     const reviewStage = user.subRole || APPROVAL_STAGES.STUDENT_AFFAIRS
 
     // Log approval
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "CalendarAmendment",
       entityId: amendment._id,
       stage: reviewStage,
@@ -209,7 +205,7 @@ class AmendmentService extends BaseService {
       return forbidden("Only admins can reject amendments")
     }
 
-    const amendment = await this.model.findById(amendmentId)
+    const amendment = await calendarAmendmentQueries.findAmendmentById(amendmentId)
     if (!amendment) {
       return notFound("Amendment")
     }
@@ -222,12 +218,12 @@ class AmendmentService extends BaseService {
     amendment.reviewedBy = user._id
     amendment.reviewedAt = new Date()
     amendment.reviewComments = reviewComments
-    await amendment.save()
+    await calendarAmendmentOwner.persistAmendment(amendment)
 
     const reviewStage = user.subRole || APPROVAL_STAGES.STUDENT_AFFAIRS
 
     // Log rejection
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "CalendarAmendment",
       entityId: amendment._id,
       stage: reviewStage,
@@ -243,10 +239,7 @@ class AmendmentService extends BaseService {
    * Get pending amendments (Admin view)
    */
   async getPendingAmendments() {
-    const amendments = await this.model.find({ status: AMENDMENT_STATUS.PENDING })
-      .populate("requestedBy", "name email")
-      .populate("eventId", "title")
-      .sort({ createdAt: -1 })
+    const amendments = await calendarAmendmentQueries.findAmendmentsByStatus(AMENDMENT_STATUS.PENDING)
 
     return success({ amendments })
   }
@@ -255,10 +248,7 @@ class AmendmentService extends BaseService {
    * Get amendments by calendar
    */
   async getAmendmentsByCalendar(calendarId) {
-    const amendments = await this.model.find({ calendarId })
-      .populate("requestedBy", "name email")
-      .populate("reviewedBy", "name email")
-      .sort({ createdAt: -1 })
+    const amendments = await calendarAmendmentQueries.findAmendmentsByCalendar(calendarId)
 
     return success({ amendments })
   }

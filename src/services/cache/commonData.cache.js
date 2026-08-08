@@ -1,4 +1,5 @@
-import { Event, LostAndFound } from "../../models/index.js";
+import { LostAndFound } from "../../models/index.js";
+import { eventQueries } from "../event/eventQueries.service.js";
 import { getCacheJson, getDataCacheClient, setCacheJson } from "./redisDataCache.client.js";
 
 const EVENTS_CACHE_KEY = "cache:common:events:v2";
@@ -78,7 +79,7 @@ const buildEventStats = (allSorted, upcomingSorted) => {
 };
 
 const buildEventsCachePayload = async () => {
-  const docs = await Event.find({}).sort({ dateAndTime: 1 });
+  const docs = await eventQueries.findAllForCache();
   const rawEvents = docs.map(toSerializable).filter(Boolean);
   const allSorted = sortAllEvents(rawEvents);
   const upcomingSorted = sortUpcomingEvents(rawEvents);

@@ -9,7 +9,7 @@ import { proposalService } from "./proposal.service.js"
 import { expenseService } from "./expense.service.js"
 import { amendmentService } from "./amendment.service.js"
 import { megaEventsService } from "./mega-events.service.js"
-import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
+import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
 import { success, badRequest } from "../../../../services/base/ServiceResponse.js"
 import { auditService } from "../../../../services/audit/audit.service.js"
 import { getConfigWithDefault } from "../../../../utils/configDefaults.js"
@@ -593,16 +593,14 @@ export const getEvents = asyncHandler(async (req, res) => {
     filter.isMegaEvent = String(isMegaEvent).toLowerCase() === "true"
   }
   
-  const events = await GymkhanaEvent.find(filter)
-    .populate("calendarId", "academicYear")
-    .populate("megaEventSeriesId", "name")
-    .sort({ scheduledStartDate: 1 })
-    .skip((page - 1) * limit)
-    .limit(parseInt(limit))
+  const events = await gymkhanaEventQueries.listEvents(filter, {
+    skip: (page - 1) * limit,
+    limit: parseInt(limit),
+  })
 
   const enrichedEvents = events.map(enrichEventWithProposalDueDate)
-  
-  const total = await GymkhanaEvent.countDocuments(filter)
+
+  const total = await gymkhanaEventQueries.countEvents(filter)
   
   sendRawResponse(res, success({
     events: enrichedEvents,
@@ -611,12 +609,8 @@ export const getEvents = asyncHandler(async (req, res) => {
 })
 
 export const getEventById = asyncHandler(async (req, res) => {
-  const event = await GymkhanaEvent.findById(req.params.id)
-    .populate("calendarId", "academicYear")
-    .populate("megaEventSeriesId", "name description")
-    .populate("proposalId")
-    .populate("expenseId")
-  
+  const event = await gymkhanaEventQueries.findEventByIdFull(req.params.id)
+
   if (!event) {
     return sendRawResponse(res, { success: false, statusCode: 404, message: "Event not found" })
   }
@@ -651,9 +645,7 @@ export const getCalendarView = asyncHandler(async (req, res) => {
     ]
   }
   
-  const events = await GymkhanaEvent.find(filter)
-    .select("title category scheduledStartDate scheduledEndDate status proposalDueDate")
-    .sort({ scheduledStartDate: 1 })
+  const events = await gymkhanaEventQueries.findEventsForCalendarView(filter)
 
   const enrichedEvents = events.map(enrichEventWithProposalDueDate)
   const holidays = await getHolidaysInRange(rangeStart, rangeEnd)

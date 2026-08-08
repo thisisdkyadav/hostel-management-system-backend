@@ -11,14 +11,14 @@
  * Write semantics:
  * - Best-effort by default: a logging failure is reported but never throws, so
  *   it can never break the user-facing action it accompanies (matches the
- *   existing ApprovalLog.create pattern).
+ *   existing approval-log append pattern).
  * - Pass a Mongoose `session` to make the write participate in a transaction
  *   (e.g. for financial edits); in that mode failures propagate so the whole
  *   transaction rolls back.
  */
 
 import AuditLog from "../../models/audit/AuditLog.model.js"
-import ApprovalLog from "../../models/event/ApprovalLog.model.js"
+import { approvalLogQueries } from "../gymkhana/approvalLogQueries.service.js"
 import { computeDiff } from "../../utils/objectDiff.js"
 import { success } from "../base/ServiceResponse.js"
 import { logger } from "../base/Logger.js"
@@ -150,9 +150,7 @@ class AuditService {
       AuditLog.find({ entityType, entityId })
         .populate("actor.userId", "name email role")
         .lean(),
-      ApprovalLog.find({ entityType, entityId })
-        .populate("performedBy", "name email role")
-        .lean(),
+      approvalLogQueries.findLogsByEntityLean(entityType, entityId),
     ])
 
     const editItems = audits.map((a) => ({

@@ -3,7 +3,6 @@
  * @description Business logic for post-event expense submission
  */
 
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   success,
   created,
@@ -11,11 +10,14 @@ import {
   badRequest,
   forbidden,
 } from "../../../../services/base/ServiceResponse.js"
-import EventExpense from "../../../../models/event/EventExpense.model.js"
-import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
-import EventProposal from "../../../../models/event/EventProposal.model.js"
-import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
-import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { eventExpenseOwner } from "../../../../services/gymkhana/eventExpenseOwner.service.js"
+import { eventExpenseQueries } from "../../../../services/gymkhana/eventExpenseQueries.service.js"
+import { gymkhanaEventOwner } from "../../../../services/gymkhana/gymkhanaEventOwner.service.js"
+import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
+import { eventProposalQueries } from "../../../../services/gymkhana/eventProposalQueries.service.js"
+import { activityCalendarQueries } from "../../../../services/gymkhana/activityCalendarQueries.service.js"
+import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
+import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import { auditService } from "../../../../services/audit/audit.service.js"
 import { pickFields } from "../../../../utils/objectDiff.js"
 import {
@@ -37,11 +39,7 @@ import {
 } from "./approval-assignments.utils.js"
 import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
-class ExpenseService extends BaseService {
-  constructor() {
-    super(EventExpense, "EventExpense")
-  }
-
+class ExpenseService {
   /**
    * Submit expenses for an event (GS only)
    */
@@ -50,7 +48,7 @@ class ExpenseService extends BaseService {
       return forbidden("Only GS Gymkhana can submit expenses")
     }
 
-    const event = await GymkhanaEvent.findById(eventId)
+    const event = await gymkhanaEventQueries.findEventById(eventId)
     if (!event) {
       return notFound("Event")
     }
@@ -60,16 +58,16 @@ class ExpenseService extends BaseService {
     }
 
     // Check if expense already exists
-    const existing = await this.model.findOne({ eventId })
+    const existing = await eventExpenseQueries.findExpenseByEventId(eventId)
     if (existing) {
       return badRequest("Expenses already submitted for this event")
     }
 
     // Use proposal expenditure as planned budget snapshot for expense tracking
-    const proposal = await EventProposal.findById(event.proposalId)
+    const proposal = await eventProposalQueries.findProposalById(event.proposalId)
     const estimatedBudget = proposal?.totalExpenditure || event.estimatedBudget
 
-    const expense = await this.model.create({
+    const expense = await eventExpenseOwner.createExpense({
       eventId,
       submittedBy: user._id,
       ...data,
@@ -90,9 +88,9 @@ class ExpenseService extends BaseService {
 
     // Link event with expense for quick access
     event.expenseId = expense._id
-    await event.save()
+    await gymkhanaEventOwner.persistEvent(event)
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventExpense",
       entityId: expense._id,
       stage: APPROVAL_STAGES.GS_GYMKHANA,
@@ -128,9 +126,7 @@ class ExpenseService extends BaseService {
    * Build the deep-link context (label + params) for an expense's event.
    */
   async _expenseLinkContext(expense) {
-    const event = await GymkhanaEvent.findById(expense.eventId).select(
-      "title isMegaEvent megaEventSeriesId calendarId"
-    )
+    const event = await gymkhanaEventQueries.findEventByIdLinkFields(expense.eventId)
     const label = event?.title || "Gymkhana Event Bills"
     if (!event) return { label, linkParams: {} }
     if (event.isMegaEvent || event.megaEventSeriesId) {
@@ -138,7 +134,7 @@ class ExpenseService extends BaseService {
     }
     let academicYear = ""
     if (event.calendarId) {
-      const calendar = await ActivityCalendar.findById(event.calendarId).select("academicYear")
+      const calendar = await activityCalendarQueries.findCalendarAcademicYear(event.calendarId)
       academicYear = calendar?.academicYear || ""
     }
     return { label, linkParams: { isMegaEvent: false, eventId: event._id, academicYear } }
@@ -152,7 +148,7 @@ class ExpenseService extends BaseService {
       return forbidden("Only GS Gymkhana can update expenses")
     }
 
-    const expense = await this.model.findById(expenseId)
+    const expense = await eventExpenseQueries.findExpenseById(expenseId)
     if (!expense) {
       return notFound("Expense")
     }
@@ -177,7 +173,7 @@ class ExpenseService extends BaseService {
     expense.approvedBy = null
     expense.approvedAt = null
     expense.approvalComments = ""
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
 
     // Audit: field-level diff of the edited bill content
     await auditService.recordUpdate({
@@ -204,7 +200,7 @@ class ExpenseService extends BaseService {
   async adminUpdateExpense(expenseId, data, user) {
     const { reason, ...payload } = data || {}
 
-    const expense = await this.model.findById(expenseId)
+    const expense = await eventExpenseQueries.findExpenseById(expenseId)
     if (!expense) {
       return notFound("Expense")
     }
@@ -213,7 +209,7 @@ class ExpenseService extends BaseService {
     const beforeSnapshot = pickFields(expense.toObject(), trackedFields)
 
     Object.assign(expense, payload)
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
 
     await auditService.recordUpdate({
       entityType: "EventExpense",
@@ -233,7 +229,7 @@ class ExpenseService extends BaseService {
    * Admin soft-delete (reversible): hide the bill and unlink it from its event.
    */
   async adminSoftDeleteExpense(expenseId, reason, user) {
-    const expense = await this.model.findById(expenseId)
+    const expense = await eventExpenseQueries.findExpenseById(expenseId)
     if (!expense) {
       return notFound("Expense")
     }
@@ -251,15 +247,15 @@ class ExpenseService extends BaseService {
     expense.deletedAt = new Date()
     expense.deletedBy = user._id
     expense.deleteReason = reason
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
 
-    const event = await GymkhanaEvent.findById(expense.eventId)
+    const event = await gymkhanaEventQueries.findEventById(expense.eventId)
     if (event && String(event.expenseId) === String(expense._id)) {
       event.expenseId = null
       if (event.status === EVENT_STATUS.COMPLETED) {
         event.status = EVENT_STATUS.PROPOSAL_APPROVED
       }
-      await event.save()
+      await gymkhanaEventOwner.persistEvent(event)
     }
 
     await auditService.recordDelete({
@@ -278,9 +274,7 @@ class ExpenseService extends BaseService {
    * Admin restore of a soft-deleted bill. Re-links it to its event.
    */
   async adminRestoreExpense(expenseId, user) {
-    const expense = await this.model
-      .findOne({ _id: expenseId })
-      .setOptions({ withDeleted: true })
+    const expense = await eventExpenseQueries.findExpenseByIdWithDeleted(expenseId)
     if (!expense) {
       return notFound("Expense")
     }
@@ -289,10 +283,10 @@ class ExpenseService extends BaseService {
     }
 
     // Only one active bill per event is allowed (partial-unique on eventId).
-    const activeExists = await this.model.findOne({
-      eventId: expense.eventId,
-      _id: { $ne: expense._id },
-    })
+    const activeExists = await eventExpenseQueries.findActiveExpenseByEventExcluding(
+      expense.eventId,
+      expense._id
+    )
     if (activeExists) {
       return badRequest("A bill already exists for this event; cannot restore the deleted one")
     }
@@ -301,15 +295,15 @@ class ExpenseService extends BaseService {
     expense.deletedAt = null
     expense.deletedBy = null
     expense.deleteReason = null
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
 
-    const event = await GymkhanaEvent.findById(expense.eventId)
+    const event = await gymkhanaEventQueries.findEventById(expense.eventId)
     if (event && !event.expenseId) {
       event.expenseId = expense._id
       if (expense.approvalStatus === EXPENSE_APPROVAL_STATUS.APPROVED) {
         event.status = EVENT_STATUS.COMPLETED
       }
-      await event.save()
+      await gymkhanaEventOwner.persistEvent(event)
     }
 
     await auditService.recordRestore({
@@ -327,14 +321,7 @@ class ExpenseService extends BaseService {
    * List soft-deleted bills (newest first) for the admin "deleted items" view.
    */
   async listDeletedExpenses({ limit = 200 } = {}) {
-    const expenses = await this.model
-      .find({ isDeleted: true })
-      .sort({ deletedAt: -1 })
-      .limit(limit)
-      .populate("submittedBy", "name email")
-      .populate("deletedBy", "name email")
-      .populate("eventId", "title category")
-      .lean()
+    const expenses = await eventExpenseQueries.listDeletedExpenses({ limit })
     return success({ expenses })
   }
 
@@ -346,7 +333,7 @@ class ExpenseService extends BaseService {
       return forbidden("Only admins can approve expenses")
     }
 
-    const expense = await this.model.findById(expenseId)
+    const expense = await eventExpenseQueries.findExpenseById(expenseId)
     if (!expense) {
       return notFound("Expense")
     }
@@ -482,9 +469,9 @@ class ExpenseService extends BaseService {
     }
 
     expense.approvalComments = normalizedComments
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventExpense",
       entityId: expense._id,
       stage: effectiveStage,
@@ -513,7 +500,7 @@ class ExpenseService extends BaseService {
     }
 
     if (expense.approvalStatus === EXPENSE_APPROVAL_STATUS.APPROVED) {
-      await GymkhanaEvent.findByIdAndUpdate(expense.eventId, {
+      await gymkhanaEventOwner.updateEventById(expense.eventId, {
         status: EVENT_STATUS.COMPLETED,
         expenseId: expense._id,
       })
@@ -536,7 +523,7 @@ class ExpenseService extends BaseService {
       return forbidden("Only admins can reject expenses")
     }
 
-    const expense = await this.model.findById(expenseId)
+    const expense = await eventExpenseQueries.findExpenseById(expenseId)
     if (!expense) {
       return notFound("Expense")
     }
@@ -576,9 +563,9 @@ class ExpenseService extends BaseService {
     expense.approvalComments = reason?.trim() || ""
     expense.approvedBy = null
     expense.approvedAt = null
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "EventExpense",
       entityId: expense._id,
       stage: effectiveStage,
@@ -608,11 +595,7 @@ class ExpenseService extends BaseService {
    * Get expense by ID
    */
   async getExpenseById(expenseId) {
-    const expense = await this.model.findById(expenseId)
-      .populate("eventId")
-      .populate("submittedBy", "name email")
-      .populate("approvedBy", "name email subRole")
-      .populate("rejectedBy", "name email subRole")
+    const expense = await eventExpenseQueries.findExpenseByIdDetailed(expenseId)
 
     if (!expense) {
       return notFound("Expense")
@@ -625,10 +608,7 @@ class ExpenseService extends BaseService {
    * Get expense for an event
    */
   async getExpenseByEvent(eventId) {
-    const expense = await this.model.findOne({ eventId })
-      .populate("submittedBy", "name email")
-      .populate("approvedBy", "name email subRole")
-      .populate("rejectedBy", "name email subRole")
+    const expense = await eventExpenseQueries.findExpenseByEventPopulated(eventId)
 
     if (!expense) {
       return notFound("Expense")
@@ -687,16 +667,12 @@ class ExpenseService extends BaseService {
       }
     }
 
-    const expenses = await this.model.find(filter)
-      .populate("eventId", "title category scheduledStartDate scheduledEndDate")
-      .populate("submittedBy", "name email")
-      .populate("approvedBy", "name email subRole")
-      .populate("rejectedBy", "name email subRole")
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(limit)
+    const expenses = await eventExpenseQueries.listExpenses(filter, {
+      skip: (page - 1) * limit,
+      limit,
+    })
 
-    const total = await this.model.countDocuments(filter)
+    const total = await eventExpenseQueries.countExpenses(filter)
 
     return success({
       expenses,
@@ -708,12 +684,7 @@ class ExpenseService extends BaseService {
    * Get approval history for an expense
    */
   async getApprovalHistory(expenseId) {
-    const logs = await ApprovalLog.find({
-      entityType: "EventExpense",
-      entityId: expenseId,
-    })
-      .sort({ createdAt: 1 })
-      .populate("performedBy", "name email subRole")
+    const logs = await approvalLogQueries.findLogsByEntity("EventExpense", expenseId)
 
     return success({ history: logs })
   }
@@ -755,7 +726,7 @@ class ExpenseService extends BaseService {
     if (!expense.currentApprovalStage) {
       expense.currentApprovalStage = APPROVAL_STAGES.STUDENT_AFFAIRS
     }
-    await expense.save()
+    await eventExpenseOwner.persistExpense(expense)
   }
 }
 

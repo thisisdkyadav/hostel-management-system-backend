@@ -7,7 +7,7 @@
 
 import { Warden } from '../../../../models/index.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
-import { Event } from '../../../../models/index.js';
+import { eventQueries } from '../../../../services/event/eventQueries.service.js';
 import { LostAndFound } from '../../../../models/index.js';
 import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
@@ -65,9 +65,9 @@ class StatsService {
   async getEventStats(hostelId) {
     const currentDate = new Date();
     const [total, upcoming, past] = await Promise.all([
-      Event.countDocuments({ hostelId }),
-      Event.countDocuments({ dateAndTime: { $gt: currentDate }, hostelId }),
-      Event.countDocuments({ dateAndTime: { $lte: currentDate }, hostelId })
+      eventQueries.countEvents({ hostelId }),
+      eventQueries.countEvents({ dateAndTime: { $gt: currentDate }, hostelId }),
+      eventQueries.countEvents({ dateAndTime: { $lte: currentDate }, hostelId })
     ]);
 
     return success({ total, upcoming, past });

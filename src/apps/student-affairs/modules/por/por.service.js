@@ -9,7 +9,8 @@ import {
 import PorRequest from "../../../../models/club/PorRequest.model.js"
 import PorCategory from "../../../../models/club/PorCategory.model.js"
 import Club from "../../../../models/club/Club.model.js"
-import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
+import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import StudentProfile from "../../../../models/student/StudentProfile.model.js"
 import Gymkhana from "../../../../models/user/Gymkhana.model.js"
 import User from "../../../../models/user/User.model.js"
@@ -472,7 +473,7 @@ class PorService extends BaseService {
       ? `Submitted by ${studentProfile.rollNumber}`
       : ""
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: POR_APPROVAL_STAGES.STUDENT,
@@ -561,7 +562,7 @@ class PorService extends BaseService {
 
     const revisionComment = `Revision #${porRequest.revisionCount}`
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: POR_APPROVAL_STAGES.STUDENT,
@@ -970,7 +971,7 @@ class PorService extends BaseService {
         ? POR_APPROVAL_ACTIONS.APPROVED
         : POR_APPROVAL_ACTIONS.RECOMMENDED
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: currentStage,
@@ -1030,7 +1031,7 @@ class PorService extends BaseService {
     clearCustomApprovalAssignments(porRequest)
     await porRequest.save()
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: currentStage,
@@ -1076,7 +1077,7 @@ class PorService extends BaseService {
     clearCustomApprovalAssignments(porRequest)
     await porRequest.save()
 
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "PorRequest",
       entityId: porRequest._id,
       stage: currentStage,
@@ -1109,12 +1110,7 @@ class PorService extends BaseService {
       return forbidden("You cannot view this POR request")
     }
 
-    const logs = await ApprovalLog.find({
-      entityType: "PorRequest",
-      entityId: id,
-    })
-      .sort({ createdAt: 1 })
-      .populate("performedBy", "name email subRole")
+    const logs = await approvalLogQueries.findLogsByEntity("PorRequest", id)
 
     return success({ history: logs })
   }

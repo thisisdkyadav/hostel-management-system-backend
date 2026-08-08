@@ -6,7 +6,7 @@
 
 import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { Event } from '../../../../models/index.js';
+import { eventQueries } from '../../../../services/event/eventQueries.service.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
@@ -143,10 +143,7 @@ class DashboardService extends BaseService {
    * Get upcoming events
    */
   async getEvents() {
-    const events = await Event.find({ dateAndTime: { $gte: new Date() } })
-      .sort({ dateAndTime: 1 })
-      .limit(5)
-      .populate('hostelId', 'name');
+    const events = await eventQueries.findUpcomingForDashboard(5);
 
     return events.map((event) => {
       const date = new Date(event.dateAndTime);

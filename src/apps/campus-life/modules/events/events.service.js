@@ -5,14 +5,17 @@
  * @module services/event.service
  */
 
-import { Event } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, error } from '../../../../services/base/index.js';
+import { success, error, notFound, conflict } from '../../../../services/base/index.js';
+import { eventOwner } from '../../../../services/event/eventOwner.service.js';
+import { eventQueries } from '../../../../services/event/eventQueries.service.js';
 import {
   COMMON_CACHE_CONFIG,
   getEventsCachePayload,
   refreshCommonCache,
 } from '../../../../services/cache/commonData.cache.js';
+
+const ENTITY = 'Event';
 
 const EVENT_FILTERS = new Set(['all', 'upcoming', 'past']);
 const DEFAULT_PAGE = 1;
@@ -119,11 +122,7 @@ const isEventVisibleToStudent = (event, { hostelId, gender }) => {
   return matchesHostel && matchesGender;
 };
 
-class EventService extends BaseService {
-  constructor() {
-    super(Event, 'Event');
-  }
-
+class EventService {
   async getEventsFromDatabase(user, queryParams = {}) {
     const page = parsePositiveInt(queryParams.page, DEFAULT_PAGE);
     const parsedLimit = parsePositiveInt(queryParams.limit, DEFAULT_LIMIT);
@@ -152,7 +151,7 @@ class EventService extends BaseService {
       query.hostelId = { $in: [hostelId || null, null] };
     }
 
-    const scopedEvents = await Event.find(query).lean();
+    const scopedEvents = await eventQueries.findEventsLean(query);
 
     const upcomingEvents = scopedEvents
       .filter((event) => getEventTimestamp(event) > now)
@@ -196,21 +195,26 @@ class EventService extends BaseService {
 
     const staffHostelId = user.hostel ? user.hostel._id : null;
 
-    const result = await this.create({
-      eventName,
-      description,
-      dateAndTime,
-      hostelId: staffHostelId || hostelId,
-      gender
-    });
-
-    if (result.success) {
-      await refreshCommonCache('events', { useLock: false }).catch((cacheError) => {
-        console.error('Failed to sync events cache after create:', cacheError?.message || cacheError);
+    let event;
+    try {
+      event = await eventOwner.createEvent({
+        eventName,
+        description,
+        dateAndTime,
+        hostelId: staffHostelId || hostelId,
+        gender
       });
-      return success({ message: 'Event created successfully', event: result.data }, 201);
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    await refreshCommonCache('events', { useLock: false }).catch((cacheError) => {
+      console.error('Failed to sync events cache after create:', cacheError?.message || cacheError);
+    });
+    return success({ message: 'Event created successfully', event }, 201);
   }
 
   /**
@@ -316,21 +320,26 @@ class EventService extends BaseService {
   async updateEvent(id, data) {
     const { eventName, description, dateAndTime, hostelId, gender } = data;
 
-    const result = await this.updateById(id, {
-      eventName,
-      description,
-      dateAndTime,
-      hostelId: hostelId || null,
-      gender
-    });
-
-    if (result.success) {
-      await refreshCommonCache('events', { useLock: false }).catch((cacheError) => {
-        console.error('Failed to sync events cache after update:', cacheError?.message || cacheError);
+    let event;
+    try {
+      event = await eventOwner.updateEvent(id, {
+        eventName,
+        description,
+        dateAndTime,
+        hostelId: hostelId || null,
+        gender
       });
-      return success({ message: 'Event updated successfully', success: true, event: result.data });
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    if (!event) {
+      return notFound(ENTITY);
+    }
+    await refreshCommonCache('events', { useLock: false }).catch((cacheError) => {
+      console.error('Failed to sync events cache after update:', cacheError?.message || cacheError);
+    });
+    return success({ message: 'Event updated successfully', success: true, event });
   }
 
   /**
@@ -338,14 +347,20 @@ class EventService extends BaseService {
    * @param {string} id - Event ID
    */
   async deleteEvent(id) {
-    const result = await this.deleteById(id);
-    if (result.success) {
-      await refreshCommonCache('events', { useLock: false }).catch((cacheError) => {
-        console.error('Failed to sync events cache after delete:', cacheError?.message || cacheError);
-      });
-      return success({ message: 'Event deleted successfully', success: true });
+    let deleted;
+    try {
+      deleted = await eventOwner.deleteEvent(id);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    if (!deleted) {
+      return notFound(ENTITY);
+    }
+    await refreshCommonCache('events', { useLock: false }).catch((cacheError) => {
+      console.error('Failed to sync events cache after delete:', cacheError?.message || cacheError);
+    });
+    return success({ message: 'Event deleted successfully', success: true });
   }
 }
 

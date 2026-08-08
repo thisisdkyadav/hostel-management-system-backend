@@ -4,17 +4,20 @@
  * Admin creates/locks calendars, Gymkhana users edit (if unlocked) or request amendments (if locked)
  */
 
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   success,
   created,
   notFound,
   badRequest,
   forbidden,
+  paginated,
 } from "../../../../services/base/ServiceResponse.js"
-import ActivityCalendar from "../../../../models/event/ActivityCalendar.model.js"
-import GymkhanaEvent from "../../../../models/event/GymkhanaEvent.model.js"
-import ApprovalLog from "../../../../models/event/ApprovalLog.model.js"
+import { activityCalendarOwner } from "../../../../services/gymkhana/activityCalendarOwner.service.js"
+import { activityCalendarQueries } from "../../../../services/gymkhana/activityCalendarQueries.service.js"
+import { gymkhanaEventOwner } from "../../../../services/gymkhana/gymkhanaEventOwner.service.js"
+import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
+import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
+import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import User from "../../../../models/user/User.model.js"
 import { auditService } from "../../../../services/audit/audit.service.js"
 import { pickFields } from "../../../../utils/objectDiff.js"
@@ -47,11 +50,7 @@ import {
 } from "./approval-assignments.utils.js"
 import { notifyStageApprovers, notifySubmitterByEmail } from "./approval-email.utils.js"
 
-class CalendarService extends BaseService {
-  constructor() {
-    super(ActivityCalendar, "ActivityCalendar")
-  }
-
+class CalendarService {
   // ═══════════════════════════════════════════════════════════════════════════
   // ADMIN OPERATIONS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -66,7 +65,7 @@ class CalendarService extends BaseService {
     }
 
     // Check if calendar for this year exists
-    const existing = await this.model.findOne({ academicYear: data.academicYear })
+    const existing = await activityCalendarQueries.findCalendarByAcademicYear(data.academicYear)
     if (existing) {
       return badRequest(`Activity calendar for ${data.academicYear} already exists`)
     }
@@ -102,7 +101,7 @@ class CalendarService extends BaseService {
       return badRequest(overallBudgetValidation.message)
     }
 
-    const calendar = await this.model.create({
+    const calendar = await activityCalendarOwner.createCalendar({
       academicYear: data.academicYear,
       allowProposalBeforeApproval: Boolean(data.allowProposalBeforeApproval),
       overallBudget: overallBudgetValidation.overallBudget,
@@ -130,7 +129,7 @@ class CalendarService extends BaseService {
       return forbidden("Only Admin can lock calendars")
     }
 
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -142,7 +141,7 @@ class CalendarService extends BaseService {
     calendar.isLocked = true
     calendar.lockedBy = user._id
     calendar.lockedAt = new Date()
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     return success({ calendar }, 200, "Calendar locked successfully")
   }
@@ -155,7 +154,7 @@ class CalendarService extends BaseService {
       return forbidden("Only Admin can unlock calendars")
     }
 
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -167,7 +166,7 @@ class CalendarService extends BaseService {
     calendar.isLocked = false
     calendar.lockedBy = null
     calendar.lockedAt = null
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     return success({ calendar }, 200, "Calendar unlocked successfully")
   }
@@ -182,7 +181,7 @@ class CalendarService extends BaseService {
    * President: can edit all pre-submission calendars
    */
   async updateCalendar(calendarId, data, user) {
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -245,7 +244,7 @@ class CalendarService extends BaseService {
       calendar.rejectedAt = null
     }
 
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     if (data.events) {
       await this._writeCalendarEvents(calendar._id, data.events, user)
@@ -259,7 +258,7 @@ class CalendarService extends BaseService {
       return forbidden("Only Admin can update calendar settings")
     }
 
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -323,7 +322,7 @@ class CalendarService extends BaseService {
     calendar.allowProposalBeforeApproval = nextAllowProposalBeforeApproval
     calendar.overallBudget = overallBudgetValidation.overallBudget
     calendar.budgetCaps = nextBudgetCaps
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     return success({ calendar: await this._attachResolvedCategoryDefinitions(calendar) }, 200, "Calendar settings updated successfully")
   }
@@ -334,7 +333,7 @@ class CalendarService extends BaseService {
   async submitCalendar(calendarId, user, options = {}) {
     const { allowOverlappingDates = false } = options
 
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -392,10 +391,10 @@ class CalendarService extends BaseService {
     calendar.isLocked = true
     calendar.lockedBy = user._id
     calendar.lockedAt = new Date()
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     // Log the submission
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "ActivityCalendar",
       entityId: calendar._id,
       stage: APPROVAL_STAGES.PRESIDENT_GYMKHANA,
@@ -439,7 +438,7 @@ class CalendarService extends BaseService {
     nextApprovers = [],
     directApprove = false
   ) {
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -596,10 +595,10 @@ class CalendarService extends BaseService {
       calendar.lockedAt = new Date()
     }
 
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     // Log the approval
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "ActivityCalendar",
       entityId: calendar._id,
       stage: currentStage,
@@ -636,7 +635,7 @@ class CalendarService extends BaseService {
    * Reject calendar
    */
   async rejectCalendar(calendarId, reason, user) {
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -666,10 +665,10 @@ class CalendarService extends BaseService {
     calendar.customApprovalChain = []
     calendar.currentChainIndex = null
     clearCustomApprovalAssignments(calendar)
-    await calendar.save()
+    await activityCalendarOwner.persistCalendar(calendar)
 
     // Log the rejection
-    await ApprovalLog.create({
+    await approvalLogOwner.createLog({
       entityType: "ActivityCalendar",
       entityId: calendar._id,
       stage: currentStage,
@@ -705,10 +704,7 @@ class CalendarService extends BaseService {
    * Get calendar by ID
    */
   async getCalendarById(calendarId) {
-    const calendar = await this.model.findById(calendarId)
-      .populate("createdBy", "name email")
-      .populate("rejectedBy", "name email")
-      .populate("lockedBy", "name email")
+    const calendar = await activityCalendarQueries.findCalendarByIdPopulated(calendarId)
 
     if (!calendar) {
       return notFound("Activity calendar")
@@ -721,9 +717,7 @@ class CalendarService extends BaseService {
    * Get calendar by academic year
    */
   async getCalendarByYear(year) {
-    const calendar = await this.model.findOne({ academicYear: year })
-      .populate("createdBy", "name email")
-      .populate("lockedBy", "name email")
+    const calendar = await activityCalendarQueries.findCalendarByYearPopulated(year)
 
     if (!calendar) {
       return notFound("Activity calendar")
@@ -742,16 +736,21 @@ class CalendarService extends BaseService {
     if (status) filter.status = status
     if (academicYear) filter.academicYear = academicYear
 
-    return this.findPaginated(filter, { page, limit })
+    const pageNum = parseInt(page, 10)
+    const limitNum = parseInt(limit, 10)
+    const [items, total] = await Promise.all([
+      activityCalendarQueries.listCalendars(filter, { skip: (pageNum - 1) * limitNum, limit: limitNum }),
+      activityCalendarQueries.countCalendars(filter),
+    ])
+    return paginated(items, { page, limit, total })
   }
 
   /**
    * Get all academic years (for dropdown)
    */
   async getAcademicYears() {
-    const calendars = await this.model.find({}, "academicYear status isLocked")
-      .sort({ academicYear: -1 })
-    
+    const calendars = await activityCalendarQueries.listAcademicYears()
+
     return success({ years: calendars })
   }
 
@@ -759,12 +758,7 @@ class CalendarService extends BaseService {
    * Get approval history for a calendar
    */
   async getApprovalHistory(calendarId) {
-    const logs = await ApprovalLog.find({
-      entityType: "ActivityCalendar",
-      entityId: calendarId,
-    })
-      .sort({ createdAt: 1 })
-      .populate("performedBy", "name email subRole")
+    const logs = await approvalLogQueries.findLogsByEntity("ActivityCalendar", calendarId)
 
     return success({ history: logs })
   }
@@ -773,7 +767,7 @@ class CalendarService extends BaseService {
    * Check overlap for a candidate event inside a calendar
    */
   async checkEventOverlap(calendarId, eventData) {
-    const calendar = await this.model.findById(calendarId)
+    const calendar = await activityCalendarQueries.findCalendarById(calendarId)
     if (!calendar) {
       return notFound("Activity calendar")
     }
@@ -827,9 +821,7 @@ class CalendarService extends BaseService {
    * Load a calendar's events from the GymkhanaEvent collection (single source of truth).
    */
   async _loadCalendarEvents(calendarId) {
-    const docs = await GymkhanaEvent.find({ calendarId, isMegaEvent: false }).sort({
-      scheduledStartDate: 1,
-    })
+    const docs = await gymkhanaEventQueries.findCalendarEventsSorted(calendarId)
     return docs.map((doc) => this._toCalendarEventShape(doc))
   }
 
@@ -841,7 +833,7 @@ class CalendarService extends BaseService {
    */
   async _writeCalendarEvents(calendarId, incomingEvents = [], actor = null) {
     const incoming = Array.isArray(incomingEvents) ? incomingEvents : []
-    const existing = await GymkhanaEvent.find({ calendarId, isMegaEvent: false })
+    const existing = await gymkhanaEventQueries.findCalendarEvents(calendarId)
     const existingById = new Map(existing.map((event) => [String(event._id), event]))
     const keptIds = new Set()
 
@@ -872,7 +864,7 @@ class CalendarService extends BaseService {
       if (id && existingById.has(id)) {
         keptIds.add(id)
         const beforeSnapshot = pickFields(existingById.get(id).toObject(), AUDIT_FIELDS)
-        await GymkhanaEvent.findByIdAndUpdate(id, payload, { new: true, runValidators: true })
+        await gymkhanaEventOwner.updateEventById(id, payload, { new: true, runValidators: true })
         await auditService.recordUpdate({
           entityType: "GymkhanaEvent",
           entityId: id,
@@ -883,7 +875,7 @@ class CalendarService extends BaseService {
           feature: "gymkhana-events",
         })
       } else {
-        const createdEvent = await GymkhanaEvent.create({ ...payload, status: "upcoming" })
+        const createdEvent = await gymkhanaEventOwner.createEvent({ ...payload, status: "upcoming" })
         keptIds.add(String(createdEvent._id))
         await auditService.recordCreate({
           entityType: "GymkhanaEvent",
@@ -903,7 +895,7 @@ class CalendarService extends BaseService {
         !event.expenseId
     )
     if (removable.length > 0) {
-      await GymkhanaEvent.deleteMany({ _id: { $in: removable.map((event) => event._id) } })
+      await gymkhanaEventOwner.deleteEventsByIds(removable.map((event) => event._id))
       for (const event of removable) {
         await auditService.recordDelete({
           entityType: "GymkhanaEvent",

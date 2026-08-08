@@ -3,7 +3,6 @@
  * @description Business logic for recurring mega event series and occurrence-specific proposal/expense flow.
  */
 
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   success,
   created,
@@ -11,8 +10,8 @@ import {
   badRequest,
   forbidden,
 } from "../../../../services/base/ServiceResponse.js"
-import MegaEventSeries from "../../../../models/event/MegaEventSeries.model.js"
-import MegaEventOccurrence from "../../../../models/event/MegaEventOccurrence.model.js"
+import { megaEventOwner } from "../../../../services/gymkhana/megaEventOwner.service.js"
+import { megaEventQueries } from "../../../../services/gymkhana/megaEventQueries.service.js"
 import {
   EVENT_STATUS,
   EVENT_CATEGORY,
@@ -48,11 +47,7 @@ const sortOccurrencesByDateDesc = (occurrences = []) =>
     return rightCreatedAt - leftCreatedAt
   })
 
-class MegaEventsService extends BaseService {
-  constructor() {
-    super(MegaEventSeries, "MegaEventSeries")
-  }
-
+class MegaEventsService {
   _canManageSeries(user) {
     return user?.role === ROLES.ADMIN || user?.role === ROLES.SUPER_ADMIN
   }
@@ -205,25 +200,17 @@ class MegaEventsService extends BaseService {
   }
 
   async _getOccurrenceById(occurrenceId) {
-    return MegaEventOccurrence.findById(occurrenceId)
+    return megaEventQueries.findOccurrenceById(occurrenceId)
   }
 
   async getSeries() {
-    const series = await this.model.find({ isActive: true }).sort({ name: 1 })
+    const series = await megaEventQueries.listActiveSeries()
 
     const summary = await Promise.all(
       series.map(async (entry) => {
-        const latestOccurrence = await MegaEventOccurrence.findOne({
-          seriesId: entry._id,
-        })
-          .sort({ scheduledStartDate: -1, scheduledEndDate: -1, createdAt: -1 })
-          .select(
-            "title status scheduledStartDate scheduledEndDate proposalSubmitted proposalDueDate"
-          )
+        const latestOccurrence = await megaEventQueries.findLatestOccurrenceSummaryBySeries(entry._id)
 
-        const occurrencesCount = await MegaEventOccurrence.countDocuments({
-          seriesId: entry._id,
-        })
+        const occurrencesCount = await megaEventQueries.countOccurrencesBySeries(entry._id)
 
         return {
           ...entry.toObject(),
@@ -259,10 +246,7 @@ class MegaEventsService extends BaseService {
       return success({ occurrences: [] })
     }
 
-    const occurrences = await MegaEventOccurrence.find({ "proposal.status": status })
-      .select("title seriesId scheduledStartDate scheduledEndDate proposal.status")
-      .populate("seriesId", "name")
-      .sort({ scheduledStartDate: -1, createdAt: -1 })
+    const occurrences = await megaEventQueries.findOccurrencesByProposalStatus(status)
 
     return success({ occurrences })
   }
@@ -277,12 +261,12 @@ class MegaEventsService extends BaseService {
       return badRequest("Series name is required")
     }
 
-    const existing = await this.model.findOne({ name: normalizedName })
+    const existing = await megaEventQueries.findSeriesByName(normalizedName)
     if (existing) {
       return badRequest("Mega event series already exists with this name")
     }
 
-    const series = await this.model.create({
+    const series = await megaEventOwner.createSeries({
       name: normalizedName,
       description: String(data.description || "").trim(),
       createdBy: user._id,
@@ -293,14 +277,12 @@ class MegaEventsService extends BaseService {
   }
 
   async getSeriesById(seriesId) {
-    const series = await this.model.findById(seriesId)
+    const series = await megaEventQueries.findSeriesById(seriesId)
     if (!series || !series.isActive) {
       return notFound("Mega event series")
     }
 
-    const occurrences = await MegaEventOccurrence.find({
-      seriesId: series._id,
-    }).sort({ scheduledStartDate: -1, scheduledEndDate: -1, createdAt: -1 })
+    const occurrences = await megaEventQueries.findOccurrencesBySeries(series._id)
 
     const ordered = sortOccurrencesByDateDesc(occurrences.map((entry) => entry.toObject()))
     const latestOccurrence = ordered.length > 0 ? ordered[0] : null
@@ -319,7 +301,7 @@ class MegaEventsService extends BaseService {
       return forbidden("Only admin users can create mega event occurrences")
     }
 
-    const series = await this.model.findById(seriesId)
+    const series = await megaEventQueries.findSeriesById(seriesId)
     if (!series || !series.isActive) {
       return notFound("Mega event series")
     }
@@ -334,7 +316,7 @@ class MegaEventsService extends BaseService {
       return badRequest("End date cannot be before start date")
     }
 
-    const occurrence = await MegaEventOccurrence.create({
+    const occurrence = await megaEventOwner.createOccurrence({
       seriesId: series._id,
       title: series.name,
       description:
@@ -354,9 +336,7 @@ class MegaEventsService extends BaseService {
   }
 
   async getProposalByOccurrence(occurrenceId) {
-    const occurrence = await MegaEventOccurrence.findById(occurrenceId)
-      .populate("proposal.submittedBy", "name email subRole")
-      .populate("proposal.rejectedBy", "name email subRole")
+    const occurrence = await megaEventQueries.findOccurrenceByIdWithProposalRefs(occurrenceId)
 
     if (!occurrence) {
       return notFound("Mega event occurrence")
@@ -408,7 +388,7 @@ class MegaEventsService extends BaseService {
     occurrence.proposalSubmitted = true
     occurrence.status = EVENT_STATUS.PROPOSAL_SUBMITTED
 
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     await notifyStageApprovers({
       entityType: "EventProposal",
@@ -477,7 +457,7 @@ class MegaEventsService extends BaseService {
     occurrence.status = EVENT_STATUS.PROPOSAL_SUBMITTED
     occurrence.markModified("proposal")
 
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     return success({ proposal: occurrence.proposal }, 200, "Proposal updated successfully")
   }
@@ -589,7 +569,7 @@ class MegaEventsService extends BaseService {
     )
 
     occurrence.markModified("proposal")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     if (
       proposal.status !== PROPOSAL_STATUS.APPROVED &&
@@ -663,7 +643,7 @@ class MegaEventsService extends BaseService {
 
     occurrence.status = EVENT_STATUS.PROPOSAL_PENDING
     occurrence.markModified("proposal")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     await notifySubmitterByEmail({
       entityType: "EventProposal",
@@ -726,7 +706,7 @@ class MegaEventsService extends BaseService {
 
     occurrence.status = EVENT_STATUS.PROPOSAL_PENDING
     occurrence.markModified("proposal")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     await notifySubmitterByEmail({
       entityType: "EventProposal",
@@ -744,8 +724,7 @@ class MegaEventsService extends BaseService {
   }
 
   async getProposalHistoryForOccurrence(occurrenceId) {
-    const occurrence = await MegaEventOccurrence.findById(occurrenceId)
-      .populate("proposal.history.performedBy", "name email subRole")
+    const occurrence = await megaEventQueries.findOccurrenceByIdWithProposalHistory(occurrenceId)
 
     if (!occurrence) {
       return notFound("Mega event occurrence")
@@ -763,10 +742,7 @@ class MegaEventsService extends BaseService {
   }
 
   async getExpenseByOccurrence(occurrenceId) {
-    const occurrence = await MegaEventOccurrence.findById(occurrenceId)
-      .populate("expense.submittedBy", "name email subRole")
-      .populate("expense.approvedBy", "name email subRole")
-      .populate("expense.rejectedBy", "name email subRole")
+    const occurrence = await megaEventQueries.findOccurrenceByIdWithExpenseRefs(occurrenceId)
 
     if (!occurrence) {
       return notFound("Mega event occurrence")
@@ -824,7 +800,7 @@ class MegaEventsService extends BaseService {
 
     this._recalculateExpenseFields(occurrence.expense)
     occurrence.markModified("expense")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     await notifyStageApprovers({
       entityType: "EventExpense",
@@ -880,7 +856,7 @@ class MegaEventsService extends BaseService {
 
     this._recalculateExpenseFields(occurrence.expense)
     occurrence.markModified("expense")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     return success({ expense: occurrence.expense }, 200, "Expenses updated successfully")
   }
@@ -992,7 +968,7 @@ class MegaEventsService extends BaseService {
     )
 
     occurrence.markModified("expense")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     if (
       expense.approvalStatus !== EXPENSE_APPROVAL_STATUS.APPROVED &&
@@ -1074,7 +1050,7 @@ class MegaEventsService extends BaseService {
     )
 
     occurrence.markModified("expense")
-    await occurrence.save()
+    await megaEventOwner.persistOccurrence(occurrence)
 
     await notifySubmitterByEmail({
       entityType: "EventExpense",
@@ -1092,8 +1068,7 @@ class MegaEventsService extends BaseService {
   }
 
   async getExpenseHistoryForOccurrence(occurrenceId) {
-    const occurrence = await MegaEventOccurrence.findById(occurrenceId)
-      .populate("expense.history.performedBy", "name email subRole")
+    const occurrence = await megaEventQueries.findOccurrenceByIdWithExpenseHistory(occurrenceId)
 
     if (!occurrence) {
       return notFound("Mega event occurrence")
