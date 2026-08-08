@@ -1,8 +1,8 @@
-import {
-  OverallBestPerformerOccurrence,
-  OverallBestPerformerApplication,
-  StudentProfile,
-} from "../../../../models/index.js"
+import { StudentProfile } from "../../../../models/index.js"
+import { bestPerformerOccurrenceOwner } from "../../../../services/award/bestPerformerOccurrenceOwner.service.js"
+import { bestPerformerOccurrenceQueries } from "../../../../services/award/bestPerformerOccurrenceQueries.service.js"
+import { bestPerformerApplicationOwner } from "../../../../services/award/bestPerformerApplicationOwner.service.js"
+import { bestPerformerApplicationQueries } from "../../../../services/award/bestPerformerApplicationQueries.service.js"
 import { porRequestQueries } from "../../../../services/club/porRequestQueries.service.js"
 import {
   success,
@@ -71,18 +71,7 @@ const getOccurrenceWindowStatus = (occurrence) => {
 
 const closeExpiredOccurrences = async () => {
   const currentTime = now()
-  await OverallBestPerformerOccurrence.updateMany(
-    {
-      status: OCCURRENCE_STATUS.ACTIVE,
-      applyEndAt: { $lt: currentTime },
-    },
-    {
-      $set: {
-        status: OCCURRENCE_STATUS.CLOSED,
-        closedAt: currentTime,
-      },
-    }
-  )
+  await bestPerformerOccurrenceOwner.closeExpiredOccurrences(currentTime)
 }
 
 const serializeOccurrence = (occurrence, extras = {}) => {
@@ -565,13 +554,12 @@ const getStudentProfileForUser = async (userId) => {
 
 const getOccurrenceById = async (id) => {
   await closeExpiredOccurrences()
-  return OverallBestPerformerOccurrence.findById(id)
+  return bestPerformerOccurrenceQueries.findOccurrenceById(id)
 }
 
 const getActiveOccurrence = async () => {
   await closeExpiredOccurrences()
-  return OverallBestPerformerOccurrence.findOne({ status: OCCURRENCE_STATUS.ACTIVE })
-    .sort({ applyEndAt: -1, createdAt: -1 })
+  return bestPerformerOccurrenceQueries.findActiveOccurrence()
 }
 
 const buildPorLookupForApplications = async (applications = []) => {
@@ -619,9 +607,7 @@ const buildPorLookupForApplications = async (applications = []) => {
 }
 
 const getLatestAppliedOccurrenceForStudent = async (userId) => {
-  const application = await OverallBestPerformerApplication.findOne({ studentUserId: userId })
-    .populate("occurrenceId")
-    .sort({ submittedAt: -1, createdAt: -1 })
+  const application = await bestPerformerApplicationQueries.findApplicationByStudent(userId)
 
   if (!application?.occurrenceId) return { occurrence: null, application: null }
 
@@ -673,18 +659,12 @@ class BestPerformerService {
     }
 
     await closeExpiredOccurrences()
-    await OverallBestPerformerOccurrence.updateMany(
-      { status: OCCURRENCE_STATUS.ACTIVE },
-      {
-        $set: {
-          status: OCCURRENCE_STATUS.CLOSED,
-          closedAt: now(),
-          updatedBy: user._id,
-        },
-      }
-    )
+    await bestPerformerOccurrenceOwner.closeAllActiveOccurrences({
+      closedAt: now(),
+      updatedBy: user._id,
+    })
 
-    const occurrence = await OverallBestPerformerOccurrence.create({
+    const occurrence = await bestPerformerOccurrenceOwner.createOccurrence({
       title: payload.title,
       awardYear: payload.awardYear,
       description: payload.description || "",
@@ -747,18 +727,9 @@ class BestPerformerService {
     }
 
     if (nextApplyEndAt > now()) {
-      await OverallBestPerformerOccurrence.updateMany(
-        {
-          _id: { $ne: occurrence._id },
-          status: OCCURRENCE_STATUS.ACTIVE,
-        },
-        {
-          $set: {
-            status: OCCURRENCE_STATUS.CLOSED,
-            closedAt: now(),
-          },
-        }
-      )
+      await bestPerformerOccurrenceOwner.closeOtherActiveOccurrences(occurrence._id, {
+        closedAt: now(),
+      })
       occurrence.status = OCCURRENCE_STATUS.ACTIVE
       occurrence.closedAt = null
       occurrence.activatedAt = occurrence.activatedAt || now()
@@ -768,7 +739,7 @@ class BestPerformerService {
     }
 
     occurrence.updatedBy = user._id
-    await occurrence.save()
+    await bestPerformerOccurrenceOwner.persistOccurrence(occurrence)
 
     return success({
       occurrence: serializeOccurrence(occurrence),
@@ -777,9 +748,7 @@ class BestPerformerService {
 
   async getOccurrenceSelector() {
     await closeExpiredOccurrences()
-    const occurrences = await OverallBestPerformerOccurrence.find({})
-      .sort({ awardYear: -1, applyEndAt: -1, createdAt: -1 })
-      .lean()
+    const occurrences = await bestPerformerOccurrenceQueries.listOccurrences()
 
     const activeOccurrence = occurrences.find((item) => item.status === OCCURRENCE_STATUS.ACTIVE) || null
     const sixMonthsAgo = new Date(now())
@@ -802,11 +771,7 @@ class BestPerformerService {
     const occurrence = await getOccurrenceById(id)
     if (!occurrence) return notFound("Occurrence")
 
-    const applications = await OverallBestPerformerApplication.find({ occurrenceId: occurrence._id })
-      .populate("studentUserId", "name email profileImage")
-      .populate("hodVerifications.verifiedBy", "name email")
-      .sort({ "review.finalScore": -1, "scoreBreakdown.total": -1, updatedAt: 1 })
-      .lean()
+    const applications = await bestPerformerApplicationQueries.findApplicationsByOccurrence(occurrence._id)
     const porLookup = await buildPorLookupForApplications(applications)
 
     const leaderboard = applications
@@ -848,10 +813,10 @@ class BestPerformerService {
 
     const activeOccurrence = await getActiveOccurrence()
     if (activeOccurrence) {
-      const currentApplication = await OverallBestPerformerApplication.findOne({
-        occurrenceId: activeOccurrence._id,
-        studentUserId: user._id,
-      })
+      const currentApplication = await bestPerformerApplicationQueries.findApplicationByOccurrenceAndStudent(
+        activeOccurrence._id,
+        user._id
+      )
 
       const normalizedRollNumber = String(profile.rollNumber || "").toUpperCase()
       const isEligible = activeOccurrence.eligibleRollNumbers.includes(normalizedRollNumber)
@@ -926,10 +891,10 @@ class BestPerformerService {
     }
 
     const normalizedRollNumber = String(profile.rollNumber || "").toUpperCase()
-    const existingApplication = await OverallBestPerformerApplication.findOne({
-      occurrenceId: occurrence._id,
-      studentUserId: user._id,
-    })
+    const existingApplication = await bestPerformerApplicationQueries.findApplicationByOccurrenceAndStudent(
+      occurrence._id,
+      user._id
+    )
 
     const isEligible = occurrence.eligibleRollNumbers.includes(normalizedRollNumber)
     if (!isEligible && !existingApplication) {
@@ -964,7 +929,7 @@ class BestPerformerService {
     }
 
     const computed = computeBreakdown(normalizedPayload)
-    const application = existingApplication || new OverallBestPerformerApplication({
+    const application = existingApplication || bestPerformerApplicationOwner.newApplication({
       occurrenceId: occurrence._id,
       studentUserId: user._id,
       studentProfileId: profile._id,
@@ -1001,7 +966,7 @@ class BestPerformerService {
     }
     application.submittedAt = application.submittedAt || now()
 
-    await application.save()
+    await bestPerformerApplicationOwner.persistApplication(application)
 
     const porLookup = await buildPorLookupForApplications([application])
 
@@ -1012,7 +977,7 @@ class BestPerformerService {
   }
 
   async reviewApplication(applicationId, payload, user) {
-    const application = await OverallBestPerformerApplication.findById(applicationId)
+    const application = await bestPerformerApplicationQueries.findApplicationById(applicationId)
     if (!application) return notFound("Application")
 
     const occurrence = await getOccurrenceById(application.occurrenceId)
@@ -1036,7 +1001,7 @@ class BestPerformerService {
         : Number(application.scoreBreakdown?.total || 0),
     }
 
-    await application.save()
+    await bestPerformerApplicationOwner.persistApplication(application)
 
     const porLookup = await buildPorLookupForApplications([application])
 
@@ -1046,7 +1011,7 @@ class BestPerformerService {
   }
 
   async updateApplicationItemType(applicationId, payload) {
-    const application = await OverallBestPerformerApplication.findById(applicationId)
+    const application = await bestPerformerApplicationQueries.findApplicationById(applicationId)
     if (!application) return notFound("Application")
 
     const occurrence = await getOccurrenceById(application.occurrenceId)
@@ -1102,11 +1067,9 @@ class BestPerformerService {
     application.markModified(config.modifiedPath)
     application.markModified("scoreBreakdown")
     application.markModified("review")
-    await application.save()
+    await bestPerformerApplicationOwner.persistApplication(application)
 
-    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
-      .populate("studentUserId", "name email profileImage")
-      .populate("hodVerifications.verifiedBy", "name email")
+    const refreshedApplication = await bestPerformerApplicationQueries.findApplicationByIdPopulated(application._id)
     const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
 
     return success({
@@ -1115,7 +1078,7 @@ class BestPerformerService {
   }
 
   async updateApplicationCourseworkScore(applicationId, payload) {
-    const application = await OverallBestPerformerApplication.findById(applicationId)
+    const application = await bestPerformerApplicationQueries.findApplicationById(applicationId)
     if (!application) return notFound("Application")
 
     const occurrence = await getOccurrenceById(application.occurrenceId)
@@ -1162,11 +1125,9 @@ class BestPerformerService {
     application.markModified("coursework")
     application.markModified("scoreBreakdown")
     application.markModified("review")
-    await application.save()
+    await bestPerformerApplicationOwner.persistApplication(application)
 
-    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
-      .populate("studentUserId", "name email profileImage")
-      .populate("hodVerifications.verifiedBy", "name email")
+    const refreshedApplication = await bestPerformerApplicationQueries.findApplicationByIdPopulated(application._id)
     const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
 
     return success({
@@ -1175,7 +1136,7 @@ class BestPerformerService {
   }
 
   async updateApplicationProjectThesisGrades(applicationId, payload) {
-    const application = await OverallBestPerformerApplication.findById(applicationId)
+    const application = await bestPerformerApplicationQueries.findApplicationById(applicationId)
     if (!application) return notFound("Application")
 
     const occurrence = await getOccurrenceById(application.occurrenceId)
@@ -1220,11 +1181,9 @@ class BestPerformerService {
     application.markModified("projectThesis")
     application.markModified("scoreBreakdown")
     application.markModified("review")
-    await application.save()
+    await bestPerformerApplicationOwner.persistApplication(application)
 
-    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
-      .populate("studentUserId", "name email profileImage")
-      .populate("hodVerifications.verifiedBy", "name email")
+    const refreshedApplication = await bestPerformerApplicationQueries.findApplicationByIdPopulated(application._id)
     const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
 
     return success({
@@ -1233,7 +1192,7 @@ class BestPerformerService {
   }
 
   async addHodVerification(applicationId, payload, user) {
-    const application = await OverallBestPerformerApplication.findById(applicationId)
+    const application = await bestPerformerApplicationQueries.findApplicationById(applicationId)
     if (!application) return notFound("Application")
 
     const occurrence = await getOccurrenceById(application.occurrenceId)
@@ -1261,10 +1220,9 @@ class BestPerformerService {
       verifiedAt: now(),
     })
 
-    await application.save()
+    await bestPerformerApplicationOwner.persistApplication(application)
 
-    const refreshedApplication = await OverallBestPerformerApplication.findById(application._id)
-      .populate("hodVerifications.verifiedBy", "name email")
+    const refreshedApplication = await bestPerformerApplicationQueries.findApplicationByIdWithHodVerifiers(application._id)
 
     const porLookup = await buildPorLookupForApplications(refreshedApplication ? [refreshedApplication] : [])
 
