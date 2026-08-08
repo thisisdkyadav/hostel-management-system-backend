@@ -1,4 +1,3 @@
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   badRequest,
   conflict,
@@ -7,7 +6,8 @@ import {
   notFound,
   success,
 } from "../../../../services/base/ServiceResponse.js"
-import Club from "../../../../models/club/Club.model.js"
+import { clubOwner } from "../../../../services/club/clubOwner.service.js"
+import { clubQueries } from "../../../../services/club/clubQueries.service.js"
 import User from "../../../../models/user/User.model.js"
 import Gymkhana from "../../../../models/user/Gymkhana.model.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
@@ -73,14 +73,10 @@ const serializeClub = (club, categoriesByKey) => {
   }
 }
 
-class ClubsService extends BaseService {
-  constructor() {
-    super(Club, "Club")
-  }
-
+class ClubsService {
   async listClubs() {
     const { gymkhanaCategories, categoriesByKey } = await buildCategoryLookup()
-    const clubs = await this.model.find().sort({ name: 1 }).lean()
+    const clubs = await clubQueries.listClubs()
 
     return success(
       {
@@ -101,9 +97,10 @@ class ClubsService extends BaseService {
     const normalizedName = normalizeText(data?.name)
     const normalizedEmail = normalizeEmail(data?.email)
 
-    const duplicateClub = await this.model.findOne({
-      $or: [{ nameLower: normalizedName.toLowerCase() }, { emailLower: normalizedEmail }],
-    }).select("+nameLower +emailLower")
+    const duplicateClub = await clubQueries.findClubByNameOrEmailLower(
+      normalizedName.toLowerCase(),
+      normalizedEmail
+    )
     if (duplicateClub) {
       if (duplicateClub.emailLower === normalizedEmail) {
         return conflict("A club with this email already exists")
@@ -137,7 +134,7 @@ class ClubsService extends BaseService {
     })
 
     try {
-      const club = await this.model.create({
+      const club = await clubOwner.createClub({
         name: normalizedName,
         nameLower: normalizedName.toLowerCase(),
         email: normalizedEmail,
@@ -159,14 +156,14 @@ class ClubsService extends BaseService {
         "Club created successfully"
       )
     } catch (error) {
-      await this.model.deleteOne({ userId: user._id })
+      await clubOwner.deleteClubByUserId(user._id)
       await User.findByIdAndDelete(user._id)
       throw error
     }
   }
 
   async updateClub(id, data) {
-    const club = await this.model.findById(id).select("+nameLower +emailLower")
+    const club = await clubQueries.findClubByIdWithLowers(id)
     if (!club) {
       return notFound("Club")
     }
@@ -187,10 +184,7 @@ class ClubsService extends BaseService {
       const normalizedNameLower = normalizedName.toLowerCase()
 
       if (normalizedNameLower !== club.nameLower) {
-        const existingByName = await this.model.findOne({
-          _id: { $ne: club._id },
-          nameLower: normalizedNameLower,
-        })
+        const existingByName = await clubQueries.findOtherClubByNameLower(club._id, normalizedNameLower)
         if (existingByName) {
           return conflict("A club with this name already exists")
         }
@@ -204,10 +198,7 @@ class ClubsService extends BaseService {
       const normalizedEmail = normalizeEmail(data.email)
 
       if (normalizedEmail !== club.emailLower) {
-        const existingByEmail = await this.model.findOne({
-          _id: { $ne: club._id },
-          emailLower: normalizedEmail,
-        })
+        const existingByEmail = await clubQueries.findOtherClubByEmailLower(club._id, normalizedEmail)
         if (existingByEmail) {
           return conflict("A club with this email already exists")
         }
@@ -240,7 +231,7 @@ class ClubsService extends BaseService {
       categoriesByKey = categoryResolution.categoriesByKey
     }
 
-    await club.save()
+    await clubOwner.persistClub(club)
 
     const userUpdateData = {}
     if (data?.name !== undefined) {
@@ -281,7 +272,7 @@ class ClubsService extends BaseService {
     }
 
     const { categoriesByKey } = await buildCategoryLookup()
-    const club = await this.model.findOne({ userId: user._id }).lean()
+    const club = await clubQueries.findClubByUserIdLean(user._id)
     if (!club) {
       return notFound("Club")
     }

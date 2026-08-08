@@ -1,4 +1,3 @@
-import { BaseService } from "../../../../services/base/BaseService.js"
 import {
   badRequest,
   created,
@@ -6,9 +5,11 @@ import {
   notFound,
   success,
 } from "../../../../services/base/ServiceResponse.js"
-import PorRequest from "../../../../models/club/PorRequest.model.js"
-import PorCategory from "../../../../models/club/PorCategory.model.js"
-import Club from "../../../../models/club/Club.model.js"
+import { clubQueries } from "../../../../services/club/clubQueries.service.js"
+import { porCategoryOwner } from "../../../../services/club/porCategoryOwner.service.js"
+import { porCategoryQueries } from "../../../../services/club/porCategoryQueries.service.js"
+import { porRequestOwner } from "../../../../services/club/porRequestOwner.service.js"
+import { porRequestQueries } from "../../../../services/club/porRequestQueries.service.js"
 import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
 import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import StudentProfile from "../../../../models/student/StudentProfile.model.js"
@@ -253,11 +254,7 @@ const resolveGymkhanaStepIndex = (request, gymkhanaSteps = []) => {
   return stageIndex >= 0 ? stageIndex : 0
 }
 
-class PorService extends BaseService {
-  constructor() {
-    super(PorRequest, "PorRequest")
-  }
-
+class PorService {
   async getWorkspace(user) {
     const viewerContext = await this.getViewerContext(user)
     if (!viewerContext.supported) {
@@ -321,20 +318,13 @@ class PorService extends BaseService {
     const { categoriesByKey } = await buildCategoryLookup()
     await this.ensureLegacyPorCategories(categoriesByKey)
 
-    const requests = await this.model.find({ submittedBy: targetUserId }).sort({ updatedAt: -1 })
+    const requests = await porRequestQueries.findRequestsBySubmitter(targetUserId)
 
     for (const request of requests) {
       await this.migrateLegacyRequestIfNeeded(request, categoriesByKey)
     }
 
-    await this.model.populate(requests, [
-      { path: "submittedBy", select: "name email" },
-      { path: "rejectedBy", select: "name email subRole" },
-      { path: "currentApproverUser", select: "name email subRole" },
-      { path: "currentApproverUsers", select: "name email subRole" },
-      { path: "clubId", select: "name email gymkhanaCategoryKey userId" },
-      { path: "porCategoryId", select: "name" },
-    ])
+    await porRequestQueries.populateRequests(requests)
 
     const serializedRequests = await this.serializeRequests(
       requests,
@@ -373,7 +363,7 @@ class PorService extends BaseService {
       return badRequest("A POR category with that name already exists")
     }
 
-    const category = await PorCategory.create({
+    const category = await porCategoryOwner.createCategory({
       name: normalized.value.name,
       gymkhanaSteps: normalized.value.gymkhanaSteps,
       createdBy: user._id,
@@ -393,7 +383,7 @@ class PorService extends BaseService {
       return forbidden("Only admin users can manage POR categories")
     }
 
-    const category = await PorCategory.findById(categoryId)
+    const category = await porCategoryQueries.findCategoryById(categoryId)
     if (!category) {
       return notFound("POR category")
     }
@@ -411,7 +401,7 @@ class PorService extends BaseService {
     category.name = normalized.value.name
     category.gymkhanaSteps = normalized.value.gymkhanaSteps
     category.updatedBy = user._id
-    await category.save()
+    await porCategoryOwner.persistCategory(category)
 
     return success(
       {
@@ -442,7 +432,7 @@ class PorService extends BaseService {
       return badRequest("Selected POR category does not have a valid Gymkhana review chain")
     }
 
-    const porRequest = await this.model.create({
+    const porRequest = await porRequestOwner.createRequest({
       submittedBy: user._id,
       clubId: null,
       porCategoryId: categoryResolution.category._id,
@@ -505,7 +495,7 @@ class PorService extends BaseService {
   }
 
   async updatePorRequest(id, data, user) {
-    const porRequest = await this.model.findById(id)
+    const porRequest = await porRequestQueries.findRequestById(id)
     if (!porRequest) {
       return notFound("POR request")
     }
@@ -558,7 +548,7 @@ class PorService extends BaseService {
     porRequest.rejectedBy = null
     porRequest.rejectedAt = null
     porRequest.approvedAt = null
-    await porRequest.save()
+    await porRequestOwner.persistRequest(porRequest)
 
     const revisionComment = `Revision #${porRequest.revisionCount}`
 
@@ -593,14 +583,7 @@ class PorService extends BaseService {
   }
 
   async getPorRequestEmailContext(porRequestId) {
-    const request = await this.model
-      .findById(porRequestId)
-      .populate("submittedBy", "name email")
-      .populate("currentApproverUser", "name email subRole role")
-      .populate("currentApproverUsers", "name email subRole role")
-      .populate("clubId", "name email gymkhanaCategoryKey userId")
-      .populate("porCategoryId", "name")
-      .lean()
+    const request = await porRequestQueries.findRequestByIdForEmail(porRequestId)
 
     if (!request) return null
 
@@ -848,7 +831,7 @@ class PorService extends BaseService {
   }
 
   async approvePorRequest(id, comments, user, nextApprovalStages = [], nextApprovers = [], directApprove = false) {
-    const porRequest = await this.model.findById(id)
+    const porRequest = await porRequestQueries.findRequestById(id)
     if (!porRequest) {
       return notFound("POR request")
     }
@@ -964,7 +947,7 @@ class PorService extends BaseService {
       porRequest.currentApproverUsers = []
     }
 
-    await porRequest.save()
+    await porRequestOwner.persistRequest(porRequest)
 
     const approvalLogAction =
       porRequest.status === POR_STATUS.APPROVED
@@ -1006,7 +989,7 @@ class PorService extends BaseService {
   }
 
   async rejectPorRequest(id, reason, user) {
-    const porRequest = await this.model.findById(id)
+    const porRequest = await porRequestQueries.findRequestById(id)
     if (!porRequest) {
       return notFound("POR request")
     }
@@ -1029,7 +1012,7 @@ class PorService extends BaseService {
     porRequest.currentApproverUsers = []
     porRequest.currentChainIndex = null
     clearCustomApprovalAssignments(porRequest)
-    await porRequest.save()
+    await porRequestOwner.persistRequest(porRequest)
 
     await approvalLogOwner.createLog({
       entityType: "PorRequest",
@@ -1052,7 +1035,7 @@ class PorService extends BaseService {
   }
 
   async requestPorRevision(id, comments, user) {
-    const porRequest = await this.model.findById(id)
+    const porRequest = await porRequestQueries.findRequestById(id)
     if (!porRequest) {
       return notFound("POR request")
     }
@@ -1075,7 +1058,7 @@ class PorService extends BaseService {
     porRequest.currentApproverUsers = []
     porRequest.currentChainIndex = null
     clearCustomApprovalAssignments(porRequest)
-    await porRequest.save()
+    await porRequestOwner.persistRequest(porRequest)
 
     await approvalLogOwner.createLog({
       entityType: "PorRequest",
@@ -1098,7 +1081,7 @@ class PorService extends BaseService {
   }
 
   async getApprovalHistory(id, user) {
-    const porRequest = await this.model.findById(id).populate("clubId", "userId gymkhanaCategoryKey")
+    const porRequest = await porRequestQueries.findRequestByIdWithClub(id)
     if (!porRequest) {
       return notFound("POR request")
     }
@@ -1122,7 +1105,7 @@ class PorService extends BaseService {
    * directly. Scoped to viewers who can access the request.
    */
   async getPorCertificateData(id, user) {
-    const porRequest = await this.model.findById(id).populate("clubId", "userId gymkhanaCategoryKey")
+    const porRequest = await porRequestQueries.findRequestByIdWithClub(id)
     if (!porRequest) {
       return notFound("POR request")
     }
@@ -1187,7 +1170,7 @@ class PorService extends BaseService {
     }
 
     if (mode === "club") {
-      const club = await Club.findOne({ userId: user._id }).select("_id userId gymkhanaCategoryKey name").lean()
+      const club = await clubQueries.findClubByUserIdSelect(user._id)
       const gymkhanaProfile = await Gymkhana.findOne({ userId: user._id }).select("categories").lean()
       return {
         supported: true,
@@ -1288,13 +1271,11 @@ class PorService extends BaseService {
       query._id = { $ne: excludeId }
     }
 
-    return PorCategory.findOne(query).select("_id name").lean()
+    return porCategoryQueries.findByName(query)
   }
 
   async resolvePorCategoryForSubmission(categoryId) {
-    const category = await PorCategory.findById(categoryId).select(
-      "_id name gymkhanaSteps legacyGymkhanaCategoryKey"
-    )
+    const category = await porCategoryQueries.findByIdForSubmission(categoryId)
     if (!category) {
       return { success: false, response: notFound("POR category") }
     }
@@ -1319,12 +1300,7 @@ class PorService extends BaseService {
   }
 
   async getPorCategoriesForWorkspace({ includeStepReviewers = false } = {}) {
-    const query = PorCategory.find().sort({ name: 1 })
-    if (includeStepReviewers) {
-      query.populate("gymkhanaSteps.reviewerUserIds", "name email subRole role")
-    }
-
-    const categories = await query.lean()
+    const categories = await porCategoryQueries.listCategories({ includeStepReviewers })
 
     return categories.map((category) => {
       const serializedSteps = (Array.isArray(category.gymkhanaSteps) ? category.gymkhanaSteps : [])
@@ -1458,7 +1434,7 @@ class PorService extends BaseService {
   }
 
   async syncClubLinkedPorCategories({ categoriesByKey = null, updateExisting = false } = {}) {
-    const clubs = await Club.find().select("_id name userId gymkhanaCategoryKey email").lean()
+    const clubs = await clubQueries.listClubsForSync()
     if (!clubs.length) {
       return { created: 0, updated: 0, skipped: 0 }
     }
@@ -1493,9 +1469,9 @@ class PorService extends BaseService {
         continue
       }
 
-      const existing = await PorCategory.findOne({ legacyClubId })
+      const existing = await porCategoryQueries.findByLegacyClubId(legacyClubId)
       if (!existing) {
-        await PorCategory.create({
+        await porCategoryOwner.createCategory({
           name: definition.name,
           gymkhanaSteps: definition.gymkhanaSteps,
           legacyClubId,
@@ -1515,7 +1491,7 @@ class PorService extends BaseService {
       existing.gymkhanaSteps = definition.gymkhanaSteps
       existing.legacyGymkhanaCategoryKey = definition.legacyGymkhanaCategoryKey
       existing.isLegacyMigrated = true
-      await existing.save()
+      await porCategoryOwner.persistCategory(existing)
       updated += 1
     }
 
@@ -1557,7 +1533,7 @@ class PorService extends BaseService {
       porRequest.currentGymkhanaStepIndex = gymkhanaSteps.length > 0 ? gymkhanaSteps.length - 1 : null
     }
 
-    await porRequest.save()
+    await porRequestOwner.persistRequest(porRequest)
     return porRequest
   }
 
@@ -1585,9 +1561,7 @@ class PorService extends BaseService {
 
     await this.ensureLegacyPorCategories(categoriesByKey)
 
-    const category = await PorCategory.findOne({ legacyClubId: clubId }).select(
-      "_id name gymkhanaSteps legacyGymkhanaCategoryKey"
-    )
+    const category = await porCategoryQueries.findByLegacyClubIdForMigration(clubId)
     if (!category) return porRequest
 
     porRequest.porCategoryId = category._id
@@ -1636,26 +1610,19 @@ class PorService extends BaseService {
         : []
     }
 
-    await porRequest.save()
+    await porRequestOwner.persistRequest(porRequest)
     return porRequest
   }
 
   async getAccessibleRequests(user, viewerContext, categoriesByKey) {
     const query = this.buildAccessQuery(user, viewerContext)
-    const requests = await this.model.find(query).sort({ updatedAt: -1 })
+    const requests = await porRequestQueries.findRequests(query)
 
     for (const request of requests) {
       await this.migrateLegacyRequestIfNeeded(request, categoriesByKey)
     }
 
-    await this.model.populate(requests, [
-      { path: "submittedBy", select: "name email" },
-      { path: "rejectedBy", select: "name email subRole" },
-      { path: "currentApproverUser", select: "name email subRole" },
-      { path: "currentApproverUsers", select: "name email subRole" },
-      { path: "clubId", select: "name email gymkhanaCategoryKey userId" },
-      { path: "porCategoryId", select: "name" },
-    ])
+    await porRequestQueries.populateRequests(requests)
 
     return requests
   }
@@ -1807,14 +1774,7 @@ class PorService extends BaseService {
   }
 
   async getSerializedRequestById(requestId, user, viewerContext) {
-    const request = await this.model
-      .findById(requestId)
-      .populate("submittedBy", "name email")
-      .populate("rejectedBy", "name email subRole")
-      .populate("currentApproverUser", "name email subRole")
-      .populate("currentApproverUsers", "name email subRole")
-      .populate("clubId", "name email gymkhanaCategoryKey userId")
-      .populate("porCategoryId", "name")
+    const request = await porRequestQueries.findRequestByIdFullPopulated(requestId)
 
     if (!request) return null
 

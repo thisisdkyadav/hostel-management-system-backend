@@ -2,8 +2,8 @@ import {
   OverallBestPerformerOccurrence,
   OverallBestPerformerApplication,
   StudentProfile,
-  PorRequest,
 } from "../../../../models/index.js"
+import { porRequestQueries } from "../../../../services/club/porRequestQueries.service.js"
 import {
   success,
   created,
@@ -588,10 +588,7 @@ const buildPorLookupForApplications = async (applications = []) => {
   }
 
   const [porRequests, categoriesByKey] = await Promise.all([
-    PorRequest.find({ _id: { $in: porRequestIds } })
-      .populate("submittedBy", "name email")
-      .populate("clubId", "name email gymkhanaCategoryKey userId")
-      .lean(),
+    porRequestQueries.findRequestsByIdsPopulated(porRequestIds),
     buildCategoryLookup(),
   ])
 
@@ -950,13 +947,11 @@ class BestPerformerService {
     const linkedPorIds = collectApplicationProofPorIds(normalizedPayload)
 
     if (linkedPorIds.length > 0) {
-      const approvedPorRequests = await PorRequest.find({
-        _id: { $in: linkedPorIds },
-        submittedBy: user._id,
-        status: POR_STATUS.APPROVED,
-      })
-        .select("_id")
-        .lean()
+      const approvedPorRequests = await porRequestQueries.findApprovedRequestIdsForUser(
+        linkedPorIds,
+        user._id,
+        POR_STATUS.APPROVED
+      )
 
       const approvedIdSet = new Set(
         approvedPorRequests.map((request) => String(request?._id || "").trim())
