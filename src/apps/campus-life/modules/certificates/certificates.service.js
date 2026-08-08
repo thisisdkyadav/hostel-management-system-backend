@@ -1,19 +1,18 @@
 /**
  * Certificate Service
  * Handles student certificate operations
- * 
+ *
  * @module services/certificate.service
  */
 
-import { Certificate } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, notFound, PRESETS } from '../../../../services/base/index.js';
+import { success, notFound, error, conflict } from '../../../../services/base/index.js';
+import { certificateOwner } from '../../../../services/certificate/certificateOwner.service.js';
+import { certificateQueries } from '../../../../services/certificate/certificateQueries.service.js';
 
-class CertificateService extends BaseService {
-  constructor() {
-    super(Certificate, 'Certificate');
-  }
+const ENTITY = 'Certificate';
 
+class CertificateService {
   /**
    * Add certificate for a student
    * @param {Object} data - Certificate data with studentId
@@ -27,21 +26,26 @@ class CertificateService extends BaseService {
       return notFound('Student profile');
     }
 
-    const result = await this.create({
-      userId: studentId,
-      certificateType,
-      certificateUrl,
-      issueDate,
-      remarks,
-    });
-
-    if (result.success) {
-      return success(
-        { message: 'Certificate added successfully', certificate: result.data },
-        201
-      );
+    let certificate;
+    try {
+      certificate = await certificateOwner.createCertificate({
+        userId: studentId,
+        certificateType,
+        certificateUrl,
+        issueDate,
+        remarks,
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    return success(
+      { message: 'Certificate added successfully', certificate },
+      201
+    );
   }
 
   /**
@@ -49,19 +53,16 @@ class CertificateService extends BaseService {
    * @param {string} studentId - Student user ID
    */
   async getCertificatesByStudent(studentId) {
-    const result = await this.findAll(
-      { userId: studentId },
-      { populate: PRESETS.CERTIFICATE }
-    );
-
-    if (result.success) {
+    try {
+      const certificates = await certificateQueries.findCertificatesByUser(studentId);
       return success({
         success: true,
         message: 'Certificates fetched successfully',
-        certificates: result.data,
+        certificates,
       });
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
   }
 
   /**
@@ -70,11 +71,17 @@ class CertificateService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateCertificate(certificateId, data) {
-    const result = await this.updateById(certificateId, data);
-    if (result.success) {
-      return success({ message: 'Certificate updated successfully', certificate: result.data });
+    let certificate;
+    try {
+      certificate = await certificateOwner.updateCertificate(certificateId, data);
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    if (!certificate) {
+      return notFound(ENTITY);
+    }
+    return success({ message: 'Certificate updated successfully', certificate });
   }
 
   /**
@@ -82,11 +89,17 @@ class CertificateService extends BaseService {
    * @param {string} certificateId - Certificate ID
    */
   async deleteCertificate(certificateId) {
-    const result = await this.deleteById(certificateId);
-    if (result.success) {
-      return success({ message: 'Certificate deleted successfully' });
+    let deleted;
+    try {
+      deleted = await certificateOwner.deleteCertificate(certificateId);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    if (!deleted) {
+      return notFound(ENTITY);
+    }
+    return success({ message: 'Certificate deleted successfully' });
   }
 }
 

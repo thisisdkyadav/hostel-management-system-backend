@@ -5,28 +5,24 @@
  * @module services/undertaking
  */
 
-import { Undertaking } from '../../../../models/index.js';
-import { UndertakingAssignment } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, error, conflict } from '../../../../services/base/index.js';
+import { undertakingOwner } from '../../../../services/certificate/undertakingOwner.service.js';
+import { undertakingQueries } from '../../../../services/certificate/undertakingQueries.service.js';
+import { undertakingAssignmentOwner } from '../../../../services/certificate/undertakingAssignmentOwner.service.js';
+import { undertakingAssignmentQueries } from '../../../../services/certificate/undertakingAssignmentQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
-class UndertakingService extends BaseService {
-  constructor() {
-    super(Undertaking, 'Undertaking');
-  }
+const ENTITY = 'Undertaking';
 
+class UndertakingService {
   // Admin APIs
 
   /**
    * Get all undertakings
    */
   async getAllUndertakings() {
-    const undertakings = await this.model.find()
-      .populate('createdBy', 'name email')
-      .sort({ createdAt: -1 })
-      .populate('totalStudents')
-      .populate('acceptedCount');
+    const undertakings = await undertakingQueries.listUndertakingsWithCounts();
 
     const formattedUndertakings = undertakings.map((undertaking) => ({
       id: undertaking._id,
@@ -51,34 +47,38 @@ class UndertakingService extends BaseService {
   async createUndertaking(data, user) {
     const { title, description, content, deadline } = data;
 
-    const result = await this.create({
-      title,
-      description,
-      content,
-      deadline,
-      createdBy: user._id
-    });
-
-    if (result.success) {
-      const undertaking = result.data;
-      return {
-        success: true,
-        statusCode: 201,
-        message: 'Undertaking created successfully',
-        data: {
-          undertaking: {
-            id: undertaking._id,
-            title: undertaking.title,
-            description: undertaking.description,
-            content: undertaking.content,
-            deadline: undertaking.deadline,
-            createdAt: undertaking.createdAt,
-            status: undertaking.status
-          }
-        }
-      };
+    let undertaking;
+    try {
+      undertaking = await undertakingOwner.createUndertaking({
+        title,
+        description,
+        content,
+        deadline,
+        createdBy: user._id
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    return {
+      success: true,
+      statusCode: 201,
+      message: 'Undertaking created successfully',
+      data: {
+        undertaking: {
+          id: undertaking._id,
+          title: undertaking.title,
+          description: undertaking.description,
+          content: undertaking.content,
+          deadline: undertaking.deadline,
+          createdAt: undertaking.createdAt,
+          status: undertaking.status
+        }
+      }
+    };
   }
 
   /**
@@ -89,14 +89,13 @@ class UndertakingService extends BaseService {
   async updateUndertaking(undertakingId, data) {
     const { title, description, content, deadline } = data;
 
-    const undertaking = await this.model.findByIdAndUpdate(
+    const undertaking = await undertakingOwner.updateUndertaking(
       undertakingId,
-      { title, description, content, deadline, updatedAt: new Date() },
-      { new: true }
+      { title, description, content, deadline, updatedAt: new Date() }
     );
 
     if (!undertaking) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     return {
@@ -121,14 +120,14 @@ class UndertakingService extends BaseService {
    * @param {string} undertakingId - Undertaking ID
    */
   async deleteUndertaking(undertakingId) {
-    const undertaking = await this.model.findByIdAndDelete(undertakingId);
+    const undertaking = await undertakingOwner.deleteUndertaking(undertakingId);
 
     if (!undertaking) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     // Delete all assignments related to this undertaking
-    await UndertakingAssignment.deleteMany({ undertakingId });
+    await undertakingAssignmentOwner.deleteAssignmentsByUndertaking(undertakingId);
 
     return {
       success: true,
@@ -143,11 +142,7 @@ class UndertakingService extends BaseService {
    * @param {string} undertakingId - Undertaking ID
    */
   async getAssignedStudents(undertakingId) {
-    const assignments = await UndertakingAssignment.find({ undertakingId }).populate({
-      path: 'studentId',
-      select: '_id rollNumber',
-      populate: { path: 'userId', select: 'name email' }
-    });
+    const assignments = await undertakingAssignmentQueries.findAssignmentsByUndertaking(undertakingId);
 
     if (!assignments || assignments.length === 0) {
       return success({ students: [] });
@@ -178,10 +173,10 @@ class UndertakingService extends BaseService {
       return badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`);
     }
 
-    const undertaking = await this.model.findById(undertakingId);
+    const undertaking = await undertakingQueries.findUndertakingById(undertakingId);
 
     if (!undertaking) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     // Find student profiles by roll numbers
@@ -205,7 +200,7 @@ class UndertakingService extends BaseService {
     }));
 
     // Use insertMany with ordered: false to ignore duplicates
-    const result = await UndertakingAssignment.insertMany(assignments, { ordered: false }).catch((err) => {
+    const result = await undertakingAssignmentOwner.insertAssignments(assignments).catch((err) => {
       if (err.code === 11000) {
         return err.insertedDocs || [];
       }
@@ -230,10 +225,7 @@ class UndertakingService extends BaseService {
    * @param {string} studentId - Student ID
    */
   async removeStudentFromUndertaking(undertakingId, studentId) {
-    const result = await UndertakingAssignment.findOneAndDelete({
-      undertakingId,
-      studentId
-    });
+    const result = await undertakingAssignmentOwner.deleteAssignment(undertakingId, studentId);
 
     if (!result) {
       return notFound('Assignment');
@@ -247,17 +239,13 @@ class UndertakingService extends BaseService {
    * @param {string} undertakingId - Undertaking ID
    */
   async getUndertakingStatus(undertakingId) {
-    const undertaking = await this.model.findById(undertakingId);
+    const undertaking = await undertakingQueries.findUndertakingById(undertakingId);
 
     if (!undertaking) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
-    const assignments = await UndertakingAssignment.find({ undertakingId }).populate({
-      path: 'studentId',
-      select: '_id rollNumber',
-      populate: { path: 'userId', select: 'name email' }
-    });
+    const assignments = await undertakingAssignmentQueries.findAssignmentsByUndertaking(undertakingId);
 
     // Calculate stats
     const totalStudents = assignments.length;
@@ -295,10 +283,10 @@ class UndertakingService extends BaseService {
       return notFound('Student profile');
     }
 
-    const assignments = await UndertakingAssignment.find({
-      studentId: studentProfile._id,
-      status: { $in: ['not_viewed', 'pending'] }
-    }).populate('undertakingId');
+    const assignments = await undertakingAssignmentQueries.findStudentAssignmentsPopulated(
+      studentProfile._id,
+      { $in: ['not_viewed', 'pending'] }
+    );
 
     const pendingUndertakings = assignments.map((assignment) => ({
       id: assignment.undertakingId._id,
@@ -324,16 +312,13 @@ class UndertakingService extends BaseService {
       return notFound('Student profile');
     }
 
-    const undertaking = await this.model.findById(undertakingId);
+    const undertaking = await undertakingQueries.findUndertakingById(undertakingId);
 
     if (!undertaking) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
-    const assignment = await UndertakingAssignment.findOne({
-      undertakingId,
-      studentId: studentProfile._id
-    });
+    const assignment = await undertakingAssignmentQueries.findAssignment(undertakingId, studentProfile._id);
 
     if (!assignment) {
       return notFound('Undertaking not assigned to this student');
@@ -343,7 +328,7 @@ class UndertakingService extends BaseService {
     if (assignment.status === 'not_viewed') {
       assignment.status = 'pending';
       assignment.viewedAt = new Date();
-      await assignment.save();
+      await undertakingAssignmentOwner.persistAssignment(assignment);
     }
 
     return success({
@@ -375,10 +360,7 @@ class UndertakingService extends BaseService {
       return notFound('Student profile');
     }
 
-    const assignment = await UndertakingAssignment.findOne({
-      undertakingId,
-      studentId: studentProfile._id
-    });
+    const assignment = await undertakingAssignmentQueries.findAssignment(undertakingId, studentProfile._id);
 
     if (!assignment) {
       return notFound('Undertaking not assigned to this student');
@@ -389,7 +371,7 @@ class UndertakingService extends BaseService {
     assignment.acceptedAt = now;
     assignment.viewedAt = assignment.viewedAt || now;
 
-    await assignment.save();
+    await undertakingAssignmentOwner.persistAssignment(assignment);
 
     return {
       success: true,
@@ -410,10 +392,10 @@ class UndertakingService extends BaseService {
       return notFound('Student profile');
     }
 
-    const assignments = await UndertakingAssignment.find({
-      studentId: studentProfile._id,
-      status: 'accepted'
-    }).populate('undertakingId');
+    const assignments = await undertakingAssignmentQueries.findStudentAssignmentsPopulated(
+      studentProfile._id,
+      'accepted'
+    );
 
     const acceptedUndertakings = assignments.map((assignment) => ({
       id: assignment.undertakingId._id,
@@ -436,10 +418,10 @@ class UndertakingService extends BaseService {
       return notFound('Student profile');
     }
 
-    const count = await UndertakingAssignment.countDocuments({
-      studentId: studentProfile._id,
-      status: { $in: ['not_viewed', 'pending'] }
-    });
+    const count = await undertakingAssignmentQueries.countStudentAssignmentsByStatus(
+      studentProfile._id,
+      { $in: ['not_viewed', 'pending'] }
+    );
 
     return success({ count });
   }
