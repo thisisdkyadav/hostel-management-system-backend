@@ -6,9 +6,10 @@
  */
 
 import { Health } from '../../../../models/index.js';
-import { InsuranceClaim } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { BaseService, success, badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
+import { insuranceOwner } from '../../../../services/insurance/insuranceOwner.service.js';
+import { insuranceQueries } from '../../../../services/insurance/insuranceQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
 class HealthService extends BaseService {
@@ -159,7 +160,7 @@ class HealthService extends BaseService {
    * @param {Object} claimData - Claim data
    */
   async createInsuranceClaim(claimData) {
-    const insuranceClaim = await InsuranceClaim.create(claimData);
+    const insuranceClaim = await insuranceOwner.createClaim(claimData);
     return success({ message: 'Insurance claim created', insuranceClaim }, 201);
   }
 
@@ -168,7 +169,7 @@ class HealthService extends BaseService {
    * @param {string} userId - User ID
    */
   async getInsuranceClaims(userId) {
-    const insuranceClaims = await InsuranceClaim.find({ userId });
+    const insuranceClaims = await insuranceQueries.findClaimsByUser(userId);
     return success({ message: 'Insurance claims fetched', insuranceClaims });
   }
 
@@ -178,7 +179,7 @@ class HealthService extends BaseService {
    * @param {Object} claimData - Claim data
    */
   async updateInsuranceClaim(id, claimData) {
-    const insuranceClaim = await InsuranceClaim.findByIdAndUpdate(id, claimData, { new: true });
+    const insuranceClaim = await insuranceOwner.updateClaimById(id, claimData);
     return success({ message: 'Insurance claim updated', insuranceClaim });
   }
 
@@ -187,7 +188,7 @@ class HealthService extends BaseService {
    * @param {string} id - Claim ID
    */
   async deleteInsuranceClaim(id) {
-    await InsuranceClaim.findByIdAndDelete(id);
+    await insuranceOwner.deleteClaimById(id);
     return { success: true, statusCode: 200, message: 'Insurance claim deleted' };
   }
 }

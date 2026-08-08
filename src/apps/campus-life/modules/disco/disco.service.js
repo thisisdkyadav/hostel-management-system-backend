@@ -7,15 +7,18 @@ import fs from "fs/promises";
 import path from "path";
 import mongoose from "mongoose";
 import { fileURLToPath } from "url";
-import { DisCoAction, DisCoProcessCase, StudentProfile } from "../../../../models/index.js";
+import { StudentProfile } from "../../../../models/index.js";
 import {
-  BaseService,
   success,
   notFound,
   badRequest,
   forbidden,
+  error,
+  conflict,
   paginated,
 } from "../../../../services/base/index.js";
+import { discoOwner } from "../../../../services/disco/discoOwner.service.js";
+import { discoQueries } from "../../../../services/disco/discoQueries.service.js";
 import { emailCustomService } from "../../../administration/modules/email/email.service.js";
 import { fileAccessService } from "../../../../services/storage/file-access.service.js";
 
@@ -389,22 +392,6 @@ const isStageTwoComplete = (caseDoc) => {
   return true;
 };
 
-const populateAdminCaseDetail = (query) =>
-  query
-    .populate("submittedBy", "name email")
-    .populate("accusingStudentIds", "name email")
-    .populate("accusedStudentIds", "name email")
-    .populate("statements.studentUserId", "name email")
-    .populate("statements.addedBy", "name email")
-    .populate("evidenceDocuments.uploadedBy", "name email")
-    .populate("extraDocuments.uploadedBy", "name email")
-    .populate("emailLogs.sentBy", "name email")
-    .populate("committeeMeetingMinutes.uploadedBy", "name email")
-    .populate("finalDecision.disciplinedStudentIds", "name email")
-    .populate("finalDecision.studentDisciplinaryActions.studentUserId", "name email")
-    .populate("finalDecision.decidedBy", "name email")
-    .populate("timeline.performedBy", "name email");
-
 const toAdminCaseView = (caseDoc) => ({
   id: caseDoc._id,
   complaintPdfUrl: caseDoc.complaintPdfUrl,
@@ -597,11 +584,11 @@ const normalizeCaseDocumentList = ({ documents, uploadedBy, fallbackName }) => {
   return { list };
 };
 
-class DisCoService extends BaseService {
-  constructor() {
-    super(DisCoAction, "DisCo action");
-  }
+// Entity label for the response envelopes this service used to inherit from
+// BaseService (super(DisCoAction, "DisCo action")).
+const ENTITY = "DisCo action";
 
+class DisCoService {
   /**
    * Add disciplinary action for a student
    * @param {Object} data - Action data with studentId
@@ -637,21 +624,25 @@ class DisCoService extends BaseService {
       return normalizedReminderItems.error;
     }
 
-    const result = await this.create({
-      userId: studentId,
-      reason,
-      actionTaken,
-      date: normalizedDates.creationDate,
-      punishmentStartDate: normalizedDates.punishmentStartDate,
-      punishmentEndDate: normalizedDates.punishmentEndDate,
-      remarks,
-      reminderItems: normalizedReminderItems.list,
-    });
-
-    if (result.success) {
-      return success({ message: "DisCo action added successfully" }, 201);
+    try {
+      await discoOwner.createAction({
+        userId: studentId,
+        reason,
+        actionTaken,
+        date: normalizedDates.creationDate,
+        punishmentStartDate: normalizedDates.punishmentStartDate,
+        punishmentEndDate: normalizedDates.punishmentEndDate,
+        remarks,
+        reminderItems: normalizedReminderItems.list,
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    return success({ message: "DisCo action added successfully" }, 201);
   }
 
   /**
@@ -659,25 +650,18 @@ class DisCoService extends BaseService {
    * @param {string} studentId - Student user ID
    */
   async getDisCoActionsByStudent(studentId) {
-    const result = await this.findAll(
-      { userId: studentId },
-      {
-        sort: { date: -1, createdAt: -1 },
-        populate: [
-          { path: "userId", select: "name email" },
-          { path: "reminderItems.doneBy", select: "name email" },
-        ],
-      }
-    );
-
-    if (result.success) {
-      return success({
-        success: true,
-        message: "Disciplinary actions fetched successfully",
-        actions: (result.data || []).map((action) => toDisCoActionView(action)),
-      });
+    let actions;
+    try {
+      actions = await discoQueries.findActionsByStudent(studentId);
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
+
+    return success({
+      success: true,
+      message: "Disciplinary actions fetched successfully",
+      actions: (actions || []).map((action) => toDisCoActionView(action)),
+    });
   }
 
   /**
@@ -704,7 +688,7 @@ class DisCoService extends BaseService {
       Object.prototype.hasOwnProperty.call(data, "punishmentStartDate") ||
       Object.prototype.hasOwnProperty.call(data, "punishmentEndDate")
     ) {
-      const actionDoc = await DisCoAction.findById(disCoId).select("date punishmentStartDate punishmentEndDate");
+      const actionDoc = await discoQueries.findActionByIdDateFields(disCoId);
       if (!actionDoc) {
         return notFound("DisCo action");
       }
@@ -742,14 +726,21 @@ class DisCoService extends BaseService {
       updates.reminderItems = normalizedReminderItems.list;
     }
 
-    const result = await this.updateById(disCoId, updates);
-    if (result.success) {
-      return success({
-        message: "DisCo action updated successfully",
-        action: toDisCoActionView(result.data),
-      });
+    let updated;
+    try {
+      updated = await discoOwner.updateActionById(disCoId, updates);
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    if (!updated) {
+      return notFound(ENTITY);
+    }
+
+    return success({
+      message: "DisCo action updated successfully",
+      action: toDisCoActionView(updated),
+    });
   }
 
   /**
@@ -764,7 +755,7 @@ class DisCoService extends BaseService {
       return badRequest("Invalid reminder item id");
     }
 
-    const actionDoc = await DisCoAction.findById(disCoId);
+    const actionDoc = await discoQueries.findActionById(disCoId);
     if (!actionDoc) return notFound("DisCo action");
 
     const isOwner = String(actionDoc.userId) === String(currentUser?._id);
@@ -782,12 +773,10 @@ class DisCoService extends BaseService {
       reminderDoc.isDone = true;
       reminderDoc.doneAt = new Date();
       reminderDoc.doneBy = currentUser?._id || null;
-      await actionDoc.save();
+      await discoOwner.persistAction(actionDoc);
     }
 
-    const populatedAction = await DisCoAction.findById(disCoId)
-      .populate("userId", "name email")
-      .populate("reminderItems.doneBy", "name email");
+    const populatedAction = await discoQueries.findActionByIdPopulated(disCoId);
 
     return success({
       message: wasAlreadyDone
@@ -802,11 +791,18 @@ class DisCoService extends BaseService {
    * @param {string} disCoId - DisCo action ID
    */
   async deleteDisCoAction(disCoId) {
-    const result = await this.deleteById(disCoId);
-    if (result.success) {
-      return success({ message: "DisCo action deleted successfully" });
+    let deleted;
+    try {
+      deleted = await discoOwner.deleteActionById(disCoId);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    if (!deleted) {
+      return notFound(ENTITY);
+    }
+
+    return success({ message: "DisCo action deleted successfully" });
   }
 
   /**
@@ -817,7 +813,7 @@ class DisCoService extends BaseService {
       return badRequest("Complaint PDF is required");
     }
 
-    const createdCase = await DisCoProcessCase.create({
+    const createdCase = await discoOwner.createProcessCase({
       submittedBy: adminUser._id,
       complaintPdfUrl: complaintPdfUrl.trim(),
       complaintPdfName:
@@ -832,10 +828,7 @@ class DisCoService extends BaseService {
       ],
     });
 
-    const caseWithUser = await DisCoProcessCase.findById(createdCase._id).populate(
-      "submittedBy",
-      "name email"
-    );
+    const caseWithUser = await discoQueries.findProcessCaseByIdWithSubmitter(createdCase._id);
 
     return success(
       {
@@ -860,13 +853,8 @@ class DisCoService extends BaseService {
     }
 
     const [items, total] = await Promise.all([
-      DisCoProcessCase.find(filter)
-        .populate("submittedBy", "name email")
-        .populate("finalDecision.decidedBy", "name email")
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit),
-      DisCoProcessCase.countDocuments(filter),
+      discoQueries.listProcessCases(filter, { skip: (page - 1) * limit, limit }),
+      discoQueries.countProcessCases(filter),
     ]);
 
     return paginated(items.map(toAdminCaseView), { page, limit, total });
@@ -880,7 +868,7 @@ class DisCoService extends BaseService {
       return badRequest("Invalid case id");
     }
 
-    const caseDoc = await populateAdminCaseDetail(DisCoProcessCase.findById(caseId));
+    const caseDoc = await discoQueries.findProcessCaseByIdDetailed(caseId);
 
     if (!caseDoc) {
       return notFound("Disciplinary process case");
@@ -894,7 +882,7 @@ class DisCoService extends BaseService {
       return badRequest("Invalid case id");
     }
 
-    const caseDoc = await populateAdminCaseDetail(DisCoProcessCase.findById(caseId));
+    const caseDoc = await discoQueries.findProcessCaseByIdDetailed(caseId);
     if (!caseDoc) {
       return notFound("Disciplinary process case");
     }
@@ -904,9 +892,7 @@ class DisCoService extends BaseService {
     }
 
     const createdActions = (caseDoc.finalDecision?.createdDisCoActionIds || []).length
-      ? await DisCoAction.find({ _id: { $in: caseDoc.finalDecision.createdDisCoActionIds } })
-        .populate("userId", "name email")
-        .populate("reminderItems.doneBy", "name email")
+      ? await discoQueries.findActionsByIdsPopulated(caseDoc.finalDecision.createdDisCoActionIds)
       : [];
 
     const caseView = toAdminCaseView(caseDoc);
@@ -1054,7 +1040,7 @@ class DisCoService extends BaseService {
       extraDocuments = [],
     } = payload;
 
-    const caseDoc = await DisCoProcessCase.findById(caseId);
+    const caseDoc = await discoQueries.findProcessCaseById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
 
     if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
@@ -1175,22 +1161,9 @@ class DisCoService extends BaseService {
       )
     );
 
-    await caseDoc.save();
+    await discoOwner.persistProcessCase(caseDoc);
 
-    const populatedCaseDoc = await DisCoProcessCase.findById(caseDoc._id)
-      .populate("submittedBy", "name email")
-      .populate("accusingStudentIds", "name email")
-      .populate("accusedStudentIds", "name email")
-      .populate("statements.studentUserId", "name email")
-      .populate("statements.addedBy", "name email")
-      .populate("evidenceDocuments.uploadedBy", "name email")
-      .populate("extraDocuments.uploadedBy", "name email")
-      .populate("emailLogs.sentBy", "name email")
-      .populate("committeeMeetingMinutes.uploadedBy", "name email")
-      .populate("finalDecision.disciplinedStudentIds", "name email")
-      .populate("finalDecision.studentDisciplinaryActions.studentUserId", "name email")
-      .populate("finalDecision.decidedBy", "name email")
-      .populate("timeline.performedBy", "name email");
+    const populatedCaseDoc = await discoQueries.findProcessCaseByIdDetailed(caseDoc._id);
 
     return success({
       message: "Stage 2 saved successfully",
@@ -1218,7 +1191,7 @@ class DisCoService extends BaseService {
     if (!subject?.trim()) return badRequest("Email subject is required");
     if (!body?.trim()) return badRequest("Email body is required");
 
-    const caseDoc = await DisCoProcessCase.findById(caseId);
+    const caseDoc = await discoQueries.findProcessCaseById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
 
     if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
@@ -1347,7 +1320,7 @@ class DisCoService extends BaseService {
         attachmentCount: attachments.length,
       })
     );
-    await caseDoc.save();
+    await discoOwner.persistProcessCase(caseDoc);
 
     return success({
       message: "Email sent and logged successfully",
@@ -1362,7 +1335,7 @@ class DisCoService extends BaseService {
   async skipCaseEmail(caseId, payload = {}, adminUser) {
     const reason = String(payload?.reason || "").trim();
 
-    const caseDoc = await DisCoProcessCase.findById(caseId);
+    const caseDoc = await discoQueries.findProcessCaseById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
 
     if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
@@ -1405,7 +1378,7 @@ class DisCoService extends BaseService {
       )
     );
 
-    await caseDoc.save();
+    await discoOwner.persistProcessCase(caseDoc);
 
     return success({
       message: "Committee email step skipped",
@@ -1419,7 +1392,7 @@ class DisCoService extends BaseService {
   async uploadCommitteeMinutes(caseId, { pdfUrl, pdfName }, adminUser) {
     if (!pdfUrl?.trim()) return badRequest("Meeting minutes PDF is required");
 
-    const caseDoc = await DisCoProcessCase.findById(caseId);
+    const caseDoc = await discoQueries.findProcessCaseById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
 
     if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
@@ -1447,7 +1420,7 @@ class DisCoService extends BaseService {
         "Committee meeting minutes uploaded"
       )
     );
-    await caseDoc.save();
+    await discoOwner.persistProcessCase(caseDoc);
 
     return success({
       message: "Committee meeting minutes uploaded",
@@ -1476,7 +1449,7 @@ class DisCoService extends BaseService {
       return badRequest("decision must be reject or action");
     }
 
-    const caseDoc = await DisCoProcessCase.findById(caseId);
+    const caseDoc = await discoQueries.findProcessCaseById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");
 
     if (caseDoc.finalDecision?.status !== FINAL_DECISION_STATUS.PENDING) {
@@ -1512,7 +1485,7 @@ class DisCoService extends BaseService {
           decisionDescription.trim()
         )
       );
-      await caseDoc.save();
+      await discoOwner.persistProcessCase(caseDoc);
 
       return success({
         message: "Case rejected at final stage",
@@ -1676,7 +1649,7 @@ class DisCoService extends BaseService {
       return badRequest("Some selected students do not exist in student profiles");
     }
 
-    const createdActions = await DisCoAction.insertMany(actionDocuments);
+    const createdActions = await discoOwner.insertActions(actionDocuments);
 
     caseDoc.finalDecision.status = FINAL_DECISION_STATUS.ACTION_TAKEN;
     caseDoc.finalDecision.decisionDescription = decisionDescription?.trim() || "";
@@ -1700,7 +1673,7 @@ class DisCoService extends BaseService {
         }
       )
     );
-    await caseDoc.save();
+    await discoOwner.persistProcessCase(caseDoc);
 
     return success({
       message: "Final disciplinary action recorded successfully",

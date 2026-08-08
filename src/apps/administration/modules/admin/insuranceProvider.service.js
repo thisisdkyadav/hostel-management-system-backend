@@ -5,38 +5,46 @@
  * @module services/insuranceProvider.service
  */
 
-import { InsuranceProvider } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
 import { Health } from '../../../../models/index.js';
-import { BaseService, success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, error, conflict, withTransaction } from '../../../../services/base/index.js';
+import { insuranceOwner } from '../../../../services/insurance/insuranceOwner.service.js';
+import { insuranceQueries } from '../../../../services/insurance/insuranceQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
-class InsuranceProviderService extends BaseService {
-  constructor() {
-    super(InsuranceProvider, 'Insurance provider');
-  }
+// Entity label for the response envelopes this service used to inherit from
+// BaseService (super(InsuranceProvider, 'Insurance provider')).
+const ENTITY = 'Insurance provider';
 
+class InsuranceProviderService {
   /**
    * Create insurance provider
    * @param {Object} data - Provider data
    */
   async createInsuranceProvider(data) {
-    const result = await this.create(data);
-    if (result.success) {
-      return success({ message: 'Insurance provider created', insuranceProvider: result.data }, 201);
+    let insuranceProvider;
+    try {
+      insuranceProvider = await insuranceOwner.createProvider(data);
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+    return success({ message: 'Insurance provider created', insuranceProvider }, 201);
   }
 
   /**
    * Get all insurance providers
    */
   async getInsuranceProviders() {
-    const result = await this.findAll();
-    if (result.success) {
-      return success({ message: 'Insurance providers fetched', insuranceProviders: result.data });
+    let insuranceProviders;
+    try {
+      insuranceProviders = await insuranceQueries.listProviders();
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
+    return success({ message: 'Insurance providers fetched', insuranceProviders });
   }
 
   /**
@@ -45,11 +53,16 @@ class InsuranceProviderService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateInsuranceProvider(id, data) {
-    const result = await this.updateById(id, data);
-    if (result.success) {
-      return success({ message: 'Insurance provider updated', insuranceProvider: result.data });
+    let insuranceProvider;
+    try {
+      insuranceProvider = await insuranceOwner.updateProviderById(id, data);
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!insuranceProvider) {
+      return notFound(ENTITY);
+    }
+    return success({ message: 'Insurance provider updated', insuranceProvider });
   }
 
   /**
@@ -57,11 +70,16 @@ class InsuranceProviderService extends BaseService {
    * @param {string} id - Provider ID
    */
   async deleteInsuranceProvider(id) {
-    const result = await this.deleteById(id);
-    if (result.success) {
-      return success({ message: 'Insurance provider deleted' });
+    let deleted;
+    try {
+      deleted = await insuranceOwner.deleteProviderById(id);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!deleted) {
+      return notFound(ENTITY);
+    }
+    return success({ message: 'Insurance provider deleted' });
   }
 
   /**
@@ -83,8 +101,8 @@ class InsuranceProviderService extends BaseService {
     }
 
     return withTransaction(async (session) => {
-      // Verify insurance provider exists
-      const insuranceProvider = await this.model.findById(insuranceProviderId);
+      // Verify insurance provider exists (session-less, as in the original)
+      const insuranceProvider = await insuranceQueries.findProviderById(insuranceProviderId);
       if (!insuranceProvider) {
         return notFound('Insurance provider');
       }
