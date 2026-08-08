@@ -5,14 +5,13 @@
  * @module services/leave
  */
 
-import { Leave } from '../../../../models/index.js';
-import { BaseService, success, notFound, error } from '../../../../services/base/index.js';
+import { success, notFound, error } from '../../../../services/base/index.js';
+import { leaveOwner } from '../../../../services/leave/leaveOwner.service.js';
+import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js';
 
-class LeaveService extends BaseService {
-  constructor() {
-    super(Leave, 'Leave');
-  }
+const ENTITY = 'Leave';
 
+class LeaveService {
   /**
    * Create a new leave request
    * @param {Object} data - Leave data
@@ -21,11 +20,8 @@ class LeaveService extends BaseService {
   async createLeave(data, userId) {
     const { reason, startDate, endDate } = data;
     try {
-      const result = await this.create({ userId, reason, startDate, endDate });
-      if (result.success) {
-        return success({ message: 'Leave created successfully', leave: result.data }, 201);
-      }
-      return result;
+      const leave = await leaveOwner.createLeave({ userId, reason, startDate, endDate });
+      return success({ message: 'Leave created successfully', leave }, 201);
     } catch (err) {
       return error('Error creating leave', 500, err.message);
     }
@@ -37,11 +33,8 @@ class LeaveService extends BaseService {
    */
   async getMyLeaves(userId) {
     try {
-      const result = await this.findAll({ userId });
-      if (result.success) {
-        return success({ leaves: result.data });
-      }
-      return result;
+      const leaves = await leaveQueries.findByUser(userId);
+      return success({ leaves });
     } catch (err) {
       return error('Error getting leaves', 500, err.message);
     }
@@ -63,24 +56,20 @@ class LeaveService extends BaseService {
         if (endDate) queryObj.createdAt.$lte = new Date(endDate);
       }
 
-      const result = await this.findPaginated(queryObj, {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
-        sort: { createdAt: -1 },
-        populate: [{ path: 'userId', select: 'name email' }],
-      });
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      const [items, totalCount] = await Promise.all([
+        leaveQueries.listLeaves(queryObj, { skip: (pageNum - 1) * limitNum, limit: limitNum }),
+        leaveQueries.countLeaves(queryObj),
+      ]);
 
-      if (result.success) {
-        const { items, pagination } = result.data;
-        return success({
-          leaves: items,
-          totalCount: pagination.total,
-          totalPages: pagination.totalPages,
-          currentPage: pagination.page,
-          limit: pagination.limit,
-        });
-      }
-      return result;
+      return success({
+        leaves: items,
+        totalCount,
+        totalPages: Math.ceil(totalCount / limitNum),
+        currentPage: pageNum,
+        limit: limitNum,
+      });
     } catch (err) {
       return error('Error getting leaves', 500, err.message);
     }
@@ -95,13 +84,14 @@ class LeaveService extends BaseService {
   async approveLeave(id, data, approvalBy) {
     const { approvalInfo } = data;
     try {
-      const leave = await this.model.findByIdAndUpdate(
-        id,
-        { status: 'Approved', approvalInfo, approvalDate: new Date(), approvalBy },
-        { new: true }
-      );
+      const leave = await leaveOwner.updateLeaveById(id, {
+        status: 'Approved',
+        approvalInfo,
+        approvalDate: new Date(),
+        approvalBy,
+      });
       if (!leave) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
       return success({ message: 'Leave approved successfully', leave });
     } catch (err) {
@@ -118,13 +108,14 @@ class LeaveService extends BaseService {
   async rejectLeave(id, data, approvalBy) {
     const { reasonForRejection } = data;
     try {
-      const leave = await this.model.findByIdAndUpdate(
-        id,
-        { status: 'Rejected', reasonForRejection, approvalDate: new Date(), approvalBy },
-        { new: true }
-      );
+      const leave = await leaveOwner.updateLeaveById(id, {
+        status: 'Rejected',
+        reasonForRejection,
+        approvalDate: new Date(),
+        approvalBy,
+      });
       if (!leave) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
       return success({ message: 'Leave rejected successfully', leave });
     } catch (err) {
@@ -140,13 +131,13 @@ class LeaveService extends BaseService {
   async joinLeave(id, data) {
     const { joinInfo } = data;
     try {
-      const leave = await this.model.findByIdAndUpdate(
-        id,
-        { joinInfo, joinDate: new Date(), joinStatus: 'Joined' },
-        { new: true }
-      );
+      const leave = await leaveOwner.updateLeaveById(id, {
+        joinInfo,
+        joinDate: new Date(),
+        joinStatus: 'Joined',
+      });
       if (!leave) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
       return success({ message: 'Leave joined successfully', leave });
     } catch (err) {

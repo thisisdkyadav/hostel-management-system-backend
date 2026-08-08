@@ -8,7 +8,7 @@ import { BaseService, success, notFound, badRequest } from '../../../../services
 import { StudentProfile } from '../../../../models/index.js';
 import { Event } from '../../../../models/index.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
-import { Leave } from '../../../../models/index.js';
+import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import mongoose from 'mongoose';
 
@@ -212,14 +212,7 @@ class DashboardService extends BaseService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const leaves = await Leave.find({
-      startDate: { $lte: today },
-      endDate: { $gte: today },
-      status: 'Approved'
-    })
-      .sort({ startDate: 1 })
-      .populate('userId', 'name email')
-      .populate('approvalBy', 'name email');
+    const leaves = await leaveQueries.findActiveApprovedLeaves(today);
 
     return success({ count: leaves.length, leaves });
   }

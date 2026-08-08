@@ -7,7 +7,8 @@
 import { BaseService, success, notFound, badRequest, forbidden, paginated } from '../../../../services/base/index.js';
 import { Security } from '../../../../models/index.js';
 import { Warden } from '../../../../models/index.js';
-import { CheckInOut } from '../../../../models/index.js';
+import { checkInOutOwner } from '../../../../services/checkinout/checkInOutOwner.service.js';
+import { checkInOutQueries } from '../../../../services/checkinout/checkInOutQueries.service.js';
 import { AssociateWarden } from '../../../../models/index.js';
 import { HostelSupervisor } from '../../../../models/index.js';
 import { decryptData } from '../../../../utils/qrUtils.js';
@@ -72,7 +73,7 @@ class SecurityService extends BaseService {
     const dateAndTime = date && time ? new Date(`${date} ${time}`) : new Date();
     const isSameHostel = studentUnit.hostelId === user.hostel._id;
 
-    const studentEntry = await CheckInOut.create({
+    const studentEntry = await checkInOutOwner.createEntry({
       userId: roomAllocation.userId,
       hostelId,
       hostelName: studentUnit.hostelId.name,
@@ -104,7 +105,7 @@ class SecurityService extends BaseService {
 
     const isSameHostel = roomAllocation.hostelId === securityUser.hostel._id;
 
-    const studentEntry = await CheckInOut.create({
+    const studentEntry = await checkInOutOwner.createEntry({
       userId: user._id,
       status,
       hostelId: securityUser.hostel._id,
@@ -128,12 +129,7 @@ class SecurityService extends BaseService {
   async getRecentEntries(user) {
     const query = user.hostel ? { hostelId: user.hostel._id } : {};
 
-    const recentEntries = await CheckInOut.find(query)
-      .sort({ dateAndTime: -1 })
-      .limit(10)
-      .populate('userId', 'name email phone profileImage')
-      .populate('hostelId', 'name')
-      .exec();
+    const recentEntries = await checkInOutQueries.listRecentByHostel(query, 10);
 
     return success(recentEntries);
   }
@@ -167,13 +163,8 @@ class SecurityService extends BaseService {
 
     const skip = (page - 1) * limit;
     const [totalEntries, studentEntries] = await Promise.all([
-      CheckInOut.countDocuments(query),
-      CheckInOut.find(query)
-        .sort({ dateAndTime: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('userId', 'name email phone')
-        .exec()
+      checkInOutQueries.countEntries(query),
+      checkInOutQueries.listStudentEntries(query, { skip, limit })
     ]);
 
     return success({
@@ -186,7 +177,7 @@ class SecurityService extends BaseService {
    * Update a student entry
    */
   async updateStudentEntry(entryId, { unit, room, bed, date, time, status }) {
-    const studentEntry = await CheckInOut.findById(entryId);
+    const studentEntry = await checkInOutQueries.findEntryById(entryId);
     if (!studentEntry) {
       return notFound('Entry not found');
     }
@@ -197,7 +188,7 @@ class SecurityService extends BaseService {
     studentEntry.dateAndTime = date && time ? new Date(`${date} ${time}`) : new Date();
     studentEntry.status = status;
 
-    await studentEntry.save();
+    await checkInOutOwner.persistEntry(studentEntry);
 
     return success({ studentEntry }, 200, 'Student entry updated successfully');
   }
@@ -273,7 +264,7 @@ class SecurityService extends BaseService {
    * Delete a student entry
    */
   async deleteStudentEntry(entryId) {
-    const studentEntry = await CheckInOut.findByIdAndDelete(entryId);
+    const studentEntry = await checkInOutOwner.deleteEntryById(entryId);
     if (!studentEntry) {
       return notFound('Entry not found');
     }
@@ -322,9 +313,7 @@ class SecurityService extends BaseService {
 
     studentProfile.isSameHostel = studentProfile.hostel === securityUser.hostel.name;
 
-    const lastCheckInOut = await CheckInOut.findOne({ userId: user._id })
-      .sort({ dateAndTime: -1 })
-      .exec();
+    const lastCheckInOut = await checkInOutQueries.findLastEntryByUser(user._id);
 
     return success({ studentProfile, lastCheckInOut });
   }
@@ -333,11 +322,7 @@ class SecurityService extends BaseService {
    * Update cross-hostel reason for a student entry
    */
   async updateStudentEntryCrossHostelReason(entryId, reason) {
-    const studentEntry = await CheckInOut.findByIdAndUpdate(
-      entryId,
-      { reason },
-      { new: true }
-    );
+    const studentEntry = await checkInOutOwner.updateEntryById(entryId, { reason });
 
     if (!studentEntry) {
       return notFound('Entry not found');
@@ -355,14 +340,8 @@ class SecurityService extends BaseService {
 
     const skip = (page - 1) * limit;
     const [entries, total] = await Promise.all([
-      CheckInOut.find(query)
-        .sort({ dateAndTime: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('userId', 'name email phone profileImage')
-        .populate('hostelId', 'name type')
-        .exec(),
-      CheckInOut.countDocuments(query)
+      checkInOutQueries.listFaceScannerEntries(query, { skip, limit: parseInt(limit) }),
+      checkInOutQueries.countEntries(query)
     ]);
 
     const pendingCrossHostelEntries = entries.filter(

@@ -3,8 +3,8 @@
  * Handles actions performed by different scanner types
  */
 
-import { CheckInOut } from "../../../../models/index.js"
 import { StudentProfile } from "../../../../models/index.js"
+import { checkInOutOwner } from "../../../../services/checkinout/checkInOutOwner.service.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
 import * as liveCheckInOutService from "../live-checkinout/live-checkinout.service.js"
 import { verifyDiningMeal } from "../dining-meal-verification/dining-meal-verification.service.js"
@@ -132,25 +132,11 @@ export const processHostelGateEntry = async (scanner, scanData) => {
   const room = allocation.roomId?.roomNumber || ""
   const bed = allocation.bedNumber?.toString() || ""
 
-  // Check for duplicate entry (same student, same timestamp within 1 minute)
-  const oneMinuteAgo = new Date(dateTime.getTime() - 60000)
-  const existingEntry = await CheckInOut.findOne({
-    userId: studentProfile.userId._id,
-    dateAndTime: { $gte: oneMinuteAgo, $lte: dateTime },
-    status: status,
-  })
-
-  // if (existingEntry) {
-  //   // Duplicate detected, return success but don't create new entry
-  //   return {
-  //     success: true,
-  //     status: 200,
-  //     message: "Duplicate entry ignored",
-  //   }
-  // }
+  // NOTE: duplicate-entry detection (same student/status within 1 min) was
+  // disabled here previously; every scan records an entry.
 
   // Create check-in/out entry
-  const entry = new CheckInOut({
+  const entry = await checkInOutOwner.createEntry({
     userId: studentProfile.userId._id,
     hostelId: gateHostelId,
     hostelName: studentHostelName,
@@ -161,8 +147,6 @@ export const processHostelGateEntry = async (scanner, scanData) => {
     isSameHostel,
     status
   })
-
-  await entry.save()
 
   // Emit real-time event
   try {

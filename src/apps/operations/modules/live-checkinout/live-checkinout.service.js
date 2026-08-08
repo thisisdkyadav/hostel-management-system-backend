@@ -3,7 +3,7 @@
  * Handles all business logic for real-time check-in/out monitoring
  */
 
-import { CheckInOut } from '../../../../models/index.js';
+import { checkInOutQueries } from '../../../../services/checkinout/checkInOutQueries.service.js';
 
 /**
  * Get live check-in/out entries with advanced filters
@@ -55,7 +55,7 @@ export const getLiveEntries = async (filters = {}) => {
   const sortOptions = { [sortBy]: sortOrder === "asc" ? 1 : -1 }
 
   // Execute query with population
-  const [entries, totalCount] = await Promise.all([CheckInOut.find(query).sort(sortOptions).skip(skip).limit(parseInt(limit)).populate("userId", "name email phone profileImage").populate("hostelId", "name type").lean().exec(), CheckInOut.countDocuments(query)])
+  const [entries, totalCount] = await Promise.all([checkInOutQueries.listLiveEntries(query, { sort: sortOptions, skip, limit: parseInt(limit) }), checkInOutQueries.countEntries(query)])
 
   // Calculate stats
   const stats = await calculateCheckInOutStats(query)
@@ -85,12 +85,12 @@ export const calculateCheckInOutStats = async (baseQuery = {}) => {
     const todayQuery = { ...baseQuery, dateAndTime: { $gte: today } }
 
     const [totalCheckedIn, totalCheckedOut, todayCheckedIn, todayCheckedOut, crossHostelToday, sameHostelToday] = await Promise.all([
-      CheckInOut.countDocuments({ ...baseQuery, status: "Checked In" }),
-      CheckInOut.countDocuments({ ...baseQuery, status: "Checked Out" }),
-      CheckInOut.countDocuments({ ...todayQuery, status: "Checked In" }),
-      CheckInOut.countDocuments({ ...todayQuery, status: "Checked Out" }),
-      CheckInOut.countDocuments({ ...todayQuery, isSameHostel: false }),
-      CheckInOut.countDocuments({ ...todayQuery, isSameHostel: true }),
+      checkInOutQueries.countEntries({ ...baseQuery, status: "Checked In" }),
+      checkInOutQueries.countEntries({ ...baseQuery, status: "Checked Out" }),
+      checkInOutQueries.countEntries({ ...todayQuery, status: "Checked In" }),
+      checkInOutQueries.countEntries({ ...todayQuery, status: "Checked Out" }),
+      checkInOutQueries.countEntries({ ...todayQuery, isSameHostel: false }),
+      checkInOutQueries.countEntries({ ...todayQuery, isSameHostel: true }),
     ])
 
     return {
@@ -124,52 +124,7 @@ export const getHostelWiseStats = async () => {
   today.setHours(0, 0, 0, 0)
 
   // Aggregate by hostel
-  const hostelStats = await CheckInOut.aggregate([
-    {
-      $match: {
-        dateAndTime: { $gte: today },
-      },
-    },
-    {
-      $group: {
-        _id: "$hostelId",
-        checkedIn: {
-          $sum: { $cond: [{ $eq: ["$status", "Checked In"] }, 1, 0] },
-        },
-        checkedOut: {
-          $sum: { $cond: [{ $eq: ["$status", "Checked Out"] }, 1, 0] },
-        },
-        crossHostel: {
-          $sum: { $cond: [{ $eq: ["$isSameHostel", false] }, 1, 0] },
-        },
-      },
-    },
-    {
-      $lookup: {
-        from: "hostels",
-        localField: "_id",
-        foreignField: "_id",
-        as: "hostelInfo",
-      },
-    },
-    {
-      $unwind: "$hostelInfo",
-    },
-    {
-      $project: {
-        hostelId: "$_id",
-        hostelName: "$hostelInfo.name",
-        hostelType: "$hostelInfo.type",
-        checkedIn: 1,
-        checkedOut: 1,
-        crossHostel: 1,
-        total: { $add: ["$checkedIn", "$checkedOut"] },
-      },
-    },
-    {
-      $sort: { total: -1 },
-    },
-  ])
+  const hostelStats = await checkInOutQueries.aggregateHostelWiseStats(today)
 
   return hostelStats
 }
@@ -180,7 +135,7 @@ export const getHostelWiseStats = async () => {
  * @returns {Array} Recent entries
  */
 export const getRecentActivity = async (limit = 50) => {
-  const recentEntries = await CheckInOut.find().sort({ dateAndTime: -1 }).limit(parseInt(limit)).populate("userId", "name email phone profileImage").populate("hostelId", "name type").lean().exec()
+  const recentEntries = await checkInOutQueries.listRecentActivity(parseInt(limit))
 
   return recentEntries
 }
@@ -197,36 +152,7 @@ export const getTimeBasedAnalytics = async (targetDate = null) => {
   const nextDay = new Date(date)
   nextDay.setDate(nextDay.getDate() + 1)
 
-  const hourlyStats = await CheckInOut.aggregate([
-    {
-      $match: {
-        dateAndTime: {
-          $gte: date,
-          $lt: nextDay,
-        },
-      },
-    },
-    {
-      $project: {
-        hour: { $hour: "$dateAndTime" },
-        status: 1,
-      },
-    },
-    {
-      $group: {
-        _id: "$hour",
-        checkedIn: {
-          $sum: { $cond: [{ $eq: ["$status", "Checked In"] }, 1, 0] },
-        },
-        checkedOut: {
-          $sum: { $cond: [{ $eq: ["$status", "Checked Out"] }, 1, 0] },
-        },
-      },
-    },
-    {
-      $sort: { _id: 1 },
-    },
-  ])
+  const hourlyStats = await checkInOutQueries.aggregateHourlyStats(date, nextDay)
 
   // Fill in missing hours with zeros
   const completeHourlyData = Array.from({ length: 24 }, (_, hour) => {

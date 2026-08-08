@@ -5,17 +5,14 @@
  * @module services/staffAttendance.service
  */
 
-import { StaffAttendance } from '../../../../models/index.js';
 import { User } from '../../../../models/index.js';
 import { Security } from '../../../../models/index.js';
 import { decryptData } from '../../../../utils/qrUtils.js';
-import { BaseService, success, badRequest, error } from '../../../../services/base/index.js';
+import { success, badRequest, error } from '../../../../services/base/index.js';
+import { staffAttendanceOwner } from '../../../../services/staff-attendance/staffAttendanceOwner.service.js';
+import { staffAttendanceQueries } from '../../../../services/staff-attendance/staffAttendanceQueries.service.js';
 
-class StaffAttendanceService extends BaseService {
-  constructor() {
-    super(StaffAttendance, 'Staff attendance');
-  }
-
+class StaffAttendanceService {
   /**
    * Verify staff QR code
    * @param {Object} data - QR data with email and encryptedData
@@ -66,8 +63,7 @@ class StaffAttendanceService extends BaseService {
         }
       }
 
-      const latestAttendance = await this.model.findOne({ userId: user._id })
-        .sort({ createdAt: -1 });
+      const latestAttendance = await staffAttendanceQueries.findLatestByUser(user._id);
 
       return success({ staffInfo, latestAttendance });
     } catch (err) {
@@ -101,7 +97,7 @@ class StaffAttendanceService extends BaseService {
         return badRequest('Invalid staff type');
       }
 
-      const attendance = await this.model.create({
+      const attendance = await staffAttendanceOwner.createAttendance({
         userId: user._id,
         hostelId: reqUser.hostel._id,
         type
@@ -147,29 +143,22 @@ class StaffAttendanceService extends BaseService {
         queryObj.hostelId = user.hostel._id;
       }
 
-      const result = await this.findPaginated(queryObj, {
-        page,
-        limit,
-        sort: { createdAt: -1 },
-        populate: [
-          { path: 'userId', select: 'name email role' },
-          { path: 'hostelId', select: 'name type' }
-        ]
-      });
+      const pageNum = parseInt(page, 10);
+      const limitNum = parseInt(limit, 10);
+      const [items, total] = await Promise.all([
+        staffAttendanceQueries.listAttendance(queryObj, { skip: (pageNum - 1) * limitNum, limit: limitNum }),
+        staffAttendanceQueries.countAttendance(queryObj),
+      ]);
 
-      if (result.success) {
-        const { items, pagination } = result.data;
-        return success({
-          records: items,
-          meta: {
-            total: pagination.total,
-            page: pagination.page,
-            limit: pagination.limit,
-            totalPages: pagination.totalPages
-          }
-        });
-      }
-      return result;
+      return success({
+        records: items,
+        meta: {
+          total,
+          page: pageNum,
+          limit: limitNum,
+          totalPages: Math.ceil(total / limitNum)
+        }
+      });
     } catch (err) {
       return error('Internal server error', 500, err.message);
     }
