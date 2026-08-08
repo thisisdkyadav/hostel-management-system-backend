@@ -3,7 +3,8 @@
  * Handles all business logic for face scanner management
  */
 
-import { FaceScanner } from "../../../../models/index.js"
+import { scannerOwner } from "../../../../services/scanner/scannerOwner.service.js"
+import { scannerQueries } from "../../../../services/scanner/scannerQueries.service.js"
 import bcrypt from "bcrypt"
 import crypto from "crypto"
 
@@ -40,7 +41,7 @@ export const createScanner = async (data) => {
   const { username, password } = generateSecureCredentials()
   const passwordHash = await hashPassword(password)
 
-  const scanner = new FaceScanner({
+  const scanner = await scannerOwner.createScanner({
     username,
     passwordHash,
     name,
@@ -49,8 +50,6 @@ export const createScanner = async (data) => {
     hostelId: type === "hostel-gate" ? hostelId || null : null,
     catererId: type === "dining-meal" ? catererId || null : null,
   })
-
-  await scanner.save()
 
   // Return scanner with plain password (shown only once)
   return {
@@ -73,11 +72,7 @@ export const getAllScanners = async (filters = {}) => {
   if (filters.catererId) query.catererId = filters.catererId
   if (filters.isActive !== undefined) query.isActive = filters.isActive === "true"
 
-  const scanners = await FaceScanner.find(query)
-    .populate("hostelId", "name type")
-    .populate("catererId", "name email")
-    .sort({ createdAt: -1 })
-    .lean()
+  const scanners = await scannerQueries.listScanners(query)
 
   return scanners
 }
@@ -88,10 +83,7 @@ export const getAllScanners = async (filters = {}) => {
  * @returns {Promise<Object|null>}
  */
 export const getScannerById = async (id) => {
-  const scanner = await FaceScanner.findById(id)
-    .populate("hostelId", "name type")
-    .populate("catererId", "name email")
-    .lean()
+  const scanner = await scannerQueries.findScannerByIdPopulatedLean(id)
   return scanner
 }
 
@@ -112,9 +104,7 @@ export const updateScanner = async (id, data) => {
   if (catererId !== undefined) updateData.catererId = catererId || null
   if (isActive !== undefined) updateData.isActive = isActive
 
-  const scanner = await FaceScanner.findByIdAndUpdate(id, updateData, { new: true })
-    .populate("hostelId", "name type")
-    .populate("catererId", "name email")
+  const scanner = await scannerOwner.updateScannerById(id, updateData)
 
   return scanner
 }
@@ -125,7 +115,7 @@ export const updateScanner = async (id, data) => {
  * @returns {Promise<boolean>}
  */
 export const deleteScanner = async (id) => {
-  const result = await FaceScanner.findByIdAndDelete(id)
+  const result = await scannerOwner.deleteScannerById(id)
   return !!result
 }
 
@@ -135,14 +125,14 @@ export const deleteScanner = async (id) => {
  * @returns {Promise<{ scanner: Object, plainPassword: string }|null>}
  */
 export const regeneratePassword = async (id) => {
-  const scanner = await FaceScanner.findById(id)
+  const scanner = await scannerQueries.findScannerById(id)
   if (!scanner) return null
 
   const password = crypto.randomBytes(16).toString("base64url")
   const passwordHash = await hashPassword(password)
 
   scanner.passwordHash = passwordHash
-  await scanner.save()
+  await scannerOwner.persistScanner(scanner)
 
   return {
     scanner,

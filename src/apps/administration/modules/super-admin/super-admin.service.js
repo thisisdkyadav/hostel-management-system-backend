@@ -5,10 +5,12 @@
  * @module services/superAdmin
  */
 
-import { ApiClient, User, Admin } from '../../../../models/index.js';
+import { User, Admin } from '../../../../models/index.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { success, badRequest, error, notFound, forbidden } from '../../../../services/base/index.js';
+import { scannerOwner } from '../../../../services/scanner/scannerOwner.service.js';
+import { scannerQueries } from '../../../../services/scanner/scannerQueries.service.js';
 import { ROLES, SUBROLES, ADMIN_SUBROLES } from '../../../../core/constants/roles.constants.js';
 
 const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
@@ -96,8 +98,7 @@ class SuperAdminService {
 
     try {
       const apiKey = crypto.randomBytes(32).toString('hex');
-      const newClient = new ApiClient({ name, apiKey, expiresAt });
-      await newClient.save();
+      const newClient = await scannerOwner.createApiClient({ name, apiKey, expiresAt });
       return success({ message: 'API client created successfully', clientId: newClient._id, apiKey }, 201);
     } catch (err) {
       if (err.code === 11000) {
@@ -112,7 +113,7 @@ class SuperAdminService {
    */
   async getApiClients() {
     try {
-      const clients = await ApiClient.find();
+      const clients = await scannerQueries.listApiClients();
       return success(clients);
     } catch (err) {
       return error('Failed to fetch API clients', 500, err);
@@ -125,7 +126,7 @@ class SuperAdminService {
    */
   async deleteApiClient(clientId) {
     try {
-      await ApiClient.findByIdAndDelete(clientId);
+      await scannerOwner.deleteApiClientById(clientId);
       return success({ message: 'API client deleted successfully' });
     } catch (err) {
       return error('Failed to delete API client', 500, err);
@@ -140,11 +141,7 @@ class SuperAdminService {
   async updateApiClient(clientId, data) {
     const { name, expiresAt, isActive } = data;
     try {
-      const updatedClient = await ApiClient.findByIdAndUpdate(
-        clientId,
-        { name, expiresAt, isActive },
-        { new: true }
-      );
+      const updatedClient = await scannerOwner.updateApiClientById(clientId, { name, expiresAt, isActive });
       return success({ message: 'API client updated successfully', updatedClient });
     } catch (err) {
       return error('Failed to update API client', 500, err);
@@ -423,8 +420,8 @@ class SuperAdminService {
   async getDashboardStats() {
     try {
       const totalAdmins = await User.countDocuments({ role: ROLES.ADMIN });
-      const totalApiKeys = await ApiClient.countDocuments();
-      const activeApiKeys = await ApiClient.countDocuments({ isActive: true });
+      const totalApiKeys = await scannerQueries.countApiClients();
+      const activeApiKeys = await scannerQueries.countApiClients({ isActive: true });
 
       return success({ totalAdmins, totalApiKeys, activeApiKeys });
     } catch (err) {

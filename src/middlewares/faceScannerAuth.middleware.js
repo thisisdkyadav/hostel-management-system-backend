@@ -2,8 +2,8 @@
  * Face Scanner Authentication Middleware
  * Handles authentication for face scanner devices
  */
-// Using old model path until Phase 3 (Models Migration)
-import { FaceScanner } from "../models/index.js"
+import { scannerOwner } from "../services/scanner/scannerOwner.service.js"
+import { scannerQueries } from "../services/scanner/scannerQueries.service.js"
 import bcrypt from "bcrypt"
 import crypto from "crypto"
 import fs from "fs"
@@ -38,8 +38,6 @@ const logScannerRequest = (req) => {
   }
 }
 
-const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
 /**
  * HTTP Basic Authentication (e.g. Easy TimePro / ZKTeco push).
  * Device sends `Authorization: Basic base64(username:password)` where the
@@ -64,12 +62,7 @@ const tryBasicAuth = async (req) => {
   const password = decoded.slice(separatorIndex + 1)
   if (!username) return null
 
-  const scanner = await FaceScanner.findOne({
-    isActive: true,
-    username: new RegExp(`^${escapeRegExp(username)}$`, "i"),
-  })
-    .populate("hostelId", "name type")
-    .populate("catererId", "name email")
+  const scanner = await scannerQueries.findActiveScannerByUsername(username)
 
   if (!scanner) return null
 
@@ -83,9 +76,7 @@ const tryBasicAuth = async (req) => {
  * scanner password. Returns the matching scanner document, or null.
  */
 const tryHeaderAuth = async (req) => {
-  const scanners = await FaceScanner.find({ isActive: true })
-    .populate("hostelId", "name type")
-    .populate("catererId", "name email")
+  const scanners = await scannerQueries.findActiveScanners()
 
   for (const scanner of scanners) {
     const headerValue = req.headers[scanner.username.toLowerCase()]
@@ -163,7 +154,7 @@ export const authenticateScanner = async (req, res, next) => {
     }
 
     // Update last active timestamp (non-blocking)
-    FaceScanner.findByIdAndUpdate(authenticatedScanner._id, { lastActiveAt: new Date() }).catch((err) =>
+    scannerOwner.touchScannerLastActive(authenticatedScanner._id).catch((err) =>
       console.error("Error updating scanner lastActiveAt:", err)
     )
 
