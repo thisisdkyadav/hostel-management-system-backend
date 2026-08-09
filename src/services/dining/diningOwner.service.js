@@ -7,7 +7,7 @@
  * in diningQueries.service.js.
  */
 
-import { Caterer, DiningOfficeStaff, DiningPeriod, DiningMealVerification } from "../../models/index.js"
+import { Caterer, DiningOfficeStaff, DiningPeriod, DiningMealVerification, DiningRebate } from "../../models/index.js"
 
 export const diningOwner = {
   // ---- Caterer ----
@@ -68,6 +68,18 @@ export const diningOwner = {
   /** Create a meal-verification record. */
   async createVerification(data) {
     return DiningMealVerification.create(data)
+  },
+
+  // ---- DiningRebate ----
+
+  /** Insert many rebate docs (mongoose insertMany: runs validators, returns hydrated docs). */
+  async insertRebates(docs, options = {}) {
+    return DiningRebate.insertMany(docs, options)
+  },
+
+  /** Persist a hydrated rebate doc (mutate-then-save: approve/reject). */
+  async persistRebate(doc) {
+    return doc.save()
   },
 }
 

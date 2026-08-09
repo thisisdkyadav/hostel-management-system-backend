@@ -8,7 +8,7 @@ import { getIO } from "../../../../loaders/socket.loader.js"
 import {
   getApprovedRebateStudentIdsForDay,
   getCatererDiningRebateSummary,
-} from "../../../../services/dining-rebate.service.js"
+} from "../../../../services/dining/dining-rebate.service.js"
 
 const VERIFIED_STATUS = "verified"
 const DUPLICATE_STATUS = "duplicate"

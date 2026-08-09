@@ -17,7 +17,7 @@ import { allocationQueries } from '../../../../services/dining/allocationQueries
 import {
   createStudentDiningRebate,
   getStudentDiningRebates,
-} from '../../../../services/dining-rebate.service.js';
+} from '../../../../services/dining/dining-rebate.service.js';
 import { getStudentDiningBilling } from '../../../administration/modules/admin/dining-billing.service.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';

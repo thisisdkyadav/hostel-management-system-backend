@@ -9,7 +9,7 @@ import {
   approveDiningRebate,
   getAdminDiningRebates,
   rejectDiningRebate,
-} from '../../../../services/dining-rebate.service.js';
+} from '../../../../services/dining/dining-rebate.service.js';
 
 export const getDiningPeriods = asyncHandler(async (req, res) => {
   const result = await diningPeriodService.getDiningPeriods(req.query.archive);

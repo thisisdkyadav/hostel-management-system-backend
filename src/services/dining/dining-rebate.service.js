@@ -1,13 +1,10 @@
 import crypto from "crypto"
 import mongoose from "mongoose"
-import {
-  Caterer,
-  DiningPeriod,
-  DiningRebate,
-} from "../models/index.js"
-import { studentProfileQueries } from "./student/studentProfileQueries.service.js"
-import { allocationQueries } from "./dining/allocationQueries.service.js"
-import { badRequest, notFound, success } from "./base/index.js"
+import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
+import { allocationQueries } from "./allocationQueries.service.js"
+import { diningOwner } from "./diningOwner.service.js"
+import { diningQueries } from "./diningQueries.service.js"
+import { badRequest, notFound, success } from "../base/index.js"
 
 const APPROVED_STATUS = "approved"
 const PENDING_STATUS = "pending"
@@ -119,27 +116,19 @@ export const serializeDiningRebate = (rebate = {}) => ({
   updatedAt: rebate.updatedAt,
 })
 
-const populateRebateQuery = (query) => query
-  .populate({ path: "periodId", select: "startDate endDate rebateSettings" })
-  .populate({ path: "catererId", select: "name email" })
-  .populate({
-    path: "studentProfileId",
-    select: "rollNumber userId",
-    populate: { path: "userId", select: "name email" },
-  })
-
 const getStudentProfileForUser = async (userId) => (
   studentProfileQueries.findByUserId(userId, { select: "_id userId rollNumber status", lean: true })
 )
 
 const getPeriodsForRange = async (startDate, endDate) => (
-  DiningPeriod.find({
-    isArchived: false,
-    startDate: { $lte: endDate },
-    endDate: { $gte: startDate },
-  })
-    .sort({ startDate: 1 })
-    .lean()
+  diningQueries.findPeriods(
+    {
+      isArchived: false,
+      startDate: { $lte: endDate },
+      endDate: { $gte: startDate },
+    },
+    { sort: { startDate: 1 }, lean: true },
+  )
 )
 
 const getSegmentForPeriod = ({ period, requestedKeys }) => {
@@ -165,17 +154,20 @@ const ensureNoRebateOverlap = async ({ studentUserId, periodId, dateKeys, exclud
   }
   if (excludeRebateId) query._id = { $ne: excludeRebateId }
 
-  const overlap = await DiningRebate.findOne(query).select("_id").lean()
+  const overlap = await diningQueries.findOneRebate(query, { select: "_id", lean: true })
   return !overlap
 }
 
 const countApprovedShortTermDays = async ({ studentUserId, periodId }) => {
-  const rebates = await DiningRebate.find({
-    studentUserId,
-    periodId,
-    type: SHORT_TERM_TYPE,
-    status: APPROVED_STATUS,
-  }).select("dateKeys dayCount").lean()
+  const rebates = await diningQueries.findRebates(
+    {
+      studentUserId,
+      periodId,
+      type: SHORT_TERM_TYPE,
+      status: APPROVED_STATUS,
+    },
+    { select: "dateKeys dayCount", lean: true },
+  )
 
   const dateKeys = new Set()
   rebates.forEach((rebate) => {
@@ -296,17 +288,17 @@ export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
   if (validation.response) return validation.response
 
   const requestGroupId = crypto.randomUUID()
-  const created = await DiningRebate.insertMany(
+  const created = await diningOwner.insertRebates(
     validation.segments.map((segment) => ({
       ...segment,
       requestGroupId,
     }))
   )
 
-  const populated = await populateRebateQuery(
-    DiningRebate.find({ _id: { $in: created.map((rebate) => rebate._id) } })
-      .sort({ startDate: 1 })
-  ).lean()
+  const populated = await diningQueries.findRebatesPopulated(
+    { _id: { $in: created.map((rebate) => rebate._id) } },
+    { sort: { startDate: 1 }, lean: true },
+  )
   const hasPending = populated.some((rebate) => rebate.status === PENDING_STATUS)
 
   return success(
@@ -319,11 +311,10 @@ export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
 }
 
 export const getStudentDiningRebates = async ({ userId }) => {
-  const rebates = await populateRebateQuery(
-    DiningRebate.find({ studentUserId: userId })
-      .sort({ startDate: -1, createdAt: -1 })
-      .limit(100)
-  ).lean()
+  const rebates = await diningQueries.findRebatesPopulated(
+    { studentUserId: userId },
+    { sort: { startDate: -1, createdAt: -1 }, limit: 100, lean: true },
+  )
 
   return success({ rebates: rebates.map(serializeDiningRebate) })
 }
@@ -334,11 +325,10 @@ export const getAdminDiningRebates = async ({ status = "" } = {}) => {
     query.status = String(status).trim()
   }
 
-  const rebates = await populateRebateQuery(
-    DiningRebate.find(query)
-      .sort({ status: -1, startDate: 1, createdAt: -1 })
-      .limit(200)
-  ).lean()
+  const rebates = await diningQueries.findRebatesPopulated(
+    query,
+    { sort: { status: -1, startDate: 1, createdAt: -1 }, limit: 200, lean: true },
+  )
 
   return success({ rebates: rebates.map(serializeDiningRebate) })
 }
@@ -346,7 +336,7 @@ export const getAdminDiningRebates = async ({ status = "" } = {}) => {
 export const approveDiningRebate = async ({ rebateId, adminUserId }) => {
   if (!mongoose.Types.ObjectId.isValid(rebateId)) return badRequest("Invalid rebate request")
 
-  const rebate = await DiningRebate.findById(rebateId)
+  const rebate = await diningQueries.findRebateById(rebateId)
   if (!rebate) return notFound("Dining rebate")
   if (rebate.status !== PENDING_STATUS) return badRequest("Only pending long-term rebates can be approved")
 
@@ -363,16 +353,16 @@ export const approveDiningRebate = async ({ rebateId, adminUserId }) => {
   rebate.approvedAt = new Date()
   rebate.rejectedBy = null
   rebate.rejectedAt = null
-  await rebate.save()
+  await diningOwner.persistRebate(rebate)
 
-  const populated = await populateRebateQuery(DiningRebate.findById(rebate._id)).lean()
+  const populated = await diningQueries.findRebateByIdPopulated(rebate._id, { lean: true })
   return success({ rebate: serializeDiningRebate(populated) }, 200, "Rebate approved successfully")
 }
 
 export const rejectDiningRebate = async ({ rebateId, adminUserId, comment = "" }) => {
   if (!mongoose.Types.ObjectId.isValid(rebateId)) return badRequest("Invalid rebate request")
 
-  const rebate = await DiningRebate.findById(rebateId)
+  const rebate = await diningQueries.findRebateById(rebateId)
   if (!rebate) return notFound("Dining rebate")
   if (rebate.status !== PENDING_STATUS) return badRequest("Only pending long-term rebates can be rejected")
 
@@ -380,24 +370,27 @@ export const rejectDiningRebate = async ({ rebateId, adminUserId, comment = "" }
   rebate.adminComment = String(comment || "").trim()
   rebate.rejectedBy = adminUserId
   rebate.rejectedAt = new Date()
-  await rebate.save()
+  await diningOwner.persistRebate(rebate)
 
-  const populated = await populateRebateQuery(DiningRebate.findById(rebate._id)).lean()
+  const populated = await diningQueries.findRebateByIdPopulated(rebate._id, { lean: true })
   return success({ rebate: serializeDiningRebate(populated) }, 200, "Rebate rejected successfully")
 }
 
 const getPeriodForDay = async (day) => (
-  DiningPeriod.findOne({
-    isArchived: false,
-    startDate: { $lte: day },
-    endDate: { $gte: day },
-  }).lean()
+  diningQueries.findOnePeriod(
+    {
+      isArchived: false,
+      startDate: { $lte: day },
+      endDate: { $gte: day },
+    },
+    { lean: true },
+  )
 )
 
 export const getCatererDiningRebateSummary = async ({ catererId }) => {
   if (!mongoose.Types.ObjectId.isValid(catererId)) return badRequest("Valid caterer is required")
 
-  const caterer = await Caterer.findById(catererId).lean()
+  const caterer = await diningQueries.findCatererById(catererId, { lean: true })
   if (!caterer) return notFound("Caterer")
 
   const today = normalizeDay(new Date())
@@ -421,7 +414,7 @@ export const getCatererDiningRebateSummary = async ({ catererId }) => {
 
     const [allocatedStudentCount, approvedRebateCount] = await Promise.all([
       allocationQueries.countAllocationsByPeriodAndCaterer(period._id, catererId),
-      DiningRebate.countDocuments({
+      diningQueries.countRebates({
         periodId: period._id,
         catererId,
         status: APPROVED_STATUS,
@@ -450,12 +443,15 @@ export const getApprovedRebateStudentIdsForDay = async ({ periodId, catererId, d
   const dateKey = getDayKey(date)
   if (!periodId || !catererId || !dateKey) return new Set()
 
-  const rebates = await DiningRebate.find({
-    periodId,
-    catererId,
-    status: APPROVED_STATUS,
-    dateKeys: dateKey,
-  }).select("studentUserId").lean()
+  const rebates = await diningQueries.findRebates(
+    {
+      periodId,
+      catererId,
+      status: APPROVED_STATUS,
+      dateKeys: dateKey,
+    },
+    { select: "studentUserId", lean: true },
+  )
 
   return new Set(rebates.map((rebate) => String(rebate.studentUserId)))
 }

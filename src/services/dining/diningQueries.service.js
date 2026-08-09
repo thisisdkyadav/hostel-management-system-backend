@@ -36,6 +36,29 @@ const populateVerification = (query) => {
   return query
 }
 
+/**
+ * The canonical populate shape for a dining-rebate record (period settings,
+ * caterer, student profile + user). Mirrors the old app-side populateRebateQuery
+ * that lived in dining-rebate.service. Note: userId select is "name email" (no
+ * profileImage — unlike the verification populate above).
+ */
+const REBATE_POPULATE = [
+  { path: "periodId", select: "startDate endDate rebateSettings" },
+  { path: "catererId", select: "name email" },
+  {
+    path: "studentProfileId",
+    select: "rollNumber userId",
+    populate: { path: "userId", select: "name email" },
+  },
+]
+
+const populateRebate = (query) => {
+  REBATE_POPULATE.forEach((p) => {
+    query = query.populate(p)
+  })
+  return query
+}
+
 export const diningQueries = {
   // ---- Caterer (repository-style) ----
 
@@ -134,6 +157,39 @@ export const diningQueries = {
   /** Count rebates matching a filter (dashboard tiles). */
   async countRebates(filter = {}) {
     return DiningRebate.countDocuments(filter)
+  },
+
+  /** One rebate by filter. Options: { select, lean }. */
+  async findOneRebate(filter, { select, lean } = {}) {
+    let query = DiningRebate.findOne(filter)
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** One rebate by id. Options: { select, lean }. HYDRATED by default (mutate-then-save). */
+  async findRebateById(id, { select, lean } = {}) {
+    let query = DiningRebate.findById(id)
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** One rebate by id with the canonical populate. Options: { lean }. */
+  async findRebateByIdPopulated(id, { lean } = {}) {
+    let query = populateRebate(DiningRebate.findById(id))
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** Rebates by filter with the canonical populate. Options: { sort, skip, limit, lean }. */
+  async findRebatesPopulated(filter = {}, { sort, skip, limit, lean } = {}) {
+    let query = populateRebate(DiningRebate.find(filter))
+    if (sort) query = query.sort(sort)
+    if (skip) query = query.skip(skip)
+    if (limit) query = query.limit(limit)
+    if (lean) query = query.lean()
+    return query
   },
 
   // ---- DiningMealVerification ----

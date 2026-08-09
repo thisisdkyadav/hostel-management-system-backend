@@ -12,7 +12,7 @@ import { allocationQueries } from "../../../../services/dining/allocationQueries
 import { success } from "../../../../services/base/index.js"
 import { getCurrentMealScope } from "../dining-meal-verification/dining-meal-verification.service.js"
 import { getBillingPeriods } from "../../../administration/modules/admin/dining-billing.service.js"
-import { normalizeDay, getDayKey } from "../../../../services/dining-rebate.service.js"
+import { normalizeDay, getDayKey } from "../../../../services/dining/dining-rebate.service.js"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100

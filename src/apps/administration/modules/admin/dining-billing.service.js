@@ -14,7 +14,7 @@ import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
-import { listDayKeys, normalizeDay } from '../../../../services/dining-rebate.service.js';
+import { listDayKeys, normalizeDay } from '../../../../services/dining/dining-rebate.service.js';
 import { billingOwner } from '../../../../services/dining/billingOwner.service.js';
 import { billingQueries } from '../../../../services/dining/billingQueries.service.js';
 
