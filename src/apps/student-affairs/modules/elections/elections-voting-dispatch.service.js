@@ -2,8 +2,8 @@ import {
   ActionLinkToken,
   Election,
   ElectionNomination,
-  StudentProfile,
 } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { voteQueries } from "../../../../services/elections/voteQueries.service.js"
 import { emailService } from "../../../../services/email/email.service.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
@@ -230,8 +230,7 @@ const collectEligibleVoterProfiles = async (election) => {
     query.$or.push({ rollNumber: { $in: [...allExtraRollNumbers] } })
   }
 
-  const profiles = await StudentProfile.find(query)
-    .populate({ path: "userId", select: "name email profileImage" })
+  const profiles = await studentProfileQueries.findByQueryWithUserImage(query)
 
   return profiles
     .map((profile) => {

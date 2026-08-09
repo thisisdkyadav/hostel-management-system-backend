@@ -2,9 +2,9 @@ import mongoose from "mongoose"
 import {
   Election,
   ElectionNomination,
-  StudentProfile,
   User,
 } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { voteOwner } from "../../../../services/elections/voteOwner.service.js"
 import { voteQueries } from "../../../../services/elections/voteQueries.service.js"
 import {
@@ -262,11 +262,7 @@ const getProfilesForRollNumbers = async (rollNumbers = []) => {
   const normalizedRollNumbers = normalizeRollNumbers(rollNumbers)
   if (normalizedRollNumbers.length === 0) return []
 
-  return StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers }, status: "Active" })
-    .populate({
-      path: "userId",
-      select: "name email role profileImage",
-    })
+  return studentProfileQueries.findActiveByRollNumbersWithUser(normalizedRollNumbers)
 }
 
 const validateRollNumberUsersExist = async (rollNumbers = [], label = "roll numbers") => {
@@ -591,26 +587,11 @@ const getEligibleStudentProfilesForScope = async (scope = {}) => {
     query.$or.push({ rollNumber: { $in: extraRollNumbers } })
   }
 
-  return StudentProfile.find(query)
-    .populate({
-      path: "userId",
-      select: "name email role",
-    })
+  return studentProfileQueries.findByQueryWithUserRole(query)
 }
 
 const getStudentProfileWithRelations = async (userId) => {
-  return StudentProfile.findOne({ userId, status: "Active" })
-    .populate({
-      path: "userId",
-      select: "name email role profileImage",
-    })
-    .populate({
-      path: "currentRoomAllocation",
-      populate: {
-        path: "hostelId",
-        select: "name",
-      },
-    })
+  return studentProfileQueries.findActiveByUserIdWithRelations(userId)
 }
 
 const doesProfileMatchScope = (profile, scope = {}) => {
@@ -801,7 +782,7 @@ const countStudentsForScope = async (scope = {}) => {
   const query = buildStudentScopeQuery(scope)
   if (!query) return 0
 
-  const eligibleUserIds = await StudentProfile.distinct("userId", query)
+  const eligibleUserIds = await studentProfileQueries.distinctField("userId", query)
   return eligibleUserIds.length
 }
 
@@ -859,7 +840,7 @@ const buildElectionVotingLiveStats = async (election) => {
           }
         : null
       const eligibleVoterIds = eligibleVoterQuery
-        ? (await StudentProfile.distinct("userId", eligibleVoterQuery)).map((value) => String(value))
+        ? (await studentProfileQueries.distinctField("userId", eligibleVoterQuery)).map((value) => String(value))
         : []
       const eligibleVoterCount = eligibleVoterIds.length
       const postVerifiedNominations = verifiedNominationMap.get(postId) || []

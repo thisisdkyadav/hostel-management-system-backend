@@ -1,4 +1,4 @@
-import { StudentProfile } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { bestPerformerOccurrenceOwner } from "../../../../services/award/bestPerformerOccurrenceOwner.service.js"
 import { bestPerformerOccurrenceQueries } from "../../../../services/award/bestPerformerOccurrenceQueries.service.js"
 import { bestPerformerApplicationOwner } from "../../../../services/award/bestPerformerApplicationOwner.service.js"
@@ -101,15 +101,11 @@ const serializeEligibleStudents = async (occurrence) => {
   const eligibleRollNumbers = normalizeRollNumbers(occurrence?.eligibleRollNumbers)
   if (eligibleRollNumbers.length === 0) return []
 
-  const profiles = await StudentProfile.find({
-    rollNumber: { $in: eligibleRollNumbers },
+  const profiles = await studentProfileQueries.findByRollNumbers(eligibleRollNumbers, {
+    select: "rollNumber department degree userId",
+    populate: { path: "userId", select: "name email" },
+    lean: true,
   })
-    .select("rollNumber department degree userId")
-    .populate({
-      path: "userId",
-      select: "name email",
-    })
-    .lean()
 
   const profileByRollNumber = new Map(
     profiles.map((profile) => [
@@ -545,11 +541,7 @@ const buildScoringPayloadFromApplication = (application) => {
 }
 
 const getStudentProfileForUser = async (userId) => {
-  return StudentProfile.findOne({ userId })
-    .populate({
-      path: "userId",
-      select: "name email profileImage",
-    })
+  return studentProfileQueries.findByUserIdWithUserImage(userId)
 }
 
 const getOccurrenceById = async (id) => {
@@ -588,11 +580,7 @@ const buildPorLookupForApplications = async (applications = []) => {
     ),
   ]
 
-  const studentProfiles = await StudentProfile.find({
-    userId: { $in: submittedByIds },
-  })
-    .select("userId rollNumber department degree batch")
-    .lean()
+  const studentProfiles = await studentProfileQueries.findByUserIdsSelectTaxonomy(submittedByIds)
 
   const studentProfilesByUserId = new Map(
     studentProfiles.map((profile) => [String(profile?.userId || "").trim(), profile])
@@ -623,8 +611,7 @@ const assertEligibleStudentRollNumbers = async (rollNumbers = []) => {
     return badRequest("At least one eligible roll number is required")
   }
 
-  const profiles = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-    .select("_id rollNumber userId")
+  const profiles = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: "_id rollNumber userId" })
 
   const foundRollNumbers = new Set(profiles.map((profile) => String(profile.rollNumber).toUpperCase()))
   const missingRollNumbers = normalizedRollNumbers.filter((rollNumber) => !foundRollNumbers.has(rollNumber))

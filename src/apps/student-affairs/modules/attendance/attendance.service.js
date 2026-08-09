@@ -5,7 +5,8 @@
  */
 
 import { success, notFound, badRequest, forbidden } from "../../../../services/base/index.js"
-import { User, StudentProfile } from "../../../../models/index.js"
+import { User } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { attendanceOwner } from "../../../../services/attendance/attendanceOwner.service.js"
 import { attendanceQueries } from "../../../../services/attendance/attendanceQueries.service.js"
 import { decryptData } from "../../../../utils/qrUtils.js"
@@ -193,9 +194,7 @@ class AttendanceService {
     if (!expiry) return { error: "Invalid QR code" }
     if (Date.now() > Number(expiry)) return { error: "QR code expired", expired: true }
 
-    const studentProfile = await StudentProfile.findOne({ userId: userDoc._id }).select(
-      "rollNumber department degree batch userId"
-    )
+    const studentProfile = await studentProfileQueries.findByUserId(userDoc._id, { select: "rollNumber department degree batch userId" })
     if (!studentProfile) return { error: "Student profile not found", noStudent: true }
 
     return { userDoc, studentProfile }
@@ -272,11 +271,7 @@ class AttendanceService {
       return badRequest("This attendance occurrence is closed")
 
     const normalized = normalizeRoll(rollNumber)
-    const studentProfile = await StudentProfile.findOne({
-      rollNumber: { $regex: new RegExp(`^${escapeRegex(normalized)}$`, "i") },
-    })
-      .select("rollNumber department degree batch userId")
-      .populate("userId", "name email profileImage")
+    const studentProfile = await studentProfileQueries.findByRollNumberCaseInsensitiveWithUser(normalized)
     if (!studentProfile) return notFound(`Student with roll number ${normalized}`)
 
     const userDoc = studentProfile.userId

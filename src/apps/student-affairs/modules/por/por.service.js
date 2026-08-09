@@ -12,7 +12,7 @@ import { porRequestOwner } from "../../../../services/club/porRequestOwner.servi
 import { porRequestQueries } from "../../../../services/club/porRequestQueries.service.js"
 import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
 import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
-import StudentProfile from "../../../../models/student/StudentProfile.model.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import Gymkhana from "../../../../models/user/Gymkhana.model.js"
 import User from "../../../../models/user/User.model.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
@@ -417,7 +417,7 @@ class PorService {
       return forbidden("Only students can create POR requests")
     }
 
-    const studentProfile = await StudentProfile.findOne({ userId: user._id }).select("_id rollNumber")
+    const studentProfile = await studentProfileQueries.findByUserId(user._id, { select: "_id rollNumber" })
     if (!studentProfile) {
       return notFound("Student profile")
     }
@@ -1793,11 +1793,7 @@ class PorService {
       ),
     ]
 
-    const studentProfiles = await StudentProfile.find({
-      userId: { $in: submittedUserIds },
-    })
-      .select("userId rollNumber department degree batch")
-      .lean()
+    const studentProfiles = await studentProfileQueries.findByUserIdsSelectTaxonomy(submittedUserIds)
 
     const studentProfileByUserId = new Map(
       studentProfiles.map((profile) => [normalizeObjectId(profile.userId), profile])

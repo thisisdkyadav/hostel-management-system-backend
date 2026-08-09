@@ -14,12 +14,16 @@
 
 import { StudentProfile } from "../../models/index.js"
 
+const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
 export const studentProfileQueries = {
   // ==================== chunk: campus-life ====================
 
-  /** One profile by userId, HYDRATED (undertakings / disco / certificates). */
-  async findByUserId(userId) {
-    return StudentProfile.findOne({ userId })
+  /** One profile by userId, HYDRATED. Optional { select } projection. */
+  async findByUserId(userId, { select } = {}) {
+    const query = StudentProfile.findOne({ userId })
+    if (select) query.select(select)
+    return query
   },
 
   /**
@@ -27,9 +31,10 @@ export const studentProfileQueries = {
    * shape: { select } projection, { lean } POJO, { session } transaction enlist.
    * Bare call (no opts) = HYDRATED find (undertakings bulk add).
    */
-  async findByRollNumbers(rollNumbers, { select, lean, session } = {}) {
+  async findByRollNumbers(rollNumbers, { select, lean, session, populate } = {}) {
     let query = StudentProfile.find({ rollNumber: { $in: rollNumbers } })
     if (select) query = query.select(select)
+    if (populate) query = query.populate(populate)
     if (session) query = query.session(session)
     if (lean) query = query.lean()
     return query
@@ -119,6 +124,53 @@ export const studentProfileQueries = {
   /** SYNC — static list of "missing field" option keys (no DB, no await). */
   getMissingFieldOptions() {
     return StudentProfile.getMissingFieldOptions()
+  },
+
+  // ==================== chunk: student-affairs ====================
+
+  /** Active profiles for roll numbers, with userId (name/email/role/image) — elections voters. */
+  async findActiveByRollNumbersWithUser(rollNumbers) {
+    return StudentProfile.find({ rollNumber: { $in: rollNumbers }, status: "Active" })
+      .populate({ path: "userId", select: "name email role profileImage" })
+  },
+
+  /** Profiles matching an arbitrary scope query, with userId (name/email/role) — election scope. */
+  async findByQueryWithUserRole(query) {
+    return StudentProfile.find(query).populate({ path: "userId", select: "name email role" })
+  },
+
+  /** Profiles matching an arbitrary query, with userId (name/email/image) — voter dispatch. */
+  async findByQueryWithUserImage(query) {
+    return StudentProfile.find(query).populate({ path: "userId", select: "name email profileImage" })
+  },
+
+  /** Active profile by userId with userId + currentRoomAllocation→hostel populated (voting relations). */
+  async findActiveByUserIdWithRelations(userId) {
+    return StudentProfile.findOne({ userId, status: "Active" })
+      .populate({ path: "userId", select: "name email role profileImage" })
+      .populate({ path: "currentRoomAllocation", populate: { path: "hostelId", select: "name" } })
+  },
+
+  /** Profiles for a set of userIds, LEAN, taxonomy projection (por/best-performer submitter maps). */
+  async findByUserIdsSelectTaxonomy(userIds) {
+    return StudentProfile.find({ userId: { $in: userIds } })
+      .select("userId rollNumber department degree batch")
+      .lean()
+  },
+
+  /** One profile by case-insensitive exact roll number, with userId populated (attendance scan). */
+  async findByRollNumberCaseInsensitiveWithUser(rollNumber) {
+    return StudentProfile.findOne({
+      rollNumber: { $regex: new RegExp(`^${escapeRegex(rollNumber)}$`, "i") },
+    })
+      .select("rollNumber department degree batch userId")
+      .populate("userId", "name email profileImage")
+  },
+
+  /** One profile by userId with userId (name/email/image) populated (best-performer self). */
+  async findByUserIdWithUserImage(userId) {
+    return StudentProfile.findOne({ userId })
+      .populate({ path: "userId", select: "name email profileImage" })
   },
 }
 
