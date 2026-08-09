@@ -21,9 +21,16 @@ export const userOwner = {
     return User.create(data)
   },
 
-  /** Update a user by id. Options forwarded (default none — matches callers). Returns doc or null. */
-  async updateUserById(id, updates, options = {}) {
-    return User.findByIdAndUpdate(id, updates, options)
+  /**
+   * Update a user by id. Mongoose options ({ new, runValidators, … }) pass through;
+   * { select, lean } are applied as query modifiers on the returned doc. Default
+   * none — matches callers that pass no options. Returns doc or null.
+   */
+  async updateUserById(id, updates, { select, lean, ...options } = {}) {
+    let query = User.findByIdAndUpdate(id, updates, options)
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
   },
 
   /** Delete a user by id. Returns the deleted doc or null. */
@@ -51,6 +58,11 @@ export const userOwner = {
   /** findOneAndDelete by arbitrary filter. Returns the deleted doc or null. */
   async findOneAndDeleteUser(filter) {
     return User.findOneAndDelete(filter)
+  },
+
+  /** Persist a hydrated User doc (mutate-then-save: password reset flows). Fires pre-save. */
+  async persist(doc) {
+    return doc.save()
   },
 }
 

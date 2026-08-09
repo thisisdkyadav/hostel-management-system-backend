@@ -57,11 +57,12 @@ export const userQueries = {
     return query
   },
 
-  /** find by arbitrary filter. Options: { select, lean, sort }. */
-  async findUsers(filter, { select, lean, sort } = {}) {
+  /** find by arbitrary filter. Options: { select, lean, sort, limit }. */
+  async findUsers(filter, { select, lean, sort, limit } = {}) {
     let query = User.find(filter)
     if (select) query = query.select(select)
     if (sort) query = query.sort(sort)
+    if (limit) query = query.limit(limit)
     if (lean) query = query.lean()
     return query
   },

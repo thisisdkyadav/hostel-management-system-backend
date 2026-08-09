@@ -75,6 +75,15 @@ export const staffRolesQueries = {
     return query
   },
 
+  /**
+   * Role profile by userId with a populate spec, HYDRATED. `populate` is a
+   * mongoose populate arg (string path or { path, select }). Security getSecurity
+   * / addVisitor populate hostelId.
+   */
+  async findByUserIdWithPopulate(roleKey, userId, populate) {
+    return resolve(roleKey).findOne({ userId }).populate(populate)
+  },
+
   /** Role profiles for a set of userIds. Options: { select, lean }. */
   async findByUserIds(roleKey, userIds, { select, lean } = {}) {
     let query = resolve(roleKey).find({ userId: { $in: userIds } })

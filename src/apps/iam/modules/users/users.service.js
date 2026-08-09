@@ -4,15 +4,14 @@
  */
 
 import bcrypt from 'bcrypt';
-import { User } from '../../../../models/index.js';
-import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
+import { success, notFound, badRequest } from '../../../../services/base/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
-class UserService extends BaseService {
-  constructor() {
-    super(User, 'User');
-  }
+const ENTITY = 'User';
 
+class UserService {
   async searchUsers({ query, role }) {
     if (!query || query.trim() === '') {
       return badRequest('Search query is required');
@@ -27,16 +26,19 @@ class UserService extends BaseService {
 
     if (role) searchQuery.role = role;
 
-    const users = await this.model.find(searchQuery).select('_id name email role phone profileImage').limit(5);
+    const users = await userQueries.findUsers(searchQuery, {
+      select: '_id name email role phone profileImage',
+      limit: 5,
+    });
 
     return success(users);
   }
 
   async getUserById(id) {
-    const user = await this.model.findById(id).select('_id name email role phone profileImage');
+    const user = await userQueries.findUserById(id, { select: '_id name email role phone profileImage' });
 
     if (!user) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     return success(user);
@@ -47,7 +49,10 @@ class UserService extends BaseService {
       return badRequest('Role parameter is required');
     }
 
-    const users = await this.model.find({ role }).select('_id name email role phone profileImage').sort({ name: 1 }).limit(50);
+    const users = await userQueries.findUsers(
+      { role },
+      { select: '_id name email role phone profileImage', sort: { name: 1 }, limit: 50 }
+    );
 
     return success(users);
   }
@@ -61,9 +66,10 @@ class UserService extends BaseService {
     }
 
     const emails = passwordUpdates.map((update) => update.email);
-    const users = await this.model.find({
-      email: { $in: emails.map((email) => new RegExp(`^${email}$`, 'i')) },
-    }).select('+password');
+    const users = await userQueries.findUsers(
+      { email: { $in: emails.map((email) => new RegExp(`^${email}$`, 'i')) } },
+      { select: '+password' }
+    );
 
     const userMap = new Map();
     users.forEach((user) => userMap.set(user.email, user));
@@ -89,7 +95,7 @@ class UserService extends BaseService {
           user.password = hashedPassword;
         }
 
-        await user.save();
+        await userOwner.persist(user);
         results.successful.push({ email });
       } catch (err) {
         results.failed.push({ email, reason: err.message });
@@ -100,13 +106,13 @@ class UserService extends BaseService {
   }
 
   async removeUserPassword(id) {
-    const user = await this.model.findById(id);
+    const user = await userQueries.findUserById(id);
     if (!user) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     user.password = null;
-    await user.save();
+    await userOwner.persist(user);
 
     return success({
       message: 'Password removed successfully',
@@ -119,7 +125,7 @@ class UserService extends BaseService {
       return badRequest('Array of user emails is required');
     }
 
-    const users = await this.model.find({
+    const users = await userQueries.findUsers({
       email: { $in: emails.map((email) => new RegExp(`^${email}$`, 'i')) },
     });
 
@@ -138,7 +144,7 @@ class UserService extends BaseService {
         }
 
         user.password = null;
-        await user.save();
+        await userOwner.persist(user);
         results.successful.push({ email });
       } catch (err) {
         results.failed.push({ email, reason: err.message });
@@ -153,7 +159,7 @@ class UserService extends BaseService {
       return badRequest('Role is required');
     }
 
-    const users = await this.model.find({ role });
+    const users = await userQueries.findUsers({ role });
 
     if (users.length === 0) {
       return notFound('No users found with the specified role');
@@ -161,7 +167,7 @@ class UserService extends BaseService {
 
     const updatePromises = users.map((user) => {
       user.password = null;
-      return user.save();
+      return userOwner.persist(user);
     });
 
     await Promise.all(updatePromises);

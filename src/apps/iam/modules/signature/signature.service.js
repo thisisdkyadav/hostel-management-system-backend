@@ -7,7 +7,8 @@
  * in the storage service (policy `signature-image`) and referenced here by media ref.
  */
 
-import User from "../../../../models/user/User.model.js"
+import { userOwner } from "../../../../services/user/userOwner.service.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { success, badRequest, notFound } from "../../../../services/base/ServiceResponse.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
 
@@ -35,7 +36,7 @@ const isUsableSignature = (signature) => {
 
 class SignatureService {
   async getMySignature(user) {
-    const doc = await User.findById(user._id).select("signature").lean()
+    const doc = await userQueries.findUserById(user._id, { select: "signature", lean: true })
     return success({ signature: serializeSignature(doc?.signature) })
   }
 
@@ -67,19 +68,17 @@ class SignatureService {
       signature.imageRef = null
     }
 
-    const updated = await User.findByIdAndUpdate(
+    const updated = await userOwner.updateUserById(
       user._id,
       { $set: { signature } },
-      { new: true, runValidators: true }
+      { new: true, runValidators: true, select: "signature", lean: true }
     )
-      .select("signature")
-      .lean()
 
     return success({ signature: serializeSignature(updated?.signature) }, "Signature saved")
   }
 
   async deleteMySignature(user) {
-    await User.findByIdAndUpdate(user._id, { $unset: { signature: "" } })
+    await userOwner.updateUserById(user._id, { $unset: { signature: "" } })
     return success({ signature: null }, "Signature removed")
   }
 
@@ -100,7 +99,7 @@ class SignatureService {
       query.$and = [{ name: { $regex: term, $options: "i" } }]
     }
 
-    const users = await User.find(query).select("name role subRole signature").lean()
+    const users = await userQueries.findUsers(query, { select: "name role subRole signature", lean: true })
 
     const signatories = users
       .filter((entry) => isUsableSignature(entry.signature))

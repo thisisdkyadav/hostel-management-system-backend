@@ -10,7 +10,9 @@ import {
   badRequest,
   conflict,
 } from '../../../../services/base/index.js';
-import { Caterer, User } from '../../../../models/index.js';
+import { Caterer } from '../../../../models/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { ROLES, DINING_SUBROLES } from '../../../../core/constants/roles.constants.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -37,7 +39,7 @@ export const findUserByEmail = (email, excludeUserId = null) => {
     query._id = { $ne: excludeUserId };
   }
 
-  return User.findOne(query).select('_id role email').lean();
+  return userQueries.findOneUser(query, { select: '_id role email', lean: true });
 };
 
 class CatererService extends BaseService {
@@ -103,7 +105,7 @@ class CatererService extends BaseService {
   }
 
   async createCatererLogin({ name, email }) {
-    return User.create({
+    return userOwner.createUser({
       name,
       email,
       role: ROLES.DINING,
@@ -122,7 +124,7 @@ class CatererService extends BaseService {
     }
 
     if (caterer.userId) {
-      const linkedUser = await User.findById(caterer.userId).select('_id role email');
+      const linkedUser = await userQueries.findUserById(caterer.userId, { select: '_id role email' });
       if (linkedUser) {
         const normalizedEmail = normalizeLower(caterer.email || caterer.emailLower);
         const userUpdate = {
@@ -139,7 +141,7 @@ class CatererService extends BaseService {
           userUpdate.email = normalizedEmail;
         }
 
-        await User.updateOne({ _id: linkedUser._id }, userUpdate);
+        await userOwner.updateOneUser({ _id: linkedUser._id }, userUpdate);
         return linkedUser;
       }
     }
@@ -208,7 +210,7 @@ class CatererService extends BaseService {
         userId: user._id,
       }).save();
     } catch (error) {
-      await User.findByIdAndDelete(user._id);
+      await userOwner.deleteUserById(user._id);
       throw error;
     }
 

@@ -1,18 +1,15 @@
 /**
  * Security Service
- * Handles security/check-in-out operations with BaseService pattern
+ * Handles security/check-in-out operations
  * @module services/security
  */
 
-import { BaseService, success, notFound, badRequest, forbidden, paginated } from '../../../../services/base/index.js';
-import { Security } from '../../../../models/index.js';
-import { Warden } from '../../../../models/index.js';
+import { success, notFound, badRequest, forbidden, paginated } from '../../../../services/base/index.js';
 import { checkInOutOwner } from '../../../../services/checkinout/checkInOutOwner.service.js';
 import { checkInOutQueries } from '../../../../services/checkinout/checkInOutQueries.service.js';
-import { AssociateWarden } from '../../../../models/index.js';
-import { HostelSupervisor } from '../../../../models/index.js';
 import { decryptData } from '../../../../utils/qrUtils.js';
-import { User } from '../../../../models/index.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
@@ -20,18 +17,15 @@ import { visitorQueries } from '../../../../services/visitor/visitorQueries.serv
 import { getIO } from '../../../../loaders/socket.loader.js';
 import * as liveCheckInOutService from '../live-checkinout/live-checkinout.service.js';
 
-class SecurityService extends BaseService {
-  constructor() {
-    super(Security, 'Security');
-  }
-
+class SecurityService {
   /**
    * Get security details for current user
    */
   async getSecurity(userId) {
-    const security = await this.model.findOne({ userId })
-      .populate('hostelId', 'name type')
-      .exec();
+    const security = await staffRolesQueries.findByUserIdWithPopulate('Security', userId, {
+      path: 'hostelId',
+      select: 'name type',
+    });
 
     if (!security) {
       return notFound('Security not found');
@@ -96,7 +90,7 @@ class SecurityService extends BaseService {
    * Add student entry with email
    */
   async addStudentEntryWithEmail(securityUser, { email, status, reason }) {
-    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const user = await userQueries.findUserByEmailCI(email);
     if (!user) {
       return notFound('User not found');
     }
@@ -197,9 +191,7 @@ class SecurityService extends BaseService {
    * Add a visitor
    */
   async addVisitor(userId, { name, phone, room }) {
-    const security = await this.model.findOne({ userId })
-      .populate('hostelId')
-      .exec();
+    const security = await staffRolesQueries.findByUserIdWithPopulate('Security', userId, 'hostelId');
 
     if (!security) {
       return notFound('Security not found');
@@ -222,16 +214,16 @@ class SecurityService extends BaseService {
     let hostelId;
 
     if (user.role === 'Security' || user.role === 'Hostel Gate') {
-      const security = await this.model.findOne({ userId: user._id });
+      const security = await staffRolesQueries.findByUserId('Security', user._id);
       hostelId = security?.hostelId;
     } else if (user.role === 'Warden') {
-      const warden = await Warden.findOne({ userId: user._id });
+      const warden = await staffRolesQueries.findByUserId('Warden', user._id);
       hostelId = warden?.activeHostelId;
     } else if (user.role === 'Associate Warden') {
-      const associateWarden = await AssociateWarden.findOne({ userId: user._id });
+      const associateWarden = await staffRolesQueries.findByUserId('AssociateWarden', user._id);
       hostelId = associateWarden?.activeHostelId;
     } else if (user.role === 'Hostel Supervisor') {
-      const hostelSupervisor = await HostelSupervisor.findOne({ userId: user._id });
+      const hostelSupervisor = await staffRolesQueries.findByUserId('HostelSupervisor', user._id);
       hostelId = hostelSupervisor?.activeHostelId;
     } else {
       return forbidden('Access denied');
@@ -292,7 +284,7 @@ class SecurityService extends BaseService {
       return badRequest('Invalid QR Code');
     }
 
-    const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const user = await userQueries.findUserByEmailCI(email);
     if (!user) {
       return badRequest('Invalid QR Code');
     }

@@ -8,7 +8,9 @@
 
 import bcrypt from "bcrypt"
 
-import { User, DiningOfficeStaff } from "../../../../models/index.js"
+import { DiningOfficeStaff } from "../../../../models/index.js"
+import { userOwner } from "../../../../services/user/userOwner.service.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { success, notFound, badRequest } from "../../../../services/base/index.js"
 import { ROLES, DINING_SUBROLES, DINING_OFFICE_CATEGORIES } from "../../../../core/constants/roles.constants.js"
 
@@ -50,7 +52,7 @@ export const createDiningOfficeStaff = async (payload) => {
     return badRequest(`Category must be one of: ${DINING_OFFICE_CATEGORIES.join(", ")}`)
   }
 
-  const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
+  const existingUser = await userQueries.findUserByEmailCI(email)
   if (existingUser) {
     return badRequest("A user with this email already exists")
   }
@@ -58,7 +60,7 @@ export const createDiningOfficeStaff = async (payload) => {
   const salt = await bcrypt.genSalt(10)
   const hashedPassword = await bcrypt.hash(password, salt)
 
-  const newUser = await User.create({
+  const newUser = await userOwner.createUser({
     name,
     email,
     password: hashedPassword,
@@ -102,7 +104,7 @@ export const updateDiningOfficeStaff = async (id, payload) => {
   }
 
   if (Object.keys(userUpdate).length > 0) {
-    await User.findByIdAndUpdate(staff.userId, userUpdate)
+    await userOwner.updateUserById(staff.userId, userUpdate)
   }
   if (Object.keys(staffUpdate).length > 0) {
     await DiningOfficeStaff.findByIdAndUpdate(id, staffUpdate)
@@ -117,7 +119,7 @@ export const deleteDiningOfficeStaff = async (id) => {
     return notFound("Dining office login")
   }
 
-  await User.findByIdAndDelete(staff.userId)
+  await userOwner.deleteUserById(staff.userId)
 
   return success(null, 200, "Dining office login deleted successfully")
 }
