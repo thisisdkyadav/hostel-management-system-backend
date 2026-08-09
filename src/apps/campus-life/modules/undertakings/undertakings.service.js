@@ -5,7 +5,7 @@
  * @module services/undertaking
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, notFound, badRequest, error, conflict } from '../../../../services/base/index.js';
 import { undertakingOwner } from '../../../../services/certificate/undertakingOwner.service.js';
 import { undertakingQueries } from '../../../../services/certificate/undertakingQueries.service.js';
@@ -180,9 +180,7 @@ class UndertakingService {
     }
 
     // Find student profiles by roll numbers
-    const studentProfiles = await StudentProfile.find({
-      rollNumber: { $in: rollNumbers }
-    });
+    const studentProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers);
 
     if (studentProfiles.length === 0) {
       return notFound('No students found with the provided roll numbers');
@@ -277,7 +275,7 @@ class UndertakingService {
    * @param {string} userId - User ID
    */
   async getStudentPendingUndertakings(userId) {
-    const studentProfile = await StudentProfile.findOne({ userId });
+    const studentProfile = await studentProfileQueries.findByUserId(userId);
 
     if (!studentProfile) {
       return notFound('Student profile');
@@ -306,7 +304,7 @@ class UndertakingService {
    * @param {string} userId - User ID
    */
   async getUndertakingDetails(undertakingId, userId) {
-    const studentProfile = await StudentProfile.findOne({ userId });
+    const studentProfile = await studentProfileQueries.findByUserId(userId);
 
     if (!studentProfile) {
       return notFound('Student profile');
@@ -354,7 +352,7 @@ class UndertakingService {
       return badRequest('Acceptance confirmation required');
     }
 
-    const studentProfile = await StudentProfile.findOne({ userId });
+    const studentProfile = await studentProfileQueries.findByUserId(userId);
 
     if (!studentProfile) {
       return notFound('Student profile');
@@ -386,7 +384,7 @@ class UndertakingService {
    * @param {string} userId - User ID
    */
   async getStudentAcceptedUndertakings(userId) {
-    const studentProfile = await StudentProfile.findOne({ userId });
+    const studentProfile = await studentProfileQueries.findByUserId(userId);
 
     if (!studentProfile) {
       return notFound('Student profile');
@@ -412,7 +410,7 @@ class UndertakingService {
    * @param {string} userId - User ID
    */
   async getStudentPendingUndertakingsCount(userId) {
-    const studentProfile = await StudentProfile.findOne({ userId });
+    const studentProfile = await studentProfileQueries.findByUserId(userId);
 
     if (!studentProfile) {
       return notFound('Student profile');

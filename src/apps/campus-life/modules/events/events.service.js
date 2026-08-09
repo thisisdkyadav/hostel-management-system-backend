@@ -5,7 +5,7 @@
  * @module services/event.service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, error, notFound, conflict } from '../../../../services/base/index.js';
 import { eventOwner } from '../../../../services/event/eventOwner.service.js';
 import { eventQueries } from '../../../../services/event/eventQueries.service.js';
@@ -134,12 +134,7 @@ class EventService {
     const query = {};
 
     if (user?.role === 'Student') {
-      const studentProfile = await StudentProfile.findOne(
-        { userId: user._id },
-        { gender: 1, currentRoomAllocation: 1 }
-      )
-        .populate('currentRoomAllocation', 'hostelId')
-        .lean();
+      const studentProfile = await studentProfileQueries.findGenderAndAllocationByUserId(user._id);
 
       const studentHostelId = toObjectIdString(studentProfile?.currentRoomAllocation?.hostelId);
       const studentGender = studentProfile?.gender || null;
@@ -243,12 +238,7 @@ class EventService {
 
       if (user?.role === 'Student') {
         isScopedRequest = true;
-        const studentProfile = await StudentProfile.findOne(
-          { userId: user._id },
-          { gender: 1, currentRoomAllocation: 1 }
-        )
-          .populate('currentRoomAllocation', 'hostelId')
-          .lean();
+        const studentProfile = await studentProfileQueries.findGenderAndAllocationByUserId(user._id);
 
         const studentContext = {
           hostelId: toObjectIdString(studentProfile?.currentRoomAllocation?.hostelId),

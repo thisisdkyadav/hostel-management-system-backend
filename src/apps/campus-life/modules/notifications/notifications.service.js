@@ -5,7 +5,7 @@
  * @module services/notification.service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, error } from '../../../../services/base/index.js';
 import { notificationOwner } from '../../../../services/notification/notificationOwner.service.js';
 import { notificationQueries } from '../../../../services/notification/notificationQueries.service.js';
@@ -53,7 +53,7 @@ class NotificationService {
       if (type) queryObj.type = type;
 
       if (user.role === 'Student') {
-        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate('currentRoomAllocation', 'hostelId');
+        const studentProfile = await studentProfileQueries.findByUserIdWithAllocationHostel(user._id);
         const hostelIdVal = studentProfile.currentRoomAllocation?.hostelId;
         const { gender: studentGender, degree: studentDegree, department: studentDepartment } = studentProfile;
         queryObj.$and = [
@@ -136,7 +136,7 @@ class NotificationService {
     try {
       let queryObj = {};
       if (user.role === 'Student') {
-        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate('currentRoomAllocation', 'hostelId');
+        const studentProfile = await studentProfileQueries.findByUserIdWithAllocationHostel(user._id);
         const hostelId = studentProfile.currentRoomAllocation?.hostelId;
         const { gender, degree, department } = studentProfile;
         queryObj = {
@@ -169,7 +169,7 @@ class NotificationService {
       const now = new Date();
       let queryObj = {};
       if (user.role === 'Student') {
-        const studentProfile = await StudentProfile.findOne({ userId: user._id }).populate('currentRoomAllocation', 'hostelId');
+        const studentProfile = await studentProfileQueries.findByUserIdWithAllocationHostel(user._id);
         const hostelId = studentProfile.currentRoomAllocation?.hostelId;
         const { gender, degree, department } = studentProfile;
         queryObj = {

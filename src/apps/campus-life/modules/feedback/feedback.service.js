@@ -5,7 +5,7 @@
  * @module services/feedback.service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, badRequest, error, notFound, conflict } from '../../../../services/base/index.js';
 import { feedbackOwner } from '../../../../services/feedback/feedbackOwner.service.js';
 import { feedbackQueries } from '../../../../services/feedback/feedbackQueries.service.js';
@@ -36,7 +36,7 @@ class FeedbackService {
   async createFeedback(data, user) {
     const userId = user._id;
 
-    const studentProfile = await StudentProfile.findOne({ userId }).populate('currentRoomAllocation');
+    const studentProfile = await studentProfileQueries.findByUserIdWithAllocation(userId);
 
     if (!studentProfile || !studentProfile.currentRoomAllocation) {
       return badRequest("Cannot create feedback. User doesn't have an active hostel allocation.");

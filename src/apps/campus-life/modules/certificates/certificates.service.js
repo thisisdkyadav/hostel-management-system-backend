@@ -5,7 +5,7 @@
  * @module services/certificate.service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, notFound, error, conflict } from '../../../../services/base/index.js';
 import { certificateOwner } from '../../../../services/certificate/certificateOwner.service.js';
 import { certificateQueries } from '../../../../services/certificate/certificateQueries.service.js';
@@ -21,7 +21,7 @@ class CertificateService {
     const { studentId, certificateType, certificateUrl, issueDate, remarks } = data;
 
     // Verify student exists
-    const studentProfile = await StudentProfile.findOne({ userId: studentId });
+    const studentProfile = await studentProfileQueries.findByUserId(studentId);
     if (!studentProfile) {
       return notFound('Student profile');
     }

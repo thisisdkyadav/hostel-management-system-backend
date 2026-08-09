@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import path from "path";
 import mongoose from "mongoose";
 import { fileURLToPath } from "url";
-import { StudentProfile } from "../../../../models/index.js";
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js";
 import {
   success,
   notFound,
@@ -605,7 +605,7 @@ class DisCoService {
       reminderItems,
     } = data;
 
-    const studentProfile = await StudentProfile.findOne({ userId: studentId });
+    const studentProfile = await studentProfileQueries.findByUserId(studentId);
     if (!studentProfile) {
       return notFound("Student profile");
     }
@@ -1070,7 +1070,7 @@ class DisCoService {
       return badRequest("Select at least one student");
     }
 
-    const studentProfiles = await StudentProfile.find({ userId: { $in: selectedIds } }, "userId");
+    const studentProfiles = await studentProfileQueries.findExistingUserIds(selectedIds);
     const foundUserIds = new Set(studentProfiles.map((profile) => String(profile.userId)));
     const missingStudents = selectedIds.filter((id) => !foundUserIds.has(String(id)));
     if (missingStudents.length > 0) {
@@ -1642,7 +1642,7 @@ class DisCoService {
       return badRequest("Disciplined students must be selected from stage 2 student groups");
     }
 
-    const profiles = await StudentProfile.find({ userId: { $in: uniqueStudentIds } }, "userId");
+    const profiles = await studentProfileQueries.findExistingUserIds(uniqueStudentIds);
     const foundUserIds = new Set(profiles.map((profile) => String(profile.userId)));
     const missing = uniqueStudentIds.filter((id) => !foundUserIds.has(id));
     if (missing.length > 0) {
