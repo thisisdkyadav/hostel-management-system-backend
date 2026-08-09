@@ -5,9 +5,10 @@
  * @module services/feedback.service
  */
 
-import { Feedback } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, badRequest, error, PRESETS } from '../../../../services/base/index.js';
+import { success, badRequest, error, notFound, conflict } from '../../../../services/base/index.js';
+import { feedbackOwner } from '../../../../services/feedback/feedbackOwner.service.js';
+import { feedbackQueries } from '../../../../services/feedback/feedbackQueries.service.js';
 
 const escapeRegex = (value = '') => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -24,11 +25,9 @@ const normalizeFeedbackStatus = (status = 'all') => {
   return null;
 };
 
-class FeedbackService extends BaseService {
-  constructor() {
-    super(Feedback, 'Feedback');
-  }
+const ENTITY = 'Feedback';
 
+class FeedbackService {
   /**
    * Create feedback for a student
    * @param {Object} data - Feedback data (title, description)
@@ -43,20 +42,25 @@ class FeedbackService extends BaseService {
       return badRequest("Cannot create feedback. User doesn't have an active hostel allocation.");
     }
 
-    const result = await this.create({
-      userId,
-      hostelId: studentProfile.currentRoomAllocation.hostelId,
-      title: data.title,
-      description: data.description,
-    });
-
-    if (result.success) {
-      return success(
-        { message: 'Feedback created successfully', feedback: result.data, success: true },
-        201
-      );
+    let feedback;
+    try {
+      feedback = await feedbackOwner.createFeedback({
+        userId,
+        hostelId: studentProfile.currentRoomAllocation.hostelId,
+        title: data.title,
+        description: data.description,
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    return success(
+      { message: 'Feedback created successfully', feedback, success: true },
+      201
+    );
   }
 
   /**
@@ -91,16 +95,12 @@ class FeedbackService extends BaseService {
 
     try {
       const [feedbacks, total, totalAll, totalPending, totalSeen, latestFeedback] = await Promise.all([
-        this.model.find(filteredQuery)
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .populate(PRESETS.FEEDBACK),
-        this.model.countDocuments(filteredQuery),
-        this.model.countDocuments(scopedQuery),
-        this.model.countDocuments({ ...scopedQuery, status: 'Pending' }),
-        this.model.countDocuments({ ...scopedQuery, status: 'Seen' }),
-        this.model.findOne(scopedQuery).sort({ createdAt: -1 }).select('createdAt').lean(),
+        feedbackQueries.listFeedbacks(filteredQuery, { skip, limit }),
+        feedbackQueries.countFeedbacks(filteredQuery),
+        feedbackQueries.countFeedbacks(scopedQuery),
+        feedbackQueries.countFeedbacks({ ...scopedQuery, status: 'Pending' }),
+        feedbackQueries.countFeedbacks({ ...scopedQuery, status: 'Seen' }),
+        feedbackQueries.findLatestCreatedAt(scopedQuery),
       ]);
 
       const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
@@ -133,11 +133,14 @@ class FeedbackService extends BaseService {
    * @param {string} status - New status
    */
   async updateFeedbackStatus(feedbackId, status) {
-    const result = await this.updateById(feedbackId, { status, reply: null });
-    if (result.success) {
-      return success({ message: 'Feedback status updated successfully', feedback: result.data, success: true });
+    let feedback;
+    try {
+      feedback = await feedbackOwner.updateFeedbackById(feedbackId, { status, reply: null });
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!feedback) return notFound(ENTITY);
+    return success({ message: 'Feedback status updated successfully', feedback, success: true });
   }
 
   /**
@@ -146,11 +149,14 @@ class FeedbackService extends BaseService {
    * @param {string} reply - Reply text
    */
   async replyToFeedback(feedbackId, reply) {
-    const result = await this.updateById(feedbackId, { reply, status: 'Seen' });
-    if (result.success) {
-      return success({ message: 'Reply added successfully', feedback: result.data, success: true });
+    let feedback;
+    try {
+      feedback = await feedbackOwner.updateFeedbackById(feedbackId, { reply, status: 'Seen' });
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!feedback) return notFound(ENTITY);
+    return success({ message: 'Reply added successfully', feedback, success: true });
   }
 
   /**
@@ -159,14 +165,17 @@ class FeedbackService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateFeedback(feedbackId, data) {
-    const result = await this.updateById(feedbackId, {
-      title: data.title,
-      description: data.description,
-    });
-    if (result.success) {
-      return success({ message: 'Feedback updated successfully', feedback: result.data, success: true });
+    let feedback;
+    try {
+      feedback = await feedbackOwner.updateFeedbackById(feedbackId, {
+        title: data.title,
+        description: data.description,
+      });
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!feedback) return notFound(ENTITY);
+    return success({ message: 'Feedback updated successfully', feedback, success: true });
   }
 
   /**
@@ -174,11 +183,14 @@ class FeedbackService extends BaseService {
    * @param {string} feedbackId - Feedback ID
    */
   async deleteFeedback(feedbackId) {
-    const result = await this.deleteById(feedbackId);
-    if (result.success) {
-      return success({ message: 'Feedback deleted successfully', success: true });
+    let deleted;
+    try {
+      deleted = await feedbackOwner.deleteFeedbackById(feedbackId);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!deleted) return notFound(ENTITY);
+    return success({ message: 'Feedback deleted successfully', success: true });
   }
 
   /**
@@ -186,11 +198,13 @@ class FeedbackService extends BaseService {
    * @param {string} userId - Student user ID
    */
   async getStudentFeedbacks(userId) {
-    const result = await this.findAll({ userId }, { populate: PRESETS.FEEDBACK });
-    if (result.success) {
-      return success({ feedbacks: result.data, success: true });
+    let feedbacks;
+    try {
+      feedbacks = await feedbackQueries.findByUserPopulated(userId);
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
+    return success({ feedbacks, success: true });
   }
 }
 
