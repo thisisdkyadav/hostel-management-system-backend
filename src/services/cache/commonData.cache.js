@@ -1,4 +1,4 @@
-import { LostAndFound } from "../../models/index.js";
+import { lostAndFoundQueries } from "../lost-found/lostAndFoundQueries.service.js";
 import { eventQueries } from "../event/eventQueries.service.js";
 import { getCacheJson, getDataCacheClient, setCacheJson } from "./redisDataCache.client.js";
 
@@ -116,7 +116,7 @@ const buildLostAndFoundStats = (items) => {
 };
 
 const buildLostAndFoundCachePayload = async () => {
-  const docs = await LostAndFound.find({}).sort({ dateFound: -1 });
+  const docs = await lostAndFoundQueries.findAllForCache();
   const allSorted = docs.map(toSerializable).filter(Boolean);
   const stats = buildLostAndFoundStats(allSorted);
 

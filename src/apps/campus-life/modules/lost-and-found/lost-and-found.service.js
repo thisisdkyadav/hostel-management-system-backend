@@ -5,8 +5,8 @@
  * @module services/lostAndFound.service
  */
 
-import { LostAndFound } from '../../../../models/index.js';
-import { BaseService, success } from '../../../../services/base/index.js';
+import { success, error, notFound, conflict } from '../../../../services/base/index.js';
+import { lostAndFoundOwner } from '../../../../services/lost-found/lostAndFoundOwner.service.js';
 import {
   COMMON_CACHE_CONFIG,
   getLostAndFoundCachePayload,
@@ -54,30 +54,34 @@ const buildPagination = (page, limit, total) => ({
   hasMore: page * limit < total,
 });
 
-class LostAndFoundService extends BaseService {
-  constructor() {
-    super(LostAndFound, 'Lost and found item');
-  }
+const ENTITY = 'Lost and found item';
 
+class LostAndFoundService {
   /**
    * Create a new lost and found item
    * @param {Object} data - Item data
    */
   async createLostAndFound(data) {
-    const result = await this.create(data);
-    if (result.success) {
-      await refreshCommonCache('lostAndFound', { useLock: false }).catch((cacheError) => {
-        console.error(
-          'Failed to sync lost-and-found cache after create:',
-          cacheError?.message || cacheError
-        );
-      });
-      return success(
-        { message: 'Lost and found item created successfully', lostAndFoundItem: result.data },
-        201
-      );
+    let lostAndFoundItem;
+    try {
+      lostAndFoundItem = await lostAndFoundOwner.createItem(data);
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    await refreshCommonCache('lostAndFound', { useLock: false }).catch((cacheError) => {
+      console.error(
+        'Failed to sync lost-and-found cache after create:',
+        cacheError?.message || cacheError
+      );
+    });
+    return success(
+      { message: 'Lost and found item created successfully', lostAndFoundItem },
+      201
+    );
   }
 
   /**
@@ -136,21 +140,27 @@ class LostAndFoundService extends BaseService {
    * @param {Object} data - Update data
    */
   async updateLostAndFound(id, data) {
-    const result = await this.updateById(id, data);
-    if (result.success) {
-      await refreshCommonCache('lostAndFound', { useLock: false }).catch((cacheError) => {
-        console.error(
-          'Failed to sync lost-and-found cache after update:',
-          cacheError?.message || cacheError
-        );
-      });
-      return success({
-        message: 'Lost and found item updated successfully',
-        success: true,
-        lostAndFoundItem: result.data,
-      });
+    let lostAndFoundItem;
+    try {
+      lostAndFoundItem = await lostAndFoundOwner.updateItemById(id, data);
+    } catch (err) {
+      return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!lostAndFoundItem) {
+      return notFound(ENTITY);
+    }
+
+    await refreshCommonCache('lostAndFound', { useLock: false }).catch((cacheError) => {
+      console.error(
+        'Failed to sync lost-and-found cache after update:',
+        cacheError?.message || cacheError
+      );
+    });
+    return success({
+      message: 'Lost and found item updated successfully',
+      success: true,
+      lostAndFoundItem,
+    });
   }
 
   /**
@@ -158,17 +168,23 @@ class LostAndFoundService extends BaseService {
    * @param {string} id - Item ID
    */
   async deleteLostAndFound(id) {
-    const result = await this.deleteById(id);
-    if (result.success) {
-      await refreshCommonCache('lostAndFound', { useLock: false }).catch((cacheError) => {
-        console.error(
-          'Failed to sync lost-and-found cache after delete:',
-          cacheError?.message || cacheError
-        );
-      });
-      return success({ message: 'Lost and found item deleted successfully', success: true });
+    let deleted;
+    try {
+      deleted = await lostAndFoundOwner.deleteItemById(id);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!deleted) {
+      return notFound(ENTITY);
+    }
+
+    await refreshCommonCache('lostAndFound', { useLock: false }).catch((cacheError) => {
+      console.error(
+        'Failed to sync lost-and-found cache after delete:',
+        cacheError?.message || cacheError
+      );
+    });
+    return success({ message: 'Lost and found item deleted successfully', success: true });
   }
 }
 

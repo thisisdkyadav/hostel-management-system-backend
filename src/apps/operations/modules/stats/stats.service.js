@@ -8,7 +8,7 @@
 import { Warden } from '../../../../models/index.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { eventQueries } from '../../../../services/event/eventQueries.service.js';
-import { LostAndFound } from '../../../../models/index.js';
+import { lostAndFoundQueries } from '../../../../services/lost-found/lostAndFoundQueries.service.js';
 import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
 import { success } from '../../../../services/base/index.js';
@@ -78,9 +78,9 @@ class StatsService {
    */
   async getLostAndFoundStats() {
     const [total, active, claimed] = await Promise.all([
-      LostAndFound.countDocuments(),
-      LostAndFound.countDocuments({ status: 'Active' }),
-      LostAndFound.countDocuments({ status: 'Claimed' })
+      lostAndFoundQueries.countItems(),
+      lostAndFoundQueries.countItems({ status: 'Active' }),
+      lostAndFoundQueries.countItems({ status: 'Claimed' })
     ]);
 
     return success({ total, active, claimed });
