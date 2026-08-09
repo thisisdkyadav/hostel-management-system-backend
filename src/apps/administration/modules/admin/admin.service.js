@@ -10,7 +10,7 @@ import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
 import { Security } from '../../../../models/index.js';
 import { MaintenanceStaff } from '../../../../models/index.js';
-import { Task } from '../../../../models/index.js';
+import { taskQueries } from '../../../../services/task/taskQueries.service.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { Gymkhana } from '../../../../models/index.js';
 import { ROLES, SUBROLES } from '../../../../core/constants/roles.constants.js';
@@ -627,10 +627,10 @@ class AdminService extends BaseService {
    */
   async getTaskStats() {
     const [taskStats, categoryStats, priorityStats, overdueTasks] = await Promise.all([
-      Task.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]),
-      Task.aggregate([{ $group: { _id: '$category', count: { $sum: 1 } } }]),
-      Task.aggregate([{ $group: { _id: '$priority', count: { $sum: 1 } } }]),
-      Task.countDocuments({ dueDate: { $lt: new Date() }, status: { $ne: 'Completed' } })
+      taskQueries.aggregateCountByField('status'),
+      taskQueries.aggregateCountByField('category'),
+      taskQueries.aggregateCountByField('priority'),
+      taskQueries.countTasks({ dueDate: { $lt: new Date() }, status: { $ne: 'Completed' } })
     ]);
 
     const formatStats = (arr) => arr.reduce((acc, curr) => ({ ...acc, [curr._id]: curr.count }), {});

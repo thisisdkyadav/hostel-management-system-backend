@@ -11,7 +11,8 @@ import { User } from '../../../../models/index.js';
 import { familyOwner } from '../../../../services/family/familyOwner.service.js';
 import { familyQueries } from '../../../../services/family/familyQueries.service.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
-import { Health } from '../../../../models/index.js';
+import { healthOwner } from '../../../../services/health/healthOwner.service.js';
+import { healthQueries } from '../../../../services/health/healthQueries.service.js';
 import { toDateOnly } from '../../../../utils/utils.js';
 
 const toStringArray = (value) => {
@@ -49,7 +50,7 @@ class StudentProfileService extends BaseService {
     }
 
     const editableProfile = {};
-    const health = await Health.findOne({ userId });
+    const health = await healthQueries.findByUser(userId);
 
     editableFields.forEach((field) => {
       switch (field) {
@@ -164,7 +165,7 @@ class StudentProfileService extends BaseService {
     });
 
     if (updates.bloodGroup) {
-      await Health.updateOne({ userId }, { $set: { bloodGroup: updates.bloodGroup } });
+      await healthOwner.setBloodGroupByUser(userId, updates.bloodGroup);
     }
 
     if (Object.keys(updates).length > 0) {
@@ -262,7 +263,7 @@ class StudentProfileService extends BaseService {
    * Get health data
    */
   async getHealth(userId) {
-    const health = await Health.findOne({ userId }).populate('insurance.insuranceProvider');
+    const health = await healthQueries.findByUserWithProvider(userId);
     if (!health) {
       return notFound('Health data');
     }

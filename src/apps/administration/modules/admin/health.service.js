@@ -5,26 +5,23 @@
  * @module services/health
  */
 
-import { Health } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
+import { success, badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
+import { healthOwner } from '../../../../services/health/healthOwner.service.js';
+import { healthQueries } from '../../../../services/health/healthQueries.service.js';
 import { insuranceOwner } from '../../../../services/insurance/insuranceOwner.service.js';
 import { insuranceQueries } from '../../../../services/insurance/insuranceQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
-class HealthService extends BaseService {
-  constructor() {
-    super(Health, 'Health');
-  }
-
+class HealthService {
   /**
    * Get health record for a user
    * @param {string} userId - User ID
    */
   async getHealth(userId) {
-    const health = await this.model.findOne({ userId }).populate('insurance.insuranceProvider');
+    const health = await healthQueries.findByUserWithProvider(userId);
     if (!health) {
-      const newHealth = await this.model.create({ userId, bloodGroup: '', insurance: {} });
+      const newHealth = await healthOwner.createHealth({ userId, bloodGroup: '', insurance: {} });
       return success({ message: 'Health created', health: newHealth }, 201);
     }
     return success({ message: 'Health fetched', health });
@@ -36,11 +33,7 @@ class HealthService extends BaseService {
    * @param {Object} data - Health data
    */
   async updateHealth(userId, { bloodGroup, insurance }) {
-    const health = await this.model.findOneAndUpdate(
-      { userId },
-      { bloodGroup, insurance },
-      { new: true }
-    );
+    const health = await healthOwner.updateHealthByUser(userId, { bloodGroup, insurance });
     return success({ message: 'Health updated', health });
   }
 
@@ -93,9 +86,7 @@ class HealthService extends BaseService {
       });
 
       // Get existing health records
-      const existingHealthRecords = await this.model.find({
-        userId: { $in: userIds }
-      }).session(session);
+      const existingHealthRecords = await healthQueries.findByUsers(userIds, { session });
 
       const healthRecordMap = {};
       existingHealthRecords.forEach((record) => {
@@ -134,10 +125,10 @@ class HealthService extends BaseService {
       });
 
       if (healthRecordsToCreate.length > 0) {
-        await this.model.insertMany(healthRecordsToCreate, { session });
+        await healthOwner.insertHealthRecords(healthRecordsToCreate, { session });
       }
       if (bulkUpdateOps.length > 0) {
-        await this.model.bulkWrite(bulkUpdateOps, { session });
+        await healthOwner.bulkWriteHealth(bulkUpdateOps, { session });
       }
 
       return success({

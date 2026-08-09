@@ -6,8 +6,9 @@
  */
 
 import { StudentProfile } from '../../../../models/index.js';
-import { Health } from '../../../../models/index.js';
 import { success, notFound, badRequest, error, conflict, withTransaction } from '../../../../services/base/index.js';
+import { healthOwner } from '../../../../services/health/healthOwner.service.js';
+import { healthQueries } from '../../../../services/health/healthQueries.service.js';
 import { insuranceOwner } from '../../../../services/insurance/insuranceOwner.service.js';
 import { insuranceQueries } from '../../../../services/insurance/insuranceQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
@@ -142,7 +143,7 @@ class InsuranceProviderService {
       });
 
       // Get existing health records
-      const existingHealthRecords = await Health.find({ userId: { $in: userIds } }).session(session);
+      const existingHealthRecords = await healthQueries.findByUsers(userIds, { session });
       const healthRecordMap = {};
       existingHealthRecords.forEach((record) => {
         healthRecordMap[record.userId.toString()] = record;
@@ -186,10 +187,10 @@ class InsuranceProviderService {
       });
 
       if (healthRecordsToCreate.length > 0) {
-        await Health.insertMany(healthRecordsToCreate, { session });
+        await healthOwner.insertHealthRecords(healthRecordsToCreate, { session });
       }
       if (bulkUpdateOps.length > 0) {
-        await Health.bulkWrite(bulkUpdateOps, { session });
+        await healthOwner.bulkWriteHealth(bulkUpdateOps, { session });
       }
 
       return success({

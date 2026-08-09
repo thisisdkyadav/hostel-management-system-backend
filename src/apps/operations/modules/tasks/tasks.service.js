@@ -5,20 +5,21 @@
  * @module apps/operations/modules/tasks/service
  */
 
-import { Task, User } from '../../../../models/index.js';
+import { User } from '../../../../models/index.js';
 import {
-  BaseService,
   success,
   notFound,
   badRequest,
   forbidden,
+  error,
+  conflict,
 } from '../../../../services/base/index.js';
+import { taskOwner } from '../../../../services/task/taskOwner.service.js';
+import { taskQueries } from '../../../../services/task/taskQueries.service.js';
 
-class TasksService extends BaseService {
-  constructor() {
-    super(Task, 'Task');
-  }
+const ENTITY = 'Task';
 
+class TasksService {
   /**
    * Create a new task
    * @param {Object} taskData - Task data
@@ -38,20 +39,25 @@ class TasksService extends BaseService {
       }
     }
 
-    const result = await this.create({
-      title,
-      description,
-      priority: priority || 'Medium',
-      dueDate,
-      category: category || 'Other',
-      assignedUsers: assignedUsers || [],
-      createdBy: userId
-    });
-
-    if (result.success) {
-      return success({ success: true, message: 'Task created successfully', task: result.data }, 201);
+    let task;
+    try {
+      task = await taskOwner.createTask({
+        title,
+        description,
+        priority: priority || 'Medium',
+        dueDate,
+        category: category || 'Other',
+        assignedUsers: assignedUsers || [],
+        createdBy: userId
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return conflict(`${ENTITY} already exists`);
+      }
+      return error(`Failed to create ${ENTITY}`, 500, err.message);
     }
-    return result;
+
+    return success({ success: true, message: 'Task created successfully', task }, 201);
   }
 
   /**
@@ -71,31 +77,33 @@ class TasksService extends BaseService {
     if (category) filter.category = category;
     if (priority) filter.priority = priority;
 
-    const result = await this.findPaginated(filter, {
-      page: pageNum,
-      limit: limitNum,
-      sort: { createdAt: -1 },
-      populate: [
-        { path: 'assignedUsers', select: 'name email role' },
-        { path: 'createdBy', select: 'name email' }
-      ]
-    });
-
-    if (result.success) {
-      const { items, pagination } = result.data;
-      return success({
-        tasks: items,
-        pagination: {
-          total: pagination.total,
-          totalPages: pagination.totalPages,
-          currentPage: pagination.page,
-          perPage: pagination.limit,
-          hasNextPage: pagination.page < pagination.totalPages,
-          hasPrevPage: pagination.page > 1
-        }
-      });
+    let items, total;
+    try {
+      ({ items, total } = await taskQueries.findTasksPaginated(filter, {
+        page: pageNum,
+        limit: limitNum,
+        sort: { createdAt: -1 },
+        populate: [
+          { path: 'assignedUsers', select: 'name email role' },
+          { path: 'createdBy', select: 'name email' }
+        ]
+      }));
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
+
+    const totalPages = Math.ceil(total / limitNum);
+    return success({
+      tasks: items,
+      pagination: {
+        total,
+        totalPages,
+        currentPage: pageNum,
+        perPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   }
 
   /**
@@ -116,31 +124,33 @@ class TasksService extends BaseService {
     if (category) filter.category = category;
     if (priority) filter.priority = priority;
 
-    const result = await this.findPaginated(filter, {
-      page: pageNum,
-      limit: limitNum,
-      sort: { dueDate: 1 },
-      populate: [
-        { path: 'assignedUsers', select: 'name email role' },
-        { path: 'createdBy', select: 'name email' }
-      ]
-    });
-
-    if (result.success) {
-      const { items, pagination } = result.data;
-      return success({
-        tasks: items,
-        pagination: {
-          total: pagination.total,
-          totalPages: pagination.totalPages,
-          currentPage: pagination.page,
-          perPage: pagination.limit,
-          hasNextPage: pagination.page < pagination.totalPages,
-          hasPrevPage: pagination.page > 1
-        }
-      });
+    let items, total;
+    try {
+      ({ items, total } = await taskQueries.findTasksPaginated(filter, {
+        page: pageNum,
+        limit: limitNum,
+        sort: { dueDate: 1 },
+        populate: [
+          { path: 'assignedUsers', select: 'name email role' },
+          { path: 'createdBy', select: 'name email' }
+        ]
+      }));
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
+
+    const totalPages = Math.ceil(total / limitNum);
+    return success({
+      tasks: items,
+      pagination: {
+        total,
+        totalPages,
+        currentPage: pageNum,
+        perPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1
+      }
+    });
   }
 
   /**
@@ -155,9 +165,9 @@ class TasksService extends BaseService {
       return badRequest('Invalid status value');
     }
 
-    const task = await this.model.findById(taskId);
+    const task = await taskQueries.findTaskById(taskId);
     if (!task) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     const isAdmin = user.role === 'Admin' || user.role === 'Super Admin';
@@ -175,7 +185,7 @@ class TasksService extends BaseService {
 
     task.status = status;
     task.updatedAt = Date.now();
-    await task.save();
+    await taskOwner.persistTask(task);
 
     return success({ message: 'Task status updated successfully', task });
   }
@@ -188,9 +198,9 @@ class TasksService extends BaseService {
   async updateTask(taskId, taskData) {
     const { title, description, priority, dueDate, category, assignedUsers } = taskData;
 
-    const task = await this.model.findById(taskId);
+    const task = await taskQueries.findTaskById(taskId);
     if (!task) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
     if (assignedUsers) {
@@ -213,7 +223,7 @@ class TasksService extends BaseService {
       task.status = 'Assigned';
     }
 
-    const updatedTask = await task.save();
+    const updatedTask = await taskOwner.persistTask(task);
     return success({ message: 'Task updated successfully', task: updatedTask });
   }
 
@@ -222,11 +232,16 @@ class TasksService extends BaseService {
    * @param {string} taskId - Task ID
    */
   async deleteTask(taskId) {
-    const result = await this.deleteById(taskId);
-    if (result.success) {
-      return { success: true, statusCode: 200, message: 'Task deleted successfully' };
+    let deleted;
+    try {
+      deleted = await taskOwner.deleteTaskById(taskId);
+    } catch (err) {
+      return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
-    return result;
+    if (!deleted) {
+      return notFound(ENTITY);
+    }
+    return { success: true, statusCode: 200, message: 'Task deleted successfully' };
   }
 }
 
