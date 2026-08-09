@@ -71,6 +71,11 @@ export const staffRolesOwner = {
     return doc.save()
   },
 
+  /** Delete a hydrated role-profile doc via its own deleteOne() (hostel-gate delete). */
+  async deleteDoc(doc) {
+    return doc.deleteOne()
+  },
+
   /** findOneAndUpdate by userId (options e.g. { new, upsert }) — role-profile upsert. */
   async findOneAndUpdateByUserId(roleKey, userId, update, options = {}) {
     return resolve(roleKey).findOneAndUpdate({ userId }, update, options)

@@ -5,17 +5,16 @@
  * @module services/hostelGate.service
  */
 
-import { HostelGate } from '../../../../models/index.js';
-import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
-import { BaseService, success, notFound, conflict, error } from '../../../../services/base/index.js';
+import { success, notFound, conflict, error } from '../../../../services/base/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { staffRolesOwner } from '../../../../services/user/staffRolesOwner.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 
-class HostelGateService extends BaseService {
-  constructor() {
-    super(HostelGate, 'Hostel gate');
-  }
+const ENTITY = 'Hostel gate';
 
+class HostelGateService {
   /**
    * Create hostel gate login
    * @param {Object} data - Gate data with hostelId and password
@@ -29,7 +28,7 @@ class HostelGateService extends BaseService {
         return notFound('Hostel');
       }
 
-      const existing = await this.model.findOne({ hostelId });
+      const existing = await staffRolesQueries.findOneByRole('HostelGate', { hostelId });
       if (existing) {
         return conflict('Hostel gate already exists');
       }
@@ -38,14 +37,14 @@ class HostelGateService extends BaseService {
       const hashedPassword = await bcrypt.hash(password, salt);
 
       // Create user for gate
-      const user = await User.create({
+      const user = await userOwner.createUser({
         name: hostel.name,
         email: `${hostel.name.toLowerCase()}.gate.login@iiti.ac.in`,
         password: hashedPassword,
         role: 'Hostel Gate'
       });
 
-      await this.model.create({ userId: user._id, hostelId });
+      await staffRolesOwner.create('HostelGate', { userId: user._id, hostelId });
       return success({ message: 'Hostel gate created successfully' }, 201);
     } catch (err) {
       return error(err.message, 500, err.message);
@@ -56,17 +55,19 @@ class HostelGateService extends BaseService {
    * Get all hostel gates
    */
   async getAllHostelGates() {
-    const result = await this.findAll({}, {
-      populate: [
-        { path: 'userId', select: 'name email' },
-        { path: 'hostelId', select: 'name' }
-      ]
-    });
+    try {
+      const hostelGates = await staffRolesQueries.findManyByRole('HostelGate', {}, {
+        sort: { createdAt: -1 },
+        populate: [
+          { path: 'userId', select: 'name email' },
+          { path: 'hostelId', select: 'name' }
+        ]
+      });
 
-    if (result.success) {
-      return success({ hostelGates: result.data });
+      return success({ hostelGates });
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
-    return result;
   }
 
   /**
@@ -78,14 +79,14 @@ class HostelGateService extends BaseService {
     try {
       const { password } = data;
 
-      const hostelGate = await this.model.findOne({ hostelId });
+      const hostelGate = await staffRolesQueries.findOneByRole('HostelGate', { hostelId });
       if (!hostelGate) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
 
       const salt = await bcrypt.genSalt(10);
       hostelGate.password = await bcrypt.hash(password, salt);
-      await hostelGate.save();
+      await staffRolesOwner.persist(hostelGate);
 
       return success({ message: 'Hostel gate updated successfully' });
     } catch (err) {
@@ -98,12 +99,12 @@ class HostelGateService extends BaseService {
    * @param {string} hostelId - Hostel ID
    */
   async deleteHostelGate(hostelId) {
-    const hostelGate = await this.model.findOne({ hostelId });
+    const hostelGate = await staffRolesQueries.findOneByRole('HostelGate', { hostelId });
     if (!hostelGate) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
-    await hostelGate.deleteOne();
+    await staffRolesOwner.deleteDoc(hostelGate);
     return success({ message: 'Hostel gate deleted successfully' });
   }
 
@@ -112,11 +113,15 @@ class HostelGateService extends BaseService {
    * @param {string} hostelId - Hostel ID
    */
   async getHostelGateProfile(hostelId) {
-    const result = await this.findOne({ hostelId });
-    if (result.success) {
-      return success({ message: 'Hostel gate profile fetched successfully', hostelGate: result.data });
+    try {
+      const hostelGate = await staffRolesQueries.findOneByRole('HostelGate', { hostelId });
+      if (!hostelGate) {
+        return notFound(ENTITY);
+      }
+      return success({ message: 'Hostel gate profile fetched successfully', hostelGate });
+    } catch (err) {
+      return error(`Failed to fetch ${ENTITY}`, 500, err.message);
     }
-    return result;
   }
 }
 

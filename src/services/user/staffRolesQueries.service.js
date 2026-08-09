@@ -92,11 +92,23 @@ export const staffRolesQueries = {
     return query
   },
 
-  /** Role profiles by arbitrary filter. Options: { select, lean, sort }. */
-  async findManyByRole(roleKey, filter = {}, { select, lean, sort } = {}) {
+  /** Role profiles by arbitrary filter. Options: { select, lean, sort, populate }. */
+  async findManyByRole(roleKey, filter = {}, { select, lean, sort, populate } = {}) {
     let query = resolve(roleKey).find(filter)
     if (select) query = query.select(select)
     if (sort) query = query.sort(sort)
+    if (populate) {
+      if (Array.isArray(populate)) populate.forEach((p) => { query = query.populate(p) })
+      else query = query.populate(populate)
+    }
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** One role profile by arbitrary filter, HYDRATED by default. Options: { select, lean }. */
+  async findOneByRole(roleKey, filter, { select, lean } = {}) {
+    let query = resolve(roleKey).findOne(filter)
+    if (select) query = query.select(select)
     if (lean) query = query.lean()
     return query
   },

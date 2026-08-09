@@ -10,7 +10,7 @@
  * // Instead of:
  * const getUser = async (req, res) => {
  *   try {
- *     const user = await User.findById(req.params.id);
+ *     const user = await Model.findById(req.params.id);
  *     res.json(user);
  *   } catch (error) {
  *     res.status(500).json({ message: error.message });
@@ -19,7 +19,7 @@
  *
  * // Use:
  * const getUser = asyncHandler(async (req, res) => {
- *   const user = await User.findById(req.params.id);
+ *   const user = await Model.findById(req.params.id);
  *   res.json(user);
  * });
  */

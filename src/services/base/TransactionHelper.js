@@ -17,7 +17,7 @@ import { error } from './ServiceResponse.js';
  * 
  * @example
  * const result = await withTransaction(async (session) => {
- *   await User.create([userData], { session });
+ *   await Model.create([docData], { session });
  *   await Profile.create([profileData], { session });
  *   return { user, profile };
  * });

@@ -22,7 +22,6 @@ import {
 // TODO: Import Grievance model when created
 // import Grievance from '../../../../shared/models/student-affairs/Grievance.model.js';
 // import Student from '../../../../shared/models/student/Student.model.js';
-// import User from '../../../../shared/models/user/User.model.js';
 
 /**
  * Grievance Service Class
