@@ -1,4 +1,5 @@
-import { Configuration, StudentProfile } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
 import {
@@ -36,11 +37,11 @@ export const renameDepartment = asyncHandler(async (req, res) => {
   }
 
   const result = await withTransaction(async (session) => {
-    const departments = await Configuration.findOne({ key: 'departments' }).session(session);
+    const departments = await configQueries.findByKey('departments', { session });
     if (!departments) {
       return notFound('Departments configuration not found');
     }
-    const studentBatches = await Configuration.findOne({ key: 'studentBatches' }).session(session);
+    const studentBatches = await configQueries.findByKey('studentBatches', { session });
 
     await StudentProfile.updateMany(
       { department: oldName },
@@ -94,11 +95,11 @@ export const renameDegree = asyncHandler(async (req, res) => {
   }
 
   const result = await withTransaction(async (session) => {
-    const degrees = await Configuration.findOne({ key: 'degrees' }).session(session);
+    const degrees = await configQueries.findByKey('degrees', { session });
     if (!degrees) {
       return notFound('Degrees configuration not found');
     }
-    const studentBatches = await Configuration.findOne({ key: 'studentBatches' }).session(session);
+    const studentBatches = await configQueries.findByKey('studentBatches', { session });
 
     await StudentProfile.updateMany(
       { degree: oldName },
@@ -156,7 +157,7 @@ export const renameGroup = asyncHandler(async (req, res) => {
   }
 
   const result = await withTransaction(async (session) => {
-    const studentGroups = await Configuration.findOne({ key: 'studentGroups' }).session(session);
+    const studentGroups = await configQueries.findByKey('studentGroups', { session });
     if (!studentGroups) {
       return notFound('Student groups configuration not found');
     }
@@ -210,7 +211,7 @@ export const renameBatch = asyncHandler(async (req, res) => {
   }
 
   const result = await withTransaction(async (session) => {
-    const studentBatches = await Configuration.findOne({ key: 'studentBatches' }).session(session);
+    const studentBatches = await configQueries.findByKey('studentBatches', { session });
     if (!studentBatches) {
       return notFound('Student batches configuration not found');
     }

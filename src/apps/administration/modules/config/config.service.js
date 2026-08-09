@@ -5,10 +5,12 @@
  * @module services/config.service
  */
 
-import { Configuration, StudentProfile } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
 import { defaultConfigs, getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { MIXED_BATCH_SCOPE_KEY, normalizeStudentBatchesConfig } from '../../../../utils/index.js';
-import { BaseService, success, notFound, badRequest, error } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, error } from '../../../../services/base/index.js';
+import { configOwner } from '../../../../services/config/configOwner.service.js';
+import { configQueries } from '../../../../services/config/configQueries.service.js';
 import {
   GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY,
   normalizeCalendarCategoryDefinitions,
@@ -148,11 +150,7 @@ const normalizeStringList = (value, label) => {
   return { success: true, value: normalized }
 }
 
-class ConfigService extends BaseService {
-  constructor() {
-    super(Configuration, 'Configuration');
-  }
-
+class ConfigService {
   /**
    * Get configuration by key
    * @param {string} key - Configuration key
@@ -219,7 +217,7 @@ class ConfigService extends BaseService {
       }
 
       if (key === STUDENT_GROUPS_KEY) {
-        previousConfig = await Configuration.findOne({ key })
+        previousConfig = await configQueries.findByKey(key)
       }
     } else if (key === GYMKHANA_EVENT_CATEGORIES_KEY) {
       const validation = validateCategoryDefinitionsInput(value)
@@ -235,35 +233,37 @@ class ConfigService extends BaseService {
       normalizedValue = normalizedTemplate.value
     }
 
-    const result = await this.upsert(
-      { key },
-      {
-        key,
-        value: normalizedValue,
-        description: description || defaultConfigs[key]?.description || '',
-        lastUpdated: Date.now()
-      }
-    );
-
-    if (result.success) {
-      if (key === STUDENT_GROUPS_KEY) {
-        const previousGroups = Array.isArray(previousConfig?.value) ? previousConfig.value : []
-        const removedGroups = previousGroups.filter((group) => !normalizedValue.includes(group))
-
-        if (removedGroups.length > 0) {
-          await StudentProfile.updateMany(
-            { groups: { $in: removedGroups } },
-            { $pull: { groups: { $in: removedGroups } } }
-          )
+    let configuration;
+    try {
+      configuration = await configOwner.upsertConfig(
+        { key },
+        {
+          key,
+          value: normalizedValue,
+          description: description || defaultConfigs[key]?.description || '',
+          lastUpdated: Date.now()
         }
-      }
-
-      return success({
-        message: `Configuration '${key}' updated successfully`,
-        configuration: result.data
-      });
+      );
+    } catch (err) {
+      return error('Failed to upsert Configuration', 500, err.message);
     }
-    return result;
+
+    if (key === STUDENT_GROUPS_KEY) {
+      const previousGroups = Array.isArray(previousConfig?.value) ? previousConfig.value : []
+      const removedGroups = previousGroups.filter((group) => !normalizedValue.includes(group))
+
+      if (removedGroups.length > 0) {
+        await StudentProfile.updateMany(
+          { groups: { $in: removedGroups } },
+          { $pull: { groups: { $in: removedGroups } } }
+        )
+      }
+    }
+
+    return success({
+      message: `Configuration '${key}' updated successfully`,
+      configuration
+    });
   }
 
   /**
@@ -275,23 +275,25 @@ class ConfigService extends BaseService {
       return notFound(`No default configuration exists for key '${key}'`);
     }
 
-    const result = await this.upsert(
-      { key },
-      {
-        key,
-        value: defaultConfigs[key].value,
-        description: defaultConfigs[key].description,
-        lastUpdated: Date.now()
-      }
-    );
-
-    if (result.success) {
-      return success({
-        message: `Configuration '${key}' reset to default successfully`,
-        configuration: result.data
-      });
+    let configuration;
+    try {
+      configuration = await configOwner.upsertConfig(
+        { key },
+        {
+          key,
+          value: defaultConfigs[key].value,
+          description: defaultConfigs[key].description,
+          lastUpdated: Date.now()
+        }
+      );
+    } catch (err) {
+      return error('Failed to upsert Configuration', 500, err.message);
     }
-    return result;
+
+    return success({
+      message: `Configuration '${key}' reset to default successfully`,
+      configuration
+    });
   }
 }
 

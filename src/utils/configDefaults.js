@@ -1,4 +1,5 @@
-import Configuration from "../models/config/Configuration.model.js"
+import { configOwner } from "../services/config/configOwner.service.js"
+import { configQueries } from "../services/config/configQueries.service.js"
 
 // Default configuration values
 export const defaultConfigs = {
@@ -77,7 +78,7 @@ export const defaultConfigs = {
 export const getConfigWithDefault = async (key) => {
   try {
     // Try to find existing configuration
-    let config = await Configuration.findOne({ key })
+    let config = await configQueries.findByKey(key)
 
     // If not found but default exists, create it
     if (!config && defaultConfigs[key]) {
@@ -87,8 +88,7 @@ export const getConfigWithDefault = async (key) => {
         description: defaultConfigs[key].description,
       }
 
-      const newConfig = new Configuration(defaultConfig)
-      config = await newConfig.save()
+      config = await configOwner.createConfig(defaultConfig)
       console.log(`Created default configuration for '${key}'`)
     }
 

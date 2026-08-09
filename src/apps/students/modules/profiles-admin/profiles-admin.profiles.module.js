@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { Configuration, StudentProfile, User } from '../../../../models/index.js';
+import { StudentProfile, User } from '../../../../models/index.js';
+import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { success, badRequest, forbidden, notFound } from '../../../../services/base/index.js';
 import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
 import { toDateOnly } from '../../../../utils/utils.js';
@@ -364,7 +365,7 @@ const processUpdateStudentsChunk = async ({
     .lean();
 
   const studentBatchesConfig = chunkStudents.some((student) => student.batch !== undefined)
-    ? ((await Configuration.findOne({ key: 'studentBatches' }).session(session))?.value || {})
+    ? ((await configQueries.findByKey('studentBatches', { session }))?.value || {})
     : {};
 
   const profileByRollNumber = new Map();
@@ -1034,7 +1035,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
   };
 
   const studentBatchesConfig = batch !== undefined
-    ? ((await Configuration.findOne({ key: 'studentBatches' }))?.value || {})
+    ? ((await configQueries.findByKey('studentBatches'))?.value || {})
     : {};
   const batchResolution = resolveBatchUpdate({
     student: { degree, department, batch },

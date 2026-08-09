@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { Configuration, StudentProfile } from '../../../../models/index.js';
+import { StudentProfile } from '../../../../models/index.js';
+import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
 import { badRequest } from '../../../../services/base/index.js';
 import {
@@ -248,7 +249,7 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
       return sendStandardResponse(res, badRequest('groupName is required when checking against a group'));
     }
 
-    const studentGroupsConfig = await Configuration.findOne({ key: 'studentGroups' }).lean();
+    const studentGroupsConfig = await configQueries.findByKeyLean('studentGroups');
     const configuredGroups = normalizeGroupNames(studentGroupsConfig?.value || []);
     const normalizedGroupName = configuredGroups.find((group) => group.toLowerCase() === groupName.toLowerCase()) || groupName;
 
@@ -272,7 +273,7 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
       return sendStandardResponse(res, badRequest('degree, department, and batch are required when checking against a batch'));
     }
 
-    const studentBatchesConfig = await Configuration.findOne({ key: 'studentBatches' }).lean();
+    const studentBatchesConfig = await configQueries.findByKeyLean('studentBatches');
     const configuredBatches = studentBatchesConfig?.value || {};
 
     if (!hasConfiguredBatch(configuredBatches, { degree, department, batch })) {
@@ -476,7 +477,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
       }
 
       const normalizedRollNumbers = selectionResult.rollNumbers;
-      const studentBatchesConfig = await Configuration.findOne({ key: 'studentBatches' }).session(session);
+      const studentBatchesConfig = await configQueries.findByKey('studentBatches', { session });
       const configuredBatches = studentBatchesConfig?.value || {};
 
       if (!hasConfiguredBatch(configuredBatches, { degree, department, batch })) {
@@ -591,7 +592,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
         return;
       }
 
-      const studentGroupsConfig = await Configuration.findOne({ key: 'studentGroups' }).session(session);
+      const studentGroupsConfig = await configQueries.findByKey('studentGroups', { session });
       const configuredGroups = normalizeGroupNames(studentGroupsConfig?.value || []);
       const configuredGroupsLookup = new Set(configuredGroups);
       const invalidGroups = normalizedGroupNames.filter((groupName) => !configuredGroupsLookup.has(groupName));
