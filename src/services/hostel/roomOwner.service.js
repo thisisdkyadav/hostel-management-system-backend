@@ -24,14 +24,15 @@
  * Coexistence with the legacy RoomAllocation hooks:
  *   All allocation writes here use the NATIVE driver (RoomAllocation.collection.*)
  *   so the Mongoose lifecycle hooks do NOT fire for owner writes — this service
- *   owns occupancy + StudentProfile.currentRoomAllocation explicitly. That lets
+ *   owns occupancy + the StudentProfile currentRoomAllocation field explicitly. That lets
  *   the owner run alongside the still-hooked legacy paths during migration; once
  *   every writer is routed here, the hooks are removed (Phase 3).
  */
 
 import mongoose from "mongoose"
 import { success, badRequest, notFound, withTransaction } from "../base/index.js"
-import { Hostel, Room, Unit, RoomAllocation, StudentProfile } from "../../models/index.js"
+import { Hostel, Room, Unit, RoomAllocation } from "../../models/index.js"
+import { studentProfileOwner } from "../student/studentProfileOwner.service.js"
 import { MANUAL_ROOM_STATUSES } from "../../models/hostel/Room.model.js"
 
 const toObjectId = (value) =>
@@ -152,7 +153,7 @@ async function deactivateRoomsRaw(roomIds, status, session) {
     .lean()
   if (allocations.length > 0) {
     const allocationIds = allocations.map((a) => a._id)
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       { currentRoomAllocation: { $in: allocationIds } },
       { $unset: { currentRoomAllocation: "" } },
       { session }
@@ -176,7 +177,7 @@ async function forceVacateToCapacity(roomId, capacity, session) {
   if (allocations.length > capacity) {
     const excess = allocations.slice(0, allocations.length - capacity) // highest bed numbers first
     const excessIds = excess.map((a) => a._id)
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       { currentRoomAllocation: { $in: excessIds } },
       { $unset: { currentRoomAllocation: "" } },
       { session }
@@ -411,7 +412,7 @@ export const roomOwner = {
         bedNumber,
       })
       await RoomAllocation.collection.insertOne(doc, { session })
-      await StudentProfile.updateOne(
+      await studentProfileOwner.updateOne(
         { _id: toObjectId(studentId) },
         { $set: { currentRoomAllocation: doc._id } },
         { session }
@@ -430,7 +431,7 @@ export const roomOwner = {
       if (!alloc) return notFound("Allocation not found")
 
       await RoomAllocation.collection.deleteOne({ _id: toObjectId(allocationId) }, { session })
-      await StudentProfile.updateOne(
+      await studentProfileOwner.updateOne(
         { _id: alloc.studentProfileId, currentRoomAllocation: alloc._id },
         { $unset: { currentRoomAllocation: "" } },
         { session }
@@ -462,7 +463,7 @@ export const roomOwner = {
         .lean()
       removing.forEach((a) => affected.add(String(a.roomId)))
       const removedIds = removing.map((a) => a._id)
-      await StudentProfile.updateMany(
+      await studentProfileOwner.updateMany(
         { currentRoomAllocation: { $in: removedIds } },
         { $unset: { currentRoomAllocation: "" } },
         { session }
@@ -479,7 +480,7 @@ export const roomOwner = {
           update: { $set: { currentRoomAllocation: d._id } },
         },
       }))
-      await StudentProfile.bulkWrite(profileOps, { session })
+      await studentProfileOwner.bulkWrite(profileOps, { session })
       createdDocs.forEach((d) => affected.add(String(d.roomId)))
     }
 
@@ -501,7 +502,7 @@ export const roomOwner = {
     if (allocations.length === 0) return 0
 
     const allocationIds = allocations.map((a) => a._id)
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       { currentRoomAllocation: { $in: allocationIds } },
       { $unset: { currentRoomAllocation: "" } },
       { session }
@@ -521,7 +522,7 @@ export const roomOwner = {
       const allocationIds = allocations.map((a) => a._id)
 
       if (allocationIds.length > 0) {
-        await StudentProfile.updateMany(
+        await studentProfileOwner.updateMany(
           { currentRoomAllocation: { $in: allocationIds } },
           { $unset: { currentRoomAllocation: "" } },
           { session }

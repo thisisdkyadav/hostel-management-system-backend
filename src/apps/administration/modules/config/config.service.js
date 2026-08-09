@@ -5,7 +5,7 @@
  * @module services/config.service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
 import { defaultConfigs, getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { MIXED_BATCH_SCOPE_KEY, normalizeStudentBatchesConfig } from '../../../../utils/index.js';
 import { success, notFound, badRequest, error } from '../../../../services/base/index.js';
@@ -253,7 +253,7 @@ class ConfigService {
       const removedGroups = previousGroups.filter((group) => !normalizedValue.includes(group))
 
       if (removedGroups.length > 0) {
-        await StudentProfile.updateMany(
+        await studentProfileOwner.updateMany(
           { groups: { $in: removedGroups } },
           { $pull: { groups: { $in: removedGroups } } }
         )

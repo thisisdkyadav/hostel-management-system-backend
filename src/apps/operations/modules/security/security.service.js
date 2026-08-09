@@ -13,7 +13,7 @@ import { AssociateWarden } from '../../../../models/index.js';
 import { HostelSupervisor } from '../../../../models/index.js';
 import { decryptData } from '../../../../utils/qrUtils.js';
 import { User } from '../../../../models/index.js';
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
@@ -306,7 +306,7 @@ class SecurityService extends BaseService {
       return badRequest('QR Code Expired');
     }
 
-    const studentProfile = await StudentProfile.getBasicStudentData(user._id.toString());
+    const studentProfile = await studentProfileQueries.getBasicStudentData(user._id.toString());
     if (!studentProfile) {
       return notFound('Student not found');
     }

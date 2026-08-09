@@ -14,11 +14,11 @@ import {
   forbidden,
 } from "../../../../services/base/index.js"
 import {
-  StudentProfile,
   ACCOMMODATION_STATUS,
   ACCOMMODATION_ACTIONS,
   PAYMENT_STATUS,
 } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { roomOwner } from "../../../../services/hostel/roomOwner.service.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { accommodationOwner } from "../../../../services/accommodation/accommodationOwner.service.js"
@@ -57,7 +57,7 @@ const isOwner = (request, user) => String(request.requesterUserId) === String(us
 // recommendation page so the advisor can see who they are vouching for.
 const buildStudentSummary = async (userId) => {
   try {
-    const p = await StudentProfile.getFullStudentData(userId)
+    const p = await studentProfileQueries.getFullStudentData(userId)
     if (!p) return null
     return {
       name: p.name,
@@ -165,7 +165,7 @@ export const accommodationService = {
     const config = await getAccommodationConfig()
     const quote = buildQuote({ type, config, persons, nights })
 
-    const profile = await StudentProfile.findOne({ userId: user._id }).lean()
+    const profile = await studentProfileQueries.findByUserId(user._id, { lean: true })
     const facultyAdvisorEmail =
       String(body.facultyAdvisorEmail || profile?.facultyAdvisorEmail || "").toLowerCase() || null
 
@@ -260,7 +260,7 @@ export const accommodationService = {
     if (user.role !== "Student" && items.length > 0) {
       const userIds = [...new Set(items.map((r) => String(r.requesterUserId)))]
       try {
-        const profiles = await StudentProfile.getFullStudentData(userIds)
+        const profiles = await studentProfileQueries.getFullStudentData(userIds)
         const byUser = new Map(
           (Array.isArray(profiles) ? profiles : [profiles]).filter(Boolean).map((p) => [String(p.userId), p])
         )
@@ -303,7 +303,7 @@ export const accommodationService = {
     // Attach the requester's student profile so staff can see a details card.
     let student = null
     try {
-      student = await StudentProfile.getFullStudentData(request.requesterUserId)
+      student = await studentProfileQueries.getFullStudentData(request.requesterUserId)
     } catch {
       student = null
     }

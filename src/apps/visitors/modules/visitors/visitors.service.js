@@ -5,7 +5,7 @@
  * @module apps/visitors/modules/visitors/service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
@@ -145,7 +145,7 @@ class VisitorsService {
     let studentProfile = null;
     if (visitorRequest.userId) {
       try {
-        studentProfile = await StudentProfile.getFullStudentData(visitorRequest.userId._id);
+        studentProfile = await studentProfileQueries.getFullStudentData(visitorRequest.userId._id);
       } catch (err) {
         // Ignore error, studentProfile will be null
       }

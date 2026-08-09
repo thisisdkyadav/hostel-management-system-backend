@@ -4,30 +4,26 @@
  * @module services/dashboard
  */
 
-import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
-import { StudentProfile } from '../../../../models/index.js';
+import { success, notFound, badRequest } from '../../../../services/base/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { eventQueries } from '../../../../services/event/eventQueries.service.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import mongoose from 'mongoose';
 
-class DashboardService extends BaseService {
-  constructor() {
-    super(StudentProfile, 'Dashboard');
-  }
-
+class DashboardService {
   /**
    * Get hostler and day scholar counts by gender
    */
   async getHostlerAndDayScholarCounts() {
     const [hostlerTotal, hostlerBoys, hostlerGirls, dayScholarTotal, dayScholarBoys, dayScholarGirls] = await Promise.all([
-      StudentProfile.countDocuments({ isDayScholar: false, status: 'Active' }),
-      StudentProfile.countDocuments({ isDayScholar: false, gender: 'Male', status: 'Active' }),
-      StudentProfile.countDocuments({ isDayScholar: false, gender: 'Female', status: 'Active' }),
-      StudentProfile.countDocuments({ isDayScholar: true, status: 'Active' }),
-      StudentProfile.countDocuments({ isDayScholar: true, gender: 'Male', status: 'Active' }),
-      StudentProfile.countDocuments({ isDayScholar: true, gender: 'Female', status: 'Active' })
+      studentProfileQueries.countProfiles({ isDayScholar: false, status: 'Active' }),
+      studentProfileQueries.countProfiles({ isDayScholar: false, gender: 'Male', status: 'Active' }),
+      studentProfileQueries.countProfiles({ isDayScholar: false, gender: 'Female', status: 'Active' }),
+      studentProfileQueries.countProfiles({ isDayScholar: true, status: 'Active' }),
+      studentProfileQueries.countProfiles({ isDayScholar: true, gender: 'Male', status: 'Active' }),
+      studentProfileQueries.countProfiles({ isDayScholar: true, gender: 'Female', status: 'Active' })
     ]);
     
     return {
@@ -66,7 +62,7 @@ class DashboardService extends BaseService {
       { $group: { _id: { degree: '$degree', gender: '$gender', isDayScholar: '$isDayScholar' }, count: { $sum: 1 } } }
     );
 
-    const degreeRows = await StudentProfile.aggregate(pipeline);
+    const degreeRows = await studentProfileQueries.aggregateProfiles(pipeline);
 
     const genderPipeline = [{ $match: { status: 'Active' } }];
 
@@ -81,7 +77,7 @@ class DashboardService extends BaseService {
 
     genderPipeline.push({ $group: { _id: '$gender', count: { $sum: 1 } } });
 
-    const genderTotals = await StudentProfile.aggregate(genderPipeline);
+    const genderTotals = await studentProfileQueries.aggregateProfiles(genderPipeline);
     const totalBoys = genderTotals.find((g) => g._id === 'Male')?.count || 0;
     const totalGirls = genderTotals.find((g) => g._id === 'Female')?.count || 0;
 
@@ -286,7 +282,7 @@ class DashboardService extends BaseService {
 
     genderPipeline.push({ $group: { _id: '$gender', count: { $sum: 1 } } });
 
-    const genderTotals = await StudentProfile.aggregate(genderPipeline);
+    const genderTotals = await studentProfileQueries.aggregateProfiles(genderPipeline);
     const totalBoys = genderTotals.find((g) => g._id === 'Male')?.count || 0;
     const totalGirls = genderTotals.find((g) => g._id === 'Female')?.count || 0;
 

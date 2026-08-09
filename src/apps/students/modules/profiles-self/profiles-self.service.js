@@ -3,9 +3,8 @@
  * Student-facing dashboard/profile and ID card operations.
  */
 
-import BaseService from '../../../../services/base/BaseService.js';
 import { success, notFound, forbidden } from '../../../../services/base/index.js';
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { healthQueries } from '../../../../services/health/healthQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
@@ -62,16 +61,13 @@ const isEventVisibleToStudent = (event, studentHostelId, studentGender) => {
   return matchesHostel && matchesGender;
 };
 
-class ProfilesSelfService extends BaseService {
-  constructor() {
-    super(StudentProfile);
-  }
+class ProfilesSelfService {
 
   /**
    * Get student profile for current user
    */
   async getStudentProfile(userId) {
-    const studentProfile = await this.model.getFullStudentData(userId);
+    const studentProfile = await studentProfileQueries.getFullStudentData(userId);
 
     if (!studentProfile) {
       return notFound('Student profile not found');
@@ -89,7 +85,7 @@ class ProfilesSelfService extends BaseService {
       return success(cachedDashboard);
     }
 
-    const studentProfile = await this.model.getFullStudentData(userId);
+    const studentProfile = await studentProfileQueries.getFullStudentData(userId);
 
     if (!studentProfile) {
       return notFound('Student profile not found');
@@ -267,7 +263,7 @@ class ProfilesSelfService extends BaseService {
       return forbidden('Unauthorized');
     }
 
-    const studentProfile = await this.model.findOne({ userId }, 'idCard');
+    const studentProfile = await studentProfileQueries.findByUserId(userId, { select: 'idCard' });
 
     if (!studentProfile) {
       return notFound('Student profile not found');
@@ -286,7 +282,7 @@ class ProfilesSelfService extends BaseService {
       return forbidden('Unauthorized');
     }
 
-    const studentProfile = await this.model.findOne({ userId: currentUser._id });
+    const studentProfile = await studentProfileQueries.findByUserId(currentUser._id);
     studentProfile.idCard = { front, back };
     await studentProfile.save();
 

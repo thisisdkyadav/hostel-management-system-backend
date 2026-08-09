@@ -24,6 +24,11 @@ export const studentProfileOwner = {
     return StudentProfile.updateMany(filter, update, options)
   },
 
+  /** updateOne passthrough (filter, update, options e.g. { session }). Returns the raw result. */
+  async updateOne(filter, update, options = {}) {
+    return StudentProfile.updateOne(filter, update, options)
+  },
+
   /** bulkWrite passthrough (ops, options e.g. { session, ordered:false }). */
   async bulkWrite(ops, options = {}) {
     return StudentProfile.bulkWrite(ops, options)

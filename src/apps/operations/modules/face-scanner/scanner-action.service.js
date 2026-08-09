@@ -3,7 +3,7 @@
  * Handles actions performed by different scanner types
  */
 
-import { StudentProfile } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { checkInOutOwner } from "../../../../services/checkinout/checkInOutOwner.service.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
 import * as liveCheckInOutService from "../live-checkinout/live-checkinout.service.js"
@@ -57,30 +57,7 @@ export const processHostelGateEntry = async (scanner, scanData) => {
   const { employeeID: rollNumber, dateTime, direction, modeofPunch, deviceID } = scanData
 
   // Find student by roll number
-  const studentProfile = await StudentProfile.findOne({
-    rollNumber: { $regex: new RegExp(`^${rollNumber}$`, "i") },
-  })
-    .populate({
-      path: "userId",
-      select: "name email phone profileImage",
-    })
-    .populate({
-      path: "currentRoomAllocation",
-      populate: [
-        {
-          path: "roomId",
-          select: "roomNumber",
-          populate: {
-            path: "unitId",
-            select: "unitNumber",
-          },
-        },
-        {
-          path: "hostelId",
-          select: "name type",
-        },
-      ],
-    })
+  const studentProfile = await studentProfileQueries.findByRollNumberAnchoredWithUser(rollNumber)
 
   if (!studentProfile) {
     // Log student not found entry for debugging unknown roll numbers from scanner devices

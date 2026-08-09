@@ -6,7 +6,7 @@
  */
 
 import { User } from '../../../../models/index.js';
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
 import { familyOwner } from '../../../../services/family/familyOwner.service.js';
 import { familyQueries } from '../../../../services/family/familyQueries.service.js';
@@ -79,9 +79,7 @@ class FamilyMemberService {
     return withTransaction(async (session) => {
       const rollNumbers = [...new Set(familyData.members.map((m) => m.rollNumber.toUpperCase()))];
 
-      const studentProfiles = await StudentProfile.find({
-        rollNumber: { $in: rollNumbers }
-      }).session(session);
+      const studentProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
 
       if (studentProfiles.length === 0) {
         return notFound('No students found with the provided roll numbers');

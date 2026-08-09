@@ -5,7 +5,7 @@
  * @module apps/operations/modules/inventory/student-inventory.service
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, notFound, badRequest } from '../../../../services/base/index.js';
 import { inventoryOwner } from '../../../../services/inventory/inventoryOwner.service.js';
 import { inventoryQueries } from '../../../../services/inventory/inventoryQueries.service.js';
@@ -25,7 +25,7 @@ class StudentInventoryService {
       return badRequest('Student profile ID, hostel inventory ID, and item type ID are required');
     }
 
-    const student = await StudentProfile.findById(studentProfileId);
+    const student = await studentProfileQueries.findById(studentProfileId);
     if (!student) {
       return notFound('Student');
     }
@@ -75,7 +75,7 @@ class StudentInventoryService {
    * @param {string} studentProfileId - Student profile ID
    */
   async getStudentInventory(studentProfileId) {
-    const student = await StudentProfile.findById(studentProfileId);
+    const student = await studentProfileQueries.findById(studentProfileId);
     if (!student) {
       return notFound('Student');
     }
@@ -103,7 +103,7 @@ class StudentInventoryService {
 
     // Filter by roll number
     if (rollNumber) {
-      const studentProfile = await StudentProfile.findOne({ rollNumber: { $regex: rollNumber, $options: 'i' } });
+      const studentProfile = await studentProfileQueries.findByRollNumberRegexPartial(rollNumber);
       if (studentProfile) {
         query.studentProfileId = studentProfile._id;
       } else {

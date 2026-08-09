@@ -1,4 +1,4 @@
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 
 export const toObjectIdString = (value) => {
   if (!value) return null;
@@ -26,7 +26,7 @@ export const isHostelAllowed = (hostelId, context) => {
 export const buildEmptyStudentsResult = (searchQuery = {}) => {
   const page = parseInt(searchQuery.page, 10) || 1;
   const limit = parseInt(searchQuery.limit, 10) || 10;
-  const missingOptions = StudentProfile.getMissingFieldOptions();
+  const missingOptions = studentProfileQueries.getMissingFieldOptions();
 
   return {
     success: true,

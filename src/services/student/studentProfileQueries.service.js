@@ -175,6 +175,11 @@ export const studentProfileQueries = {
       .populate({ path: "userId", select: "name email profileImage" })
   },
 
+  /** One profile by userId with userId (name/email/image/phone) populated (self-service edit view). */
+  async findByUserIdWithUserContact(userId) {
+    return StudentProfile.findOne({ userId }).populate("userId", "name email profileImage phone")
+  },
+
   // ==================== chunk: dining ====================
 
   /** Count profiles matching a filter (dining eligibility / dashboard tallies). */
@@ -203,6 +208,45 @@ export const studentProfileQueries = {
     return StudentProfile.findOne({
       rollNumber: { $regex: new RegExp(`^${escapeRegex(rollNumber)}$`, "i") },
     }).populate({ path: "userId", select: "name email profileImage" })
+  },
+
+  // ==================== chunk: operations + hostel + misc ====================
+
+  /** Aggregation passthrough (dashboard degree/gender tallies). */
+  async aggregateProfiles(pipeline) {
+    return StudentProfile.aggregate(pipeline)
+  },
+
+  /** One profile by _id (studentProfileId), HYDRATED (inventory lookups). */
+  async findById(id) {
+    return StudentProfile.findById(id)
+  },
+
+  /**
+   * One profile by PARTIAL case-insensitive roll number (unanchored, raw pattern
+   * — matches the original inventory `{ $regex: rollNumber, $options: 'i' }`).
+   */
+  async findByRollNumberRegexPartial(rollNumber) {
+    return StudentProfile.findOne({ rollNumber: { $regex: rollNumber, $options: "i" } })
+  },
+
+  /**
+   * One profile by anchored case-insensitive roll number (raw, UN-escaped —
+   * matches scanner-action's `new RegExp(\`^${rollNumber}$\`, "i")`), with userId
+   * (name/email/phone/image) + currentRoomAllocation → room→unit + hostel populated.
+   */
+  async findByRollNumberAnchoredWithUser(rollNumber) {
+    return StudentProfile.findOne({
+      rollNumber: { $regex: new RegExp(`^${rollNumber}$`, "i") },
+    })
+      .populate({ path: "userId", select: "name email phone profileImage" })
+      .populate({
+        path: "currentRoomAllocation",
+        populate: [
+          { path: "roomId", select: "roomNumber", populate: { path: "unitId", select: "unitNumber" } },
+          { path: "hostelId", select: "name type" },
+        ],
+      })
   },
 }
 

@@ -4,9 +4,9 @@
  * @module services/studentProfile
  */
 
-import BaseService from '../../../../services/base/BaseService.js';
 import { success, notFound, badRequest, forbidden } from '../../../../services/base/ServiceResponse.js';
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { User } from '../../../../models/index.js';
 import { familyOwner } from '../../../../services/family/familyOwner.service.js';
 import { familyQueries } from '../../../../services/family/familyQueries.service.js';
@@ -22,10 +22,7 @@ const toStringArray = (value) => {
     .filter(Boolean);
 };
 
-class StudentProfileService extends BaseService {
-  constructor() {
-    super(StudentProfile);
-  }
+class StudentProfileService {
 
   resolveEditableFields(defaultEditableFields) {
     return toStringArray(defaultEditableFields).map((field) => (
@@ -40,10 +37,7 @@ class StudentProfileService extends BaseService {
     const config = await getConfigWithDefault('studentEditableFields');
     const editableFields = this.resolveEditableFields(config?.value || ['profileImage', 'dateOfBirth']);
 
-    const studentProfile = await this.model.findOne({ userId }).populate(
-      'userId',
-      'name email profileImage phone'
-    );
+    const studentProfile = await studentProfileQueries.findByUserIdWithUserContact(userId);
 
     if (!studentProfile) {
       return notFound('Student profile');
@@ -102,7 +96,7 @@ class StudentProfileService extends BaseService {
     const config = await getConfigWithDefault('studentEditableFields');
     const editableFields = this.resolveEditableFields(config?.value || ['profileImage', 'dateOfBirth']);
 
-    const studentProfile = await this.model.findOne({ userId });
+    const studentProfile = await studentProfileQueries.findByUserId(userId);
     if (!studentProfile) {
       return notFound('Student profile');
     }
@@ -169,7 +163,7 @@ class StudentProfileService extends BaseService {
     }
 
     if (Object.keys(updates).length > 0) {
-      await this.model.updateOne({ _id: studentProfile._id }, { $set: updates });
+      await studentProfileOwner.updateOne({ _id: studentProfile._id }, { $set: updates });
     }
 
     if (Object.keys(userUpdates).length > 0) {
@@ -180,7 +174,7 @@ class StudentProfileService extends BaseService {
       return badRequest("No valid updates provided or you don't have permission to update these fields");
     }
 
-    const updatedProfile = await this.model.getFullStudentData(userId);
+    const updatedProfile = await studentProfileQueries.getFullStudentData(userId);
 
     return success({ profile: updatedProfile, editableFields }, 200, 'Profile updated successfully');
   }
@@ -189,7 +183,7 @@ class StudentProfileService extends BaseService {
    * Get student profile
    */
   async getStudentProfile(userId, currentUser) {
-    const profile = await this.model.getFullStudentData(userId);
+    const profile = await studentProfileQueries.getFullStudentData(userId);
 
     if (!profile) {
       return notFound('Student profile');

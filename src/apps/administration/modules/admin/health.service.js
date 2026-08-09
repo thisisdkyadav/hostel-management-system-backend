@@ -5,7 +5,7 @@
  * @module services/health
  */
 
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
 import { healthOwner } from '../../../../services/health/healthOwner.service.js';
 import { healthQueries } from '../../../../services/health/healthQueries.service.js';
@@ -52,9 +52,7 @@ class HealthService {
     return withTransaction(async (session) => {
       const rollNumbers = studentsData.map((student) => student.rollNumber.toUpperCase());
 
-      const studentProfiles = await StudentProfile.find({
-        rollNumber: { $in: rollNumbers }
-      }).session(session);
+      const studentProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
 
       if (studentProfiles.length === 0) {
         return notFound('No students found with the provided roll numbers');
