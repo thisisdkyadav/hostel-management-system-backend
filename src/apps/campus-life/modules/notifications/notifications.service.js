@@ -5,15 +5,12 @@
  * @module services/notification.service
  */
 
-import { Notification } from '../../../../models/index.js';
 import { StudentProfile } from '../../../../models/index.js';
-import { BaseService, success, error } from '../../../../services/base/index.js';
+import { success, error } from '../../../../services/base/index.js';
+import { notificationOwner } from '../../../../services/notification/notificationOwner.service.js';
+import { notificationQueries } from '../../../../services/notification/notificationQueries.service.js';
 
-class NotificationService extends BaseService {
-  constructor() {
-    super(Notification, 'Notification');
-  }
-
+class NotificationService {
   // ========== Controller Methods (for thin controller pattern) ==========
 
   /**
@@ -25,7 +22,7 @@ class NotificationService extends BaseService {
     const { title, message, type, hostelId, degree, department, gender, expiryDate } = data;
 
     try {
-      const notification = new this.model({
+      const notification = await notificationOwner.createNotification({
         title,
         message,
         type,
@@ -36,8 +33,6 @@ class NotificationService extends BaseService {
         gender,
         expiryDate
       });
-
-      await notification.save();
 
       return success({ message: 'Notification created successfully', notification }, 201);
     } catch (err) {
@@ -119,14 +114,9 @@ class NotificationService extends BaseService {
       const limitInt = parseInt(limit) || 10;
       const skip = (pageInt - 1) * limitInt;
 
-      const notifications = await this.model.find(queryObj)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitInt)
-        .populate('sender', 'name email')
-        .populate('hostelId', 'name');
+      const notifications = await notificationQueries.listForFilteredView(queryObj, { skip, limit: limitInt });
 
-      const totalNotifications = await this.model.countDocuments(queryObj);
+      const totalNotifications = await notificationQueries.countNotifications(queryObj);
       const totalPages = Math.ceil(totalNotifications / limitInt);
 
       return success({
@@ -160,9 +150,9 @@ class NotificationService extends BaseService {
       }
 
       const now = new Date();
-      const total = await this.model.countDocuments(queryObj);
-      const active = await this.model.countDocuments({ ...queryObj, expiryDate: { $gte: now } });
-      const expired = await this.model.countDocuments({ ...queryObj, expiryDate: { $lt: now } });
+      const total = await notificationQueries.countNotifications(queryObj);
+      const active = await notificationQueries.countNotifications({ ...queryObj, expiryDate: { $gte: now } });
+      const expired = await notificationQueries.countNotifications({ ...queryObj, expiryDate: { $lt: now } });
 
       return success({ data: { total, active, expired } });
     } catch (err) {
@@ -192,7 +182,7 @@ class NotificationService extends BaseService {
         };
       }
 
-      const activeCount = await this.model.countDocuments({ ...queryObj, expiryDate: { $gte: now } });
+      const activeCount = await notificationQueries.countNotifications({ ...queryObj, expiryDate: { $gte: now } });
 
       return success({ activeCount });
     } catch (err) {
@@ -249,7 +239,7 @@ class NotificationService extends BaseService {
       notificationData.expiryDate = expiryDate
     }
 
-    const notification = await Notification.create(notificationData)
+    const notification = await notificationOwner.createNotification(notificationData)
     return notification
   }
 
@@ -311,12 +301,8 @@ class NotificationService extends BaseService {
     const skip = (page - 1) * limit
 
     const [notifications, total] = await Promise.all([
-      Notification.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('sender', 'name email profileImage'),
-      Notification.countDocuments(query)
+      notificationQueries.listForUser(query, { skip, limit }),
+      notificationQueries.countNotifications(query)
     ])
 
     return {
@@ -340,13 +326,8 @@ class NotificationService extends BaseService {
     const skip = (page - 1) * limit
 
     const [notifications, total] = await Promise.all([
-      Notification.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('sender', 'name email profileImage')
-        .populate('hostelId', 'name'),
-      Notification.countDocuments(query)
+      notificationQueries.listForAdmin(query, { skip, limit }),
+      notificationQueries.countNotifications(query)
     ])
 
     return {
@@ -363,9 +344,7 @@ class NotificationService extends BaseService {
    * @returns {Promise<Object|null>}
    */
   async getNotificationById(notificationId) {
-    const notification = await Notification.findById(notificationId)
-      .populate('sender', 'name email profileImage')
-      .populate('hostelId', 'name')
+    const notification = await notificationQueries.findByIdDetailed(notificationId)
 
     return notification
   }
@@ -376,7 +355,7 @@ class NotificationService extends BaseService {
    * @returns {Promise<boolean>}
    */
   async deleteNotification(notificationId) {
-    const result = await Notification.findByIdAndDelete(notificationId)
+    const result = await notificationOwner.deleteNotificationById(notificationId)
     return !!result
   }
 
@@ -385,9 +364,7 @@ class NotificationService extends BaseService {
    * @returns {Promise<number>} Number of deleted notifications
    */
   async deleteExpiredNotifications() {
-    const result = await Notification.deleteMany({
-      expiryDate: { $lt: new Date() }
-    })
+    const result = await notificationOwner.deleteExpiredNotifications()
     return result.deletedCount
   }
 
@@ -407,13 +384,7 @@ class NotificationService extends BaseService {
       }
     }
 
-    const notification = await Notification.findByIdAndUpdate(
-      notificationId,
-      filteredUpdates,
-      { new: true }
-    )
-      .populate('sender', 'name email profileImage')
-      .populate('hostelId', 'name')
+    const notification = await notificationOwner.updateNotificationById(notificationId, filteredUpdates)
 
     return notification
   }
@@ -436,7 +407,7 @@ class NotificationService extends BaseService {
       ]
     }
 
-    return Notification.countDocuments(query)
+    return notificationQueries.countNotifications(query)
   }
 }
 
