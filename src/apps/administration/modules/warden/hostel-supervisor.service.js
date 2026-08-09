@@ -5,29 +5,27 @@
  * @module services/hostelSupervisor
  */
 
-import { HostelSupervisor } from '../../../../models/index.js';
-import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
-import { BaseService, success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { staffRolesOwner } from '../../../../services/user/staffRolesOwner.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
 
-class HostelSupervisorService extends BaseService {
-  constructor() {
-    super(HostelSupervisor, 'Hostel Supervisor');
-  }
+const ENTITY = 'Hostel Supervisor';
+
+class HostelSupervisorService {
 
   /**
    * Get hostel supervisor profile by user ID
    * @param {string} userId - User ID
    */
   async getHostelSupervisorProfile(userId) {
-    const hostelSupervisorProfile = await this.model.findOne({ userId })
-      .populate('userId', 'name email role phone profileImage')
-      .populate('hostelIds', 'name type')
-      .populate('activeHostelId', 'name type');
+    const hostelSupervisorProfile = await staffRolesQueries.findProfileByUserIdWithHostels('HostelSupervisor', userId);
 
     if (!hostelSupervisorProfile) {
-      return notFound(this.entityName + ' profile');
+      return notFound(ENTITY + ' profile');
     }
 
     const formattedProfile = {
@@ -53,7 +51,7 @@ class HostelSupervisorService extends BaseService {
       return badRequest('hostelIds must be an array');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(email);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -61,7 +59,7 @@ class HostelSupervisorService extends BaseService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({
+    const savedUser = await userOwner.createUser({
       name,
       email,
       password: hashedPassword,
@@ -69,13 +67,11 @@ class HostelSupervisorService extends BaseService {
       phone: phone || ''
     });
 
-    const savedUser = await newUser.save();
-
     const validHostelIds = hostelIds && hostelIds.length > 0 ? hostelIds : [];
     const status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
     const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null;
 
-    await this.model.create({
+    await staffRolesOwner.create('HostelSupervisor', {
       userId: savedUser._id,
       hostelIds: validHostelIds,
       activeHostelId,
@@ -91,9 +87,7 @@ class HostelSupervisorService extends BaseService {
    * Get all hostel supervisors
    */
   async getAllHostelSupervisors() {
-    const hostelSupervisors = await this.model.find()
-      .populate('userId', 'name email phone profileImage')
-      .lean();
+    const hostelSupervisors = await staffRolesQueries.listWithUser('HostelSupervisor');
 
     const formattedHostelSupervisors = hostelSupervisors.map((hs) => ({
       id: hs._id,
@@ -142,9 +136,9 @@ class HostelSupervisorService extends BaseService {
       updateData.hostelIds = validHostelIds;
       updateData.status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
 
-      const currentHS = await this.model.findById(id).select('activeHostelId hostelIds').lean();
+      const currentHS = await staffRolesQueries.findByIdSelect('HostelSupervisor', id, 'activeHostelId hostelIds', { lean: true });
       if (!currentHS) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
 
       const currentActiveId = currentHS.activeHostelId ? currentHS.activeHostelId.toString() : null;
@@ -165,17 +159,17 @@ class HostelSupervisorService extends BaseService {
     if (category !== undefined) updateData.category = category;
 
     if (Object.keys(userUpdateData).length > 0) {
-      const hostelSupervisor = await this.model.findById(id).select('userId');
+      const hostelSupervisor = await staffRolesQueries.findByIdSelect('HostelSupervisor', id, 'userId');
       if (!hostelSupervisor) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
-      await User.findByIdAndUpdate(hostelSupervisor.userId, userUpdateData);
+      await userOwner.updateUserById(hostelSupervisor.userId, userUpdateData);
     }
 
     if (Object.keys(updateData).length > 0) {
-      const updatedHostelSupervisor = await this.model.findByIdAndUpdate(id, updateData, { new: true }).lean();
+      const updatedHostelSupervisor = await staffRolesOwner.updateByIdReturnLean('HostelSupervisor', id, updateData);
       if (!updatedHostelSupervisor) {
-        return notFound(this.entityName + ' during update');
+        return notFound(ENTITY + ' during update');
       }
     } else if (Object.keys(userUpdateData).length === 0) {
       return badRequest('No update data provided');
@@ -189,12 +183,12 @@ class HostelSupervisorService extends BaseService {
    * @param {string} id - Hostel Supervisor ID
    */
   async deleteHostelSupervisor(id) {
-    const deletedHostelSupervisor = await this.model.findByIdAndDelete(id);
+    const deletedHostelSupervisor = await staffRolesOwner.deleteById('HostelSupervisor', id);
     if (!deletedHostelSupervisor) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
-    await User.findByIdAndDelete(deletedHostelSupervisor.userId);
+    await userOwner.deleteUserById(deletedHostelSupervisor.userId);
 
     return { success: true, statusCode: 200, message: 'Hostel Supervisor deleted successfully' };
   }
@@ -210,10 +204,10 @@ class HostelSupervisorService extends BaseService {
       return badRequest('hostelId is required in the request body');
     }
 
-    const hostelSupervisor = await this.model.findOne({ userId });
+    const hostelSupervisor = await staffRolesQueries.findByUserId('HostelSupervisor', userId);
 
     if (!hostelSupervisor) {
-      return notFound(this.entityName + ' profile for this user');
+      return notFound(ENTITY + ' profile for this user');
     }
 
     const isAssigned = hostelSupervisor.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId));
@@ -223,12 +217,12 @@ class HostelSupervisorService extends BaseService {
     }
 
     hostelSupervisor.activeHostelId = hostelId;
-    await hostelSupervisor.save();
+    await staffRolesOwner.persist(hostelSupervisor);
 
     await hostelSupervisor.populate('activeHostelId', 'name type');
 
     // Refresh user data in session after changing active hostel
-    const user = await User.findById(userId);
+    const user = await userQueries.findUserById(userId);
     if (user && session) {
       const authzOverride = extractUserAuthzOverride(user);
       const authzEffective = buildEffectiveAuthzForUser({ role: user.role, authz: { override: authzOverride } });

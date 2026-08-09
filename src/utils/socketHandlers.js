@@ -1,4 +1,4 @@
-import User from "../models/user/User.model.js"
+import { userQueries } from "../services/user/userQueries.service.js"
 import { Caterer } from "../models/index.js"
 import { getIO } from "../loaders/socket.loader.js"
 import { addOnlineUser, removeOnlineUser, updateUserActivity } from "./redisOnlineUsers.js"
@@ -24,7 +24,7 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
       }
 
       // Fetch user data
-      const user = await User.findById(session.userId).select("-password")
+      const user = await userQueries.findByIdSafe(session.userId)
 
       if (!user) {
         return next(new Error("User not found"))

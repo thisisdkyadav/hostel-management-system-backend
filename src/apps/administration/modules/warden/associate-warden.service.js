@@ -5,29 +5,27 @@
  * @module services/associateWarden
  */
 
-import { AssociateWarden } from '../../../../models/index.js';
-import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
-import { BaseService, success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { staffRolesOwner } from '../../../../services/user/staffRolesOwner.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
 
-class AssociateWardenService extends BaseService {
-  constructor() {
-    super(AssociateWarden, 'Associate Warden');
-  }
+const ENTITY = 'Associate Warden';
+
+class AssociateWardenService {
 
   /**
    * Get associate warden profile by user ID
    * @param {string} userId - User ID
    */
   async getAssociateWardenProfile(userId) {
-    const associateWardenProfile = await this.model.findOne({ userId })
-      .populate('userId', 'name email role phone profileImage')
-      .populate('hostelIds', 'name type')
-      .populate('activeHostelId', 'name type');
+    const associateWardenProfile = await staffRolesQueries.findProfileByUserIdWithHostels('AssociateWarden', userId);
 
     if (!associateWardenProfile) {
-      return notFound(this.entityName + ' profile');
+      return notFound(ENTITY + ' profile');
     }
 
     const formattedProfile = {
@@ -53,7 +51,7 @@ class AssociateWardenService extends BaseService {
       return badRequest('hostelIds must be an array');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(email);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -61,7 +59,7 @@ class AssociateWardenService extends BaseService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({
+    const savedUser = await userOwner.createUser({
       name,
       email,
       password: hashedPassword,
@@ -69,13 +67,11 @@ class AssociateWardenService extends BaseService {
       phone: phone || ''
     });
 
-    const savedUser = await newUser.save();
-
     const validHostelIds = hostelIds && hostelIds.length > 0 ? hostelIds : [];
     const status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
     const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null;
 
-    await this.model.create({
+    await staffRolesOwner.create('AssociateWarden', {
       userId: savedUser._id,
       hostelIds: validHostelIds,
       activeHostelId,
@@ -91,9 +87,7 @@ class AssociateWardenService extends BaseService {
    * Get all associate wardens
    */
   async getAllAssociateWardens() {
-    const associateWardens = await this.model.find()
-      .populate('userId', 'name email phone profileImage')
-      .lean();
+    const associateWardens = await staffRolesQueries.listWithUser('AssociateWarden');
 
     const formattedAssociateWardens = associateWardens.map((aw) => ({
       id: aw._id,
@@ -142,9 +136,9 @@ class AssociateWardenService extends BaseService {
       updateData.hostelIds = validHostelIds;
       updateData.status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
 
-      const currentAW = await this.model.findById(id).select('activeHostelId hostelIds').lean();
+      const currentAW = await staffRolesQueries.findByIdSelect('AssociateWarden', id, 'activeHostelId hostelIds', { lean: true });
       if (!currentAW) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
 
       const currentActiveId = currentAW.activeHostelId ? currentAW.activeHostelId.toString() : null;
@@ -165,17 +159,17 @@ class AssociateWardenService extends BaseService {
     if (category !== undefined) updateData.category = category;
 
     if (Object.keys(userUpdateData).length > 0) {
-      const associateWarden = await this.model.findById(id).select('userId');
+      const associateWarden = await staffRolesQueries.findByIdSelect('AssociateWarden', id, 'userId');
       if (!associateWarden) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
-      await User.findByIdAndUpdate(associateWarden.userId, userUpdateData);
+      await userOwner.updateUserById(associateWarden.userId, userUpdateData);
     }
 
     if (Object.keys(updateData).length > 0) {
-      const updatedAssociateWarden = await this.model.findByIdAndUpdate(id, updateData, { new: true }).lean();
+      const updatedAssociateWarden = await staffRolesOwner.updateByIdReturnLean('AssociateWarden', id, updateData);
       if (!updatedAssociateWarden) {
-        return notFound(this.entityName + ' during update');
+        return notFound(ENTITY + ' during update');
       }
     } else if (Object.keys(userUpdateData).length === 0) {
       return badRequest('No update data provided');
@@ -189,12 +183,12 @@ class AssociateWardenService extends BaseService {
    * @param {string} id - Associate Warden ID
    */
   async deleteAssociateWarden(id) {
-    const deletedAssociateWarden = await this.model.findByIdAndDelete(id);
+    const deletedAssociateWarden = await staffRolesOwner.deleteById('AssociateWarden', id);
     if (!deletedAssociateWarden) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
-    await User.findByIdAndDelete(deletedAssociateWarden.userId);
+    await userOwner.deleteUserById(deletedAssociateWarden.userId);
 
     return { success: true, statusCode: 200, message: 'Associate Warden deleted successfully' };
   }
@@ -210,10 +204,10 @@ class AssociateWardenService extends BaseService {
       return badRequest('hostelId is required in the request body');
     }
 
-    const associateWarden = await this.model.findOne({ userId });
+    const associateWarden = await staffRolesQueries.findByUserId('AssociateWarden', userId);
 
     if (!associateWarden) {
-      return notFound(this.entityName + ' profile for this user');
+      return notFound(ENTITY + ' profile for this user');
     }
 
     const isAssigned = associateWarden.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId));
@@ -223,12 +217,12 @@ class AssociateWardenService extends BaseService {
     }
 
     associateWarden.activeHostelId = hostelId;
-    await associateWarden.save();
+    await staffRolesOwner.persist(associateWarden);
 
     await associateWarden.populate('activeHostelId', 'name type');
 
     // Refresh user data in session after changing active hostel
-    const user = await User.findById(userId);
+    const user = await userQueries.findUserById(userId);
     if (user && session) {
       const authzOverride = extractUserAuthzOverride(user);
       const authzEffective = buildEffectiveAuthzForUser({ role: user.role, authz: { override: authzOverride } });

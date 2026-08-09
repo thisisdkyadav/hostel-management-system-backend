@@ -5,29 +5,27 @@
  * @module services/warden
  */
 
-import { Warden } from '../../../../models/index.js';
-import { User } from '../../../../models/index.js';
 import bcrypt from 'bcrypt';
-import { BaseService, success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { success, notFound, badRequest, forbidden } from '../../../../services/base/index.js';
+import { staffRolesOwner } from '../../../../services/user/staffRolesOwner.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
 
-class WardenService extends BaseService {
-  constructor() {
-    super(Warden, 'Warden');
-  }
+const ENTITY = 'Warden';
+
+class WardenService {
 
   /**
    * Get warden profile by user ID
    * @param {string} userId - User ID
    */
   async getWardenProfile(userId) {
-    const wardenProfile = await this.model.findOne({ userId })
-      .populate('userId', 'name email role phone profileImage')
-      .populate('hostelIds', 'name type')
-      .populate('activeHostelId', 'name type');
+    const wardenProfile = await staffRolesQueries.findProfileByUserIdWithHostels('Warden', userId);
 
     if (!wardenProfile) {
-      return notFound(this.entityName + ' profile');
+      return notFound(ENTITY + ' profile');
     }
 
     const formattedWardenProfile = {
@@ -53,7 +51,7 @@ class WardenService extends BaseService {
       return badRequest('hostelIds must be an array');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(email);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -61,7 +59,7 @@ class WardenService extends BaseService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const newUser = new User({
+    const savedUser = await userOwner.createUser({
       name,
       email,
       password: hashedPassword,
@@ -69,13 +67,11 @@ class WardenService extends BaseService {
       phone: phone || ''
     });
 
-    const savedUser = await newUser.save();
-
     const validHostelIds = hostelIds && hostelIds.length > 0 ? hostelIds : [];
     const status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
     const activeHostelId = validHostelIds.length > 0 ? validHostelIds[0] : null;
 
-    await this.model.create({
+    await staffRolesOwner.create('Warden', {
       userId: savedUser._id,
       hostelIds: validHostelIds,
       activeHostelId,
@@ -91,9 +87,7 @@ class WardenService extends BaseService {
    * Get all wardens
    */
   async getAllWardens() {
-    const wardens = await this.model.find()
-      .populate('userId', 'name email phone profileImage')
-      .lean();
+    const wardens = await staffRolesQueries.listWithUser('Warden');
 
     const formattedWardens = wardens.map((warden) => ({
       id: warden._id,
@@ -142,9 +136,9 @@ class WardenService extends BaseService {
       updateData.hostelIds = validHostelIds;
       updateData.status = validHostelIds.length > 0 ? 'assigned' : 'unassigned';
 
-      const currentWarden = await this.model.findById(id).select('activeHostelId hostelIds').lean();
+      const currentWarden = await staffRolesQueries.findByIdSelect('Warden', id, 'activeHostelId hostelIds', { lean: true });
       if (!currentWarden) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
 
       const currentActiveId = currentWarden.activeHostelId ? currentWarden.activeHostelId.toString() : null;
@@ -163,17 +157,17 @@ class WardenService extends BaseService {
     if (category !== undefined) updateData.category = category;
 
     if (Object.keys(userUpdateData).length > 0) {
-      const warden = await this.model.findById(id).select('userId');
+      const warden = await staffRolesQueries.findByIdSelect('Warden', id, 'userId');
       if (!warden) {
-        return notFound(this.entityName);
+        return notFound(ENTITY);
       }
-      await User.findByIdAndUpdate(warden.userId, userUpdateData);
+      await userOwner.updateUserById(warden.userId, userUpdateData);
     }
 
     if (Object.keys(updateData).length > 0) {
-      const updatedWarden = await this.model.findByIdAndUpdate(id, updateData, { new: true }).lean();
+      const updatedWarden = await staffRolesOwner.updateByIdReturnLean('Warden', id, updateData);
       if (!updatedWarden) {
-        return notFound(this.entityName + ' during update');
+        return notFound(ENTITY + ' during update');
       }
     } else if (Object.keys(userUpdateData).length === 0) {
       return badRequest('No update data provided');
@@ -187,12 +181,12 @@ class WardenService extends BaseService {
    * @param {string} id - Warden ID
    */
   async deleteWarden(id) {
-    const deletedWarden = await this.model.findByIdAndDelete(id);
+    const deletedWarden = await staffRolesOwner.deleteById('Warden', id);
     if (!deletedWarden) {
-      return notFound(this.entityName);
+      return notFound(ENTITY);
     }
 
-    await User.findByIdAndDelete(deletedWarden.userId);
+    await userOwner.deleteUserById(deletedWarden.userId);
 
     return { success: true, statusCode: 200, message: 'Warden deleted successfully' };
   }
@@ -208,10 +202,10 @@ class WardenService extends BaseService {
       return badRequest('hostelId is required in the request body');
     }
 
-    const warden = await this.model.findOne({ userId });
+    const warden = await staffRolesQueries.findByUserId('Warden', userId);
 
     if (!warden) {
-      return notFound(this.entityName + ' profile for this user');
+      return notFound(ENTITY + ' profile for this user');
     }
 
     const isAssigned = warden.hostelIds.some((assignedHostelId) => assignedHostelId.equals(hostelId));
@@ -221,12 +215,12 @@ class WardenService extends BaseService {
     }
 
     warden.activeHostelId = hostelId;
-    await warden.save();
+    await staffRolesOwner.persist(warden);
 
     await warden.populate('activeHostelId', 'name type');
 
     // Refresh user data in session after changing active hostel
-    const user = await User.findById(userId);
+    const user = await userQueries.findUserById(userId);
     if (user && session) {
       const authzOverride = extractUserAuthzOverride(user);
       const authzEffective = buildEffectiveAuthzForUser({ role: user.role, authz: { override: authzOverride } });

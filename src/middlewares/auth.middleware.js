@@ -2,8 +2,7 @@
  * Authentication Middleware
  * Handles session-based authentication
  */
-// Using old model paths until Phase 3 (Models Migration)
-import { User } from "../models/index.js"
+import { userQueries } from "../services/user/userQueries.service.js"
 import { AUTHZ_CATALOG_VERSION, buildEffectiveAuthzForUser, extractUserAuthzOverride } from "../core/authz/index.js"
 
 const buildSessionAuthz = (userLike) => {
@@ -57,7 +56,7 @@ export const refreshUserData = async (req, res, next) => {
 
   try {
     // Get fresh user data from database
-    const user = await User.findById(req.session.userId).select("-password").exec()
+    const user = await userQueries.findByIdSafe(req.session.userId)
 
     if (!user) {
       return res.status(401).json({ success: false, message: "User not found" })
@@ -101,7 +100,7 @@ export const authenticate = async (req, res, next) => {
       }
     } else {
       // Otherwise query the database and cache essential data in session
-      const user = await User.findById(req.session.userId).select("-password").exec()
+      const user = await userQueries.findByIdSafe(req.session.userId)
 
       if (!user) {
         return res.status(401).json({ success: false, message: "User not found" })
