@@ -8,8 +8,9 @@ import {
 } from "../../../../services/base/ServiceResponse.js"
 import { clubOwner } from "../../../../services/club/clubOwner.service.js"
 import { clubQueries } from "../../../../services/club/clubQueries.service.js"
-import User from "../../../../models/user/User.model.js"
-import Gymkhana from "../../../../models/user/Gymkhana.model.js"
+import { userOwner } from "../../../../services/user/userOwner.service.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
+import { staffRolesOwner } from "../../../../services/user/staffRolesOwner.service.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import {
   getGlobalGymkhanaCategoryDefinitions,
@@ -108,16 +109,15 @@ class ClubsService {
       return conflict("A club with this name already exists")
     }
 
-    const existingUser = await User.findOne({
-      email: { $regex: new RegExp(`^${normalizedEmail}$`, "i") },
+    const existingUser = await userQueries.findUserByEmailCI(normalizedEmail, {
+      select: "_id",
+      lean: true,
     })
-      .select("_id")
-      .lean()
     if (existingUser) {
       return conflict("A user with this email already exists")
     }
 
-    const user = await User.create({
+    const user = await userOwner.createUser({
       name: normalizedName,
       email: normalizedEmail,
       role: ROLES.GYMKHANA,
@@ -143,7 +143,7 @@ class ClubsService {
         gymkhanaCategoryKey: categoryResolution.key,
       })
 
-      await Gymkhana.create({
+      await staffRolesOwner.create("Gymkhana", {
         userId: user._id,
         categories: [categoryResolution.key],
         position: SUBROLES.CLUB,
@@ -157,7 +157,7 @@ class ClubsService {
       )
     } catch (error) {
       await clubOwner.deleteClubByUserId(user._id)
-      await User.findByIdAndDelete(user._id)
+      await userOwner.deleteUserById(user._id)
       throw error
     }
   }
@@ -168,9 +168,10 @@ class ClubsService {
       return notFound("Club")
     }
 
-    const linkedUser = await User.findById(club.userId)
-      .select("_id email name role subRole")
-      .lean()
+    const linkedUser = await userQueries.findUserById(club.userId, {
+      select: "_id email name role subRole",
+      lean: true,
+    })
     if (!linkedUser) {
       return notFound("Club login user")
     }
@@ -204,12 +205,11 @@ class ClubsService {
         }
       }
 
-      const existingUserWithEmail = await User.findOne({
-        _id: { $ne: linkedUser._id },
-        email: { $regex: new RegExp(`^${normalizedEmail}$`, "i") },
+      const existingUserWithEmail = await userQueries.findUserByEmailCI(normalizedEmail, {
+        select: "_id",
+        lean: true,
+        excludeId: linkedUser._id,
       })
-        .select("_id")
-        .lean()
       if (existingUserWithEmail) {
         return conflict("A user with this email already exists")
       }
@@ -241,12 +241,13 @@ class ClubsService {
       userUpdateData.email = club.email
     }
     if (Object.keys(userUpdateData).length > 0) {
-      await User.updateOne({ _id: linkedUser._id }, userUpdateData)
+      await userOwner.updateOneUser({ _id: linkedUser._id }, userUpdateData)
     }
 
     if (nextGymkhanaCategoryKey) {
-      await Gymkhana.updateOne(
-        { userId: linkedUser._id },
+      await staffRolesOwner.updateOneByUserId(
+        "Gymkhana",
+        linkedUser._id,
         { categories: [nextGymkhanaCategoryKey], position: SUBROLES.CLUB },
         { upsert: true }
       )

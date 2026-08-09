@@ -33,9 +33,14 @@ export const userQueries = {
     return query
   },
 
-  /** One user by exact (case-insensitive) email. Options: { select, lean }. */
-  async findUserByEmailCI(email, { select, lean } = {}) {
-    let query = User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
+  /**
+   * One user by exact (case-insensitive) email. Options: { select, lean, excludeId }.
+   * excludeId adds `_id: { $ne: excludeId }` (uniqueness check that ignores self).
+   */
+  async findUserByEmailCI(email, { select, lean, excludeId } = {}) {
+    const filter = { email: { $regex: new RegExp(`^${email}$`, "i") } }
+    if (excludeId) filter._id = { $ne: excludeId }
+    let query = User.findOne(filter)
     if (select) query = query.select(select)
     if (lean) query = query.lean()
     return query

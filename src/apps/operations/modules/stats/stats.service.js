@@ -5,12 +5,10 @@
  * @module services/stats
  */
 
-import { Warden } from '../../../../models/index.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { eventQueries } from '../../../../services/event/eventQueries.service.js';
 import { lostAndFoundQueries } from '../../../../services/lost-found/lostAndFoundQueries.service.js';
-import { Security } from '../../../../models/index.js';
-import { MaintenanceStaff } from '../../../../models/index.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
 import { success } from '../../../../services/base/index.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
@@ -50,9 +48,9 @@ class StatsService {
    */
   async getWardenStats() {
     const [total, assigned, unassigned] = await Promise.all([
-      Warden.countDocuments(),
-      Warden.countDocuments({ status: 'assigned' }),
-      Warden.countDocuments({ status: 'unassigned' })
+      staffRolesQueries.countByRole('Warden'),
+      staffRolesQueries.countByRole('Warden', { status: 'assigned' }),
+      staffRolesQueries.countByRole('Warden', { status: 'unassigned' })
     ]);
 
     return success({ total, assigned, unassigned });
@@ -91,9 +89,9 @@ class StatsService {
    */
   async getSecurityStaffStats() {
     const [total, assigned, unassigned] = await Promise.all([
-      Security.countDocuments(),
-      Security.countDocuments({ hostelId: { $ne: null } }),
-      Security.countDocuments({ hostelId: null })
+      staffRolesQueries.countByRole('Security'),
+      staffRolesQueries.countByRole('Security', { hostelId: { $ne: null } }),
+      staffRolesQueries.countByRole('Security', { hostelId: null })
     ]);
 
     return success({ total, assigned, unassigned });
@@ -104,12 +102,12 @@ class StatsService {
    */
   async getMaintenanceStaffStats() {
     const [total, plumbing, electrical, cleanliness, internet, civil] = await Promise.all([
-      MaintenanceStaff.countDocuments(),
-      MaintenanceStaff.countDocuments({ category: 'Plumbing' }),
-      MaintenanceStaff.countDocuments({ category: 'Electrical' }),
-      MaintenanceStaff.countDocuments({ category: 'Cleanliness' }),
-      MaintenanceStaff.countDocuments({ category: 'Internet' }),
-      MaintenanceStaff.countDocuments({ category: 'Civil' })
+      staffRolesQueries.countByRole('MaintenanceStaff'),
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Plumbing' }),
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Electrical' }),
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Cleanliness' }),
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Internet' }),
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Civil' })
     ]);
 
     return success({ total, plumbing, electrical, cleanliness, internet, civil });

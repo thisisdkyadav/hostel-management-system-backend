@@ -76,6 +76,11 @@ export const staffRolesOwner = {
     return resolve(roleKey).findOneAndUpdate({ userId }, update, options)
   },
 
+  /** updateOne by userId (options e.g. { upsert: true } — raw result). */
+  async updateOneByUserId(roleKey, userId, update, options = {}) {
+    return resolve(roleKey).updateOne({ userId }, update, options)
+  },
+
   /** findOneAndDelete by userId. Returns the deleted doc or null. */
   async findOneAndDeleteByUserId(roleKey, userId) {
     return resolve(roleKey).findOneAndDelete({ userId })

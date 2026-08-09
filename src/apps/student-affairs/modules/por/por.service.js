@@ -13,8 +13,8 @@ import { porRequestQueries } from "../../../../services/club/porRequestQueries.s
 import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
 import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
-import Gymkhana from "../../../../models/user/Gymkhana.model.js"
-import User from "../../../../models/user/User.model.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
+import { staffRolesQueries } from "../../../../services/user/staffRolesQueries.service.js"
 import { ROLES, SUBROLES } from "../../../../core/constants/roles.constants.js"
 import logger from "../../../../services/base/Logger.js"
 import { emailService } from "../../../../services/email/index.js"
@@ -111,7 +111,7 @@ const resolvePorCertificateSignatures = async (signatoryIds = []) => {
   const ids = (Array.isArray(signatoryIds) ? signatoryIds : []).map((id) => normalizeObjectId(id)).filter(Boolean)
   if (ids.length === 0) return []
 
-  const users = await User.find({ _id: { $in: ids } }).select("name signature").lean()
+  const users = await userQueries.findUsers({ _id: { $in: ids } }, { select: "name signature", lean: true })
   const byId = new Map(users.map((entry) => [normalizeObjectId(entry._id), entry]))
 
   const signatures = []
@@ -628,9 +628,10 @@ class PorService {
 
     const explicitApproverIds = normalizeUserIdList(currentApproverUsers)
     if (explicitApproverIds.length > 0) {
-      return User.find({ _id: { $in: explicitApproverIds } })
-        .select("name email role subRole")
-        .lean()
+      return userQueries.findUsers(
+        { _id: { $in: explicitApproverIds } },
+        { select: "name email role subRole", lean: true }
+      )
     }
 
     if (request.currentApproverUser?.email) {
@@ -638,18 +639,17 @@ class PorService {
     }
 
     if (nextStage === POR_APPROVAL_STAGES.STUDENT_AFFAIRS) {
-      return User.find({
-        role: ROLES.ADMIN,
-        subRole: SUBROLES.STUDENT_AFFAIRS,
-      })
-        .select("name email role subRole")
-        .lean()
+      return userQueries.findUsers(
+        { role: ROLES.ADMIN, subRole: SUBROLES.STUDENT_AFFAIRS },
+        { select: "name email role subRole", lean: true }
+      )
     }
 
     if (isPostStudentAffairsStage(nextStage) && request.currentApproverUser?._id) {
-      return User.find({ _id: request.currentApproverUser._id })
-        .select("name email role subRole")
-        .lean()
+      return userQueries.findUsers(
+        { _id: request.currentApproverUser._id },
+        { select: "name email role subRole", lean: true }
+      )
     }
 
     return []
@@ -1171,7 +1171,7 @@ class PorService {
 
     if (mode === "club") {
       const club = await clubQueries.findClubByUserIdSelect(user._id)
-      const gymkhanaProfile = await Gymkhana.findOne({ userId: user._id }).select("categories").lean()
+      const gymkhanaProfile = await staffRolesQueries.findByUserId("Gymkhana", user._id, { select: "categories", lean: true })
       return {
         supported: true,
         viewer,
@@ -1185,7 +1185,7 @@ class PorService {
     }
 
     if (mode === "gs" || mode === "gymkhana") {
-      const gymkhanaProfile = await Gymkhana.findOne({ userId: user._id }).select("categories").lean()
+      const gymkhanaProfile = await staffRolesQueries.findByUserId("Gymkhana", user._id, { select: "categories", lean: true })
       return {
         supported: true,
         viewer,
@@ -1221,12 +1221,10 @@ class PorService {
     const allReviewerUserIds = normalizeUserIdList(
       inputSteps.flatMap((step) => step?.reviewerUserIds || [])
     )
-    const gymkhanaUsers = await User.find({
-      _id: { $in: allReviewerUserIds },
-      role: ROLES.GYMKHANA,
-    })
-      .select("_id")
-      .lean()
+    const gymkhanaUsers = await userQueries.findUsers(
+      { _id: { $in: allReviewerUserIds }, role: ROLES.GYMKHANA },
+      { select: "_id", lean: true }
+    )
 
     const validReviewerIds = new Set(gymkhanaUsers.map((user) => normalizeObjectId(user._id)))
     if (validReviewerIds.size !== allReviewerUserIds.length) {
@@ -1346,10 +1344,10 @@ class PorService {
   }
 
   async getGymkhanaReviewerOptions() {
-    const users = await User.find({ role: ROLES.GYMKHANA })
-      .select("_id name email role subRole")
-      .sort({ name: 1 })
-      .lean()
+    const users = await userQueries.findUsers(
+      { role: ROLES.GYMKHANA },
+      { select: "_id name email role subRole", sort: { name: 1 }, lean: true }
+    )
 
     return users.map((user) => ({
       id: normalizeObjectId(user._id),
@@ -1365,22 +1363,25 @@ class PorService {
     const normalizedCategoryKey = normalizeCategoryKey(categoryKey)
     if (!normalizedCategoryKey) return []
 
-    const gymkhanaProfiles = await Gymkhana.find({ categories: normalizedCategoryKey })
-      .select("userId")
-      .lean()
+    const gymkhanaProfiles = await staffRolesQueries.findManyByRole(
+      "Gymkhana",
+      { categories: normalizedCategoryKey },
+      { select: "userId", lean: true }
+    )
     const candidateUserIds = gymkhanaProfiles
       .map((profile) => normalizeObjectId(profile.userId))
       .filter(Boolean)
 
     if (candidateUserIds.length === 0) return []
 
-    const gsUsers = await User.find({
-      _id: { $in: candidateUserIds },
-      role: ROLES.GYMKHANA,
-      subRole: SUBROLES.GS_GYMKHANA,
-    })
-      .select("_id")
-      .lean()
+    const gsUsers = await userQueries.findUsers(
+      {
+        _id: { $in: candidateUserIds },
+        role: ROLES.GYMKHANA,
+        subRole: SUBROLES.GS_GYMKHANA,
+      },
+      { select: "_id", lean: true }
+    )
 
     return gsUsers.map((user) => normalizeObjectId(user._id)).filter(Boolean)
   }
@@ -1393,12 +1394,10 @@ class PorService {
       Array.isArray(presidentUserIds) && presidentUserIds.length > 0
         ? presidentUserIds
         : (
-            await User.find({
-              role: ROLES.GYMKHANA,
-              subRole: SUBROLES.PRESIDENT_GYMKHANA,
-            })
-              .select("_id")
-              .lean()
+            await userQueries.findUsers(
+              { role: ROLES.GYMKHANA, subRole: SUBROLES.PRESIDENT_GYMKHANA },
+              { select: "_id", lean: true }
+            )
           )
             .map((user) => normalizeObjectId(user._id))
             .filter(Boolean)
@@ -1439,12 +1438,10 @@ class PorService {
       return { created: 0, updated: 0, skipped: 0 }
     }
 
-    const presidents = await User.find({
-      role: ROLES.GYMKHANA,
-      subRole: SUBROLES.PRESIDENT_GYMKHANA,
-    })
-      .select("_id")
-      .lean()
+    const presidents = await userQueries.findUsers(
+      { role: ROLES.GYMKHANA, subRole: SUBROLES.PRESIDENT_GYMKHANA },
+      { select: "_id", lean: true }
+    )
     const presidentUserIds = presidents.map((user) => normalizeObjectId(user._id)).filter(Boolean)
 
     let created = 0

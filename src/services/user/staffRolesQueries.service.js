@@ -82,6 +82,20 @@ export const staffRolesQueries = {
     if (lean) query = query.lean()
     return query
   },
+
+  /** Role profiles by arbitrary filter. Options: { select, lean, sort }. */
+  async findManyByRole(roleKey, filter = {}, { select, lean, sort } = {}) {
+    let query = resolve(roleKey).find(filter)
+    if (select) query = query.select(select)
+    if (sort) query = query.sort(sort)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** Count role profiles matching a filter (stats). */
+  async countByRole(roleKey, filter = {}) {
+    return resolve(roleKey).countDocuments(filter)
+  },
 }
 
 export default staffRolesQueries
