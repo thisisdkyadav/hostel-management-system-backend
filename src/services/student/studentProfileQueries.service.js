@@ -22,9 +22,17 @@ export const studentProfileQueries = {
     return StudentProfile.findOne({ userId })
   },
 
-  /** Profiles for a set of roll numbers, HYDRATED bare (undertakings bulk add). */
-  async findByRollNumbers(rollNumbers) {
-    return StudentProfile.find({ rollNumber: { $in: rollNumbers } })
+  /**
+   * Profiles for a set of roll numbers. Options preserve each caller's exact
+   * shape: { select } projection, { lean } POJO, { session } transaction enlist.
+   * Bare call (no opts) = HYDRATED find (undertakings bulk add).
+   */
+  async findByRollNumbers(rollNumbers, { select, lean, session } = {}) {
+    let query = StudentProfile.find({ rollNumber: { $in: rollNumbers } })
+    if (select) query = query.select(select)
+    if (session) query = query.session(session)
+    if (lean) query = query.lean()
+    return query
   },
 
   /** One profile by userId with currentRoomAllocation → hostelId populated (notifications). */
@@ -50,6 +58,67 @@ export const studentProfileQueries = {
     return StudentProfile.findOne({ userId }, { gender: 1, currentRoomAllocation: 1 })
       .populate("currentRoomAllocation", "hostelId")
       .lean()
+  },
+
+  // ==================== chunk: profiles-admin ====================
+
+  /**
+   * All-numeric roll numbers, LEAN (bulk roll-range expansion). select rollNumber,
+   * transaction-enlisted.
+   */
+  async findNumericRollNumbers({ session } = {}) {
+    let query = StudentProfile.find({ rollNumber: /^\d+$/ }).select("rollNumber")
+    if (session) query = query.session(session)
+    return query.lean()
+  },
+
+  /**
+   * One profile by roll number with the full allocation detail chain:
+   * userId (name/email/image) + currentRoomAllocation → hostel + room → unit.
+   */
+  async findByRollNumberWithAllocationDetail(rollNumber) {
+    return StudentProfile.findOne({ rollNumber })
+      .populate("userId", "name email profileImage")
+      .populate({
+        path: "currentRoomAllocation",
+        populate: [
+          { path: "hostelId", select: "name type" },
+          {
+            path: "roomId",
+            select: "roomNumber unitId",
+            populate: { path: "unitId", select: "unitNumber" },
+          },
+        ],
+      })
+  },
+
+  /** Distinct values of a field, optionally filtered (department/degree lists). */
+  async distinctField(field, filter = {}) {
+    return StudentProfile.distinct(field, filter)
+  },
+
+  // ==================== model custom statics (passthrough) ====================
+  // These are defined on the StudentProfile schema (in-boundary); wrapping the
+  // CALL site keeps the model name out of app code. `this` stays the model.
+
+  /** Rich populated profile(s) by userId — accepts a single id OR an array. */
+  async getFullStudentData(userIdOrIds) {
+    return StudentProfile.getFullStudentData(userIdOrIds)
+  },
+
+  /** Basic populated profile by userId (security lookup). */
+  async getBasicStudentData(userId) {
+    return StudentProfile.getBasicStudentData(userId)
+  },
+
+  /** Paginated/filtered student search (admin list + export). */
+  async searchStudents(params) {
+    return StudentProfile.searchStudents(params)
+  },
+
+  /** SYNC — static list of "missing field" option keys (no DB, no await). */
+  getMissingFieldOptions() {
+    return StudentProfile.getMissingFieldOptions()
   },
 }
 

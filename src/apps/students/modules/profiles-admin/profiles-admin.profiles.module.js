@@ -1,5 +1,7 @@
 import mongoose from 'mongoose';
-import { StudentProfile, User } from '../../../../models/index.js';
+import { User } from '../../../../models/index.js';
+import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { success, badRequest, forbidden, notFound } from '../../../../services/base/index.js';
 import { asyncHandler, hasConfiguredBatch, sendStandardResponse } from '../../../../utils/index.js';
@@ -200,7 +202,7 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
   // which MongoDB rejects ("Only servers in a sharded cluster can start a new
   // transaction at the active transaction number").
   const existingUsers = await User.find({ email: { $in: emails } }).session(session);
-  const existingProfiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } }).session(session);
+  const existingProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
 
   const existingEmails = new Set(existingUsers.map((user) => user.email));
   const existingRollNumbers = new Set(existingProfiles.map((profile) => profile.rollNumber));
@@ -241,7 +243,7 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
 
   const profileDocs = insertedUserIds.map((userId, index) => buildCreateProfileDoc(userId, studentsToCreate[index]));
 
-  const profileInsertResult = await StudentProfile.collection.insertMany(profileDocs, { session });
+  const profileInsertResult = await studentProfileOwner.insertProfilesRaw(profileDocs, { session });
 
   return insertedUserIds.map((userId, index) => ({
     user: { _id: userId },
@@ -359,10 +361,7 @@ const processUpdateStudentsChunk = async ({
     return { results, userOpsCount: 0, profileOpsCount: 0 };
   }
 
-  const existingProfiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } })
-    .select('_id rollNumber userId degree department batch')
-    .session(session)
-    .lean();
+  const existingProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { select: '_id rollNumber userId degree department batch', session, lean: true });
 
   const studentBatchesConfig = chunkStudents.some((student) => student.batch !== undefined)
     ? ((await configQueries.findByKey('studentBatches', { session }))?.value || {})
@@ -446,7 +445,7 @@ const processUpdateStudentsChunk = async ({
     await User.bulkWrite(userBulkOps, { session });
   }
   if (profileBulkOps.length > 0) {
-    await StudentProfile.bulkWrite(profileBulkOps, { session });
+    await studentProfileOwner.bulkWrite(profileBulkOps, { session });
   }
 
   return {
@@ -720,10 +719,10 @@ export const getStudents = asyncHandler(async (req, res) => {
     searchQuery.hostelId = req.user.hostel._id.toString();
   }
 
-  const studentProfilesResult = await StudentProfile.searchStudents(searchQuery);
+  const studentProfilesResult = await studentProfileQueries.searchStudents(searchQuery);
   const studentProfiles = studentProfilesResult[0].data;
   const totalCount = studentProfilesResult[0].totalCount[0]?.count || 0;
-  const missingOptions = StudentProfile.getMissingFieldOptions();
+  const missingOptions = studentProfileQueries.getMissingFieldOptions();
 
   return sendStandardResponse(res, {
     success: true,
@@ -745,7 +744,7 @@ export const getStudents = asyncHandler(async (req, res) => {
 export const getStudentDetails = asyncHandler(async (req, res) => {
   const userId = req.params.userId;
   const constraintContext = getConstraintContext(req.user);
-  const studentProfile = await StudentProfile.getFullStudentData(userId);
+  const studentProfile = await studentProfileQueries.getFullStudentData(userId);
 
   if (!studentProfile) {
     return sendStandardResponse(res, notFound('Student profile not found'));
@@ -770,7 +769,7 @@ export const getMultipleStudentDetails = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest('Maximum of 5000 student profiles can be fetched at once'));
   }
 
-  const studentsData = await StudentProfile.getFullStudentData(userIds);
+  const studentsData = await studentProfileQueries.getFullStudentData(userIds);
 
   if (studentsData.length === 0) {
     return sendStandardResponse(res, notFound('No student profiles found'));
@@ -876,7 +875,7 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
       limit: STUDENT_EXPORT_LIMIT,
     };
 
-    const studentProfilesResult = await StudentProfile.searchStudents(exportQuery);
+    const studentProfilesResult = await studentProfileQueries.searchStudents(exportQuery);
     const studentProfiles = studentProfilesResult[0].data || [];
     totalMatched = studentProfilesResult[0].totalCount[0]?.count || 0;
 
@@ -908,9 +907,7 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
       );
     }
 
-    const profiles = await StudentProfile.find({ rollNumber: { $in: uniqueRollNumbers } })
-      .select('rollNumber userId currentRoomAllocation')
-      .lean();
+    const profiles = await studentProfileQueries.findByRollNumbers(uniqueRollNumbers, { select: 'rollNumber userId currentRoomAllocation', lean: true });
     const profilesByRollNumber = new Map(profiles.map((profile) => [profile.rollNumber, profile]));
 
     const allowedProfiles = [];
@@ -932,7 +929,7 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, success({ students: [], errors, totalMatched }));
   }
 
-  const studentsData = await StudentProfile.getFullStudentData(userIds);
+  const studentsData = await studentProfileQueries.getFullStudentData(userIds);
   const filteredStudentsData = constraintContext.scopedHostelIds
     ? studentsData.filter((student) => isHostelAllowed(student.hostelId, constraintContext))
     : studentsData;
@@ -969,7 +966,7 @@ export const getStudentExportDetails = asyncHandler(async (req, res) => {
 });
 
 export const getStudentId = asyncHandler(async (req, res) => {
-  const student = await StudentProfile.findOne({ userId: req.params.userId });
+  const student = await studentProfileQueries.findByUserId(req.params.userId);
   return sendStandardResponse(res, success({ studentId: student?._id?.toString() || null }));
 });
 
@@ -999,7 +996,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
   } = updateData;
 
   const trimmedEmail = email ? email.trim() : email;
-  const currentProfile = await StudentProfile.getFullStudentData(userId);
+  const currentProfile = await studentProfileQueries.getFullStudentData(userId);
 
   if (!currentProfile) {
     return sendStandardResponse(res, notFound('Student profile not found or update failed'));
@@ -1049,8 +1046,8 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
     profileUpdateData.batch = batchResolution.value;
   }
 
-  const updatedProfile = await StudentProfile.findOneAndUpdate(
-    { userId },
+  const updatedProfile = await studentProfileOwner.findOneAndUpdateByUser(
+    userId,
     { $set: profileUpdateData },
     { new: true }
   );

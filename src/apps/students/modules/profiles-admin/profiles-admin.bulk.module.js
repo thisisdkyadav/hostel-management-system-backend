@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
 import { badRequest } from '../../../../services/base/index.js';
@@ -73,10 +74,7 @@ const resolveBatchAssignmentRollNumbers = async ({ session, rollNumbers, rollNum
     };
   }
 
-  const numericStudents = await StudentProfile.find({ rollNumber: /^\d+$/ })
-    .select('rollNumber')
-    .session(session)
-    .lean();
+  const numericStudents = await studentProfileQueries.findNumericRollNumbers({ session });
 
   const rangedRollNumbers = numericStudents
     .filter((student) => {
@@ -153,10 +151,7 @@ export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
     let responsePayload = null;
 
     await session.withTransaction(async () => {
-      const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-        .select('_id rollNumber')
-        .session(session)
-        .lean();
+      const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: '_id rollNumber', session, lean: true });
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const existingRollNumberSet = new Set(existingRollNumbers);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumberSet.has(rollNumber));
@@ -176,7 +171,7 @@ export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
 
       const studentProfileIds = existingStudents.map((student) => student._id);
 
-      const students = await StudentProfile.updateMany(
+      const students = await studentProfileOwner.updateMany(
         { _id: { $in: studentProfileIds } },
         { $set: { status: normalizedStatus } },
         { session }
@@ -218,9 +213,7 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
   }
 
-  const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-    .select('rollNumber degree department batch groups status')
-    .lean();
+  const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: 'rollNumber degree department batch groups status', lean: true });
 
   const existingStudentMap = new Map(existingStudents.map((student) => [student.rollNumber, student]));
   const existingRollNumbers = normalizedRollNumbers.filter((rollNumber) => existingStudentMap.has(rollNumber));
@@ -348,7 +341,7 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
   try {
     session.startTransaction();
 
-    const students = await StudentProfile.find({ rollNumber: { $in: rollNumbers } }).session(session);
+    const students = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
 
     const studentMap = new Map();
     students.forEach((student) => {
@@ -410,7 +403,7 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
     }
 
     if (bulkOperations.length > 0) {
-      await StudentProfile.bulkWrite(bulkOperations, { session, ordered: false });
+      await studentProfileOwner.bulkWrite(bulkOperations, { session, ordered: false });
     }
 
     const deallocatedCount = await deallocateStudentProfiles({
@@ -485,9 +478,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         return;
       }
 
-      const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-        .select('rollNumber')
-        .session(session);
+      const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: 'rollNumber', session });
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
       const updateFields = { batch };
@@ -515,7 +506,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
       }
 
       if (assignmentMode === BATCH_ASSIGNMENT_MODE_REPLACE) {
-        const clearedStudents = await StudentProfile.updateMany(
+        const clearedStudents = await studentProfileOwner.updateMany(
           buildBatchScopeStudentMatch({ degree, department, batch }),
           { $set: { batch: '' } },
           { session }
@@ -523,7 +514,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         clearedCount = clearedStudents.modifiedCount || 0;
       }
 
-      const students = await StudentProfile.updateMany(
+      const students = await studentProfileOwner.updateMany(
         { rollNumber: { $in: existingRollNumbers } },
         { $set: updateFields },
         { session }
@@ -603,9 +594,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
       }
 
       const normalizedRollNumbers = selectionResult.rollNumbers;
-      const existingStudents = await StudentProfile.find({ rollNumber: { $in: normalizedRollNumbers } })
-        .select('rollNumber')
-        .session(session);
+      const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: 'rollNumber', session });
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
 
@@ -626,26 +615,26 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
       let clearedCount = 0;
 
       if (assignmentMode === GROUP_ASSIGNMENT_MODE_ADD) {
-        students = await StudentProfile.updateMany(
+        students = await studentProfileOwner.updateMany(
           { rollNumber: { $in: existingRollNumbers } },
           { $addToSet: { groups: { $each: normalizedGroupNames } } },
           { session }
         );
       } else if (assignmentMode === GROUP_ASSIGNMENT_MODE_REMOVE) {
-        students = await StudentProfile.updateMany(
+        students = await studentProfileOwner.updateMany(
           { rollNumber: { $in: existingRollNumbers } },
           { $pull: { groups: { $in: normalizedGroupNames } } },
           { session }
         );
       } else {
-        const clearedStudents = await StudentProfile.updateMany(
+        const clearedStudents = await studentProfileOwner.updateMany(
           { groups: { $in: normalizedGroupNames } },
           { $pull: { groups: { $in: normalizedGroupNames } } },
           { session }
         );
         clearedCount = clearedStudents.modifiedCount || 0;
 
-        students = await StudentProfile.updateMany(
+        students = await studentProfileOwner.updateMany(
           { rollNumber: { $in: existingRollNumbers } },
           { $addToSet: { groups: { $each: normalizedGroupNames } } },
           { session }

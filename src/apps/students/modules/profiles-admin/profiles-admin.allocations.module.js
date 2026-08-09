@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { badRequest, notFound, success } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
@@ -49,25 +49,7 @@ export const getAllocationStudentByRollNumber = asyncHandler(async (req, res) =>
     return sendStandardResponse(res, badRequest('Roll number is required'));
   }
 
-  const studentProfile = await StudentProfile.findOne({ rollNumber })
-    .populate('userId', 'name email profileImage')
-    .populate({
-      path: 'currentRoomAllocation',
-      populate: [
-        {
-          path: 'hostelId',
-          select: 'name type',
-        },
-        {
-          path: 'roomId',
-          select: 'roomNumber unitId',
-          populate: {
-            path: 'unitId',
-            select: 'unitNumber',
-          },
-        },
-      ],
-    });
+  const studentProfile = await studentProfileQueries.findByRollNumberWithAllocationDetail(rollNumber);
 
   if (!studentProfile) {
     return sendStandardResponse(res, notFound('Student profile not found'));
@@ -172,7 +154,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     }
 
     const rollNumbers = validAllocations.map((a) => a.rollNumber);
-    const studentProfiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } }).session(session);
+    const studentProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
 
     const profileMap = {};
     studentProfiles.forEach((profile) => {

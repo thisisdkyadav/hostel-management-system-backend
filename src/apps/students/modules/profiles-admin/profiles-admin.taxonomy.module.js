@@ -1,4 +1,5 @@
-import { StudentProfile } from '../../../../models/index.js';
+import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
@@ -13,7 +14,7 @@ import {
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 
 export const getDepartmentsList = asyncHandler(async (req, res) => {
-  const departments = await StudentProfile.distinct('department');
+  const departments = await studentProfileQueries.distinctField('department');
 
   return sendStandardResponse(res, {
     success: true,
@@ -43,7 +44,7 @@ export const renameDepartment = asyncHandler(async (req, res) => {
     }
     const studentBatches = await configQueries.findByKey('studentBatches', { session });
 
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       { department: oldName },
       { $set: { department: newName } },
       { session }
@@ -71,7 +72,7 @@ export const renameDepartment = asyncHandler(async (req, res) => {
 });
 
 export const getDegreesList = asyncHandler(async (req, res) => {
-  const degrees = await StudentProfile.distinct('degree');
+  const degrees = await studentProfileQueries.distinctField('degree');
 
   return sendStandardResponse(res, {
     success: true,
@@ -101,7 +102,7 @@ export const renameDegree = asyncHandler(async (req, res) => {
     }
     const studentBatches = await configQueries.findByKey('studentBatches', { session });
 
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       { degree: oldName },
       { $set: { degree: newName } },
       { session }
@@ -162,7 +163,7 @@ export const renameGroup = asyncHandler(async (req, res) => {
       return notFound('Student groups configuration not found');
     }
 
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       { groups: oldName },
       [
         {
@@ -218,7 +219,7 @@ export const renameBatch = asyncHandler(async (req, res) => {
 
     const normalizedNewName = String(newName).trim();
 
-    await StudentProfile.updateMany(
+    await studentProfileOwner.updateMany(
       buildBatchScopeStudentMatch({ degree, department, batch: oldName }),
       { $set: { batch: normalizedNewName } },
       { session }
