@@ -1,10 +1,7 @@
 import mongoose from "mongoose"
-import {
-  Election,
-  ElectionNomination,
-  User,
-} from "../../../../models/index.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
+import { electionOwner } from "../../../../services/elections/electionOwner.service.js"
+import { electionQueries } from "../../../../services/elections/electionQueries.service.js"
 import { voteOwner } from "../../../../services/elections/voteOwner.service.js"
 import { voteQueries } from "../../../../services/elections/voteQueries.service.js"
 import {
@@ -791,12 +788,10 @@ const buildElectionVotingLiveStats = async (election) => {
   const isMockElection = Boolean(election?.mockSettings?.enabled)
 
   const [verifiedNominations, voteCounts, candidateVoteCounts, distinctVoterIds] = await Promise.all([
-    ElectionNomination.find({
-      electionId: election._id,
-      status: NOMINATION_STATUS.VERIFIED,
-    })
-      .populate({ path: "candidateUserId", select: "name email profileImage" })
-      .lean(),
+    electionQueries.findNominations(
+      { electionId: election._id, status: NOMINATION_STATUS.VERIFIED },
+      { populate: { path: "candidateUserId", select: "name email profileImage" }, lean: true }
+    ),
     voteQueries.aggregateVoteCountsByPost(election._id),
     voteQueries.aggregateCandidateVoteCounts(election._id),
     voteQueries.distinctVoterIds(election._id),
@@ -997,10 +992,10 @@ const sanitizeElectionResultsForStudent = (results = {}) => ({
 })
 
 const buildElectionResults = async (election) => {
-  const verifiedNominations = await ElectionNomination.find({
-    electionId: election._id,
-    status: NOMINATION_STATUS.VERIFIED,
-  }).populate({ path: "candidateUserId", select: "name email profileImage" })
+  const verifiedNominations = await electionQueries.findNominations(
+    { electionId: election._id, status: NOMINATION_STATUS.VERIFIED },
+    { populate: { path: "candidateUserId", select: "name email profileImage" } }
+  )
 
   const voteCounts = await voteQueries.aggregateCandidateVoteCounts(election._id)
 
@@ -1089,7 +1084,7 @@ const buildElectionResults = async (election) => {
 }
 
 const getNominationCountsByPost = async (electionId) => {
-  const counts = await ElectionNomination.aggregate([
+  const counts = await electionQueries.aggregateNominations([
     {
       $match: {
         electionId: new mongoose.Types.ObjectId(String(electionId)),
@@ -1132,10 +1127,10 @@ const getVoteCountsByPost = async (electionId) => {
 }
 
 const getVisiblePublishedElections = async () => {
-  const elections = await Election.find({ status: ELECTION_STATUS.PUBLISHED }).sort({
-    "timeline.votingStartAt": -1,
-    createdAt: -1,
-  })
+  const elections = await electionQueries.findElections(
+    { status: ELECTION_STATUS.PUBLISHED },
+    { sort: { "timeline.votingStartAt": -1, createdAt: -1 } }
+  )
 
   return elections.filter((election) => isStudentPortalVisibleStage(getCurrentStage(election), election))
 }
@@ -1351,11 +1346,14 @@ const buildElectionBallotPayload = async (election, voterUserId, { source = "ema
     return forbidden("You are not eligible to vote in this election")
   }
 
-  const verifiedNominations = await ElectionNomination.find({
-    electionId: election._id,
-    postId: { $in: eligiblePosts.map((post) => post._id) },
-    status: NOMINATION_STATUS.VERIFIED,
-  }).populate({ path: "candidateUserId", select: "name email profileImage" })
+  const verifiedNominations = await electionQueries.findNominations(
+    {
+      electionId: election._id,
+      postId: { $in: eligiblePosts.map((post) => post._id) },
+      status: NOMINATION_STATUS.VERIFIED,
+    },
+    { populate: { path: "candidateUserId", select: "name email profileImage" } }
+  )
 
   const nominationsByPostId = verifiedNominations.reduce((acc, nomination) => {
     const postId = String(nomination.postId)
@@ -1465,15 +1463,18 @@ const submitElectionVotesForUser = async (
     })
   }
 
-  const verifiedNominations = await ElectionNomination.find({
-    _id: {
-      $in: voteDocs
-        .map((vote) => vote.candidateNominationId)
-        .filter(Boolean),
+  const verifiedNominations = await electionQueries.findNominations(
+    {
+      _id: {
+        $in: voteDocs
+          .map((vote) => vote.candidateNominationId)
+          .filter(Boolean),
+      },
+      electionId: election._id,
+      status: NOMINATION_STATUS.VERIFIED,
     },
-    electionId: election._id,
-    status: NOMINATION_STATUS.VERIFIED,
-  }).select("_id candidateUserId")
+    { select: "_id candidateUserId" }
+  )
   const candidateUserIdMap = new Map(
     verifiedNominations.map((nomination) => [String(nomination._id), nomination.candidateUserId])
   )
@@ -1559,9 +1560,8 @@ class ElectionsService {
       ]
     }
 
-    const elections = await Election.find(filter).sort({
-      "timeline.votingStartAt": -1,
-      createdAt: -1,
+    const elections = await electionQueries.findElections(filter, {
+      sort: { "timeline.votingStartAt": -1, createdAt: -1 },
     })
 
     return success({
@@ -1573,7 +1573,7 @@ class ElectionsService {
   }
 
   async getElectionDetail(id, user) {
-    const election = await Election.findById(id)
+    const election = await electionQueries.findElectionById(id)
     if (!election) return notFound("Election")
 
     const isElectionOfficerUser = isGymkhanaElectionOfficer(user)
@@ -1621,10 +1621,16 @@ class ElectionsService {
     }
 
     if (isAdminUser(user) || isElectionOfficerUser) {
-      const nominations = await ElectionNomination.find({ electionId: election._id })
-        .populate({ path: "candidateUserId", select: "name email profileImage" })
-        .populate({ path: "candidateProfileId", select: "idCard" })
-        .sort({ createdAt: -1 })
+      const nominations = await electionQueries.findNominations(
+        { electionId: election._id },
+        {
+          populate: [
+            { path: "candidateUserId", select: "name email profileImage" },
+            { path: "candidateProfileId", select: "idCard" },
+          ],
+          sort: { createdAt: -1 },
+        }
+      )
 
       response.nominations = nominations.map(serializeNomination)
     }
@@ -1638,7 +1644,7 @@ class ElectionsService {
   }
 
   async getVotingLiveStats(id) {
-    const election = await Election.findById(id)
+    const election = await electionQueries.findElectionById(id)
     if (!election) return notFound("Election")
 
     if (!isAdminVotingWindowOpen(election)) {
@@ -1650,9 +1656,9 @@ class ElectionsService {
   }
 
   async getVotingEmailRecipients(id) {
-    const election = await Election.findById(id).select(
-      "title academicYear status timeline posts mockSettings votingEmailDispatch"
-    )
+    const election = await electionQueries.findElectionById(id, {
+      select: "title academicYear status timeline posts mockSettings votingEmailDispatch",
+    })
     if (!election) return notFound("Election")
 
     const recipientStatuses = await buildElectionVotingRecipientStatuses(election)
@@ -1698,9 +1704,9 @@ class ElectionsService {
   }
 
   async getTestEmailRecipients(id) {
-    const election = await Election.findById(id).select(
-      "title academicYear status timeline posts mockSettings testEmailDispatch"
-    )
+    const election = await electionQueries.findElectionById(id, {
+      select: "title academicYear status timeline posts mockSettings testEmailDispatch",
+    })
     if (!election) return notFound("Election")
 
     const recipientStatuses = await buildElectionTestRecipientStatuses(election)
@@ -1749,7 +1755,7 @@ class ElectionsService {
     const normalizedResult = await normalizeElectionPayload(payload)
     if (!normalizedResult.success) return normalizedResult
 
-    const election = await Election.create({
+    const election = await electionOwner.createElection({
       ...normalizedResult.data,
       createdBy: user._id,
       updatedBy: user._id,
@@ -1759,7 +1765,7 @@ class ElectionsService {
   }
 
   async cloneElection(id, payload, user) {
-    const sourceElection = await Election.findById(id)
+    const sourceElection = await electionQueries.findElectionById(id)
     if (!sourceElection) return notFound("Election")
 
     if ([ELECTION_STATUS.CANCELLED, ELECTION_STATUS.COMPLETED].includes(sourceElection.status)) {
@@ -1771,7 +1777,7 @@ class ElectionsService {
       return forbidden("Election can only be copied before voting starts")
     }
 
-    const pendingNominationReviewCount = await ElectionNomination.countDocuments({
+    const pendingNominationReviewCount = await electionQueries.countNominations({
       electionId: sourceElection._id,
       status: {
         $in: [NOMINATION_STATUS.SUBMITTED, NOMINATION_STATUS.MODIFICATION_REQUESTED],
@@ -1786,7 +1792,7 @@ class ElectionsService {
       return badRequest("Title is required to create a copied election")
     }
 
-    const clonedElection = await Election.create({
+    const clonedElection = await electionOwner.createElection({
       title,
       academicYear: sourceElection.academicYear,
       phase: sourceElection.phase,
@@ -1849,7 +1855,7 @@ class ElectionsService {
       updatedBy: user._id,
     })
 
-    const sourceNominations = await ElectionNomination.find({ electionId: sourceElection._id }).lean()
+    const sourceNominations = await electionQueries.findNominations({ electionId: sourceElection._id }, { lean: true })
 
     if (sourceNominations.length > 0) {
       const sourcePosts = sourceElection.posts || []
@@ -1901,7 +1907,7 @@ class ElectionsService {
         .filter(Boolean)
 
       if (clonedNominations.length > 0) {
-        await ElectionNomination.insertMany(clonedNominations)
+        await electionOwner.insertNominations(clonedNominations)
       }
     }
 
@@ -1909,7 +1915,7 @@ class ElectionsService {
   }
 
   async updateElection(id, payload, user) {
-    const election = await Election.findById(id)
+    const election = await electionQueries.findElectionById(id)
     if (!election) return notFound("Election")
 
     const normalizedResult = await normalizeElectionPayload(payload)
@@ -1925,7 +1931,7 @@ class ElectionsService {
     const removedPostIds = [...existingPostIds].filter((postId) => !incomingPostIds.has(postId))
     if (removedPostIds.length > 0) {
       const linkedActivityCount = await Promise.all([
-        ElectionNomination.countDocuments({
+        electionQueries.countNominations({
           electionId: election._id,
           postId: { $in: removedPostIds.map((postId) => new mongoose.Types.ObjectId(postId)) },
         }),
@@ -1941,13 +1947,13 @@ class ElectionsService {
     }
 
     Object.assign(election, normalizedResult.data, { updatedBy: user._id })
-    await election.save()
+    await electionOwner.persistElection(election)
 
     return success(serializeElectionBase(election), 200, "Election updated successfully")
   }
 
   async sendVotingEmails(id, payload = {}) {
-    const election = await Election.findById(id)
+    const election = await electionQueries.findElectionById(id)
     if (!election) return notFound("Election")
 
     if (!isEmailVotingEnabled(election)) {
@@ -2010,7 +2016,7 @@ class ElectionsService {
   }
 
   async sendTestEmails(id, payload = {}) {
-    const election = await Election.findById(id)
+    const election = await electionQueries.findElectionById(id)
     if (!election) return notFound("Election")
 
     const existingStatus = String(election?.testEmailDispatch?.status || "idle")
@@ -2055,7 +2061,7 @@ class ElectionsService {
     const elections = await getVisiblePublishedElections()
     const electionIds = elections.map((item) => item._id)
     const [nominationElectionIds, voteElectionIds] = await Promise.all([
-      ElectionNomination.distinct("electionId", {
+      electionQueries.distinctNominationField("electionId", {
         electionId: { $in: electionIds },
         candidateUserId: user._id,
       }),
@@ -2126,12 +2132,15 @@ class ElectionsService {
     const electionIds = elections.map((item) => item._id)
 
     const [myNominations, myVotes] = await Promise.all([
-      ElectionNomination.find({
-        electionId: { $in: electionIds },
-        candidateUserId: user._id,
-      })
-        .populate({ path: "candidateUserId", select: "name email profileImage" })
-        .populate({ path: "candidateProfileId", select: "idCard" }),
+      electionQueries.findNominations(
+        { electionId: { $in: electionIds }, candidateUserId: user._id },
+        {
+          populate: [
+            { path: "candidateUserId", select: "name email profileImage" },
+            { path: "candidateProfileId", select: "idCard" },
+          ],
+        }
+      ),
       voteQueries.findVotesByVoter({
         electionIds,
         voterUserId: user._id,
@@ -2155,12 +2164,15 @@ class ElectionsService {
       const resultsByPost = new Map(
         (electionResults.posts || []).map((item) => [String(item.postId), item])
       )
-      const approvedNominations = await ElectionNomination.find({
-        electionId: election._id,
-        status: NOMINATION_STATUS.VERIFIED,
-      })
-        .populate({ path: "candidateUserId", select: "name email profileImage" })
-        .populate({ path: "candidateProfileId", select: "idCard" })
+      const approvedNominations = await electionQueries.findNominations(
+        { electionId: election._id, status: NOMINATION_STATUS.VERIFIED },
+        {
+          populate: [
+            { path: "candidateUserId", select: "name email profileImage" },
+            { path: "candidateProfileId", select: "idCard" },
+          ],
+        }
+      )
 
       const approvedByPost = approvedNominations.reduce((acc, nomination) => {
         const key = String(nomination.postId)
@@ -2226,7 +2238,7 @@ class ElectionsService {
   }
 
   async lookupNominationSupporter(electionId, postId, query, user) {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) return notFound("Election")
 
     const stage = getCurrentStage(election)
@@ -2253,14 +2265,14 @@ class ElectionsService {
 
     let nomination = null
     if (query?.nominationId) {
-      nomination = await ElectionNomination.findOne({
+      nomination = await electionQueries.findOneNomination({
         _id: query.nominationId,
         electionId: election._id,
         postId: post._id,
         candidateUserId: user._id,
       })
     } else {
-      nomination = await ElectionNomination.findOne({
+      nomination = await electionQueries.findOneNomination({
         electionId: election._id,
         postId: post._id,
         candidateUserId: user._id,
@@ -2277,7 +2289,7 @@ class ElectionsService {
       return forbidden("Election commission members cannot propose or second candidates")
     }
 
-    const activeCandidateNomination = await ElectionNomination.findOne({
+    const activeCandidateNomination = await electionQueries.findOneNomination({
       electionId: election._id,
       candidateUserId: supporterUserId,
       status: { $in: ACTIVE_NOMINATION_STATUSES },
@@ -2286,7 +2298,7 @@ class ElectionsService {
       return forbidden("Candidates contesting in this election cannot propose or second another candidate")
     }
 
-    const conflictingSupporterAssignment = await ElectionNomination.findOne({
+    const conflictingSupporterAssignment = await electionQueries.findOneNomination({
       electionId: election._id,
       postId: post._id,
       _id: nomination?._id ? { $ne: nomination._id } : { $exists: true },
@@ -2334,9 +2346,12 @@ class ElectionsService {
       return notFound("Invalid confirmation link")
     }
 
-    const nomination = await ElectionNomination.findById(tokenDoc.subjectId)
-      .populate({ path: "candidateUserId", select: "name email profileImage" })
-      .populate({ path: "candidateProfileId", select: "idCard" })
+    const nomination = await electionQueries.findNominationById(tokenDoc.subjectId, {
+      populate: [
+        { path: "candidateUserId", select: "name email profileImage" },
+        { path: "candidateProfileId", select: "idCard" },
+      ],
+    })
     if (!nomination) {
       return notFound("Nomination")
     }
@@ -2344,7 +2359,7 @@ class ElectionsService {
       return badRequest("This nomination is no longer accepting supporter confirmations")
     }
 
-    const election = await Election.findById(nomination.electionId)
+    const election = await electionQueries.findElectionById(nomination.electionId)
     if (!election) {
       return notFound("Election")
     }
@@ -2397,9 +2412,12 @@ class ElectionsService {
       return badRequest("This confirmation link has expired")
     }
 
-    const nomination = await ElectionNomination.findById(tokenDoc.subjectId)
-      .populate({ path: "candidateUserId", select: "name email profileImage" })
-      .populate({ path: "candidateProfileId", select: "idCard" })
+    const nomination = await electionQueries.findNominationById(tokenDoc.subjectId, {
+      populate: [
+        { path: "candidateUserId", select: "name email profileImage" },
+        { path: "candidateProfileId", select: "idCard" },
+      ],
+    })
     if (!nomination) {
       return notFound("Nomination")
     }
@@ -2425,7 +2443,7 @@ class ElectionsService {
     targetEntries[supporterIndex].respondedAt = new Date()
     targetEntries[supporterIndex].responseNote = ""
     nomination[targetEntriesKey] = targetEntries
-    await nomination.save()
+    await electionOwner.persistNomination(nomination)
 
     await consumeActionLinkToken(tokenDoc, {
       decision: payload?.decision,
@@ -2465,7 +2483,7 @@ class ElectionsService {
       return notFound("Invalid voting link")
     }
 
-    const election = await Election.findById(tokenDoc.subjectId)
+    const election = await electionQueries.findElectionById(tokenDoc.subjectId)
     if (!election) {
       return notFound("Election")
     }
@@ -2531,7 +2549,7 @@ class ElectionsService {
       return badRequest("This voting link has expired")
     }
 
-    const election = await Election.findById(tokenDoc.subjectId)
+    const election = await electionQueries.findElectionById(tokenDoc.subjectId)
     if (!election) {
       return notFound("Election")
     }
@@ -2547,7 +2565,7 @@ class ElectionsService {
   }
 
   async upsertNomination(electionId, postId, payload, user) {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) return notFound("Election")
 
     const stage = getCurrentStage(election)
@@ -2595,7 +2613,7 @@ class ElectionsService {
       return forbidden("Students with an active backlog cannot contest in the election")
     }
 
-    const activeOtherNomination = await ElectionNomination.findOne({
+    const activeOtherNomination = await electionQueries.findOneNomination({
       electionId: election._id,
       candidateUserId: user._id,
       status: { $in: ACTIVE_NOMINATION_STATUSES },
@@ -2641,7 +2659,7 @@ class ElectionsService {
       return forbidden("Election commission members cannot propose or second candidates")
     }
 
-    const candidateSupporterConflict = await ElectionNomination.findOne({
+    const candidateSupporterConflict = await electionQueries.findOneNomination({
       electionId: election._id,
       candidateUserId: { $in: supporterUserIds },
       status: { $in: ACTIVE_NOMINATION_STATUSES },
@@ -2650,13 +2668,13 @@ class ElectionsService {
       return forbidden("Candidates contesting in this election cannot propose or second another candidate")
     }
 
-    let nomination = await ElectionNomination.findOne({
+    let nomination = await electionQueries.findOneNomination({
       electionId: election._id,
       postId: post._id,
       candidateUserId: user._id,
     })
 
-    const conflictingSupporterAssignment = await ElectionNomination.findOne({
+    const conflictingSupporterAssignment = await electionQueries.findOneNomination({
       electionId: election._id,
       postId: post._id,
       _id: nomination?._id ? { $ne: nomination._id } : { $exists: true },
@@ -2744,10 +2762,10 @@ class ElectionsService {
     }
 
     if (!nomination) {
-      nomination = await ElectionNomination.create(nominationPayload)
+      nomination = await electionOwner.createNomination(nominationPayload)
     } else {
       Object.assign(nomination, nominationPayload)
-      await nomination.save()
+      await electionOwner.persistNomination(nomination)
     }
 
     const currentSupporterPayloadMap = new Map([
@@ -2825,7 +2843,7 @@ class ElectionsService {
           ? { ...(entry?.toObject ? entry.toObject() : entry), invitedAt: sentAt }
           : entry
       ))
-      await nomination.save()
+      await electionOwner.persistNomination(nomination)
     }
 
     await nomination.populate({ path: "candidateUserId", select: "name email profileImage" })
@@ -2841,7 +2859,7 @@ class ElectionsService {
   }
 
   async withdrawNomination(electionId, nominationId, user) {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) return notFound("Election")
 
     const stage = getCurrentStage(election)
@@ -2849,19 +2867,21 @@ class ElectionsService {
       return forbidden("Withdrawal is not available for this election right now")
     }
 
-    const nomination = await ElectionNomination.findOne({
-      _id: nominationId,
-      electionId: election._id,
-      candidateUserId: user._id,
-    })
-      .populate({ path: "candidateUserId", select: "name email profileImage" })
-      .populate({ path: "candidateProfileId", select: "idCard" })
+    const nomination = await electionQueries.findOneNomination(
+      { _id: nominationId, electionId: election._id, candidateUserId: user._id },
+      {
+        populate: [
+          { path: "candidateUserId", select: "name email profileImage" },
+          { path: "candidateProfileId", select: "idCard" },
+        ],
+      }
+    )
 
     if (!nomination) return notFound("Nomination")
 
     nomination.status = NOMINATION_STATUS.WITHDRAWN
     nomination.withdrawnAt = new Date()
-    await nomination.save()
+    await electionOwner.persistNomination(nomination)
     await invalidateActionLinkTokens(
       {
         type: ACTION_LINK_TOKEN_TYPE.ELECTION_NOMINATION_SUPPORT,
@@ -2879,15 +2899,18 @@ class ElectionsService {
   }
 
   async reviewNomination(electionId, nominationId, payload, user) {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) return notFound("Election")
 
-    const nomination = await ElectionNomination.findOne({
-      _id: nominationId,
-      electionId: election._id,
-    })
-      .populate({ path: "candidateUserId", select: "name email profileImage" })
-      .populate({ path: "candidateProfileId", select: "idCard" })
+    const nomination = await electionQueries.findOneNomination(
+      { _id: nominationId, electionId: election._id },
+      {
+        populate: [
+          { path: "candidateUserId", select: "name email profileImage" },
+          { path: "candidateProfileId", select: "idCard" },
+        ],
+      }
+    )
 
     if (!nomination) return notFound("Nomination")
 
@@ -2922,7 +2945,7 @@ class ElectionsService {
       reviewedAt: new Date(),
       notes: String(payload.notes || "").trim(),
     }
-    await nomination.save()
+    await electionOwner.persistNomination(nomination)
 
     const reviewedPost = resolvePostById(election, nomination.postId)
     const candidateEmail = nomination?.candidateUserId?.email
@@ -2965,7 +2988,7 @@ class ElectionsService {
   }
 
   async submitStudentVotes(electionId, payload, user) {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) return notFound("Election")
 
     if (getCurrentStage(election) !== ELECTION_STAGE.VOTING) {
@@ -2993,7 +3016,7 @@ class ElectionsService {
   }
 
   async publishResults(electionId, payload, user) {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) return notFound("Election")
 
     const stage = getCurrentStage(election)
@@ -3083,7 +3106,7 @@ class ElectionsService {
       posts: publicationPosts,
     }
     election.updatedBy = user._id
-    await election.save()
+    await electionOwner.persistElection(election)
 
     return success(
       {

@@ -9,10 +9,7 @@
 
 import mongoose from 'mongoose';
 import { success, notFound, badRequest } from '../../../../services/base/index.js';
-import {
-  DiningPeriod,
-  DiningRebate,
-} from '../../../../models/index.js';
+import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
@@ -172,8 +169,10 @@ const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()) => {
       ? allocationQueries.findAllocationSummariesByPeriods(periodIds)
       : [],
     periodIds.length
-      ? DiningRebate.find({ periodId: { $in: periodIds }, status: APPROVED_STATUS })
-        .select('periodId studentUserId dateKeys').lean()
+      ? diningQueries.findRebates(
+          { periodId: { $in: periodIds }, status: APPROVED_STATUS },
+          { select: 'periodId studentUserId dateKeys', lean: true }
+        )
       : [],
     billingQueries.findAccountsByPeriod(billingPeriod._id),
   ]);
@@ -274,7 +273,7 @@ const validateBillingPeriodPayload = async (payload = {}) => {
   if (invalidId) return { error: 'Invalid dining period selected' };
 
   if (diningPeriodIds.length > 0) {
-    const existingCount = await DiningPeriod.countDocuments({ _id: { $in: diningPeriodIds } });
+    const existingCount = await diningQueries.countPeriods({ _id: { $in: diningPeriodIds } });
     if (existingCount !== diningPeriodIds.length) {
       return { error: 'One or more selected dining periods do not exist' };
     }
@@ -431,8 +430,10 @@ const computeStudentBillingForPeriod = async (billingPeriod, userId, asOf = new 
       ? allocationQueries.findAllocationPeriodIdsByUser(userId, periodIds)
       : [],
     periodIds.length
-      ? DiningRebate.find({ studentUserId: userId, periodId: { $in: periodIds }, status: APPROVED_STATUS })
-        .select('periodId dateKeys').lean()
+      ? diningQueries.findRebates(
+          { studentUserId: userId, periodId: { $in: periodIds }, status: APPROVED_STATUS },
+          { select: 'periodId dateKeys', lean: true }
+        )
       : [],
     billingQueries.findAccountByPeriodAndUser(billingPeriod._id, userId),
   ]);

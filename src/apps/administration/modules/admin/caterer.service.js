@@ -4,15 +4,15 @@
  */
 
 import {
-  BaseService,
   success,
   notFound,
   badRequest,
   conflict,
 } from '../../../../services/base/index.js';
-import { Caterer } from '../../../../models/index.js';
 import { userOwner } from '../../../../services/user/userOwner.service.js';
 import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { diningOwner } from '../../../../services/dining/diningOwner.service.js';
+import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { ROLES, DINING_SUBROLES } from '../../../../core/constants/roles.constants.js';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -42,11 +42,7 @@ export const findUserByEmail = (email, excludeUserId = null) => {
   return userQueries.findOneUser(query, { select: '_id role email', lean: true });
 };
 
-class CatererService extends BaseService {
-  constructor() {
-    super(Caterer, 'Caterer');
-  }
-
+class CatererService {
   validateCatererPayload(payload = {}) {
     const name = normalizeText(payload.name);
     const email = normalizeLower(payload.email);
@@ -81,10 +77,10 @@ class CatererService extends BaseService {
       query._id = { $ne: excludeId };
     }
 
-    const existing = await this.model
-      .findOne(query)
-      .select('+nameLower +emailLower')
-      .lean();
+    const existing = await diningQueries.findOneCaterer(query, {
+      select: '+nameLower +emailLower',
+      lean: true,
+    });
 
     if (!existing) return null;
 
@@ -117,7 +113,7 @@ class CatererService extends BaseService {
   async ensureCatererLogin(catererOrId) {
     const caterer = typeof catererOrId === 'object' && catererOrId?._id
       ? catererOrId
-      : await this.model.findById(catererOrId).select('+emailLower');
+      : await diningQueries.findCatererById(catererOrId, { select: '+emailLower' });
 
     if (!caterer) {
       return null;
@@ -165,7 +161,7 @@ class CatererService extends BaseService {
 
   async ensureCatererLogins(catererIds = []) {
     const uniqueIds = [...new Set(catererIds.map((id) => String(id || '').trim()).filter(Boolean))];
-    const caterers = await this.model.find({ _id: { $in: uniqueIds } }).select('+emailLower');
+    const caterers = await diningQueries.findCaterers({ _id: { $in: uniqueIds } }, { select: '+emailLower' });
 
     for (const caterer of caterers) {
       await this.ensureCatererLogin(caterer);
@@ -173,10 +169,10 @@ class CatererService extends BaseService {
   }
 
   async getCaterers(archive = 'false') {
-    const caterers = await this.model
-      .find({ isArchived: archive === 'true' })
-      .sort({ name: 1 })
-      .lean();
+    const caterers = await diningQueries.findCaterers(
+      { isArchived: archive === 'true' },
+      { sort: { name: 1 }, lean: true }
+    );
 
     return success(caterers.map(serializeCaterer));
   }
@@ -205,10 +201,10 @@ class CatererService extends BaseService {
 
     let caterer;
     try {
-      caterer = await new this.model({
+      caterer = await diningOwner.createCaterer({
         ...validation.data,
         userId: user._id,
-      }).save();
+      });
     } catch (error) {
       await userOwner.deleteUserById(user._id);
       throw error;
@@ -224,7 +220,7 @@ class CatererService extends BaseService {
       return badRequest(validation.error);
     }
 
-    const caterer = await this.model.findById(catererId).select('+emailLower');
+    const caterer = await diningQueries.findCatererById(catererId, { select: '+emailLower' });
     if (!caterer) {
       return notFound('Caterer not found');
     }
@@ -244,14 +240,14 @@ class CatererService extends BaseService {
     caterer.email = validation.data.email;
     caterer.emailLower = validation.data.emailLower;
 
-    await caterer.save();
+    await diningOwner.persistCaterer(caterer);
     await this.ensureCatererLogin(caterer);
 
     return success(serializeCaterer(caterer), 200, 'Caterer updated successfully');
   }
 
   async changeArchiveStatus(catererId, status) {
-    const updatedCaterer = await this.model.findByIdAndUpdate(
+    const updatedCaterer = await diningOwner.updateCatererById(
       catererId,
       { isArchived: Boolean(status) },
       { new: true },

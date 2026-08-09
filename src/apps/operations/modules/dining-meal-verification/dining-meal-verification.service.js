@@ -1,11 +1,8 @@
 import mongoose from "mongoose"
-import {
-  Caterer,
-  DiningMealVerification,
-  DiningPeriod,
-} from "../../../../models/index.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
+import { diningOwner } from "../../../../services/dining/diningOwner.service.js"
+import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { badRequest, notFound, success } from "../../../../services/base/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
 import {
@@ -82,13 +79,15 @@ const getMealSlotForDate = (period, date) => {
   }
 }
 
-const getActiveDiningPeriodForDate = (date = new Date()) => (
-  DiningPeriod.findOne({
-    isArchived: false,
-    startDate: { $lte: date },
-    endDate: { $gte: date },
-  })
-)
+const getActiveDiningPeriodForDate = (date = new Date(), { lean = false } = {}) =>
+  diningQueries.findOnePeriod(
+    {
+      isArchived: false,
+      startDate: { $lte: date },
+      endDate: { $gte: date },
+    },
+    { lean }
+  )
 
 const serializeCaterer = (caterer = null) => {
   if (!caterer) return null
@@ -159,20 +158,10 @@ const serializeVerification = (verification = {}) => ({
   createdAt: verification.createdAt,
 })
 
-const populateVerificationQuery = (query) => query
-  .populate({ path: "catererId", select: "name email" })
-  .populate({ path: "expectedCatererId", select: "name email" })
-  .populate({
-    path: "studentProfileId",
-    select: "rollNumber userId",
-    populate: { path: "userId", select: "name email profileImage" },
-  })
-  .populate({ path: "scannerId", select: "name type" })
-
 export const emitDiningMealVerificationEvent = async (verification) => {
   try {
     const io = getIO()
-    const populated = await populateVerificationQuery(DiningMealVerification.findById(verification._id)).lean()
+    const populated = await diningQueries.findVerificationByIdPopulated(verification._id, { lean: true })
     const payload = {
       verification: serializeVerification(populated),
       timestamp: new Date(),
@@ -201,7 +190,7 @@ const createVerificationRecord = async ({
   deviceId = "",
   message = "",
 }) => {
-  const verification = await DiningMealVerification.create({
+  const verification = await diningOwner.createVerification({
     periodId: period?._id || null,
     catererId: catererId || null,
     expectedCatererId: expectedCatererId || null,
@@ -239,9 +228,9 @@ export const verifyDiningMeal = async ({
   }
 
   const [caterer, studentProfile, period] = await Promise.all([
-    Caterer.findById(catererId).lean(),
+    diningQueries.findCatererById(catererId, { lean: true }),
     studentProfileQueries.findByRollNumberCaseInsensitiveWithUserFull(normalizedRollNumber),
-    getActiveDiningPeriodForDate(scannedAt).lean(),
+    getActiveDiningPeriodForDate(scannedAt, { lean: true }),
   ])
 
   if (!caterer) {
@@ -258,7 +247,7 @@ export const verifyDiningMeal = async ({
       deviceId,
       status: UNKNOWN_STUDENT_STATUS,
     })
-    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[UNKNOWN_STUDENT_STATUS])
+    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[UNKNOWN_STUDENT_STATUS])
   }
 
   if (!period) {
@@ -272,7 +261,7 @@ export const verifyDiningMeal = async ({
       deviceId,
       status: NO_ACTIVE_PERIOD_STATUS,
     })
-    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[NO_ACTIVE_PERIOD_STATUS])
+    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[NO_ACTIVE_PERIOD_STATUS])
   }
 
   const mealSlot = getMealSlotForDate(period, scannedAt)
@@ -288,7 +277,7 @@ export const verifyDiningMeal = async ({
       deviceId,
       status: OUTSIDE_MEAL_TIME_STATUS,
     })
-    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[OUTSIDE_MEAL_TIME_STATUS])
+    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[OUTSIDE_MEAL_TIME_STATUS])
   }
 
   const allocation = await allocationQueries.findAllocation(
@@ -309,7 +298,7 @@ export const verifyDiningMeal = async ({
       deviceId,
       status: NOT_ALLOCATED_STATUS,
     })
-    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[NOT_ALLOCATED_STATUS])
+    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[NOT_ALLOCATED_STATUS])
   }
 
   const expectedCatererId = allocation.catererId
@@ -327,7 +316,7 @@ export const verifyDiningMeal = async ({
       deviceId,
       status: WRONG_CATERER_STATUS,
     })
-    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
+    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
   }
 
   const rebatedStudentIds = await getApprovedRebateStudentIdsForDay({
@@ -349,10 +338,10 @@ export const verifyDiningMeal = async ({
       deviceId,
       status: ON_REBATE_STATUS,
     })
-    return success({ verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
+    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
   }
 
-  const previousVerified = await DiningMealVerification.findOne({
+  const previousVerified = await diningQueries.findOneVerification({
     periodId: period._id,
     studentUserId: studentProfile.userId?._id || studentProfile.userId,
     mealSlotKey: mealSlot.key,
@@ -361,7 +350,7 @@ export const verifyDiningMeal = async ({
       $lt: getDayBounds(scannedAt).end,
     },
     status: VERIFIED_STATUS,
-  }).lean()
+  }, { lean: true })
 
   const status = previousVerified ? DUPLICATE_STATUS : VERIFIED_STATUS
   const record = await createVerificationRecord({
@@ -379,7 +368,7 @@ export const verifyDiningMeal = async ({
   })
 
   return success(
-    { verification: serializeVerification(await populateVerificationQuery(DiningMealVerification.findById(record._id)).lean()) },
+    { verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) },
     201,
     STATUS_MESSAGES[status],
   )
@@ -409,12 +398,13 @@ export const getDiningMealVerificationFeed = async ({
   const skip = (safePage - 1) * safeLimit
 
   const [entries, total] = await Promise.all([
-    populateVerificationQuery(DiningMealVerification.find(query))
-      .sort({ scannedAt: -1, createdAt: -1 })
-      .skip(skip)
-      .limit(safeLimit)
-      .lean(),
-    DiningMealVerification.countDocuments(query),
+    diningQueries.findVerificationsPopulated(query, {
+      sort: { scannedAt: -1, createdAt: -1 },
+      skip,
+      limit: safeLimit,
+      lean: true,
+    }),
+    diningQueries.countVerifications(query),
   ])
 
   return success({
@@ -433,11 +423,11 @@ export const resolveCatererForUser = async (user) => {
     return null
   }
 
-  return Caterer.findOne({ userId: user._id, isArchived: false }).select("name email userId").lean()
+  return diningQueries.findOneCaterer({ userId: user._id, isArchived: false }, { select: "name email userId", lean: true })
 }
 
 export const getCurrentMealScope = async (date = new Date()) => {
-  const period = await getActiveDiningPeriodForDate(date).lean()
+  const period = await getActiveDiningPeriodForDate(date, { lean: true })
   const mealSlot = period ? getMealSlotForDate(period, date) : null
 
   return { period, mealSlot }
@@ -483,7 +473,7 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
     return notFound("Caterer login")
   }
 
-  const period = await getActiveDiningPeriodForDate(now).lean()
+  const period = await getActiveDiningPeriodForDate(now, { lean: true })
   if (!period) {
     return success({
       caterer: serializeCaterer(caterer),
@@ -517,10 +507,10 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
     verificationQuery.mealSlotKey = mealSlot.key
   }
 
-  const verifications = await populateVerificationQuery(
-    DiningMealVerification.find(verificationQuery)
-      .sort({ scannedAt: -1, createdAt: -1 })
-  ).lean()
+  const verifications = await diningQueries.findVerificationsPopulated(verificationQuery, {
+    sort: { scannedAt: -1, createdAt: -1 },
+    lean: true,
+  })
   const verificationStateByStudentId = new Map()
   for (const verification of verifications) {
     const studentId = String(verification.studentUserId?._id || verification.studentUserId || "")

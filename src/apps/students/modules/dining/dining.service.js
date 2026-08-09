@@ -10,7 +10,7 @@ import {
   badRequest,
   forbidden,
 } from '../../../../services/base/index.js';
-import { DiningPeriod } from '../../../../models/index.js';
+import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
@@ -132,24 +132,26 @@ const isStudentEligibleForPeriod = (period, profile) => {
 
 const getStudentVisiblePeriod = async (profile, session = null) => {
   const now = new Date();
-  const query = DiningPeriod.findOne({
-    isArchived: false,
-    registrationEnabled: true,
-    allocationStartAt: { $lte: now },
-    allocationEndAt: { $gte: now },
-    $or: [
-      { eligibilityMode: ELIGIBILITY_MODE_ALL_ACTIVE },
-      {
-        eligibilityMode: ELIGIBILITY_MODE_CUSTOM,
-        eligibleRollNumbers: normalizeRollNumber(profile?.rollNumber),
-      },
-    ],
-  })
-    .populate({ path: 'catererIds', select: 'name email' })
-    .sort({ allocationEndAt: 1, startDate: 1 });
-
-  if (session) query.session(session);
-  return query;
+  return diningQueries.findOnePeriod(
+    {
+      isArchived: false,
+      registrationEnabled: true,
+      allocationStartAt: { $lte: now },
+      allocationEndAt: { $gte: now },
+      $or: [
+        { eligibilityMode: ELIGIBILITY_MODE_ALL_ACTIVE },
+        {
+          eligibilityMode: ELIGIBILITY_MODE_CUSTOM,
+          eligibleRollNumbers: normalizeRollNumber(profile?.rollNumber),
+        },
+      ],
+    },
+    {
+      populate: { path: 'catererIds', select: 'name email' },
+      sort: { allocationEndAt: 1, startDate: 1 },
+      session: session || undefined,
+    }
+  );
 };
 
 export const getStudentDiningPortalState = async (userId) => {
@@ -159,31 +161,43 @@ export const getStudentDiningPortalState = async (userId) => {
   const now = new Date();
   const eligiblePeriodFilter = getEligibilityFilterForProfile(profile);
   const [currentPeriod, activeAllocationPeriod, upcomingAllocationPeriod] = await Promise.all([
-    DiningPeriod.findOne({
-      ...eligiblePeriodFilter,
-      startDate: { $lte: now },
-      endDate: { $gte: now },
-    })
-      .populate({ path: 'catererIds', select: 'name email' })
-      .sort({ endDate: 1, startDate: 1 })
-      .lean(),
-    DiningPeriod.findOne({
-      ...eligiblePeriodFilter,
-      registrationEnabled: true,
-      allocationStartAt: { $lte: now },
-      allocationEndAt: { $gte: now },
-    })
-      .populate({ path: 'catererIds', select: 'name email' })
-      .sort({ allocationEndAt: 1, startDate: 1 })
-      .lean(),
-    DiningPeriod.findOne({
-      ...eligiblePeriodFilter,
-      registrationEnabled: true,
-      allocationStartAt: { $gt: now },
-    })
-      .populate({ path: 'catererIds', select: 'name email' })
-      .sort({ allocationStartAt: 1, startDate: 1 })
-      .lean(),
+    diningQueries.findOnePeriod(
+      {
+        ...eligiblePeriodFilter,
+        startDate: { $lte: now },
+        endDate: { $gte: now },
+      },
+      {
+        populate: { path: 'catererIds', select: 'name email' },
+        sort: { endDate: 1, startDate: 1 },
+        lean: true,
+      }
+    ),
+    diningQueries.findOnePeriod(
+      {
+        ...eligiblePeriodFilter,
+        registrationEnabled: true,
+        allocationStartAt: { $lte: now },
+        allocationEndAt: { $gte: now },
+      },
+      {
+        populate: { path: 'catererIds', select: 'name email' },
+        sort: { allocationEndAt: 1, startDate: 1 },
+        lean: true,
+      }
+    ),
+    diningQueries.findOnePeriod(
+      {
+        ...eligiblePeriodFilter,
+        registrationEnabled: true,
+        allocationStartAt: { $gt: now },
+      },
+      {
+        populate: { path: 'catererIds', select: 'name email' },
+        sort: { allocationStartAt: 1, startDate: 1 },
+        lean: true,
+      }
+    ),
   ]);
 
   const periodIds = [

@@ -15,7 +15,7 @@
 
 import mongoose from "mongoose"
 import { success, badRequest, notFound } from "../../../../services/base/index.js"
-import { DiningPeriod } from "../../../../models/index.js"
+import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { MAX_BULK_RECORDS } from "../../../../core/constants/system-limits.constants.js"
 import { allocationOwner } from "../../../../services/dining/allocationOwner.service.js"
@@ -75,7 +75,7 @@ const serializeStudentRow = (allocation) => {
 }
 
 const loadPeriodWithCaterers = (periodId) =>
-  DiningPeriod.findById(periodId).populate({ path: "catererIds", select: "name email" }).lean()
+  diningQueries.findPeriodById(periodId, { populate: { path: "catererIds", select: "name email" }, lean: true })
 
 const catererIdSet = (period) =>
   new Set(

@@ -1,5 +1,5 @@
 import { userQueries } from "../services/user/userQueries.service.js"
-import { Caterer } from "../models/index.js"
+import { diningQueries } from "../services/dining/diningQueries.service.js"
 import { getIO } from "../loaders/socket.loader.js"
 import { addOnlineUser, removeOnlineUser, updateUserActivity } from "./redisOnlineUsers.js"
 
@@ -39,7 +39,7 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
       socket.catererId = null
 
       if (user.role === "Dining" && user.subRole === "Caterer") {
-        const caterer = await Caterer.findOne({ userId: user._id, isArchived: false }).select("_id").lean()
+        const caterer = await diningQueries.findOneCaterer({ userId: user._id, isArchived: false }, { select: "_id", lean: true })
         socket.catererId = caterer?._id || null
       }
 

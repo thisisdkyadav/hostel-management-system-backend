@@ -8,7 +8,8 @@
 
 import bcrypt from "bcrypt"
 
-import { DiningOfficeStaff } from "../../../../models/index.js"
+import { diningOwner } from "../../../../services/dining/diningOwner.service.js"
+import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { userOwner } from "../../../../services/user/userOwner.service.js"
 import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { success, notFound, badRequest } from "../../../../services/base/index.js"
@@ -29,9 +30,7 @@ const serializeStaff = (staff) => ({
 })
 
 export const getAllDiningOfficeStaff = async () => {
-  const staff = await DiningOfficeStaff.find()
-    .populate("userId", "name email phone profileImage")
-    .lean()
+  const staff = await diningQueries.listOfficeStaffPopulated()
 
   const formatted = staff
     .filter((entry) => entry.userId)
@@ -69,7 +68,7 @@ export const createDiningOfficeStaff = async (payload) => {
     phone: phone || "",
   })
 
-  await DiningOfficeStaff.create({
+  await diningOwner.createOfficeStaff({
     userId: newUser._id,
     category,
     joinDate: joinDate || Date.now(),
@@ -81,7 +80,7 @@ export const createDiningOfficeStaff = async (payload) => {
 export const updateDiningOfficeStaff = async (id, payload) => {
   const { name, phone, category, status, joinDate } = payload || {}
 
-  const staff = await DiningOfficeStaff.findById(id).select("userId")
+  const staff = await diningQueries.findOfficeStaffById(id, { select: "userId" })
   if (!staff) {
     return notFound("Dining office login")
   }
@@ -107,14 +106,14 @@ export const updateDiningOfficeStaff = async (id, payload) => {
     await userOwner.updateUserById(staff.userId, userUpdate)
   }
   if (Object.keys(staffUpdate).length > 0) {
-    await DiningOfficeStaff.findByIdAndUpdate(id, staffUpdate)
+    await diningOwner.updateOfficeStaffById(id, staffUpdate)
   }
 
   return success(null, 200, "Dining office login updated successfully")
 }
 
 export const deleteDiningOfficeStaff = async (id) => {
-  const staff = await DiningOfficeStaff.findByIdAndDelete(id)
+  const staff = await diningOwner.deleteOfficeStaffById(id)
   if (!staff) {
     return notFound("Dining office login")
   }

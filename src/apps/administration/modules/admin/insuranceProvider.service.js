@@ -13,8 +13,8 @@ import { insuranceOwner } from '../../../../services/insurance/insuranceOwner.se
 import { insuranceQueries } from '../../../../services/insurance/insuranceQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 
-// Entity label for the response envelopes this service used to inherit from
-// BaseService (super(InsuranceProvider, 'Insurance provider')).
+// Entity label for the response envelopes this service used to inherit from the
+// former BaseService entity name ('Insurance provider').
 const ENTITY = 'Insurance provider';
 
 class InsuranceProviderService {

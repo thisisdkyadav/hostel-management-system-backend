@@ -117,6 +117,23 @@ export const invalidateActionLinkTokens = async (filter = {}, reason = "") => {
   })
 }
 
+/** findOne an action-link token by arbitrary filter. Options: { sort }. */
+export const findOneActionLinkToken = (filter, { sort } = {}) => {
+  let query = ActionLinkToken.findOne(filter)
+  if (sort) query = query.sort(sort)
+  return query
+}
+
+/** find action-link tokens by arbitrary filter. Options: { select }. */
+export const findActionLinkTokens = (filter, { select } = {}) => {
+  let query = ActionLinkToken.find(filter)
+  if (select) query = query.select(select)
+  return query
+}
+
+/** updateOne an action-link token by filter (raw result). */
+export const updateOneActionLinkToken = (filter, update) => ActionLinkToken.updateOne(filter, update)
+
 export const consumeActionLinkToken = async (tokenDoc, responsePayload = {}) => {
   if (!tokenDoc) return null
 

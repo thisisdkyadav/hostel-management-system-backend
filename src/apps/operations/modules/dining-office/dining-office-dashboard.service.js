@@ -7,7 +7,7 @@
  * @module services/dining-office-dashboard
  */
 
-import { Caterer, DiningMealVerification, DiningRebate } from "../../../../models/index.js"
+import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { success } from "../../../../services/base/index.js"
 import { getCurrentMealScope } from "../dining-meal-verification/dining-meal-verification.service.js"
@@ -50,19 +50,19 @@ export const getDiningOfficeDashboard = async () => {
 
   const { period, mealSlot } = await getCurrentMealScope(now)
 
-  const caterers = await Caterer.find({ isArchived: false }).select("name email").lean()
+  const caterers = await diningQueries.findCaterers({ isArchived: false }, { select: "name email", lean: true })
 
   let today = { allocated: 0, verified: 0, onRebate: 0, pending: 0, mealSlot: mealSlot?.name || null }
 
   if (period) {
     const [allocated, verified, onRebate] = await Promise.all([
       allocationQueries.countAllocationsByPeriod(period._id),
-      DiningMealVerification.countDocuments({
+      diningQueries.countVerifications({
         periodId: period._id,
         status: "verified",
         scannedAt: { $gte: todayStart, $lt: todayEnd },
       }),
-      DiningRebate.countDocuments({ periodId: period._id, status: "approved", dateKeys: todayKey }),
+      diningQueries.countRebates({ periodId: period._id, status: "approved", dateKeys: todayKey }),
     ])
 
     const pending = Math.max(0, allocated - verified - onRebate)
@@ -70,9 +70,9 @@ export const getDiningOfficeDashboard = async () => {
   }
 
   const [pendingRebates, approvedToday, upcomingRebates] = await Promise.all([
-    DiningRebate.countDocuments({ status: "pending" }),
-    DiningRebate.countDocuments({ status: "approved", approvedAt: { $gte: todayStart, $lt: todayEnd } }),
-    DiningRebate.countDocuments({ status: "approved", endDate: { $gte: todayEnd } }),
+    diningQueries.countRebates({ status: "pending" }),
+    diningQueries.countRebates({ status: "approved", approvedAt: { $gte: todayStart, $lt: todayEnd } }),
+    diningQueries.countRebates({ status: "approved", endDate: { $gte: todayEnd } }),
   ])
 
   // Billing health across active (non-archived) billing periods.

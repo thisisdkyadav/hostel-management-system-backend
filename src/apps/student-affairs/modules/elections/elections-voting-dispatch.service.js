@@ -1,17 +1,17 @@
-import {
-  ActionLinkToken,
-  Election,
-  ElectionNomination,
-} from "../../../../models/index.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
+import { electionOwner } from "../../../../services/elections/electionOwner.service.js"
+import { electionQueries } from "../../../../services/elections/electionQueries.service.js"
 import { voteQueries } from "../../../../services/elections/voteQueries.service.js"
 import { emailService } from "../../../../services/email/email.service.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
 import {
   ACTION_LINK_TOKEN_TYPE,
   createActionLinkToken,
+  findActionLinkTokens,
+  findOneActionLinkToken,
   getRawActionLinkToken,
   invalidateActionLinkTokens,
+  updateOneActionLinkToken,
 } from "../../../../services/action-links/action-link-token.service.js"
 import { emitToRole } from "../../../../utils/socketHandlers.js"
 
@@ -70,7 +70,7 @@ const persistDispatchState = async (election, nextDispatchState = {}) => {
         : [],
   }
 
-  await election.save()
+  await electionOwner.persistElection(election)
   emitVotingDispatchUpdate(election)
 }
 
@@ -92,7 +92,7 @@ const persistTestDispatchState = async (election, nextDispatchState = {}) => {
         : [],
   }
 
-  await election.save()
+  await electionOwner.persistElection(election)
 }
 
 const normalizeStringArray = (values = []) =>
@@ -249,10 +249,10 @@ export const resolveElectionVotingRecipients = async (
 ) => {
   const eligibleProfiles = await collectEligibleVoterProfiles(election)
   const targetRollNumberSet = new Set(normalizeRollNumbers(targetRollNumbers))
-  const verifiedNominations = await ElectionNomination.find({
-    electionId: election._id,
-    status: "verified",
-  }).select("postId")
+  const verifiedNominations = await electionQueries.findNominations(
+    { electionId: election._id, status: "verified" },
+    { select: "postId" }
+  )
   const verifiedPostIds = new Set(verifiedNominations.map((nomination) => String(nomination.postId)))
   const voterIdsWithVotes = includeVoted
     ? new Set()
@@ -281,16 +281,19 @@ export const resolveElectionVotingRecipients = async (
 const findReusableVotingLinkToken = async (election, userId, dispatchKey) => {
   if (!userId || !dispatchKey) return null
 
-  return ActionLinkToken.findOne({
-    type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
-    subjectModel: "Election",
-    subjectId: election._id,
-    recipientUserId: userId,
-    usedAt: null,
-    invalidatedAt: null,
-    expiresAt: { $gt: new Date() },
-    "payload.dispatchKey": dispatchKey,
-  }).sort({ createdAt: -1 })
+  return findOneActionLinkToken(
+    {
+      type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+      subjectModel: "Election",
+      subjectId: election._id,
+      recipientUserId: userId,
+      usedAt: null,
+      invalidatedAt: null,
+      expiresAt: { $gt: new Date() },
+      "payload.dispatchKey": dispatchKey,
+    },
+    { sort: { createdAt: -1 } }
+  )
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -377,18 +380,21 @@ const getReceivedVotingRecipientStatusKeys = async (election) => {
   if (!election?._id) return new Set()
 
   const [usableTokens, votedUserIds] = await Promise.all([
-    ActionLinkToken.find({
-      type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
-      subjectModel: "Election",
-      subjectId: election._id,
-      $or: [
-        { usedAt: { $ne: null } },
-        {
-          invalidatedAt: null,
-          expiresAt: { $gt: new Date() },
-        },
-      ],
-    }).select("recipientUserId"),
+    findActionLinkTokens(
+      {
+        type: ACTION_LINK_TOKEN_TYPE.ELECTION_VOTING_BALLOT,
+        subjectModel: "Election",
+        subjectId: election._id,
+        $or: [
+          { usedAt: { $ne: null } },
+          {
+            invalidatedAt: null,
+            expiresAt: { $gt: new Date() },
+          },
+        ],
+      },
+      { select: "recipientUserId" }
+    ),
     voteQueries.distinctVoterIds(election._id),
   ])
 
@@ -538,7 +544,7 @@ const sendVotingEmailToRecipient = async (
   }
 
   if (createdTokenDoc?._id) {
-    await ActionLinkToken.updateOne(
+    await updateOneActionLinkToken(
       {
         _id: createdTokenDoc._id,
         invalidatedAt: null,
@@ -615,7 +621,7 @@ const runQueuedVotingEmailDispatch = async ({
   activeDispatches.add(activeDispatchKey)
 
   try {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) {
       return {
         queued: false,
@@ -761,7 +767,7 @@ const runQueuedVotingEmailDispatch = async ({
       failedRecipients,
     }
   } catch (error) {
-    const failedElection = await Election.findByIdAndUpdate(
+    const failedElection = await electionOwner.updateElectionById(
       electionId,
       {
         $set: {
@@ -798,7 +804,7 @@ const runQueuedElectionTestEmailDispatch = async ({
   activeTestDispatches.add(activeDispatchKey)
 
   try {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) {
       return {
         queued: false,
@@ -919,7 +925,7 @@ const runQueuedElectionTestEmailDispatch = async ({
       failedRecipients,
     }
   } catch (error) {
-    await Election.findByIdAndUpdate(
+    await electionOwner.updateElectionById(
       electionId,
       {
         $set: {
@@ -997,7 +1003,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
   }
 
   try {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     const canDispatch = reason === "manual"
       ? isManualDispatchAllowedNow(election)
       : isAutomaticDispatchDueNow(election)
@@ -1140,7 +1146,7 @@ export const triggerElectionVotingEmailDispatchForElection = async (
       failedRecipients: 0,
     }
   } catch (error) {
-    const failedElection = await Election.findByIdAndUpdate(
+    const failedElection = await electionOwner.updateElectionById(
       electionId,
       {
         $set: {
@@ -1177,7 +1183,7 @@ export const triggerElectionTestEmailDispatchForElection = async (
   }
 
   try {
-    const election = await Election.findById(electionId)
+    const election = await electionQueries.findElectionById(electionId)
     if (!election) {
       return {
         queued: false,
@@ -1264,7 +1270,7 @@ export const triggerElectionTestEmailDispatchForElection = async (
       failedRecipients: 0,
     }
   } catch (error) {
-    await Election.findByIdAndUpdate(
+    await electionOwner.updateElectionById(
       electionId,
       {
         $set: {
@@ -1283,7 +1289,7 @@ export const triggerElectionTestEmailDispatchForElection = async (
 }
 
 export const scanAndTriggerElectionVotingEmailDispatches = async () => {
-  const elections = await Election.find({ status: "published" }).select("_id timeline status votingAccess votingEmailDispatch posts title")
+  const elections = await electionQueries.findElections({ status: "published" }, { select: "_id timeline status votingAccess votingEmailDispatch posts title" })
   for (const election of elections) {
     if (!isAutomaticDispatchDueNow(election)) continue
     triggerElectionVotingEmailDispatchForElection(election._id, "scheduler").catch((error) => {

@@ -5,12 +5,12 @@
 
 import mongoose from 'mongoose';
 import {
-  BaseService,
   success,
   notFound,
   badRequest,
 } from '../../../../services/base/index.js';
-import { Caterer, DiningPeriod } from '../../../../models/index.js';
+import { diningOwner } from '../../../../services/dining/diningOwner.service.js';
+import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { catererService } from './caterer.service.js';
@@ -193,11 +193,7 @@ const serializePeriod = (period, activeStudentCount = 0) => {
   };
 };
 
-class DiningPeriodService extends BaseService {
-  constructor() {
-    super(DiningPeriod, 'DiningPeriod');
-  }
-
+class DiningPeriodService {
   async validatePeriodPayload(payload = {}, existingPeriod = null) {
     const startDate = payload.startDate ? new Date(payload.startDate) : null;
     const endDate = payload.endDate ? new Date(payload.endDate) : null;
@@ -311,7 +307,7 @@ class DiningPeriodService extends BaseService {
       return { error: `Maximum ${MAX_BULK_RECORDS} roll numbers are allowed per request` };
     }
 
-    const activeCatererCount = await Caterer.countDocuments({
+    const activeCatererCount = await diningQueries.countCaterers({
       _id: { $in: catererIds },
       isArchived: false,
     });
@@ -368,11 +364,14 @@ class DiningPeriodService extends BaseService {
 
   async getDiningPeriods(archive = 'false') {
     const [periods, activeStudentCount] = await Promise.all([
-      this.model
-        .find({ isArchived: archive === 'true' })
-        .populate({ path: 'catererIds', select: 'name email' })
-        .sort({ startDate: -1, createdAt: -1 })
-        .lean(),
+      diningQueries.findPeriods(
+        { isArchived: archive === 'true' },
+        {
+          populate: { path: 'catererIds', select: 'name email' },
+          sort: { startDate: -1, createdAt: -1 },
+          lean: true,
+        }
+      ),
       studentProfileQueries.countProfiles({ status: 'Active' }),
     ]);
 
@@ -392,17 +391,17 @@ class DiningPeriodService extends BaseService {
       return badRequest(error.message || 'Unable to create caterer logins for selected caterers');
     }
 
-    const period = await new this.model(validation.data).save();
-    const populatedPeriod = await this.model
-      .findById(period._id)
-      .populate({ path: 'catererIds', select: 'name email' })
-      .lean();
+    const period = await diningOwner.createPeriod(validation.data);
+    const populatedPeriod = await diningQueries.findPeriodById(period._id, {
+      populate: { path: 'catererIds', select: 'name email' },
+      lean: true,
+    });
 
     return success(serializePeriod(populatedPeriod, validation.data.eligibleStudentCount), 201, 'Dining period created successfully');
   }
 
   async updateDiningPeriod(periodId, payload) {
-    const existingPeriod = await this.model.findById(periodId).lean();
+    const existingPeriod = await diningQueries.findPeriodById(periodId, { lean: true });
 
     if (!existingPeriod) {
       return notFound('Dining period');
@@ -420,26 +419,27 @@ class DiningPeriodService extends BaseService {
       return badRequest(error.message || 'Unable to create caterer logins for selected caterers');
     }
 
-    await this.model.findByIdAndUpdate(periodId, validation.data, { new: false, runValidators: true });
+    await diningOwner.updatePeriodById(periodId, validation.data, { new: false, runValidators: true });
 
     // The update rewrote catererCapacities using allocatedCount from a prior
     // read; recompute the seat counters from the actual allocation rows so a
     // concurrent self-select isn't clobbered by this edit.
     await allocationOwner.reconcileAllocatedCounts(periodId);
 
-    const updatedPeriod = await this.model
-      .findById(periodId)
-      .populate({ path: 'catererIds', select: 'name email' })
-      .lean();
+    const updatedPeriod = await diningQueries.findPeriodById(periodId, {
+      populate: { path: 'catererIds', select: 'name email' },
+      lean: true,
+    });
 
     return success(serializePeriod(updatedPeriod, validation.data.eligibleStudentCount), 200, 'Dining period updated successfully');
   }
 
   async changeArchiveStatus(periodId, status) {
-    const updatedPeriod = await this.model
-      .findByIdAndUpdate(periodId, { isArchived: Boolean(status) }, { new: true })
-      .populate({ path: 'catererIds', select: 'name email' })
-      .lean();
+    const updatedPeriod = await diningOwner.updatePeriodById(
+      periodId,
+      { isArchived: Boolean(status) },
+      { new: true, populate: { path: 'catererIds', select: 'name email' }, lean: true }
+    );
 
     if (!updatedPeriod) {
       return notFound('Dining period');

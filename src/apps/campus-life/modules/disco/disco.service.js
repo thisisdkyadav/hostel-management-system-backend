@@ -584,8 +584,8 @@ const normalizeCaseDocumentList = ({ documents, uploadedBy, fallbackName }) => {
   return { list };
 };
 
-// Entity label for the response envelopes this service used to inherit from
-// BaseService (super(DisCoAction, "DisCo action")).
+// Entity label for the response envelopes this service used to inherit from the
+// former BaseService entity name ("DisCo action").
 const ENTITY = "DisCo action";
 
 class DisCoService {
