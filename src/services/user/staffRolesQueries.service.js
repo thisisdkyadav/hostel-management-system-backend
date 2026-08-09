@@ -51,9 +51,14 @@ export const staffRolesQueries = {
       .populate("activeHostelId", "name type")
   },
 
-  /** All role profiles with userId (name/email/phone/image) populated, LEAN (list views). */
+  /** All role profiles with userId (name/email/phone/image) populated, LEAN (warden-family list views). */
   async listWithUser(roleKey) {
     return resolve(roleKey).find().populate("userId", "name email phone profileImage").lean()
+  },
+
+  /** Same populate, HYDRATED (Security / MaintenanceStaff lists that used .exec()). */
+  async listWithUserHydrated(roleKey) {
+    return resolve(roleKey).find().populate("userId", "name email phone profileImage")
   },
 
   /** Role profile by _id with a select projection. { lean } optional. */

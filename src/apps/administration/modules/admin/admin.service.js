@@ -4,15 +4,14 @@
  * @module services/admin
  */
 
-import { BaseService, success, notFound, badRequest } from '../../../../services/base/index.js';
-import { Warden } from '../../../../models/index.js';
-import { User } from '../../../../models/index.js';
+import { success, notFound, badRequest } from '../../../../services/base/index.js';
 import bcrypt from 'bcrypt';
-import { Security } from '../../../../models/index.js';
-import { MaintenanceStaff } from '../../../../models/index.js';
 import { taskQueries } from '../../../../services/task/taskQueries.service.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
-import { Gymkhana } from '../../../../models/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { staffRolesOwner } from '../../../../services/user/staffRolesOwner.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
 import { ROLES, SUBROLES } from '../../../../core/constants/roles.constants.js';
 import {
   getGlobalGymkhanaCategoryDefinitions,
@@ -108,11 +107,7 @@ const normalizeGymkhanaCategories = (categories = [], categoryLookup) => {
   return { success: true, value: normalized };
 };
 
-class AdminService extends BaseService {
-  constructor() {
-    super(User, 'Admin');
-  }
-
+class AdminService {
   /**
    * Create a security user
    */
@@ -121,7 +116,7 @@ class AdminService extends BaseService {
       return badRequest('Email, password, name, and hostelId are required');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(email);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -129,14 +124,14 @@ class AdminService extends BaseService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const savedUser = await User.create({
+    const savedUser = await userOwner.createUser({
       name,
       email,
       password: hashedPassword,
       role: 'Security'
     });
 
-    const savedSecurity = await Security.create({
+    const savedSecurity = await staffRolesOwner.create('Security', {
       userId: savedUser._id,
       hostelId
     });
@@ -153,9 +148,7 @@ class AdminService extends BaseService {
    * Get all securities
    */
   async getAllSecurities() {
-    const securities = await Security.find()
-      .populate('userId', 'name email phone profileImage')
-      .exec();
+    const securities = await staffRolesQueries.listWithUserHydrated('Security');
 
     const formattedSecurities = securities.map((security) => ({
       id: security._id,
@@ -173,7 +166,8 @@ class AdminService extends BaseService {
    * Update a security
    */
   async updateSecurity(id, { hostelId, name }) {
-    const updatedSecurity = await Security.findByIdAndUpdate(
+    const updatedSecurity = await staffRolesOwner.updateById(
+      'Security',
       id,
       { hostelId: hostelId || null },
       { new: true }
@@ -184,7 +178,7 @@ class AdminService extends BaseService {
     }
 
     if (name !== undefined) {
-      await User.findByIdAndUpdate(updatedSecurity.userId, { name });
+      await userOwner.updateUserById(updatedSecurity.userId, { name });
     }
 
     return success(null, 200, 'Security updated successfully');
@@ -194,12 +188,12 @@ class AdminService extends BaseService {
    * Delete a security
    */
   async deleteSecurity(id) {
-    const deletedSecurity = await Security.findByIdAndDelete(id);
+    const deletedSecurity = await staffRolesOwner.deleteById('Security', id);
     if (!deletedSecurity) {
       return notFound('Security not found');
     }
 
-    await User.findByIdAndDelete(deletedSecurity.userId);
+    await userOwner.deleteUserById(deletedSecurity.userId);
 
     return success(null, 200, 'Security deleted successfully');
   }
@@ -226,7 +220,7 @@ class AdminService extends BaseService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(normalizedPassword, salt);
 
-    const updatedUser = await User.findOneAndUpdate(
+    const updatedUser = await userOwner.findOneAndUpdateUser(
       { email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } },
       { password: hashedPassword },
       { new: true }
@@ -247,7 +241,7 @@ class AdminService extends BaseService {
       return badRequest('Email, password, name, and category are required');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(email);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -255,7 +249,7 @@ class AdminService extends BaseService {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const savedUser = await User.create({
+    const savedUser = await userOwner.createUser({
       name,
       email,
       password: hashedPassword,
@@ -263,7 +257,7 @@ class AdminService extends BaseService {
       phone: phone || null
     });
 
-    await MaintenanceStaff.create({
+    await staffRolesOwner.create('MaintenanceStaff', {
       userId: savedUser._id,
       category
     });
@@ -293,7 +287,7 @@ class AdminService extends BaseService {
       return badRequest(normalizedCategories.message);
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(normalizedEmail);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -316,15 +310,15 @@ class AdminService extends BaseService {
       userPayload.password = hashedPassword;
     }
 
-    const createdUser = await User.create(userPayload);
+    const createdUser = await userOwner.createUser(userPayload);
     try {
-      await Gymkhana.create({
+      await staffRolesOwner.create('Gymkhana', {
         userId: createdUser._id,
         categories: normalizedCategories.value,
         position: normalizedPosition,
       });
     } catch (error) {
-      await User.findByIdAndDelete(createdUser._id);
+      await userOwner.deleteUserById(createdUser._id);
       throw error;
     }
 
@@ -343,7 +337,7 @@ class AdminService extends BaseService {
       return badRequest('Invalid Academics subRole');
     }
 
-    const existingUser = await User.findOne({ email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') } });
+    const existingUser = await userQueries.findUserByEmailCI(normalizedEmail);
     if (existingUser) {
       return badRequest('User with this email already exists');
     }
@@ -366,7 +360,7 @@ class AdminService extends BaseService {
       userPayload.password = hashedPassword;
     }
 
-    await User.create(userPayload);
+    await userOwner.createUser(userPayload);
 
     return success(null, 201, 'Academics user created successfully');
   }
@@ -376,17 +370,18 @@ class AdminService extends BaseService {
    */
   async getAllGymkhanaUsers() {
     const [gymkhanaUsers, categoryLookup] = await Promise.all([
-      User.find({ role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } })
-        .select('name email role subRole profileImage')
-        .lean(),
+      userQueries.findUsers(
+        { role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } },
+        { select: 'name email role subRole profileImage', lean: true }
+      ),
       resolveGymkhanaCategoryLookup(),
     ]);
 
-    const gymkhanaProfiles = await Gymkhana.find({
-      userId: { $in: gymkhanaUsers.map((user) => user._id) },
-    })
-      .select('userId categories position')
-      .lean();
+    const gymkhanaProfiles = await staffRolesQueries.findByUserIds(
+      'Gymkhana',
+      gymkhanaUsers.map((user) => user._id),
+      { select: 'userId categories position', lean: true }
+    );
 
     const profileByUserId = new Map(
       gymkhanaProfiles.map((profile) => [String(profile.userId), profile])
@@ -416,9 +411,10 @@ class AdminService extends BaseService {
   }
 
   async getAllAcademicsUsers() {
-    const academicsUsers = await User.find({ role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } })
-      .select('name email role subRole profileImage')
-      .lean();
+    const academicsUsers = await userQueries.findUsers(
+      { role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } },
+      { select: 'name email role subRole profileImage', lean: true }
+    );
 
     const formattedUsers = academicsUsers
       .map((user) => ({
@@ -474,21 +470,23 @@ class AdminService extends BaseService {
       return badRequest('No update data provided');
     }
 
-    const existingUser = await User.findOne({ _id: id, role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } })
-      .select('_id')
-      .lean();
+    const existingUser = await userQueries.findOneUser(
+      { _id: id, role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } },
+      { select: '_id', lean: true }
+    );
 
     if (!existingUser) {
       return notFound('Gymkhana user');
     }
 
     if (Object.keys(updateData).length > 0) {
-      await User.updateOne({ _id: id, role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } }, updateData);
+      await userOwner.updateOneUser({ _id: id, role: ROLES.GYMKHANA, subRole: { $in: GYMKHANA_SUBROLES } }, updateData);
     }
 
     if (Object.keys(profileUpdateData).length > 0) {
-      await Gymkhana.findOneAndUpdate(
-        { userId: id },
+      await staffRolesOwner.findOneAndUpdateByUserId(
+        'Gymkhana',
+        id,
         {
           $set: profileUpdateData,
           $setOnInsert: { userId: id },
@@ -522,13 +520,11 @@ class AdminService extends BaseService {
       return badRequest('No update data provided');
     }
 
-    const updatedUser = await User.findOneAndUpdate(
+    const updatedUser = await userOwner.findOneAndUpdateUser(
       { _id: id, role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } },
       updateData,
-      { new: true }
-    )
-      .select('_id')
-      .lean();
+      { new: true, select: '_id', lean: true }
+    );
 
     if (!updatedUser) {
       return notFound('Academics user');
@@ -541,19 +537,19 @@ class AdminService extends BaseService {
    * Delete a Gymkhana user
    */
   async deleteGymkhana(id) {
-    const deletedUser = await User.findOneAndDelete({ _id: id, role: ROLES.GYMKHANA });
+    const deletedUser = await userOwner.findOneAndDeleteUser({ _id: id, role: ROLES.GYMKHANA });
 
     if (!deletedUser) {
       return notFound('Gymkhana user');
     }
 
-    await Gymkhana.deleteOne({ userId: deletedUser._id });
+    await staffRolesOwner.deleteOneByUserId('Gymkhana', deletedUser._id);
 
     return success(null, 200, 'Gymkhana user deleted successfully');
   }
 
   async deleteAcademics(id) {
-    const deletedUser = await User.findOneAndDelete({ _id: id, role: ROLES.ACADEMICS });
+    const deletedUser = await userOwner.findOneAndDeleteUser({ _id: id, role: ROLES.ACADEMICS });
 
     if (!deletedUser) {
       return notFound('Academics user');
@@ -566,9 +562,7 @@ class AdminService extends BaseService {
    * Get all maintenance staff
    */
   async getAllMaintenanceStaff() {
-    const maintenanceStaff = await MaintenanceStaff.find()
-      .populate('userId', 'name email phone profileImage')
-      .exec();
+    const maintenanceStaff = await staffRolesQueries.listWithUserHydrated('MaintenanceStaff');
 
     const formattedStaff = maintenanceStaff.map((staff) => ({
       id: staff._id,
@@ -590,7 +584,7 @@ class AdminService extends BaseService {
     const updateData = {};
     if (category !== undefined) updateData.category = category;
 
-    const updatedStaff = await MaintenanceStaff.findByIdAndUpdate(id, updateData, { new: true });
+    const updatedStaff = await staffRolesOwner.updateById('MaintenanceStaff', id, updateData, { new: true });
 
     if (!updatedStaff) {
       return notFound('Maintenance staff not found');
@@ -602,7 +596,7 @@ class AdminService extends BaseService {
     if (profileImage !== undefined) updateUserData.profileImage = profileImage;
 
     if (Object.keys(updateUserData).length > 0) {
-      await User.findByIdAndUpdate(updatedStaff.userId, updateUserData);
+      await userOwner.updateUserById(updatedStaff.userId, updateUserData);
     }
 
     return success(null, 200, 'Maintenance staff updated successfully');
@@ -612,12 +606,12 @@ class AdminService extends BaseService {
    * Delete a maintenance staff
    */
   async deleteMaintenanceStaff(id) {
-    const deletedStaff = await MaintenanceStaff.findByIdAndDelete(id);
+    const deletedStaff = await staffRolesOwner.deleteById('MaintenanceStaff', id);
     if (!deletedStaff) {
       return notFound('Maintenance staff not found');
     }
 
-    await User.findByIdAndDelete(deletedStaff.userId);
+    await userOwner.deleteUserById(deletedStaff.userId);
 
     return success(null, 200, 'Maintenance staff deleted successfully');
   }

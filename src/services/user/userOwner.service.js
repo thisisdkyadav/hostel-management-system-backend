@@ -36,9 +36,16 @@ export const userOwner = {
     return User.updateOne(filter, update, options)
   },
 
-  /** findOneAndUpdate by arbitrary filter (options e.g. { new, upsert }). Returns doc or null. */
-  async findOneAndUpdateUser(filter, update, options = {}) {
-    return User.findOneAndUpdate(filter, update, options)
+  /**
+   * findOneAndUpdate by arbitrary filter. Mongoose options ({ new, upsert }) pass
+   * through; { select, lean } are applied as query modifiers on the returned doc.
+   * Returns doc or null.
+   */
+  async findOneAndUpdateUser(filter, update, { select, lean, ...options } = {}) {
+    let query = User.findOneAndUpdate(filter, update, options)
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
   },
 
   /** findOneAndDelete by arbitrary filter. Returns the deleted doc or null. */

@@ -46,9 +46,19 @@ export const staffRolesOwner = {
     return resolve(roleKey).create(data)
   },
 
-  /** findByIdAndUpdate({ new: true }).lean() — role-profile update (existence-checked by caller). */
+  /** findByIdAndUpdate({ new: true }).lean() — warden-family update (existence-checked by caller). */
   async updateByIdReturnLean(roleKey, id, updates) {
     return resolve(roleKey).findByIdAndUpdate(id, updates, { new: true }).lean()
+  },
+
+  /** Generic findByIdAndUpdate (options e.g. { new: true }, HYDRATED). Returns doc or null. */
+  async updateById(roleKey, id, updates, options = {}) {
+    return resolve(roleKey).findByIdAndUpdate(id, updates, options)
+  },
+
+  /** deleteOne by userId (returns the raw result — Gymkhana user cascade). */
+  async deleteOneByUserId(roleKey, userId) {
+    return resolve(roleKey).deleteOne({ userId })
   },
 
   /** Delete a role profile by id. Returns the deleted doc or null. */
