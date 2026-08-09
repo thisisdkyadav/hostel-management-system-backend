@@ -19,10 +19,12 @@ const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g,
 export const studentProfileQueries = {
   // ==================== chunk: campus-life ====================
 
-  /** One profile by userId, HYDRATED. Optional { select } projection. */
-  async findByUserId(userId, { select } = {}) {
-    const query = StudentProfile.findOne({ userId })
-    if (select) query.select(select)
+  /** One profile by userId, HYDRATED. Options: { select, lean, session }. */
+  async findByUserId(userId, { select, lean, session } = {}) {
+    let query = StudentProfile.findOne({ userId })
+    if (select) query = query.select(select)
+    if (session) query = query.session(session)
+    if (lean) query = query.lean()
     return query
   },
 
@@ -171,6 +173,36 @@ export const studentProfileQueries = {
   async findByUserIdWithUserImage(userId) {
     return StudentProfile.findOne({ userId })
       .populate({ path: "userId", select: "name email profileImage" })
+  },
+
+  // ==================== chunk: dining ====================
+
+  /** Count profiles matching a filter (dining eligibility / dashboard tallies). */
+  async countProfiles(filter = {}) {
+    return StudentProfile.countDocuments(filter)
+  },
+
+  /** One profile by a single roll number. Options: { select, lean }. */
+  async findByRollNumber(rollNumber, { select, lean } = {}) {
+    let query = StudentProfile.findOne({ rollNumber })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** Active profiles for a set of roll numbers. Options: { select, lean } (no populate). */
+  async findActiveByRollNumbers(rollNumbers, { select, lean } = {}) {
+    let query = StudentProfile.find({ rollNumber: { $in: rollNumbers }, status: "Active" })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** One profile by case-insensitive exact roll number, userId (name/email/image) populated, NO select (meal verification). */
+  async findByRollNumberCaseInsensitiveWithUserFull(rollNumber) {
+    return StudentProfile.findOne({
+      rollNumber: { $regex: new RegExp(`^${escapeRegex(rollNumber)}$`, "i") },
+    }).populate({ path: "userId", select: "name email profileImage" })
   },
 }
 

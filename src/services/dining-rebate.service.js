@@ -4,8 +4,8 @@ import {
   Caterer,
   DiningPeriod,
   DiningRebate,
-  StudentProfile,
 } from "../models/index.js"
+import { studentProfileQueries } from "./student/studentProfileQueries.service.js"
 import { allocationQueries } from "./dining/allocationQueries.service.js"
 import { badRequest, notFound, success } from "./base/index.js"
 
@@ -129,7 +129,7 @@ const populateRebateQuery = (query) => query
   })
 
 const getStudentProfileForUser = async (userId) => (
-  StudentProfile.findOne({ userId }).select("_id userId rollNumber status").lean()
+  studentProfileQueries.findByUserId(userId, { select: "_id userId rollNumber status", lean: true })
 )
 
 const getPeriodsForRange = async (startDate, endDate) => (

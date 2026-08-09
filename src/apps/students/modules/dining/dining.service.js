@@ -10,7 +10,8 @@ import {
   badRequest,
   forbidden,
 } from '../../../../services/base/index.js';
-import { DiningPeriod, StudentProfile } from '../../../../models/index.js';
+import { DiningPeriod } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import {
@@ -116,9 +117,7 @@ const mapAllocationsByPeriod = (allocations = []) => {
 };
 
 const getStudentProfileForUser = async (userId, session = null) => {
-  const query = StudentProfile.findOne({ userId }).select('_id rollNumber status');
-  if (session) query.session(session);
-  return query.lean();
+  return studentProfileQueries.findByUserId(userId, { select: '_id rollNumber status', session, lean: true });
 };
 
 const isStudentEligibleForPeriod = (period, profile) => {

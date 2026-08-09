@@ -15,7 +15,8 @@
 
 import mongoose from "mongoose"
 import { success, badRequest, notFound } from "../../../../services/base/index.js"
-import { DiningPeriod, StudentProfile } from "../../../../models/index.js"
+import { DiningPeriod } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { MAX_BULK_RECORDS } from "../../../../core/constants/system-limits.constants.js"
 import { allocationOwner } from "../../../../services/dining/allocationOwner.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
@@ -195,9 +196,7 @@ class DiningAllocationService {
     const force = Boolean(payload.force)
     const catererLabel = getCatererLabelMap(period).get(catererId) || "the selected caterer"
 
-    const profiles = await StudentProfile.find({ rollNumber: { $in: rollNumbers } })
-      .select("_id userId rollNumber status")
-      .lean()
+    const profiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { select: "_id userId rollNumber status", lean: true })
     const profileByRoll = new Map(profiles.map((profile) => [normalizeRollNumber(profile.rollNumber), profile]))
 
     const summary = { assigned: 0, moved: 0, unchanged: 0, failed: 0 }
@@ -269,13 +268,9 @@ class DiningAllocationService {
   async resolveStudent(payload = {}) {
     let profile = null
     if (payload.studentUserId && mongoose.Types.ObjectId.isValid(String(payload.studentUserId))) {
-      profile = await StudentProfile.findOne({ userId: payload.studentUserId })
-        .select("_id userId rollNumber status")
-        .lean()
+      profile = await studentProfileQueries.findByUserId(payload.studentUserId, { select: "_id userId rollNumber status", lean: true })
     } else if (payload.rollNumber) {
-      profile = await StudentProfile.findOne({ rollNumber: normalizeRollNumber(payload.rollNumber) })
-        .select("_id userId rollNumber status")
-        .lean()
+      profile = await studentProfileQueries.findByRollNumber(normalizeRollNumber(payload.rollNumber), { select: "_id userId rollNumber status", lean: true })
     } else {
       return { error: "Please provide a roll number or student" }
     }

@@ -3,8 +3,8 @@ import {
   Caterer,
   DiningMealVerification,
   DiningPeriod,
-  StudentProfile,
 } from "../../../../models/index.js"
+import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { badRequest, notFound, success } from "../../../../services/base/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
@@ -56,8 +56,6 @@ const getDayBounds = (date = new Date()) => {
   end.setDate(end.getDate() + 1)
   return { start, end }
 }
-
-const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 const isTimeInsideSlot = (date, slot) => {
   const start = parseTimeToMinutes(slot.startTime)
@@ -242,8 +240,7 @@ export const verifyDiningMeal = async ({
 
   const [caterer, studentProfile, period] = await Promise.all([
     Caterer.findById(catererId).lean(),
-    StudentProfile.findOne({ rollNumber: { $regex: new RegExp(`^${escapeRegex(normalizedRollNumber)}$`, "i") } })
-      .populate({ path: "userId", select: "name email profileImage" }),
+    studentProfileQueries.findByRollNumberCaseInsensitiveWithUserFull(normalizedRollNumber),
     getActiveDiningPeriodForDate(scannedAt).lean(),
   ])
 

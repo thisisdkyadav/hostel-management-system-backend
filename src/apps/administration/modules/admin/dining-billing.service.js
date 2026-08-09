@@ -12,9 +12,9 @@ import { success, notFound, badRequest } from '../../../../services/base/index.j
 import {
   DiningPeriod,
   DiningRebate,
-  StudentProfile,
   User,
 } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { listDayKeys, normalizeDay } from '../../../../services/dining-rebate.service.js';
@@ -375,7 +375,7 @@ export const bulkUpdateBillingAccounts = async (billingPeriodId, { mode, entries
 
   const rollNumbers = [...new Set(normalized.map((entry) => entry.rollNumber).filter(Boolean))];
   const profiles = rollNumbers.length
-    ? await StudentProfile.find({ rollNumber: { $in: rollNumbers } }).select('_id userId rollNumber').lean()
+    ? await studentProfileQueries.findByRollNumbers(rollNumbers, { select: '_id userId rollNumber', lean: true })
     : [];
   const profileByRoll = new Map(profiles.map((profile) => [profile.rollNumber, profile]));
 
@@ -456,7 +456,7 @@ const computeStudentBillingForPeriod = async (billingPeriod, userId, asOf = new 
 };
 
 export const getStudentDiningBilling = async (userId) => {
-  const profile = await StudentProfile.findOne({ userId }).select('_id').lean();
+  const profile = await studentProfileQueries.findByUserId(userId, { select: '_id', lean: true });
   if (!profile) return success({ billingPeriods: [] });
 
   const [accounts, allocations] = await Promise.all([

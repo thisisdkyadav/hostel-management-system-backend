@@ -10,7 +10,8 @@ import {
   notFound,
   badRequest,
 } from '../../../../services/base/index.js';
-import { Caterer, DiningPeriod, StudentProfile } from '../../../../models/index.js';
+import { Caterer, DiningPeriod } from '../../../../models/index.js';
+import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { catererService } from './caterer.service.js';
 import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
@@ -319,16 +320,11 @@ class DiningPeriodService extends BaseService {
       return { error: 'One or more selected caterers are unavailable or archived' };
     }
 
-    let eligibleStudentCount = await StudentProfile.countDocuments({ status: 'Active' });
+    let eligibleStudentCount = await studentProfileQueries.countProfiles({ status: 'Active' });
     let resolvedRollNumbers = [];
 
     if (eligibilityMode === ELIGIBILITY_MODE_CUSTOM) {
-      const activeStudents = await StudentProfile.find({
-        rollNumber: { $in: eligibleRollNumbers },
-        status: 'Active',
-      })
-        .select('rollNumber')
-        .lean();
+      const activeStudents = await studentProfileQueries.findActiveByRollNumbers(eligibleRollNumbers, { select: 'rollNumber', lean: true });
 
       const activeRollNumberSet = new Set(activeStudents.map((student) => student.rollNumber));
       const unmatchedRollNumbers = eligibleRollNumbers.filter((rollNumber) => !activeRollNumberSet.has(rollNumber));
@@ -377,7 +373,7 @@ class DiningPeriodService extends BaseService {
         .populate({ path: 'catererIds', select: 'name email' })
         .sort({ startDate: -1, createdAt: -1 })
         .lean(),
-      StudentProfile.countDocuments({ status: 'Active' }),
+      studentProfileQueries.countProfiles({ status: 'Active' }),
     ]);
 
     return success(periods.map((period) => serializePeriod(period, activeStudentCount)));
@@ -449,7 +445,7 @@ class DiningPeriodService extends BaseService {
       return notFound('Dining period');
     }
 
-    const activeStudentCount = await StudentProfile.countDocuments({ status: 'Active' });
+    const activeStudentCount = await studentProfileQueries.countProfiles({ status: 'Active' });
 
     return success(
       serializePeriod(updatedPeriod, activeStudentCount),
