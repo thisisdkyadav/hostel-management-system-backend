@@ -30,6 +30,21 @@ export const userOwner = {
   async deleteUserById(id) {
     return User.findByIdAndDelete(id)
   },
+
+  /** updateOne by arbitrary filter (options e.g. {}). Returns the raw result. */
+  async updateOneUser(filter, update, options = {}) {
+    return User.updateOne(filter, update, options)
+  },
+
+  /** findOneAndUpdate by arbitrary filter (options e.g. { new, upsert }). Returns doc or null. */
+  async findOneAndUpdateUser(filter, update, options = {}) {
+    return User.findOneAndUpdate(filter, update, options)
+  },
+
+  /** findOneAndDelete by arbitrary filter. Returns the deleted doc or null. */
+  async findOneAndDeleteUser(filter) {
+    return User.findOneAndDelete(filter)
+  },
 }
 
 export default userOwner

@@ -5,7 +5,10 @@
  * @module services/superAdmin
  */
 
-import { User, Admin } from '../../../../models/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { staffRolesOwner } from '../../../../services/user/staffRolesOwner.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { success, badRequest, error, notFound, forbidden } from '../../../../services/base/index.js';
@@ -75,8 +78,9 @@ class SuperAdminService {
     const normalizedCategory = normalizeText(category);
     const fallbackCategory = getDefaultCategoryForSubRole(subRole);
 
-    await Admin.findOneAndUpdate(
-      { userId },
+    await staffRolesOwner.findOneAndUpdateByUserId(
+      'Admin',
+      userId,
       {
         $set: { category: normalizedCategory || fallbackCategory },
         $setOnInsert: { userId },
@@ -174,11 +178,7 @@ class SuperAdminService {
     }
 
     try {
-      const existingUser = await User.findOne({
-        email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') },
-      })
-        .select('_id')
-        .lean();
+      const existingUser = await userQueries.findUserByEmailCI(normalizedEmail, { select: '_id', lean: true });
 
       if (existingUser) {
         return badRequest('User with this email already exists');
@@ -196,8 +196,7 @@ class SuperAdminService {
         newUserPayload.password = await bcrypt.hash(normalizedPassword, 10);
       }
 
-      const newUser = new User(newUserPayload);
-      await newUser.save();
+      const newUser = await userOwner.createUser(newUserPayload);
 
       await this.upsertAdminProfile({
         userId: newUser._id,
@@ -221,17 +220,17 @@ class SuperAdminService {
         userQuery.subRole = SUBROLES.HCU;
       }
 
-      const users = await User.find(userQuery)
-        .select('name email phone profileImage role subRole createdAt updatedAt')
-        .sort({ name: 1 })
-        .lean();
+      const users = await userQueries.findUsers(userQuery, {
+        select: 'name email phone profileImage role subRole createdAt updatedAt',
+        sort: { name: 1 },
+        lean: true,
+      });
 
       const userIds = users.map((user) => user._id);
-      const adminProfiles = await Admin.find({
-        userId: { $in: userIds },
-      })
-        .select('userId category createdAt updatedAt')
-        .lean();
+      const adminProfiles = await staffRolesQueries.findByUserIds('Admin', userIds, {
+        select: 'userId category createdAt updatedAt',
+        lean: true,
+      });
 
       const adminProfileByUserId = new Map(
         adminProfiles.map((profile) => [String(profile.userId), profile])
@@ -266,7 +265,7 @@ class SuperAdminService {
     const { name, email, password, phone, category, profileImage, subRole } = data;
 
     try {
-      const existingUser = await User.findOne({ _id: adminId, role: ROLES.ADMIN }).lean();
+      const existingUser = await userQueries.findOneUser({ _id: adminId, role: ROLES.ADMIN }, { lean: true });
 
       if (!existingUser) {
         return notFound('Admin');
@@ -276,9 +275,7 @@ class SuperAdminService {
         return forbidden('Admin can only manage HCU sub-role accounts');
       }
 
-      const existingAdminProfile = await Admin.findOne({ userId: adminId })
-        .select('category')
-        .lean();
+      const existingAdminProfile = await staffRolesQueries.findByUserId('Admin', adminId, { select: 'category', lean: true });
 
       const userUpdate = {};
 
@@ -296,12 +293,10 @@ class SuperAdminService {
           return badRequest('Email cannot be empty');
         }
 
-        const duplicateUser = await User.findOne({
+        const duplicateUser = await userQueries.findOneUser({
           _id: { $ne: adminId },
           email: { $regex: new RegExp(`^${normalizedEmail}$`, 'i') },
-        })
-          .select('_id')
-          .lean();
+        }, { select: '_id', lean: true });
 
         if (duplicateUser) {
           return badRequest('User with this email already exists');
@@ -344,7 +339,7 @@ class SuperAdminService {
       }
 
       if (Object.keys(userUpdate).length > 0) {
-        await User.updateOne({ _id: adminId, role: ROLES.ADMIN }, { $set: userUpdate });
+        await userOwner.updateOneUser({ _id: adminId, role: ROLES.ADMIN }, { $set: userUpdate });
       }
 
       const effectiveSubRole = userUpdate.subRole || existingUser.subRole;
@@ -361,12 +356,14 @@ class SuperAdminService {
       }
 
       const [updatedUser, updatedAdminProfile] = await Promise.all([
-        User.findById(adminId)
-          .select('name email phone profileImage role subRole createdAt updatedAt')
-          .lean(),
-        Admin.findOne({ userId: adminId })
-          .select('userId category createdAt updatedAt')
-          .lean(),
+        userQueries.findUserById(adminId, {
+          select: 'name email phone profileImage role subRole createdAt updatedAt',
+          lean: true,
+        }),
+        staffRolesQueries.findByUserId('Admin', adminId, {
+          select: 'userId category createdAt updatedAt',
+          lean: true,
+        }),
       ]);
 
       const fallbackUpdatedCategory = getDefaultCategoryForSubRole(updatedUser?.subRole);
@@ -393,9 +390,7 @@ class SuperAdminService {
    */
   async deleteAdmin(adminId, actor = {}) {
     try {
-      const existingUser = await User.findOne({ _id: adminId, role: ROLES.ADMIN })
-        .select('_id subRole')
-        .lean();
+      const existingUser = await userQueries.findOneUser({ _id: adminId, role: ROLES.ADMIN }, { select: '_id subRole', lean: true });
 
       if (!existingUser) {
         return notFound('Admin');
@@ -405,8 +400,8 @@ class SuperAdminService {
         return forbidden('Admin can only manage HCU sub-role accounts');
       }
 
-      await User.findByIdAndDelete(adminId);
-      await Admin.findOneAndDelete({ userId: adminId });
+      await userOwner.deleteUserById(adminId);
+      await staffRolesOwner.findOneAndDeleteByUserId('Admin', adminId);
 
       return success({ message: 'Admin deleted successfully' });
     } catch (err) {
@@ -419,7 +414,7 @@ class SuperAdminService {
    */
   async getDashboardStats() {
     try {
-      const totalAdmins = await User.countDocuments({ role: ROLES.ADMIN });
+      const totalAdmins = await userQueries.countUsers({ role: ROLES.ADMIN });
       const totalApiKeys = await scannerQueries.countApiClients();
       const activeApiKeys = await scannerQueries.countApiClients({ isActive: true });
 

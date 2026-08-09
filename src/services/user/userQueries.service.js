@@ -25,14 +25,45 @@ export const userQueries = {
     return User.findById(userId).select("-password")
   },
 
-  /** One user by id, HYDRATED (full doc incl. hostel virtual). Returns doc or null. */
-  async findUserById(id) {
-    return User.findById(id)
+  /** One user by id, HYDRATED (full doc incl. hostel virtual). Options: { select, lean }. */
+  async findUserById(id, { select, lean } = {}) {
+    let query = User.findById(id)
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
   },
 
-  /** One user by exact (case-insensitive) email — staff-creation duplicate check. */
-  async findUserByEmailCI(email) {
-    return User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
+  /** One user by exact (case-insensitive) email. Options: { select, lean }. */
+  async findUserByEmailCI(email, { select, lean } = {}) {
+    let query = User.findOne({ email: { $regex: new RegExp(`^${email}$`, "i") } })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  // ---- repository-style reads (User is queried many ways; filter built by caller) ----
+
+  /** findOne by arbitrary filter. Options: { select, lean, sort }. */
+  async findOneUser(filter, { select, lean, sort } = {}) {
+    let query = User.findOne(filter)
+    if (select) query = query.select(select)
+    if (sort) query = query.sort(sort)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** find by arbitrary filter. Options: { select, lean, sort }. */
+  async findUsers(filter, { select, lean, sort } = {}) {
+    let query = User.find(filter)
+    if (select) query = query.select(select)
+    if (sort) query = query.sort(sort)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** Count users matching a filter. */
+  async countUsers(filter = {}) {
+    return User.countDocuments(filter)
   },
 }
 

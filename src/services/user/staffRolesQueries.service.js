@@ -62,9 +62,20 @@ export const staffRolesQueries = {
     return lean ? query.lean() : query
   },
 
-  /** Role profile by userId, HYDRATED (mutate-then-save: set active hostel). */
-  async findByUserId(roleKey, userId) {
-    return resolve(roleKey).findOne({ userId })
+  /** Role profile by userId. Bare = HYDRATED (mutate-then-save). Options: { select, lean }. */
+  async findByUserId(roleKey, userId, { select, lean } = {}) {
+    let query = resolve(roleKey).findOne({ userId })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /** Role profiles for a set of userIds. Options: { select, lean }. */
+  async findByUserIds(roleKey, userIds, { select, lean } = {}) {
+    let query = resolve(roleKey).find({ userId: { $in: userIds } })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
   },
 }
 

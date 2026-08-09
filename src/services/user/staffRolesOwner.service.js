@@ -60,6 +60,16 @@ export const staffRolesOwner = {
   async persist(doc) {
     return doc.save()
   },
+
+  /** findOneAndUpdate by userId (options e.g. { new, upsert }) — role-profile upsert. */
+  async findOneAndUpdateByUserId(roleKey, userId, update, options = {}) {
+    return resolve(roleKey).findOneAndUpdate({ userId }, update, options)
+  },
+
+  /** findOneAndDelete by userId. Returns the deleted doc or null. */
+  async findOneAndDeleteByUserId(roleKey, userId) {
+    return resolve(roleKey).findOneAndDelete({ userId })
+  },
 }
 
 export default staffRolesOwner
