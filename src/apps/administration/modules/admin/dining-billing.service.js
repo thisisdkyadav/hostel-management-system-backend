@@ -12,8 +12,8 @@ import { success, notFound, badRequest } from '../../../../services/base/index.j
 import {
   DiningPeriod,
   DiningRebate,
-  User,
 } from '../../../../models/index.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
@@ -222,7 +222,7 @@ const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()) => {
 
   const userIds = [...studentMap.keys()];
   const users = userIds.length
-    ? await User.find({ _id: { $in: userIds } }).select('name email').lean()
+    ? await userQueries.findUsers({ _id: { $in: userIds } }, { select: 'name email', lean: true })
     : [];
   const userById = new Map(users.map((user) => [String(user._id), user]));
 

@@ -7,7 +7,8 @@
 import { success, notFound, badRequest, forbidden } from '../../../../services/base/ServiceResponse.js';
 import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
-import { User } from '../../../../models/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { familyOwner } from '../../../../services/family/familyOwner.service.js';
 import { familyQueries } from '../../../../services/family/familyQueries.service.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
@@ -101,7 +102,7 @@ class StudentProfileService {
       return notFound('Student profile');
     }
 
-    const user = await User.findById(userId);
+    const user = await userQueries.findUserById(userId);
     if (!user) {
       return notFound('User');
     }
@@ -167,7 +168,7 @@ class StudentProfileService {
     }
 
     if (Object.keys(userUpdates).length > 0) {
-      await User.updateOne({ _id: userId }, { $set: userUpdates });
+      await userOwner.updateOneUser({ _id: userId }, { $set: userUpdates });
     }
 
     if (Object.keys(updates).length === 0 && Object.keys(userUpdates).length === 0) {

@@ -5,7 +5,7 @@
  */
 
 import { success, notFound, badRequest, forbidden } from "../../../../services/base/index.js"
-import { User } from "../../../../models/index.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { attendanceOwner } from "../../../../services/attendance/attendanceOwner.service.js"
 import { attendanceQueries } from "../../../../services/attendance/attendanceQueries.service.js"
@@ -39,10 +39,13 @@ class AttendanceService {
   async normalizeAssignedUsers(assignedUsers) {
     if (!Array.isArray(assignedUsers) || assignedUsers.length === 0) return []
     const uniqueIds = [...new Set(assignedUsers.map(String))]
-    const users = await User.find({
-      _id: { $in: uniqueIds },
-      role: { $in: ASSIGNABLE_ROLES },
-    }).select("_id")
+    const users = await userQueries.findUsers(
+      {
+        _id: { $in: uniqueIds },
+        role: { $in: ASSIGNABLE_ROLES },
+      },
+      { select: "_id" }
+    )
     return users.map((u) => u._id)
   }
 
@@ -180,7 +183,7 @@ class AttendanceService {
   async resolveStudentByQr(email, encryptedData) {
     if (!email || !encryptedData) return { error: "Invalid QR code" }
 
-    const userDoc = await User.findOne({
+    const userDoc = await userQueries.findOneUser({
       email: { $regex: new RegExp(`^${escapeRegex(email)}$`, "i") },
     })
     if (!userDoc || !userDoc.aesKey) return { error: "Invalid QR code" }

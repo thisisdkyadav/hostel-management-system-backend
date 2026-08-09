@@ -5,8 +5,8 @@
  * @module services/staffAttendance.service
  */
 
-import { User } from '../../../../models/index.js';
-import { Security } from '../../../../models/index.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
 import { decryptData } from '../../../../utils/qrUtils.js';
 import { success, badRequest, error } from '../../../../services/base/index.js';
 import { staffAttendanceOwner } from '../../../../services/staff-attendance/staffAttendanceOwner.service.js';
@@ -25,7 +25,7 @@ class StaffAttendanceService {
         return badRequest('Invalid QR Code data');
       }
 
-      const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+      const user = await userQueries.findUserByEmailCI(email);
       if (!user) {
         return badRequest('Staff not found');
       }
@@ -54,8 +54,10 @@ class StaffAttendanceService {
       };
 
       if (staffType === 'security') {
-        const securityProfile = await Security.findOne({ userId: user._id })
-          .populate('hostelId', 'name type');
+        const securityProfile = await staffRolesQueries.findByUserIdWithPopulate('Security', user._id, {
+          path: 'hostelId',
+          select: 'name type',
+        });
 
         if (securityProfile && securityProfile.hostelId) {
           staffInfo.hostelId = securityProfile.hostelId._id;
@@ -88,7 +90,7 @@ class StaffAttendanceService {
         return badRequest('Invalid attendance type');
       }
 
-      const user = await User.findOne({ email: { $regex: new RegExp(`^${email}$`, 'i') } });
+      const user = await userQueries.findUserByEmailCI(email);
       if (!user) {
         return badRequest('Staff not found');
       }
@@ -127,9 +129,10 @@ class StaffAttendanceService {
       if (hostelId) queryObj.hostelId = hostelId;
 
       if (staffType && !userId) {
-        const users = await User.find({
-          role: staffType === 'security' ? 'Security' : 'Maintenance Staff'
-        }).select('_id');
+        const users = await userQueries.findUsers(
+          { role: staffType === 'security' ? 'Security' : 'Maintenance Staff' },
+          { select: '_id' }
+        );
         queryObj.userId = { $in: users.map((u) => u._id) };
       }
 

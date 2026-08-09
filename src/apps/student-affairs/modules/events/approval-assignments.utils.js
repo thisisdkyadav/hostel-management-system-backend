@@ -3,7 +3,7 @@
  * @description Utilities for assigning specific post-Student-Affairs approvers
  */
 
-import User from "../../../../models/user/User.model.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { ROLES } from "../../../../core/constants/roles.constants.js"
 import { POST_STUDENT_AFFAIRS_APPROVERS } from "./events.constants.js"
 
@@ -95,10 +95,13 @@ export const resolvePostStudentAffairsAssignments = async (
   }
 
   const uniqueUserIds = [...new Set(normalizedAssignments.map((assignment) => assignment.userId))]
-  const users = await User.find({
-    _id: { $in: uniqueUserIds },
-    role: { $in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
-  }).select("_id role subRole name email")
+  const users = await userQueries.findUsers(
+    {
+      _id: { $in: uniqueUserIds },
+      role: { $in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
+    },
+    { select: "_id role subRole name email" }
+  )
 
   const usersById = new Map(users.map((user) => [String(user._id), user]))
 
@@ -166,12 +169,13 @@ export const getCustomAssignmentState = (entity, currentStage) => {
 }
 
 export const getPostStudentAffairsApproverOptionsByStage = async () => {
-  const users = await User.find({
-    role: { $in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
-    subRole: { $in: POST_STUDENT_AFFAIRS_APPROVERS },
-  })
-    .select("_id name email subRole")
-    .lean()
+  const users = await userQueries.findUsers(
+    {
+      role: { $in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
+      subRole: { $in: POST_STUDENT_AFFAIRS_APPROVERS },
+    },
+    { select: "_id name email subRole", lean: true }
+  )
 
   const stageOrder = new Map(
     POST_STUDENT_AFFAIRS_APPROVERS.map((stage, index) => [stage, index])

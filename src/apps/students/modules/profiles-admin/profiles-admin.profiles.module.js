@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { User } from '../../../../models/index.js';
+import { userOwner } from '../../../../services/user/userOwner.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { studentProfileOwner } from '../../../../services/student/studentProfileOwner.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { configQueries } from '../../../../services/config/configQueries.service.js';
@@ -201,7 +202,7 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
   // via Promise.all races both to start the transaction at the same txnNumber,
   // which MongoDB rejects ("Only servers in a sharded cluster can start a new
   // transaction at the active transaction number").
-  const existingUsers = await User.find({ email: { $in: emails } }).session(session);
+  const existingUsers = await userQueries.findUsers({ email: { $in: emails } }, { session });
   const existingProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
 
   const existingEmails = new Set(existingUsers.map((user) => user.email));
@@ -238,7 +239,7 @@ const processCreateStudentsChunk = async (chunkStudents, session, allErrors) => 
     role: 'Student',
   }));
 
-  const userInsertResult = await User.collection.insertMany(userDocs, { session });
+  const userInsertResult = await userOwner.insertUsersRaw(userDocs, { session });
   const insertedUserIds = Object.values(userInsertResult.insertedIds);
 
   const profileDocs = insertedUserIds.map((userId, index) => buildCreateProfileDoc(userId, studentsToCreate[index]));
@@ -442,7 +443,7 @@ const processUpdateStudentsChunk = async ({
   }
 
   if (userBulkOps.length > 0) {
-    await User.bulkWrite(userBulkOps, { session });
+    await userOwner.bulkWriteUsers(userBulkOps, { session });
   }
   if (profileBulkOps.length > 0) {
     await studentProfileOwner.bulkWrite(profileBulkOps, { session });
@@ -1006,7 +1007,7 @@ export const updateStudentProfile = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, forbidden('You are not allowed to update this student profile'));
   }
 
-  const updatedUser = await User.findByIdAndUpdate(
+  const updatedUser = await userOwner.updateUserById(
     userId,
     { name, email: trimmedEmail, phone, profileImage },
     { new: true }

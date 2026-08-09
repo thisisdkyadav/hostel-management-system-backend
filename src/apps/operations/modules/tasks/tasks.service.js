@@ -5,7 +5,7 @@
  * @module apps/operations/modules/tasks/service
  */
 
-import { User } from '../../../../models/index.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import {
   success,
   notFound,
@@ -33,7 +33,7 @@ class TasksService {
     }
 
     if (assignedUsers && assignedUsers.length > 0) {
-      const userCount = await User.countDocuments({ _id: { $in: assignedUsers } });
+      const userCount = await userQueries.countUsers({ _id: { $in: assignedUsers } });
       if (userCount !== assignedUsers.length) {
         return badRequest('One or more assigned users do not exist');
       }
@@ -204,7 +204,7 @@ class TasksService {
     }
 
     if (assignedUsers) {
-      const userCount = await User.countDocuments({ _id: { $in: assignedUsers } });
+      const userCount = await userQueries.countUsers({ _id: { $in: assignedUsers } });
       if (userCount !== assignedUsers.length) {
         return badRequest('One or more assigned users do not exist');
       }

@@ -64,6 +64,19 @@ export const userOwner = {
   async persist(doc) {
     return doc.save()
   },
+
+  /**
+   * Raw bulk insert via the native driver (bypasses mongoose validation/hooks/defaults) —
+   * bulk student-profile creation inside a transaction. Returns { insertedIds, ... }.
+   */
+  async insertUsersRaw(docs, options = {}) {
+    return User.collection.insertMany(docs, options)
+  },
+
+  /** bulkWrite (session-bound ops — bulk student-profile update inside a transaction). */
+  async bulkWriteUsers(ops, options = {}) {
+    return User.bulkWrite(ops, options)
+  },
 }
 
 export default userOwner

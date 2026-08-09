@@ -5,7 +5,8 @@
  */
 
 import mongoose from "mongoose";
-import { User } from "../../../../models/index.js";
+import { userOwner } from "../../../../services/user/userOwner.service.js";
+import { userQueries } from "../../../../services/user/userQueries.service.js";
 import {
   success,
   badRequest,
@@ -157,13 +158,14 @@ const buildDecisionEmailBody = ({ appointment, action, description, approvedDate
 
 class AppointmentsService {
   async getPublicTargets() {
-    const users = await User.find({
-      role: ROLES.ADMIN,
-      subRole: { $in: APPOINTMENT_SUBROLES },
-      acceptingAppointments: true,
-    })
-      .select("name subRole")
-      .sort({ subRole: 1, name: 1 });
+    const users = await userQueries.findUsers(
+      {
+        role: ROLES.ADMIN,
+        subRole: { $in: APPOINTMENT_SUBROLES },
+        acceptingAppointments: true,
+      },
+      { select: "name subRole", sort: { subRole: 1, name: 1 } }
+    );
 
     const targets = users.map((user) => ({
       id: user._id,
@@ -199,11 +201,14 @@ class AppointmentsService {
       return badRequest("Invalid appointment target");
     }
 
-    const targetOfficial = await User.findOne({
-      _id: normalized.targetAdminUserId,
-      role: ROLES.ADMIN,
-      subRole: { $in: APPOINTMENT_SUBROLES },
-    }).select("name subRole acceptingAppointments");
+    const targetOfficial = await userQueries.findOneUser(
+      {
+        _id: normalized.targetAdminUserId,
+        role: ROLES.ADMIN,
+        subRole: { $in: APPOINTMENT_SUBROLES },
+      },
+      { select: "name subRole acceptingAppointments" }
+    );
 
     if (!targetOfficial) {
       return badRequest("Selected appointment target is invalid");
@@ -254,7 +259,7 @@ class AppointmentsService {
       return forbidden("Only appointment-enabled admin roles can access availability settings");
     }
 
-    const foundUser = await User.findById(user._id).select("name subRole acceptingAppointments");
+    const foundUser = await userQueries.findUserById(user._id, { select: "name subRole acceptingAppointments" });
     if (!foundUser) {
       return notFound("User");
     }
@@ -277,11 +282,11 @@ class AppointmentsService {
       return badRequest("acceptingAppointments must be a boolean value");
     }
 
-    const updatedUser = await User.findByIdAndUpdate(
+    const updatedUser = await userOwner.updateUserById(
       user._id,
       { acceptingAppointments: payload.acceptingAppointments },
-      { new: true }
-    ).select("name subRole acceptingAppointments");
+      { new: true, select: "name subRole acceptingAppointments" }
+    );
 
     if (!updatedUser) {
       return notFound("User");

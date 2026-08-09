@@ -6,7 +6,7 @@
  * relevant review modal.
  */
 
-import User from "../../../../models/user/User.model.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import logger from "../../../../services/base/Logger.js"
 import { emailService } from "../../../../services/email/index.js"
 import { env } from "../../../../config/env.config.js"
@@ -107,12 +107,12 @@ export const notifyStageApprovers = async ({
   try {
     let recipients = []
     if (assignedUserId) {
-      const assigned = await User.findById(assignedUserId).select("name email role subRole")
+      const assigned = await userQueries.findUserById(assignedUserId, { select: "name email role subRole" })
       if (assigned) recipients = [assigned]
     } else {
       const role = STAGE_ROLE[stage]
       if (role) {
-        recipients = await User.find({ role, subRole: stage }).select("name email role subRole")
+        recipients = await userQueries.findUsers({ role, subRole: stage }, { select: "name email role subRole" })
       }
     }
     recipients = recipients.filter((recipient) => recipient?.email)
@@ -180,7 +180,7 @@ export const notifySubmitterByEmail = async ({
   }
 
   try {
-    const submitter = await User.findById(submitterUserId).select("name email role subRole")
+    const submitter = await userQueries.findUserById(submitterUserId, { select: "name email role subRole" })
     if (!submitter?.email) {
       return { success: false, skipped: true, reason: "missing_email" }
     }

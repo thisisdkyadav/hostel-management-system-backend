@@ -18,7 +18,7 @@ import { gymkhanaEventOwner } from "../../../../services/gymkhana/gymkhanaEventO
 import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
 import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
 import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
-import User from "../../../../models/user/User.model.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { auditService } from "../../../../services/audit/audit.service.js"
 import { pickFields } from "../../../../utils/objectDiff.js"
 import {
@@ -678,7 +678,7 @@ class CalendarService {
     })
 
     // Notify the Gymkhana President(s) who own the calendar so they can revise & resubmit
-    const presidents = await User.find({ role: ROLES.GYMKHANA, subRole: APPROVAL_STAGES.PRESIDENT_GYMKHANA }).select("_id")
+    const presidents = await userQueries.findUsers({ role: ROLES.GYMKHANA, subRole: APPROVAL_STAGES.PRESIDENT_GYMKHANA }, { select: "_id" })
     for (const president of presidents) {
       await notifySubmitterByEmail({
         entityType: "ActivityCalendar",

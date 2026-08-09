@@ -5,7 +5,7 @@
  * @module services/familyMember.service
  */
 
-import { User } from '../../../../models/index.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
 import { familyOwner } from '../../../../services/family/familyOwner.service.js';
@@ -19,7 +19,7 @@ class FamilyMemberService {
    * @param {Object} data - Family member data
    */
   async createFamilyMember(userId, data) {
-    const user = await User.findById(userId);
+    const user = await userQueries.findUserById(userId);
     if (!user) {
       return notFound('User');
     }
