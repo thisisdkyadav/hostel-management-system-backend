@@ -27,6 +27,9 @@ export * from './inventory/index.js'
 // Attendance Models
 export * from './attendance/index.js'
 
+// Expenditure Models (Student Affairs)
+export * from './expenditure/index.js'
+
 // Scanner Models
 export * from './scanner/index.js'
 

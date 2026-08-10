@@ -61,7 +61,7 @@ viaToken, optional, autoAdvanceAfterHours}`), `requiredDocuments[]`,
 ### AccommodationRequest (workflow instance)
 `typeKey`, `requesterUserId`, applicant snapshot (name/phone/email),
 `permanentAddress`, `addressProof {documentType, fileRef}`,
-`guests[] {name, gender, occupation?, relation?, remarks?}`,
+`guests[] {name, gender, relation?, aadharNumber?, remarks?}`,
 `stay {fromDate, toDate, purpose}`, `persons`, `nights`,
 `quote {persons, nights, feePerPersonPerNight, subtotal, gstPercentage, gstAmount, total}`,
 `status`, `currentStage`, `stageDeadlineAt`,

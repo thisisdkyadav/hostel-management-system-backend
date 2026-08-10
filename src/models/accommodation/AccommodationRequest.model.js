@@ -56,7 +56,6 @@ const GuestSchema = new mongoose.Schema(
     gender: { type: String, enum: ["Male", "Female", "Other"], required: true },
     relation: { type: String, trim: true }, // relation to the student (required at submit)
     aadharNumber: { type: String, trim: true }, // 12-digit Aadhaar (required at submit)
-    occupation: { type: String, trim: true }, // designation/occupation (H2 Annexure)
     remarks: { type: String, trim: true },
   },
   { _id: false }
