@@ -6,7 +6,7 @@
  */
 
 import { userQueries } from '../../../../services/user/userQueries.service.js';
-import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
+import { findStudentsByRollNumbersInScope } from '../../../../utils/hostelScope.js';
 import { success, notFound, badRequest, withTransaction } from '../../../../services/base/index.js';
 import { familyOwner } from '../../../../services/family/familyOwner.service.js';
 import { familyQueries } from '../../../../services/family/familyQueries.service.js';
@@ -66,7 +66,11 @@ class FamilyMemberService {
    * Bulk update family members
    * @param {Object} data - Bulk data with familyData.members array
    */
-  async updateBulkFamilyMembers(data) {
+  /**
+   * @param {Object} data - { familyData: { members, deleteExisting } }
+   * @param {Object} [scope] - caller's hostel scope; unbound callers reach every student
+   */
+  async updateBulkFamilyMembers(data, scope = null) {
     const { familyData } = data;
 
     if (!familyData || !Array.isArray(familyData.members) || familyData.members.length === 0) {
@@ -79,7 +83,7 @@ class FamilyMemberService {
     return withTransaction(async (session) => {
       const rollNumbers = [...new Set(familyData.members.map((m) => m.rollNumber.toUpperCase()))];
 
-      const studentProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
+      const studentProfiles = await findStudentsByRollNumbersInScope(rollNumbers, scope, { session });
 
       if (studentProfiles.length === 0) {
         return notFound('No students found with the provided roll numbers');

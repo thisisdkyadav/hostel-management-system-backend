@@ -80,6 +80,19 @@ export const studentProfileQueries = {
   },
 
   /**
+   * Profiles matching `filter`, LEAN, each carrying its allocation's hostelId so
+   * a caller can narrow a bulk operation to one hostel. `select` is additive —
+   * currentRoomAllocation is always projected.
+   */
+  async findAllocationLinksByFilter(filter = {}, { select = "", session } = {}) {
+    let query = StudentProfile.find(filter)
+      .select(`${select} currentRoomAllocation`.trim())
+      .populate({ path: "currentRoomAllocation", select: "hostelId" })
+    if (session) query = query.session(session)
+    return query.lean()
+  },
+
+  /**
    * One profile by roll number with the full allocation detail chain:
    * userId (name/email/image) + currentRoomAllocation → hostel + room → unit.
    */

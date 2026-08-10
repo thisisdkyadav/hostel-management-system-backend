@@ -12,6 +12,13 @@ import {
   sendStandardResponse,
 } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
+import {
+  findProfileIdsInScope,
+  findProfilesInScope,
+  findStudentsByRollNumbersInScope,
+  getHostelScope,
+  isHostelScoped,
+} from '../../../../utils/hostelScope.js';
 
 const BATCH_ASSIGNMENT_MODE_APPEND = 'append';
 const BATCH_ASSIGNMENT_MODE_REPLACE = 'replace';
@@ -27,7 +34,7 @@ const normalizeRollNumber = (value) => (
 
 const isNumericRollNumber = (value = '') => /^\d+$/.test(value);
 
-const resolveBatchAssignmentRollNumbers = async ({ session, rollNumbers, rollNumberRange }) => {
+const resolveBatchAssignmentRollNumbers = async ({ session, rollNumbers, rollNumberRange, scope }) => {
   const normalizedRollNumbers = Array.isArray(rollNumbers)
     ? [...new Set(rollNumbers.map(normalizeRollNumber).filter(Boolean))]
     : [];
@@ -74,7 +81,11 @@ const resolveBatchAssignmentRollNumbers = async ({ session, rollNumbers, rollNum
     };
   }
 
-  const numericStudents = await studentProfileQueries.findNumericRollNumbers({ session });
+  // Expanded within the caller's hostel, so the record cap is measured against
+  // what they can actually touch rather than the whole institute.
+  const numericStudents = isHostelScoped(scope)
+    ? await findProfilesInScope({ rollNumber: /^\d+$/ }, scope, { select: 'rollNumber', session })
+    : await studentProfileQueries.findNumericRollNumbers({ session });
 
   const rangedRollNumbers = numericStudents
     .filter((student) => {
@@ -145,13 +156,14 @@ export const bulkUpdateStudentsStatus = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
   }
 
+  const scope = getHostelScope(req.user);
   const session = await mongoose.startSession();
 
   try {
     let responsePayload = null;
 
     await session.withTransaction(async () => {
-      const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: '_id rollNumber', session, lean: true });
+      const existingStudents = await findStudentsByRollNumbersInScope(normalizedRollNumbers, scope, { select: '_id rollNumber', session, lean: true });
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const existingRollNumberSet = new Set(existingRollNumbers);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumberSet.has(rollNumber));
@@ -213,7 +225,8 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest(`Maximum ${MAX_BULK_RECORDS} records are allowed per request`));
   }
 
-  const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: 'rollNumber degree department batch groups status', lean: true });
+  const scope = getHostelScope(req.user);
+  const existingStudents = await findStudentsByRollNumbersInScope(normalizedRollNumbers, scope, { select: 'rollNumber degree department batch groups status', lean: true });
 
   const existingStudentMap = new Map(existingStudents.map((student) => [student.rollNumber, student]));
   const existingRollNumbers = normalizedRollNumbers.filter((rollNumber) => existingStudentMap.has(rollNumber));
@@ -234,7 +247,9 @@ export const checkMissingRollNumbers = asyncHandler(async (req, res) => {
   }, {});
   let outOfScopeRollNumbers = [];
   let inScopeCount = existingRollNumbers.length;
-  let scopeLabel = 'System';
+  // The unfiltered check reads over whatever the caller can see, which for
+  // hostel-bound staff is their own hostel rather than the whole system.
+  let scopeLabel = isHostelScoped(scope) ? 'Your hostel' : 'System';
 
   if (scopeType === 'group') {
     const groupName = typeof req.body?.groupName === 'string' ? req.body.groupName.trim() : '';
@@ -336,12 +351,13 @@ export const bulkUpdateDayScholarDetails = asyncHandler(async (req, res) => {
 
   const results = [];
   const errors = [];
+  const scope = getHostelScope(req.user);
   const session = await mongoose.startSession();
 
   try {
     session.startTransaction();
 
-    const students = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
+    const students = await findStudentsByRollNumbersInScope(rollNumbers, scope, { session });
 
     const studentMap = new Map();
     students.forEach((student) => {
@@ -452,6 +468,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest('assignmentMode must be either append or replace'));
   }
 
+  const scope = getHostelScope(req.user);
   const session = await mongoose.startSession();
 
   try {
@@ -462,6 +479,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         session,
         rollNumbers,
         rollNumberRange,
+        scope,
       });
 
       if (!selectionResult.success) {
@@ -478,7 +496,7 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
         return;
       }
 
-      const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: 'rollNumber', session });
+      const existingStudents = await findStudentsByRollNumbersInScope(normalizedRollNumbers, scope, { select: 'rollNumber', session });
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
       const updateFields = { batch };
@@ -506,8 +524,16 @@ export const bulkUpdateStudentsBatch = asyncHandler(async (req, res) => {
       }
 
       if (assignmentMode === BATCH_ASSIGNMENT_MODE_REPLACE) {
+        // "Replace" clears the batch off everyone currently holding it. For a
+        // hostel-bound caller "everyone" means their own hostel, so the clear is
+        // resolved to ids first rather than run as a system-wide match.
+        const clearMatch = buildBatchScopeStudentMatch({ degree, department, batch });
+        const clearFilter = isHostelScoped(scope)
+          ? { _id: { $in: await findProfileIdsInScope(clearMatch, scope, { session }) } }
+          : clearMatch;
+
         const clearedStudents = await studentProfileOwner.updateMany(
-          buildBatchScopeStudentMatch({ degree, department, batch }),
+          clearFilter,
           { $set: { batch: '' } },
           { session }
         );
@@ -566,6 +592,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
     return sendStandardResponse(res, badRequest('assignmentMode must be add, remove, or replace'));
   }
 
+  const scope = getHostelScope(req.user);
   const session = await mongoose.startSession();
 
   try {
@@ -576,6 +603,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
         session,
         rollNumbers,
         rollNumberRange,
+        scope,
       });
 
       if (!selectionResult.success) {
@@ -594,7 +622,7 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
       }
 
       const normalizedRollNumbers = selectionResult.rollNumbers;
-      const existingStudents = await studentProfileQueries.findByRollNumbers(normalizedRollNumbers, { select: 'rollNumber', session });
+      const existingStudents = await findStudentsByRollNumbersInScope(normalizedRollNumbers, scope, { select: 'rollNumber', session });
       const existingRollNumbers = existingStudents.map((student) => student.rollNumber);
       const unsuccessfulRollNumbers = normalizedRollNumbers.filter((rollNumber) => !existingRollNumbers.includes(rollNumber));
 
@@ -627,8 +655,15 @@ export const bulkUpdateStudentsGroups = asyncHandler(async (req, res) => {
           { session }
         );
       } else {
+        // As with batch replace, the membership wipe stays inside the caller's
+        // hostel when they have one.
+        const clearMatch = { groups: { $in: normalizedGroupNames } };
+        const clearFilter = isHostelScoped(scope)
+          ? { _id: { $in: await findProfileIdsInScope(clearMatch, scope, { session }) } }
+          : clearMatch;
+
         const clearedStudents = await studentProfileOwner.updateMany(
-          { groups: { $in: normalizedGroupNames } },
+          clearFilter,
           { $pull: { groups: { $in: normalizedGroupNames } } },
           { session }
         );

@@ -8,6 +8,7 @@
 
 import { healthService } from './health.service.js';
 import { asyncHandler } from '../../../../utils/index.js';
+import { getHostelScope } from '../../../../utils/hostelScope.js';
 
 /**
  * Get health record for a user
@@ -32,7 +33,7 @@ export const updateHealth = asyncHandler(async (req, res) => {
  * @route POST /api/health/bulk
  */
 export const updateBulkStudentHealth = asyncHandler(async (req, res) => {
-  const result = await healthService.updateBulkStudentHealth(req.body.studentsData);
+  const result = await healthService.updateBulkStudentHealth(req.body.studentsData, getHostelScope(req.user));
   
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });

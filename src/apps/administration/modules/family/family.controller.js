@@ -1,5 +1,6 @@
 import { familyMemberService } from "./family.service.js"
 import { asyncHandler } from "../../../../utils/index.js"
+import { getHostelScope } from "../../../../utils/hostelScope.js"
 
 // Helper: Error format { message, error }
 const sendResponse = (res, result) => {
@@ -30,6 +31,6 @@ export const deleteFamilyMember = asyncHandler(async (req, res) => {
 })
 
 export const updateBulkFamilyMembers = asyncHandler(async (req, res) => {
-  const result = await familyMemberService.updateBulkFamilyMembers(req.body)
+  const result = await familyMemberService.updateBulkFamilyMembers(req.body, getHostelScope(req.user))
   sendResponse(res, result)
 })

@@ -111,7 +111,8 @@ import {
 } from './hostelGateController.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
-import { requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
+import { routeGuard } from '../../../../lib/api-kit/index.js';
 
 const router = express.Router();
 
@@ -120,6 +121,20 @@ router.use(authenticate);
 
 // Public route for authenticated users
 router.get('/hostel/list', getHostelList);
+
+// Bulk health update is one tab of the student bulk-update tool, so it follows
+// that tool's roles rather than this router's Admin-only default. It has to be
+// registered above the blanket role gate below to escape it.
+const studentToolGuard = routeGuard({
+  Admin: 'route.admin.students',
+  'Hostel Supervisor': 'route.hostelSupervisor.students',
+});
+router.post(
+  '/student/health/bulk-update',
+  studentToolGuard(['Admin', 'Hostel Supervisor']),
+  requireAnyCapability(['cap.students.edit.personal']),
+  updateBulkStudentHealth
+);
 
 // Admin-only routes
 router.use(authorizeRoles(['Admin']));
@@ -225,7 +240,7 @@ router.post('/insurance-providers/bulk-student-update', requireRouteAccess('rout
 // Student health management
 router.get('/student/health/:userId', requireRouteAccess('route.admin.students'), getHealth);
 router.put('/student/health/:userId', requireRouteAccess('route.admin.students'), updateHealth);
-router.post('/student/health/bulk-update', requireRouteAccess('route.admin.students'), updateBulkStudentHealth);
+// POST /student/health/bulk-update is registered above the Admin-only gate.
 
 // Insurance claims
 router.post('/insurance-claims', requireRouteAccess('route.admin.students'), createInsuranceClaim);

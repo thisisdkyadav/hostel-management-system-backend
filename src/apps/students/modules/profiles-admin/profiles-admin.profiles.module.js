@@ -15,6 +15,7 @@ import {
   isHostelAllowed,
   buildEmptyStudentsResult,
 } from './profiles-admin.shared.js';
+import { findStudentsByRollNumbersInScope, getHostelScope, isHostelScoped } from '../../../../utils/hostelScope.js';
 
 const STUDENT_IMPORT_PROGRESS_EVENT = 'students:import:progress';
 const CREATE_STUDENTS_CHUNK_SIZE = 200;
@@ -341,6 +342,7 @@ const processUpdateStudentsChunk = async ({
   session,
   currentUserId,
   errors,
+  scope,
 }) => {
   const results = [];
   const rollNumbers = [];
@@ -362,7 +364,9 @@ const processUpdateStudentsChunk = async ({
     return { results, userOpsCount: 0, profileOpsCount: 0 };
   }
 
-  const existingProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { select: '_id rollNumber userId degree department batch', session, lean: true });
+  // Hostel-bound staff only resolve students in their own hostel; anyone else
+  // in the sheet falls through to the "not found" error below.
+  const existingProfiles = await findStudentsByRollNumbersInScope(rollNumbers, scope, { select: '_id rollNumber userId degree department batch', session, lean: true });
 
   const studentBatchesConfig = chunkStudents.some((student) => student.batch !== undefined)
     ? ((await configQueries.findByKey('studentBatches', { session }))?.value || {})
@@ -385,7 +389,9 @@ const processUpdateStudentsChunk = async ({
     if (!existingProfile) {
       errors.push({
         student: rollNumber,
-        message: `Student with roll number ${rollNumber} not found`,
+        message: isHostelScoped(scope)
+          ? `Student with roll number ${rollNumber} not found in your hostel`
+          : `Student with roll number ${rollNumber} not found`,
       });
       continue;
     }
@@ -566,6 +572,7 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
   const studentsData = req.body;
   const currentUser = req.user;
   const studentsArray = Array.isArray(studentsData) ? studentsData : [studentsData];
+  const scope = getHostelScope(currentUser);
   const updateJobIdHeader = req.headers['x-update-job-id'];
   const importJobIdHeader = req.headers['x-import-job-id'];
   const updateJobIdRaw = typeof updateJobIdHeader === 'string' && updateJobIdHeader.trim()
@@ -617,6 +624,7 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
             session,
             currentUserId: currentUser?._id || null,
             errors,
+            scope,
           });
         });
       } finally {

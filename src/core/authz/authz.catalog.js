@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 14
+export const AUTHZ_CATALOG_VERSION = 15
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -249,10 +249,11 @@ export const AUTHZ_CAPABILITY_DEFAULTS_BY_ROLE = Object.values(ROLES).reduce((ac
   return acc
 }, {})
 
+// Hostel Supervisors run the student bulk-update tool alongside Admins, so they
+// hold this capability by default. Wardens remain opt-in.
 export const AUTHZ_CAPABILITY_DENY_DEFAULTS_BY_ROLE = {
   [ROLES.WARDEN]: ["cap.students.edit.personal"],
   [ROLES.ASSOCIATE_WARDEN]: ["cap.students.edit.personal"],
-  [ROLES.HOSTEL_SUPERVISOR]: ["cap.students.edit.personal"],
 }
 
 export const AUTHZ_CATALOG = {

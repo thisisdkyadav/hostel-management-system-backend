@@ -129,6 +129,30 @@ export const renameDegree = asyncHandler(async (req, res) => {
   return sendStandardResponse(res, result);
 });
 
+/**
+ * The configured taxonomy the student bulk tools validate uploads against.
+ * `/config/:key` is Settings-scoped and Admin-only, so staff who manage
+ * students (wardens, hostel supervisors) read the same values from here.
+ */
+export const getTaxonomyOptions = asyncHandler(async (req, res) => {
+  const [degrees, departments, studentGroups] = await Promise.all([
+    getConfigWithDefault('degrees'),
+    getConfigWithDefault('departments'),
+    getConfigWithDefault('studentGroups'),
+  ]);
+
+  return sendStandardResponse(res, {
+    success: true,
+    statusCode: 200,
+    data: {
+      degrees: degrees?.value || [],
+      departments: departments?.value || [],
+      studentGroups: studentGroups?.value || [],
+    },
+    message: 'Taxonomy options fetched successfully',
+  });
+});
+
 export const getBatchesList = asyncHandler(async (req, res) => {
   const { degree, department } = req.query;
   const studentBatchesConfig = await getConfigWithDefault('studentBatches');

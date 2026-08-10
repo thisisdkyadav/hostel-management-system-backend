@@ -35,6 +35,7 @@ import {
   getBatchesList,
   renameBatch,
   renameGroup,
+  getTaxonomyOptions,
 } from './profiles-admin.taxonomy.module.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -56,6 +57,12 @@ const guard = routeGuard({
 });
 
 const requireAdminSettingsRouteAccess = requireRouteAccess('route.admin.settings');
+
+// Roles allowed to run the bulk student tools. Hostel Supervisors get the same
+// toolset as Admins here; the write routes are additionally gated on
+// `cap.students.edit.personal`, exactly like the single/bulk profile edits.
+const BULK_TOOL_ROLES = ['Admin', 'Hostel Supervisor'];
+const requireStudentEditCapability = requireAnyCapability(['cap.students.edit.personal']);
 
 router.get(
   '/profiles',
@@ -101,28 +108,32 @@ router.get(
 );
 router.post(
   '/profiles/check-roll-numbers',
-  guard(['Admin']),
+  guard(BULK_TOOL_ROLES),
   validate(checkMissingRollNumbersSchema),
   checkMissingRollNumbers
 );
 router.post(
   '/profiles/status',
-  guard(['Admin']),
+  guard(BULK_TOOL_ROLES),
+  requireStudentEditCapability,
   bulkUpdateStudentsStatus
 );
 router.put(
   '/profiles/day-scholar',
-  guard(['Admin']),
+  guard(BULK_TOOL_ROLES),
+  requireStudentEditCapability,
   bulkUpdateDayScholarDetails
 );
 router.put(
   '/profiles/batch',
-  guard(['Admin']),
+  guard(BULK_TOOL_ROLES),
+  requireStudentEditCapability,
   bulkUpdateStudentsBatch
 );
 router.put(
   '/profiles/groups',
-  guard(['Admin']),
+  guard(BULK_TOOL_ROLES),
+  requireStudentEditCapability,
   bulkUpdateStudentsGroups
 );
 router.put(
@@ -134,6 +145,11 @@ router.get(
   '/room-allocations/student/:rollNumber',
   guard(['Admin']),
   getAllocationStudentByRollNumber
+);
+router.get(
+  '/taxonomy/options',
+  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  getTaxonomyOptions
 );
 router.get(
   '/departments/list',

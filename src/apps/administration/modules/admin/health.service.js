@@ -5,7 +5,7 @@
  * @module services/health
  */
 
-import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
+import { findStudentsByRollNumbersInScope } from '../../../../utils/hostelScope.js';
 import { success, badRequest, notFound, withTransaction } from '../../../../services/base/index.js';
 import { healthOwner } from '../../../../services/health/healthOwner.service.js';
 import { healthQueries } from '../../../../services/health/healthQueries.service.js';
@@ -41,7 +41,11 @@ class HealthService {
    * Bulk update student health records
    * @param {Array} studentsData - Array of student data with rollNumber and bloodGroup
    */
-  async updateBulkStudentHealth(studentsData) {
+  /**
+   * @param {Array} studentsData - [{ rollNumber, bloodGroup }]
+   * @param {Object} [scope] - caller's hostel scope; unbound callers reach every student
+   */
+  async updateBulkStudentHealth(studentsData, scope = null) {
     if (!Array.isArray(studentsData) || studentsData.length === 0) {
       return badRequest('Students data array is required and must not be empty');
     }
@@ -52,7 +56,7 @@ class HealthService {
     return withTransaction(async (session) => {
       const rollNumbers = studentsData.map((student) => student.rollNumber.toUpperCase());
 
-      const studentProfiles = await studentProfileQueries.findByRollNumbers(rollNumbers, { session });
+      const studentProfiles = await findStudentsByRollNumbersInScope(rollNumbers, scope, { session });
 
       if (studentProfiles.length === 0) {
         return notFound('No students found with the provided roll numbers');
