@@ -13,14 +13,18 @@ import mongoose from "mongoose"
 export const ACCOMMODATION_STATUS = {
   DRAFT: "Draft",
   SUBMITTED: "Submitted",
+  PENDING_CWO_CAPACITY: "Pending CWO Capacity Check",
   PENDING_FA_RECOMMENDATION: "Pending FA Recommendation",
   PENDING_CW_APPROVAL: "Pending CW Approval",
   RETURNED_TO_STUDENT: "Returned to Student",
   REJECTED: "Rejected",
   CW_APPROVED: "CW Approved",
   PAYMENT_REQUESTED: "Payment Requested",
+  PAYMENT_DEFERRED: "Payment Deferred",
   PAYMENT_SUBMITTED: "Payment Submitted",
   PAYMENT_VERIFIED: "Payment Verified",
+  // Legacy: hostel allotment is now part of the payment request. Kept in the
+  // enum so requests already sitting at this status can still be completed.
   HOSTEL_ALLOTTED: "Hostel Allotted",
   ROOMS_ASSIGNED: "Rooms Assigned",
   CHECKED_IN: "Checked In",
@@ -45,10 +49,20 @@ export const ADDRESS_PROOF_TYPES = ["PAN", "Voter ID", "Driving License", "Insti
 
 export const PAYMENT_STATUS = {
   PENDING: "Pending",
+  DEFERRED: "Deferred", // student chose "pay later"; settles after rooms are assigned
   SUBMITTED: "Submitted",
   VERIFIED: "Verified",
   REJECTED: "Rejected",
 }
+
+// How the student chose to settle the bill.
+export const PAYMENT_MODE = {
+  NOW: "now",
+  LATER: "later",
+}
+
+// Guest days run 11:00 → 11:00. Anything outside that is a requested extension.
+export const STANDARD_CHECK_TIME = "11:00"
 
 const GuestSchema = new mongoose.Schema(
   {
@@ -99,9 +113,11 @@ const PaymentSchema = new mongoose.Schema(
     amount: { type: Number, default: 0 },
     paymentLink: { type: String, default: "" },
     qrRef: { type: String, default: "" },
+    mode: { type: String, enum: [...Object.values(PAYMENT_MODE), null], default: null },
     status: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
     screenshotFileRef: { type: String, default: "" },
-    transactionId: { type: String, default: "" },
+    utr: { type: String, default: "" }, // 12-digit numeric UTR of the transfer
+    paidAt: { type: Date, default: null }, // date the student made the payment
     remarks: { type: String, default: "" }, // CW Office note, e.g. why the amount differs
     submittedAt: { type: Date, default: null },
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -155,9 +171,17 @@ const AccommodationRequestSchema = new mongoose.Schema(
     addressProof: { type: AddressProofSchema, default: () => ({}) },
     guests: { type: [GuestSchema], default: [] },
 
+    // fromDate/toDate stay date-only (the calendar days billed); the times are
+    // kept separately as "HH:mm" so nights never shift with a timezone.
     stay: {
       fromDate: { type: Date },
       toDate: { type: Date },
+      checkInTime: { type: String, default: STANDARD_CHECK_TIME },
+      checkOutTime: { type: String, default: STANDARD_CHECK_TIME },
+      // Hours requested outside the standard 11:00 → 11:00 window. Recorded so
+      // the hostel holds the room; they do not change the charge.
+      earlyCheckInHours: { type: Number, default: 0 },
+      lateCheckOutHours: { type: Number, default: 0 },
       purpose: { type: String, trim: true },
     },
     persons: { type: Number, default: 0 },

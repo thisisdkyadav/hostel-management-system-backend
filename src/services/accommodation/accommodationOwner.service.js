@@ -18,7 +18,7 @@
  * persist() is a plain save.
  */
 
-import { AccommodationRequest, AccommodationType } from "../../models/index.js"
+import { AccommodationRequest, AccommodationType, InvoiceCounter } from "../../models/index.js"
 
 export const accommodationOwner = {
   // ==================== AccommodationRequest ====================
@@ -32,6 +32,22 @@ export const accommodationOwner = {
   async persist(request, { session } = {}) {
     await request.save(session ? { session } : undefined)
     return request
+  },
+
+  // ==================== InvoiceCounter ====================
+
+  /**
+   * Claim the next serial in an invoice series. Atomic $inc with upsert, so two
+   * invoices issued at the same instant can never take the same number and the
+   * series stays consecutive.
+   */
+  async nextInvoiceSerial(seriesKey) {
+    const counter = await InvoiceCounter.findOneAndUpdate(
+      { key: seriesKey },
+      { $inc: { lastSerial: 1 } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    )
+    return counter.lastSerial
   },
 
   // ==================== AccommodationType ====================

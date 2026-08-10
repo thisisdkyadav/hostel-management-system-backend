@@ -6,16 +6,26 @@ import { ROLES } from "../../../../core/constants/roles.constants.js"
 
 // Approval-chain stage ids.
 export const STAGE = {
+  CW_OFFICE_CAPACITY: "cwOfficeCapacity",
   FACULTY_ADVISOR: "facultyAdvisor",
   CHIEF_WARDEN: "chiefWarden",
 }
 
-// Chief Warden decision actions (request param / body).
+// Chief Warden decision actions (request param / body). The Chief Warden Office
+// capacity screening uses the same three.
 export const CW_DECISION = {
   APPROVE: "approve",
   REQUEST_MODIFICATION: "request_modification",
   REJECT: "reject",
 }
+
+// Guest days run 11:00 → 11:00; anything outside is a requested extension.
+export const STANDARD_CHECK_HOUR = 11
+export const STANDARD_CHECK_TIME = "11:00"
+export const TIME_OF_DAY_RE = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+// UTR of an NEFT/IMPS/UPI transfer — always 12 numeric digits.
+export const UTR_RE = /^\d{12}$/
 
 // Faculty advisor (token) decisions.
 export const FA_DECISION = {
@@ -23,10 +33,17 @@ export const FA_DECISION = {
   DECLINE: "decline",
 }
 
-// Accountant payment-verification decisions.
+// Accountant payment-verification decisions (on a portal-submitted payment).
 export const PAYMENT_DECISION = {
   VERIFY: "verify",
   REJECT: "reject",
+}
+
+// Accounts-office overrides for money that never passes through the portal
+// (cash/DD at the counter, a bank reconciliation, or fixing a mistake).
+export const MANUAL_SETTLEMENT = {
+  MARK_PAID: "mark_paid",
+  MARK_UNPAID: "mark_unpaid",
 }
 
 export const CW_AUTO_APPROVE_HOURS = 24

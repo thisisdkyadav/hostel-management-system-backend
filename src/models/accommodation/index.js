@@ -7,3 +7,5 @@ export * from "./AccommodationType.model.js"
 
 export { default as AccommodationRequest } from "./AccommodationRequest.model.js"
 export * from "./AccommodationRequest.model.js"
+
+export { default as InvoiceCounter } from "./InvoiceCounter.model.js"

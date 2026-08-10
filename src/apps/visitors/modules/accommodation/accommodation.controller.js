@@ -35,6 +35,29 @@ export const cancelRequest = asyncHandler(async (req, res) => {
   sendStandardResponse(res, await accommodationService.cancelRequest(req.params.requestId, req.user))
 })
 
+// Streams the invoice PDF itself, so it needs the raw response rather than the
+// standard envelope. `disposition=attachment` makes the browser download it.
+export const getInvoiceFile = asyncHandler(async (req, res) => {
+  const result = await accommodationService.getInvoiceFile(req.params.requestId, req.user)
+  if (!result.success) {
+    return res.status(result.statusCode || 400).json({ success: false, message: result.message })
+  }
+
+  const { buffer, contentType, filename } = result.data
+  const disposition = String(req.query.disposition || "inline") === "attachment" ? "attachment" : "inline"
+  res.setHeader("Content-Type", contentType)
+  res.setHeader("Content-Length", buffer.length)
+  res.setHeader("Content-Disposition", `${disposition}; filename="${filename}"`)
+  return res.end(buffer)
+})
+
+export const capacityDecision = asyncHandler(async (req, res) => {
+  sendStandardResponse(
+    res,
+    await accommodationService.capacityDecision(req.params.requestId, req.body?.action, req.body, req.user)
+  )
+})
+
 export const chiefWardenDecision = asyncHandler(async (req, res) => {
   sendStandardResponse(
     res,
@@ -55,15 +78,26 @@ export const submitPayment = asyncHandler(async (req, res) => {
   sendStandardResponse(res, await accommodationService.submitPayment(req.params.requestId, req.body, req.user))
 })
 
+export const settlePaymentManually = asyncHandler(async (req, res) => {
+  sendStandardResponse(
+    res,
+    await accommodationService.settlePaymentManually(req.params.requestId, req.body?.action, req.body, req.user)
+  )
+})
+
+export const adminCancelRequest = asyncHandler(async (req, res) => {
+  sendStandardResponse(res, await accommodationService.adminCancelRequest(req.params.requestId, req.body, req.user))
+})
+
+export const deferPayment = asyncHandler(async (req, res) => {
+  sendStandardResponse(res, await accommodationService.deferPayment(req.params.requestId, req.user))
+})
+
 export const verifyPayment = asyncHandler(async (req, res) => {
   sendStandardResponse(
     res,
     await accommodationService.verifyPayment(req.params.requestId, req.body?.action, req.body, req.user)
   )
-})
-
-export const allotHostel = asyncHandler(async (req, res) => {
-  sendStandardResponse(res, await accommodationService.allotHostel(req.params.requestId, req.body, req.user))
 })
 
 // Arrival tail (Supervisor / Gate + CW Office availability).

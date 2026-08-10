@@ -87,31 +87,24 @@ export const sendStudentSubmittedEmail = async ({ to, studentName, quote, reques
   await emailService.sendCustomEmail({ to, subject: "Accommodation request submitted", body })
 }
 
-export const sendPaymentRequestEmail = async ({ to, studentName, amount, paymentLink, request }) => {
+export const sendPaymentRequestEmail = async ({ to, studentName, amount, paymentLink, hostelName, request }) => {
   if (!to) return
   const payHtml = paymentLink
     ? `<p>Pay using this link / QR: <a href="${paymentLink}">${paymentLink}</a></p>`
     : `<p>Please use the payment QR shown on your request page in the HMS portal.</p>`
+  const hostelLine = hostelName
+    ? `<p>Your guests have been allotted accommodation at <strong>${hostelName}</strong>.</p>`
+    : ""
   const body = `
     <p>Dear ${studentName || "Student"},</p>
-    <p>Your accommodation request has been approved. Please pay <strong>${money(amount)}</strong>
-    before the guests arrive.</p>
+    <p>Your accommodation request has been approved. The amount payable is <strong>${money(amount)}</strong>.</p>
+    ${hostelLine}
     ${payHtml}
     <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
-    <p>After paying, upload a screenshot of the payment on the HMS portal so it can be verified.</p>
+    <p>Pay now and upload the UTR, payment date and a screenshot on the HMS portal — or choose
+    <strong>Pay later</strong> and settle the bill once your rooms are assigned.</p>
     ${ctaButton(studentRequestLink(request?._id), "Pay & upload proof")}`
   await emailService.sendCustomEmail({ to, subject: "Payment requested for your accommodation request", body })
-}
-
-export const sendAllotmentEmail = async ({ to, studentName, hostelName, request }) => {
-  if (!to) return
-  const body = `
-    <p>Dear ${studentName || "Student"},</p>
-    <p>Your guests have been allotted accommodation at <strong>${hostelName || "the assigned hostel"}</strong>.</p>
-    <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
-    <p>Room details will be assigned on arrival. You can track this on the HMS portal.</p>
-    ${ctaButton(studentRequestLink(request?._id))}`
-  await emailService.sendCustomEmail({ to, subject: "Accommodation allotted for your guests", body })
 }
 
 export const sendRoomsAssignedEmail = async ({ to, studentName, hostelName, request }) => {
@@ -124,18 +117,51 @@ export const sendRoomsAssignedEmail = async ({ to, studentName, hostelName, requ
   await emailService.sendCustomEmail({ to, subject: "Rooms assigned for your guests", body })
 }
 
-export const sendInvoiceEmail = async ({ to, studentName, number, quote, gstin, hostelName, request }) => {
+export const sendInvoiceEmail = async ({ to, studentName, number, quote, gstin, hostelName, request, pdf }) => {
   if (!to) return
   const gstinLine = gstin ? `<p>GSTIN: ${gstin}</p>` : ""
   const body = `
     <p>Dear ${studentName || "Student"},</p>
-    <p>Your accommodation invoice <strong>${number}</strong> is ready.</p>
+    <p>Your accommodation invoice <strong>${number}</strong> is ready${pdf ? " and attached to this email" : ""}.</p>
     <p>Hostel: ${hostelName || "-"} · Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
     ${quoteHtml(quote)}
     ${gstinLine}
     <p>Thank you for using the HMS guest accommodation service.</p>
     ${ctaButton(studentRequestLink(request?._id), "View invoice")}`
-  await emailService.sendCustomEmail({ to, subject: `Accommodation invoice ${number}`, body })
+  const attachments = pdf
+    ? [{ filename: `${String(number).replace(/[^\w-]+/g, "-")}.pdf`, content: pdf, contentType: "application/pdf" }]
+    : []
+  await emailService.sendCustomEmail({ to, subject: `Accommodation invoice ${number}`, body, attachments })
+}
+
+const staffQueueLink = () =>
+  `${String(env.FRONTEND_URL || "").replace(/\/+$/, "")}/admin/visitors`
+
+/**
+ * Tells the desk that now owns a request that it is waiting on them. `to` is a
+ * list; an empty list is a no-op, so a missing role never throws.
+ */
+export const sendStaffQueueEmail = async ({ to = [], heading, action, request, student, extra = "" }) => {
+  const recipients = (Array.isArray(to) ? to : [to]).filter(Boolean)
+  if (recipients.length === 0) return
+
+  const who = student?.name || request?.applicantName || "A student"
+  const rollNumber = student?.rollNumber ? ` (${student.rollNumber})` : ""
+  const body = `
+    <p>${heading}</p>
+    ${row("Student", `${who}${rollNumber}`)}
+    ${row("Guests", request?.persons ?? (request?.guests?.length || 0))}
+    ${row("Stay", `${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}`)}
+    ${request?.stay?.purpose ? row("Purpose", request.stay.purpose) : ""}
+    ${extra}
+    <p><strong>Action needed:</strong> ${action}</p>
+    ${ctaButton(staffQueueLink(), "Open the queue")}`
+
+  await emailService.sendCustomEmail({
+    to: recipients,
+    subject: `Guest accommodation — ${action}`,
+    body,
+  })
 }
 
 export const sendStudentDecisionEmail = async ({ to, studentName, status, reason, requestId }) => {

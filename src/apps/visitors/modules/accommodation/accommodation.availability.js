@@ -17,10 +17,18 @@ import { accommodationQueries } from "../../../../services/accommodation/accommo
 
 const bedCount = (room) => room.originalCapacity || room.capacity || 0
 
-// Hostel-level headroom (CW Office allotment view).
+/**
+ * Hostel-level headroom (CW Office capacity + allotment view).
+ *
+ * Rooms are booked whole — a party gets a room to itself rather than a bed in a
+ * shared one — so the ROOM count, not the bed count, is what limits how many
+ * bookings a hostel can take. Beds are still reported, because a party has to
+ * fit inside the rooms it is given.
+ */
 export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
   const emptyRooms = await hostelQueries.findEmptyActiveRooms(hostelId)
   const totalBeds = emptyRooms.reduce((sum, room) => sum + bedCount(room), 0)
+  const largestRoom = emptyRooms.reduce((max, room) => Math.max(max, bedCount(room)), 0)
 
   // Bookings already allotted here but not yet room-assigned still have a claim on
   // the empty pool (their rooms aren't flipped to "Guest" until assignment). Once
@@ -31,15 +39,31 @@ export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRe
     to,
     excludeRequestId,
   })
-  const committed = pending.reduce((sum, req) => sum + (req.persons || 0), 0)
+  const committedBeds = pending.reduce((sum, req) => sum + (req.persons || 0), 0)
+  const committedRooms = pending.reduce(
+    (sum, req) => sum + roomsNeededFor(req.persons || 0, largestRoom),
+    0
+  )
 
+  const availableRooms = Math.max(0, emptyRooms.length - committedRooms)
   return {
     hostelId,
     roomCount: emptyRooms.length,
     totalBeds,
-    committed,
-    available: Math.max(0, totalBeds - committed),
+    largestRoom,
+    committed: committedBeds,
+    committedRooms,
+    availableRooms,
+    // Beds a new party could actually occupy, capped by the rooms left for it.
+    available: Math.max(0, Math.min(totalBeds - committedBeds, availableRooms * largestRoom)),
   }
+}
+
+/** Whole rooms a party of `persons` needs, given the largest room on offer. */
+export const roomsNeededFor = (persons, largestRoom) => {
+  const party = Math.max(1, Number(persons) || 0)
+  const capacity = Math.max(1, Number(largestRoom) || 1)
+  return Math.ceil(party / capacity)
 }
 
 // Availability across every hostel that currently has empty Active rooms.

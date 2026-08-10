@@ -62,11 +62,12 @@ viaToken, optional, autoAdvanceAfterHours}`), `requiredDocuments[]`,
 `typeKey`, `requesterUserId`, applicant snapshot (name/phone/email),
 `permanentAddress`, `addressProof {documentType, fileRef}`,
 `guests[] {name, gender, relation?, aadharNumber?, remarks?}`,
-`stay {fromDate, toDate, purpose}`, `persons`, `nights`,
+`stay {fromDate, toDate, checkInTime, checkOutTime, earlyCheckInHours, lateCheckOutHours, purpose}`,
+`persons`, `nights`,
 `quote {persons, nights, feePerPersonPerNight, subtotal, gstPercentage, gstAmount, total}`,
 `status`, `currentStage`, `stageDeadlineAt`,
 `approvals[] {stage, action, actorUserId?, actorEmail?, reason?, at}`,
-`payment {amount, paymentLink, qrRef, status, screenshotFileRef, transactionId, submittedAt, verifiedBy?, verifiedAt?, note?}`,
+`payment {amount, paymentLink, qrRef, mode, status, screenshotFileRef, utr, paidAt, remarks, submittedAt, verifiedBy?, verifiedAt?, note?}`,
 `allotment {hostelId, allottedBy, allottedAt}`,
 `rooms[] {roomId, guestIndexes[]}`, `roomsAssignedBy`, `roomsAssignedAt`,
 `checkInAt?`, `checkOutAt?`,
@@ -79,30 +80,54 @@ Guest profiles reuse `VisitorProfile` conceptually; embedded here for simplicity
 ## 5. State machine
 
 ```
-DRAFT → SUBMITTED
-  ├─ has facultyAdvisorEmail ─▶ PENDING_FA_RECOMMENDATION
-  │        recommend ─▶ PENDING_CW_APPROVAL
-  │        decline   ─▶ RETURNED_TO_STUDENT (revise & resubmit)
-  └─ none ──────────▶ PENDING_CW_APPROVAL
+DRAFT → SUBMITTED ──▶ PENDING_CWO_CAPACITY      [every request is screened first]
+PENDING_CWO_CAPACITY  (CW Office sees free guest beds per hostel for the dates)
+  ├─ approve ─┬─ has facultyAdvisorEmail ─▶ PENDING_FA_RECOMMENDATION
+  │           │        recommend ─▶ PENDING_CW_APPROVAL
+  │           │        decline   ─▶ RETURNED_TO_STUDENT (revise & resubmit)
+  │           └─ none ──────────▶ PENDING_CW_APPROVAL
+  ├─ request modification ─▶ RETURNED_TO_STUDENT
+  └─ reject (reason)      ─▶ REJECTED (terminal)
 PENDING_CW_APPROVAL  (stageDeadlineAt = now+24h; hourly cron auto-approves)
   ├─ approve              ─▶ CW_APPROVED
   ├─ request modification ─▶ RETURNED_TO_STUDENT
   └─ reject (reason)      ─▶ REJECTED (terminal)
-CW_APPROVED ─(CW Office issues request)─▶ PAYMENT_REQUESTED   [form freezes, QR unlocks]
-PAYMENT_REQUESTED ─(student uploads screenshot)─▶ PAYMENT_SUBMITTED
+CW_APPROVED ─(CW Office sets the amount AND allots the hostel)─▶ PAYMENT_REQUESTED
+    [form freezes, QR unlocks, beds committed — the ONLY hostel selection]
+PAYMENT_REQUESTED
+  ├─ pay now   (UTR + paid-on date + screenshot) ─▶ PAYMENT_SUBMITTED
+  └─ pay later ─────────────────────────────────▶ PAYMENT_DEFERRED
 PAYMENT_SUBMITTED
   ├─ accountant verify ─▶ PAYMENT_VERIFIED
   └─ accountant reject ─▶ PAYMENT_REQUESTED
-PAYMENT_VERIFIED ─(CW Office allots hostel)─▶ HOSTEL_ALLOTTED
-HOSTEL_ALLOTTED ─(supervisor assigns rooms — MANDATORY)─▶ ROOMS_ASSIGNED
+PAYMENT_VERIFIED / PAYMENT_DEFERRED ─(supervisor assigns rooms — MANDATORY)─▶ ROOMS_ASSIGNED
 ROOMS_ASSIGNED ─[optional gate]─▶ CHECKED_IN ─▶ CHECKED_OUT
-… stay-end cron ─▶ INVOICED
+… stay-end cron ─▶ INVOICED  (invoice only if the payment is verified)
 CANCELLED: student may cancel before payment.
 ```
+
+A **deferred** bill is settled from the student's portal any time after room
+assignment — including after the stay closes. That payment moves only
+`payment.status` (the stay has already moved on), and the invoice is issued the
+moment the accountant verifies it. A pay-now request is invoiced by the stay-end
+sweep instead. The accountant's queue is therefore keyed on
+`payment.status === "Submitted"`, not on the workflow status.
+
+`HOSTEL_ALLOTTED` is legacy — allotment now happens with the payment request. It
+remains in the enum, and transitions to `ROOMS_ASSIGNED`, so requests already at
+that status when this shipped can still be completed.
 
 Negative paths: **Request Modification** (→ RETURNED_TO_STUDENT, revisable) vs
 **Reject** (→ REJECTED, terminal). Both require a reason. Chief Warden and Chief
 Warden Office are strictly separate sub-roles.
+
+### Stay window
+
+A guest day runs **11:00 → 11:00**. `stay.fromDate`/`toDate` stay date-only (so a
+night count can never shift with a timezone) and the times live beside them as
+`checkInTime`/`checkOutTime`. Checking in before 11:00 or out after 11:00 is an
+**extension**: `earlyCheckInHours`/`lateCheckOutHours` are derived and stored so
+the hostel holds the room across them, but they do not change the charge.
 
 ## 6. Guest-room availability (mandatory room assignment)
 
@@ -116,8 +141,19 @@ availableGuestBeds(hostelId, from, to) =
   (guest beds in hostel) − (beds committed to other requests whose stay overlaps [from,to))
 ```
 
-- **HOSTEL_ALLOTTED** (CW Office): allotment screen shows available guest
-  rooms/beds per hostel for the requested dates.
+Rooms are booked **whole** — a party gets a room to itself rather than a bed in
+a shared one — so the ROOM count is what limits how many bookings a hostel can
+take; beds only decide whether a party fits inside the room it is given. The
+allotment check therefore requires a free room AND enough beds.
+
+Allotment happens inside a per-hostel distributed lock (`lock:accommodation:allot:<hostelId>`,
+with a short retry). Availability is a read-then-write whose write lands on the
+*request* document, so two offices allotting the last room touch different
+documents and a transaction would not conflict — serialising per hostel is what
+actually prevents the oversell.
+
+- **Capacity + allotment** (CW Office): the screen shows free guest rooms per
+  hostel for the requested dates.
 - **ROOMS_ASSIGNED** (Supervisor): **required**; assigns specific guest room(s)/bed(s),
   validated against availability; populates room numbers for the daily PDF.
 - Guard: a request reaching stay-end without rooms assigned is flagged, not invoiced.

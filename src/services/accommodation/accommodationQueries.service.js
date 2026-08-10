@@ -69,10 +69,11 @@ export const accommodationQueries = {
   },
 
   /**
-   * Hydrated requests whose stay has ended and have no invoice yet
-   * (nightly invoicing sweep). Mutated + persisted by the caller in a loop.
+   * Hydrated in-stay requests whose stay has ended (nightly close-out sweep).
+   * Statuses transition to INVOICED, so a closed request never matches again —
+   * no invoice filter is needed. Mutated + persisted by the caller in a loop.
    */
-  async findDueForInvoicing() {
+  async findDueForStayClose() {
     return AccommodationRequest.find({
       status: {
         $in: [
@@ -82,19 +83,28 @@ export const accommodationQueries = {
         ],
       },
       "stay.toDate": { $lt: new Date() },
-      "invoice.generatedAt": null,
     })
   },
 
   /**
-   * Allotted-but-not-yet-room-assigned bookings in a hostel whose stay overlaps
-   * [from, to). Drives guest-room availability (their persons still claim the
-   * empty pool until rooms are assigned). Returns lean {persons} projections.
+   * Bookings holding beds in a hostel whose stay overlaps [from, to). Drives
+   * guest-room availability: the hostel is now chosen at payment-request time,
+   * so a booking claims the empty pool from that moment until its rooms are
+   * assigned (after which the rooms leave the Active-empty pool on their own).
+   * Returns lean {persons} projections.
    */
   async findOverlappingAllotted({ hostelId, from, to, excludeRequestId } = {}) {
     const filter = {
       "allotment.hostelId": hostelId,
-      status: ACCOMMODATION_STATUS.HOSTEL_ALLOTTED,
+      status: {
+        $in: [
+          ACCOMMODATION_STATUS.PAYMENT_REQUESTED,
+          ACCOMMODATION_STATUS.PAYMENT_SUBMITTED,
+          ACCOMMODATION_STATUS.PAYMENT_VERIFIED,
+          ACCOMMODATION_STATUS.PAYMENT_DEFERRED,
+          ACCOMMODATION_STATUS.HOSTEL_ALLOTTED, // legacy in-flight requests
+        ],
+      },
       ...overlapFilter(from, to),
     }
     if (excludeRequestId) filter._id = { $ne: excludeRequestId }

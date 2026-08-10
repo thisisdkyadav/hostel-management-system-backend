@@ -53,6 +53,12 @@ router.get(
   guard(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
   ctrl.getRequestById
 )
+// The invoice PDF, for anyone who can already open the request
+router.get(
+  "/requests/:requestId/invoice",
+  guard(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
+  ctrl.getInvoiceFile
+)
 router.post(
   "/requests",
   guard(["Student"]),
@@ -67,6 +73,14 @@ router.post(
   "/requests/:requestId/cancel",
   guard(["Student"]),
   ctrl.cancelRequest
+)
+
+// Chief Warden Office capacity screening — the first gate a request passes
+router.post(
+  "/requests/:requestId/capacity-decision",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
+  ctrl.capacityDecision
 )
 
 // Chief Warden approve / request-modification / reject
@@ -85,7 +99,7 @@ router.post(
   ctrl.bypassFacultyAdvisor
 )
 
-// Chief Warden Office issues the payment request
+// Chief Warden Office issues the payment request and allots the hostel
 router.post(
   "/requests/:requestId/payment-request",
   guard(["Admin"]),
@@ -93,11 +107,18 @@ router.post(
   ctrl.issuePaymentRequest
 )
 
-// Student submits the payment screenshot
+// Student submits the payment proof (UTR + date + screenshot)
 router.post(
   "/requests/:requestId/payment",
   guard(["Student"]),
   ctrl.submitPayment
+)
+
+// Student opts to settle the bill after their rooms are assigned
+router.post(
+  "/requests/:requestId/defer-payment",
+  guard(["Student"]),
+  ctrl.deferPayment
 )
 
 // Accountant verifies / rejects the payment
@@ -108,20 +129,30 @@ router.post(
   ctrl.verifyPayment
 )
 
-// Chief Warden Office: guest-bed availability across hostels for allotment
+// Accounts office records money that never went through the portal, or
+// corrects a mistake: mark_paid / mark_unpaid
+router.post(
+  "/requests/:requestId/payment-settle",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.ACCOUNTANT]),
+  ctrl.settlePaymentManually
+)
+
+// Chief Warden / CW Office cancel a booking the student can no longer withdraw
+router.post(
+  "/requests/:requestId/admin-cancel",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.CHIEF_WARDEN, SUBROLES.CHIEF_WARDEN_OFFICE]),
+  ctrl.adminCancelRequest
+)
+
+// Chief Warden Office: guest-bed availability per hostel — backs both the
+// capacity screening and the hostel pick when the payment request is issued
 router.get(
   "/requests/:requestId/allotment-availability",
   guard(["Admin"]),
   requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
   ctrl.getAllotmentAvailability
-)
-
-// Chief Warden Office allots a hostel
-router.post(
-  "/requests/:requestId/allot",
-  guard(["Admin"]),
-  requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
-  ctrl.allotHostel
 )
 
 // Hostel Supervisor (Guest House Manager): per-room availability + assign rooms
