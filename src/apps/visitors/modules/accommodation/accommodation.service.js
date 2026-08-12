@@ -143,7 +143,7 @@ const buildStudentSummary = async (userId) => {
 const pad2 = (n) => String(n).padStart(2, "0")
 
 // Minimum lead time (in working days, Mon–Fri) between today and the stay start.
-const MIN_LEAD_WORKING_DAYS = 2
+const MIN_LEAD_WORKING_DAYS = 3
 
 // Add `n` working days (skipping Sat/Sun) to a date, returning a new Date.
 const addWorkingDays = (start, n) => {

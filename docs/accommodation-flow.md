@@ -103,8 +103,10 @@ PAYMENT_SUBMITTED
 PAYMENT_VERIFIED / PAYMENT_DEFERRED ─(supervisor assigns rooms — MANDATORY)─▶ ROOMS_ASSIGNED
 ROOMS_ASSIGNED ─[optional gate]─▶ CHECKED_IN ─▶ CHECKED_OUT
 … stay-end cron ─▶ INVOICED  (invoice only if the payment is verified)
-CANCELLED: student may cancel before payment.
+CANCELLED: the student may cancel before payment is initiated; after payment is requested, only the Chief Warden / Chief Warden Office may cancel administratively.
 ```
+
+New requests must be submitted at least **3 working days** before the check-in date (Monday–Friday; weekends are not counted).
 
 A **deferred** bill is settled from the student's portal any time after room
 assignment — including after the stay closes. That payment moves only
