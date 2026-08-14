@@ -423,7 +423,9 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
     $unwind: { path: "$unit", preserveNullAndEmptyArrays: true },
   })
 
-  // Apply 'missing' filter: fields null/undefined/empty string/empty array
+  // Apply 'missing' filter: field absent, null, blank string, or empty array.
+  // In $expr, `$eq: ["$field", null]` does NOT match BSON missing fields (Mongo 8),
+  // so missing/null must be detected via $type.
   if (missing !== undefined && missing !== null && missing !== "") {
     let missingFields = []
     if (Array.isArray(missing)) {
@@ -452,6 +454,28 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
       const userFieldSet = new Set(["name", "email", "phone", "profileImage"])
       const profileFieldSet = new Set(["rollNumber", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "secondaryEmail", "facultyAdvisorEmail", "familyMembers"])
 
+      const isMissingExpr = (path) => {
+        const field = `$${path}`
+        return {
+          $or: [
+            { $in: [{ $type: field }, ["missing", "null"]] },
+            { $eq: [field, ""] },
+            {
+              $and: [
+                { $eq: [{ $type: field }, "string"] },
+                { $eq: [{ $trim: { input: field } }, ""] },
+              ],
+            },
+            {
+              $and: [
+                { $eq: [{ $isArray: field }, true] },
+                { $eq: [{ $size: field }, 0] },
+              ],
+            },
+          ],
+        }
+      }
+
       const andConditions = []
       for (const key of missingFields) {
         let path
@@ -462,16 +486,7 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
         } else {
           continue
         }
-
-        andConditions.push({
-          $or: [
-            { $eq: [`$${path}`, null] },
-            { $eq: [`$${path}`, ""] },
-            {
-              $and: [{ $eq: [{ $isArray: `$${path}` }, true] }, { $eq: [{ $size: `$${path}` }, 0] }],
-            },
-          ],
-        })
+        andConditions.push(isMissingExpr(path))
       }
 
       if (andConditions.length > 0) {
@@ -550,10 +565,26 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
   return this.aggregate(pipeline)
 }
 
-// Expose allowed keys for frontend to build the missing filter UI
+// Expose allowed keys for frontend to build the missing filter UI.
+// Values are the query keys sent as `missing`; labels are for display only.
 StudentProfileSchema.statics.getMissingFieldOptions = function () {
-  return ["phone", "profileImage", "department", "degree", "batch", "groups", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "secondaryEmail", "facultyAdvisorEmail"]
-  // return ["name", "email", "phone", "profileImage", "rollNumber", "department", "degree", "admissionDate", "address", "dateOfBirth", "gender", "guardian", "guardianPhone", "guardianEmail", "familyMembers"]
+  return [
+    { value: "phone", label: "Phone" },
+    { value: "profileImage", label: "Profile Image" },
+    { value: "department", label: "Department" },
+    { value: "degree", label: "Degree" },
+    { value: "batch", label: "Batch" },
+    { value: "groups", label: "Groups" },
+    { value: "admissionDate", label: "Admission Date" },
+    { value: "address", label: "Address" },
+    { value: "dateOfBirth", label: "Date of Birth" },
+    { value: "gender", label: "Gender" },
+    { value: "guardian", label: "Guardian" },
+    { value: "guardianPhone", label: "Guardian Phone" },
+    { value: "guardianEmail", label: "Guardian Email" },
+    { value: "secondaryEmail", label: "Secondary Email" },
+    { value: "facultyAdvisorEmail", label: "Faculty Advisor Email" },
+  ]
 }
 
 StudentProfileSchema.index({ userId: 1, rollNumber: 1 })
