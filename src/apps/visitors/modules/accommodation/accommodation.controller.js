@@ -100,6 +100,13 @@ export const verifyPayment = asyncHandler(async (req, res) => {
   )
 })
 
+export const updatePaymentDetails = asyncHandler(async (req, res) => {
+  sendStandardResponse(
+    res,
+    await accommodationService.updatePaymentDetails(req.params.requestId, req.body, req.user)
+  )
+})
+
 // Arrival tail (Supervisor / Gate + CW Office availability).
 export const getAllotmentAvailability = asyncHandler(async (req, res) => {
   sendStandardResponse(res, await accommodationService.getAllotmentAvailability(req.params.requestId))

@@ -24,16 +24,19 @@ export const TRANSITIONS = {
   [S.RETURNED_TO_STUDENT]: [S.SUBMITTED, S.CANCELLED],
   // CW Office sets the amount and the hostel in one action.
   [S.CW_APPROVED]: [S.PAYMENT_REQUESTED, S.CANCELLED],
-  // The student either pays now or defers; both lead to room assignment.
-  // PAYMENT_VERIFIED is reachable directly because money taken at the counter
-  // never passes through the portal's "submitted" step.
+  // The student either pays now or defers. Rooms are assigned only after
+  // payment is verified. PAYMENT_VERIFIED is also reachable directly because
+  // money taken at the counter never passes through "submitted".
   [S.PAYMENT_REQUESTED]: [S.PAYMENT_SUBMITTED, S.PAYMENT_DEFERRED, S.PAYMENT_VERIFIED, S.CANCELLED],
   // A student cannot pull out once payment is requested, but the office can
   // cancel a booking any time before it is invoiced — the release valve for
   // dropped-out guests and bookings holding rooms they will never use.
-  [S.PAYMENT_SUBMITTED]: [S.PAYMENT_VERIFIED, S.PAYMENT_REQUESTED, S.CANCELLED],
+  // Reject returns to PAYMENT_REQUESTED (pay now) or PAYMENT_DEFERRED (pay later).
+  [S.PAYMENT_SUBMITTED]: [S.PAYMENT_VERIFIED, S.PAYMENT_REQUESTED, S.PAYMENT_DEFERRED, S.CANCELLED],
   [S.PAYMENT_VERIFIED]: [S.ROOMS_ASSIGNED, S.CANCELLED],
-  [S.PAYMENT_DEFERRED]: [S.ROOMS_ASSIGNED, S.CANCELLED],
+  // Pay later: student may pay any time (→ SUBMITTED) or settle at the counter
+  // (→ VERIFIED). Rooms wait until payment is verified.
+  [S.PAYMENT_DEFERRED]: [S.PAYMENT_SUBMITTED, S.PAYMENT_VERIFIED, S.CANCELLED],
   [S.HOSTEL_ALLOTTED]: [S.ROOMS_ASSIGNED, S.CANCELLED], // legacy in-flight requests only
   [S.ROOMS_ASSIGNED]: [S.CHECKED_IN, S.INVOICED, S.CANCELLED],
   [S.CHECKED_IN]: [S.CHECKED_OUT, S.INVOICED, S.CANCELLED],
@@ -55,8 +58,9 @@ export const CANCELLABLE_STATUSES = [
   S.RETURNED_TO_STUDENT,
 ]
 
-// A deferred bill can be settled from the moment rooms are assigned, and stays
-// settleable after the stay closes — the invoice is issued whenever it lands.
+// Legacy: deferred bills that already reached room assignment under the old
+// rules can still settle without moving the workflow status. New deferred
+// payments are open at PAYMENT_DEFERRED and follow the normal pay path.
 export const DEFERRED_PAYABLE_STATUSES = [
   S.ROOMS_ASSIGNED,
   S.CHECKED_IN,

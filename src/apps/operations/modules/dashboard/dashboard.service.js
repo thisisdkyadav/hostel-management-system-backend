@@ -12,18 +12,36 @@ import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import mongoose from 'mongoose';
 
+// Hosteller = not a day scholar. Matches Students page filter `isDayScholar=false`:
+// false, null, or field missing. Do NOT use `{ isDayScholar: false }` alone — that
+// undercounts profiles where the flag was never set (legacy / incomplete imports).
+const activeHostlerFilter = {
+  status: 'Active',
+  $or: [
+    { isDayScholar: false },
+    { isDayScholar: null },
+    { isDayScholar: { $exists: false } },
+  ],
+}
+
+const activeDayScholarFilter = {
+  status: 'Active',
+  isDayScholar: true,
+}
+
 class DashboardService {
   /**
-   * Get hostler and day scholar counts by gender
+   * Get hostler and day scholar counts by gender.
+   * Same hosteller definition as Students page Day Scholar → Hosteller filter.
    */
   async getHostlerAndDayScholarCounts() {
     const [hostlerTotal, hostlerBoys, hostlerGirls, dayScholarTotal, dayScholarBoys, dayScholarGirls] = await Promise.all([
-      studentProfileQueries.countProfiles({ isDayScholar: false, status: 'Active' }),
-      studentProfileQueries.countProfiles({ isDayScholar: false, gender: 'Male', status: 'Active' }),
-      studentProfileQueries.countProfiles({ isDayScholar: false, gender: 'Female', status: 'Active' }),
-      studentProfileQueries.countProfiles({ isDayScholar: true, status: 'Active' }),
-      studentProfileQueries.countProfiles({ isDayScholar: true, gender: 'Male', status: 'Active' }),
-      studentProfileQueries.countProfiles({ isDayScholar: true, gender: 'Female', status: 'Active' })
+      studentProfileQueries.countProfiles({ ...activeHostlerFilter }),
+      studentProfileQueries.countProfiles({ ...activeHostlerFilter, gender: 'Male' }),
+      studentProfileQueries.countProfiles({ ...activeHostlerFilter, gender: 'Female' }),
+      studentProfileQueries.countProfiles({ ...activeDayScholarFilter }),
+      studentProfileQueries.countProfiles({ ...activeDayScholarFilter, gender: 'Male' }),
+      studentProfileQueries.countProfiles({ ...activeDayScholarFilter, gender: 'Female' }),
     ]);
     
     return {

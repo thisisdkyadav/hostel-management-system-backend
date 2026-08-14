@@ -31,11 +31,18 @@ export const defaultConfigs = {
     value: {
       defaultPaymentLink: "",
       defaultPaymentQR: "",
-      feePerPersonPerNight: 0,
-      gstPercentage: 0,
+      // Three preset prices per person (Chief Warden Office picks one per guest, or types a custom amount).
+      pricePerPerson1: 0,
+      pricePerPerson2: 0,
+      pricePerPerson3: 0,
+      // Three preset GST percentages (same idea — pick per guest or enter manually).
+      gstPercentage1: 0,
+      gstPercentage2: 0,
+      gstPercentage3: 0,
       gstin: "",
     },
-    description: "Visitor accommodation settings: default payment link/QR, per-person-per-night fee, GST percentage, and GSTIN shown on invoices.",
+    description:
+      "Visitor accommodation: payment link/QR, three preset prices per person, three GST % options (Chief Warden Office selects per guest when requesting payment), and GSTIN for invoices.",
   },
   academicHolidays: {
     value: {},

@@ -28,14 +28,25 @@ const formatDate = (d) => {
   }
 }
 
-const quoteHtml = (quote = {}) => `
+const quoteHtml = (quote = {}) => {
+  const lines = Array.isArray(quote.guestCharges) ? quote.guestCharges : []
+  const guestRows = lines
+    .map(
+      (g) =>
+        `<tr><td style="padding:2px 12px 2px 0">${g.guestName || `Guest ${(g.guestIndex ?? 0) + 1}`}</td>` +
+        `<td>${money(g.price)} + GST ${g.gstPercentage || 0}% = ${money(g.total)}</td></tr>`
+    )
+    .join("")
+  return `
   <table style="border-collapse:collapse;margin-top:8px">
     <tr><td style="padding:2px 12px 2px 0">Guests</td><td>${quote.persons || 0}</td></tr>
     <tr><td style="padding:2px 12px 2px 0">Nights</td><td>${quote.nights || 0}</td></tr>
+    ${guestRows}
     <tr><td style="padding:2px 12px 2px 0">Subtotal</td><td>${money(quote.subtotal)}</td></tr>
-    <tr><td style="padding:2px 12px 2px 0">GST (${quote.gstPercentage || 0}%)</td><td>${money(quote.gstAmount)}</td></tr>
-    <tr><td style="padding:2px 12px 2px 0"><strong>Estimated total</strong></td><td><strong>${money(quote.total)}</strong></td></tr>
+    <tr><td style="padding:2px 12px 2px 0">GST</td><td>${money(quote.gstAmount)}</td></tr>
+    <tr><td style="padding:2px 12px 2px 0"><strong>Total</strong></td><td><strong>${money(quote.total)}</strong></td></tr>
   </table>`
+}
 
 const row = (label, value) =>
   value ? `<tr><td style="padding:2px 12px 2px 0;color:#6b7280">${label}</td><td>${value}</td></tr>` : ""
@@ -62,27 +73,28 @@ export const sendFacultyRecommendationRequestEmail = async ({ to, studentName, r
   if (!to || !rawToken) return
   const link = `${env.FRONTEND_URL}/accommodation/recommendation/${rawToken}`
   const body = `
-    <p>Dear Faculty Advisor,</p>
+    <p>Dear Faculty Advisor / Supervisor,</p>
     <p><strong>${studentName || "A student"}</strong> has requested hostel accommodation for visitors and
-    listed you as their faculty advisor. Your recommendation is requested.</p>
+    listed you as their faculty advisor / supervisor. Your recommendation is requested.</p>
     ${studentHtml(student)}
     <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)} ·
-    Guests: ${request?.persons || 0} · Purpose: ${request?.stay?.purpose || "-"}</p>
+    Guests: ${request?.persons || 0} · Room preference: ${request?.roomPreference || "-"} ·
+    Purpose: ${request?.stay?.purpose || "-"}</p>
     <p>Please review and respond using the secure link below (no login required):</p>
     <p><a href="${link}">${link}</a></p>
     <p>This link is single-use and will expire.</p>`
   await emailService.sendCustomEmail({ to, subject: `Accommodation recommendation requested by ${studentName || "a student"}`, body })
 }
 
-export const sendStudentSubmittedEmail = async ({ to, studentName, quote, request }) => {
+export const sendStudentSubmittedEmail = async ({ to, studentName, request }) => {
   if (!to) return
   const body = `
     <p>Dear ${studentName || "Student"},</p>
     <p>Your accommodation request has been submitted and is now under review.</p>
-    <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
-    <p>Estimated charges (final amount confirmed at approval):</p>
-    ${quoteHtml(quote)}
-    <p>You will be notified as your request progresses.</p>
+    <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)} ·
+    Guests: ${request?.persons || 0} · Room preference: ${request?.roomPreference || "-"}</p>
+    <p>The Chief Warden Office will set the payable amount if your request is approved.
+    You will be notified as your request progresses.</p>
     ${ctaButton(studentRequestLink(request?._id))}`
   await emailService.sendCustomEmail({ to, subject: "Accommodation request submitted", body })
 }
@@ -102,7 +114,7 @@ export const sendPaymentRequestEmail = async ({ to, studentName, amount, payment
     ${payHtml}
     <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
     <p>Pay now and upload the UTR, payment date and a screenshot on the HMS portal — or choose
-    <strong>Pay later</strong> and settle the bill once your rooms are assigned.</p>
+    <strong>Pay later</strong>. Rooms will be allocated only after payment; you can pay when the guest arrives.</p>
     ${ctaButton(studentRequestLink(request?._id), "Pay & upload proof")}`
   await emailService.sendCustomEmail({ to, subject: "Payment requested for your accommodation request", body })
 }

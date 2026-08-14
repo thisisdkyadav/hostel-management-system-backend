@@ -33,7 +33,14 @@ import {
   ACTION_LINK_TOKEN_TYPE,
 } from "../../../../services/action-links/action-link-token.service.js"
 import { getAccommodationType, listAccommodationTypes } from "./accommodation.types.service.js"
-import { buildQuote, computeNights, getAccommodationConfig } from "./accommodation.quote.js"
+import {
+  buildQuoteFromGuestCharges,
+  computeNights,
+  emptyQuote,
+  getAccommodationConfig,
+  gstOptionsFromConfig,
+  priceOptionsFromConfig,
+} from "./accommodation.quote.js"
 import {
   applyStatus,
   CANCELLABLE_STATUSES,
@@ -75,6 +82,34 @@ const isOwner = (request, user) => String(request.requesterUserId) === String(us
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** Parse optional UTR + paidAt for accountant corrections. Returns { error } or { utr?, paidAt? }. */
+const parsePaymentDetails = (body, { requireBoth = false } = {}) => {
+  const hasUtr = body?.utr !== undefined && body?.utr !== null && String(body.utr).trim() !== ""
+  const hasPaidAt = body?.paidAt !== undefined && body?.paidAt !== null && String(body.paidAt).trim() !== ""
+
+  if (requireBoth && (!hasUtr || !hasPaidAt)) {
+    return { error: "UTR and payment date are required" }
+  }
+  if (!hasUtr && !hasPaidAt) {
+    return { error: "Provide a UTR and/or payment date to update" }
+  }
+
+  let utr
+  if (hasUtr) {
+    utr = String(body.utr).replace(/\s/g, "")
+    if (!UTR_RE.test(utr)) return { error: "UTR must be a 12-digit number" }
+  }
+
+  let paidAt
+  if (hasPaidAt) {
+    paidAt = new Date(body.paidAt)
+    if (Number.isNaN(paidAt.getTime())) return { error: "Payment date is invalid" }
+    if (paidAt.getTime() > Date.now()) return { error: "Payment date cannot be in the future" }
+  }
+
+  return { utr, paidAt, hasUtr, hasPaidAt }
+}
+
 /**
  * `withLock` gives up the instant the lock is held, which would bounce a second
  * office that is simply allotting a different room at the same time. Allotment
@@ -103,19 +138,12 @@ const notifyStaff = (resolveRecipients, payload) => {
     .catch((error) => console.error("Accommodation staff notification failed:", error.message))
 }
 
-/**
- * Tell the allotted hostel's supervisor a booking is ready for rooms. Reached
- * from both payment paths, so the "still unpaid" warning is spelled out here.
- */
+/** Tell the allotted hostel's supervisor a booking is ready for room assignment. */
 const notifySupervisorReadyForRooms = (request) => {
-  const unpaid = request.payment?.status !== PAYMENT_STATUS.VERIFIED
   notifyStaff(() => supervisorsForHostel(request.allotment?.hostelId), {
     heading: "A guest booking has been allotted to your hostel and needs rooms.",
     action: "Assign rooms",
     request,
-    extra: unpaid
-      ? `<p><strong>Note:</strong> the student chose to pay later — ${request.payment?.amount} is still outstanding.</p>`
-      : "",
   })
 }
 
@@ -160,15 +188,30 @@ const addWorkingDays = (start, n) => {
 // Date-only key (YYYY-MM-DD) for calendar comparison, TZ-safe for date-only input.
 const dateKey = (v) => (typeof v === "string" ? v.slice(0, 10) : `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`)
 
+const ROOM_PREFERENCES = new Set(["Single", "Double"])
+
+const normalizeGuestAge = (value) => {
+  if (value === "" || value === null || value === undefined) return null
+  const n = Number(value)
+  if (!Number.isFinite(n)) return null
+  return Math.trunc(n)
+}
+
 const validateGuestsAndStay = (body) => {
   const guests = Array.isArray(body.guests) ? body.guests : []
   if (guests.length === 0) return "At least one guest is required"
   for (const guest of guests) {
     if (!guest?.name || !guest?.gender) return "Each guest needs a name and gender"
+    const age = normalizeGuestAge(guest?.age)
+    if (age === null) return "Each guest needs an age"
+    if (age < 0 || age > 150) return "Guest age must be between 0 and 150"
     if (!guest?.relation || !String(guest.relation).trim()) return "Each guest needs a relation to the student"
     const aadhaar = String(guest?.aadharNumber || "").replace(/\s/g, "")
     if (!aadhaar) return "Each guest needs an Aadhaar number"
     if (!/^\d{12}$/.test(aadhaar)) return "Aadhaar number must be 12 digits"
+  }
+  if (!ROOM_PREFERENCES.has(body?.roomPreference)) {
+    return "Room preference (Single or Double) is required"
   }
   const fromDate = body?.stay?.fromDate
   const toDate = body?.stay?.toDate
@@ -185,21 +228,26 @@ const validateGuestsAndStay = (body) => {
   return null
 }
 
+const normalizeGuests = (guests = []) =>
+  guests.map((guest) => ({
+    ...guest,
+    age: normalizeGuestAge(guest?.age),
+    aadharNumber: String(guest?.aadharNumber || "").replace(/\s/g, ""),
+    relation: String(guest?.relation || "").trim(),
+    name: String(guest?.name || "").trim(),
+  }))
+
 export const accommodationService = {
   async getTypes() {
     const types = await listAccommodationTypes()
     return success(types)
   },
 
+  /** Amounts are set by Chief Warden Office — students only get person/night counts. */
   async previewQuote(body) {
-    const typeKey = body.typeKey || "parents-siblings"
-    const type = await getAccommodationType(typeKey)
-    if (!type) return badRequest("Invalid accommodation type")
-
     const persons = Number(body.persons) || (Array.isArray(body.guests) ? body.guests.length : 0)
     const nights = computeNights(body?.stay?.fromDate, body?.stay?.toDate)
-    const config = await getAccommodationConfig()
-    return success(buildQuote({ type, config, persons, nights }))
+    return success(emptyQuote({ persons, nights }))
   },
 
   async submitRequest(body, user) {
@@ -224,14 +272,14 @@ export const accommodationService = {
     const validationError = validateGuestsAndStay(body)
     if (validationError) return badRequest(validationError)
 
-    const guests = body.guests
+    const guests = normalizeGuests(body.guests)
     const fromDate = body.stay.fromDate
     const toDate = body.stay.toDate
     const stayTimes = resolveStayTimes(body.stay)
     const persons = guests.length
     const nights = computeNights(fromDate, toDate)
-    const config = await getAccommodationConfig()
-    const quote = buildQuote({ type, config, persons, nights })
+    // Amount is set later by Chief Warden Office — no auto-calculated estimate.
+    const quote = emptyQuote({ persons, nights })
 
     const profile = await studentProfileQueries.findByUserId(user._id, { lean: true })
     const facultyAdvisorEmail =
@@ -247,6 +295,7 @@ export const accommodationService = {
       permanentAddress: body.permanentAddress,
       addressProof: body.addressProof || {},
       guests,
+      roomPreference: body.roomPreference,
       stay: { fromDate, toDate, ...stayTimes, purpose: body?.stay?.purpose },
       persons,
       nights,
@@ -259,7 +308,7 @@ export const accommodationService = {
     await accommodationOwner.persist(request)
 
     accommodationEmails
-      .sendStudentSubmittedEmail({ to: user.email, studentName: request.applicantName, quote, request })
+      .sendStudentSubmittedEmail({ to: user.email, studentName: request.applicantName, request })
       .catch(() => {})
     notifyStaff(chiefWardenOfficeEmails, {
       heading: "A new guest accommodation request needs a capacity check.",
@@ -591,8 +640,13 @@ export const accommodationService = {
     // one is given it must still be a real 12-digit UTR.
     if (reference && !UTR_RE.test(reference)) return badRequest("UTR must be a 12-digit number")
 
-    const wasBlockingProgress = request.status === ACCOMMODATION_STATUS.PAYMENT_REQUESTED ||
-      request.status === ACCOMMODATION_STATUS.PAYMENT_SUBMITTED
+    // Payment (or pay-later) is still blocking room assignment — settling it
+    // unlocks the supervisor. After rooms are already assigned, only payment.status moves.
+    const wasBlockingProgress = [
+      ACCOMMODATION_STATUS.PAYMENT_REQUESTED,
+      ACCOMMODATION_STATUS.PAYMENT_SUBMITTED,
+      ACCOMMODATION_STATUS.PAYMENT_DEFERRED,
+    ].includes(request.status)
 
     request.payment.status = PAYMENT_STATUS.VERIFIED
     request.payment.verifiedBy = user._id
@@ -603,7 +657,6 @@ export const accommodationService = {
     if (!request.payment.mode) request.payment.mode = PAYMENT_MODE.NOW
 
     if (wasBlockingProgress) {
-      // Pay-now bookings wait on the money, so settling it moves them along.
       applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_VERIFIED, {
         by: user._id,
         note: `Marked paid at the office (${method})`,
@@ -645,15 +698,20 @@ export const accommodationService = {
       return badRequest("Only returned requests can be resubmitted")
     }
 
-    if (Array.isArray(body.guests)) request.guests = body.guests
+    if (Array.isArray(body.guests)) request.guests = normalizeGuests(body.guests)
     if (body.stay) request.stay = { ...request.stay.toObject?.() ?? request.stay, ...body.stay }
     if (body.permanentAddress !== undefined) request.permanentAddress = body.permanentAddress
     if (body.addressProof) request.addressProof = body.addressProof
+    if (body.roomPreference !== undefined) request.roomPreference = body.roomPreference
     if (body.facultyAdvisorEmail !== undefined) {
       request.facultyAdvisorEmail = String(body.facultyAdvisorEmail || "").toLowerCase() || null
     }
 
-    const validationError = validateGuestsAndStay({ guests: request.guests, stay: request.stay })
+    const validationError = validateGuestsAndStay({
+      guests: request.guests,
+      stay: request.stay,
+      roomPreference: request.roomPreference,
+    })
     if (validationError) return badRequest(validationError)
 
     const type = await getAccommodationType(request.typeKey)
@@ -667,8 +725,8 @@ export const accommodationService = {
 
     request.persons = request.guests.length
     request.nights = computeNights(request.stay.fromDate, request.stay.toDate)
-    const config = await getAccommodationConfig()
-    request.quote = buildQuote({ type, config, persons: request.persons, nights: request.nights })
+    // Clear any previous office-set charges; amount is re-set when payment is requested.
+    request.quote = emptyQuote({ persons: request.persons, nights: request.nights })
 
     await invalidateActionLinkTokens({ type: FA_TOKEN_TYPE, subjectId: request._id }, "resubmitted").catch(() => {})
     applyStatus(request, ACCOMMODATION_STATUS.SUBMITTED, { by: user._id, note: "Resubmitted" })
@@ -875,6 +933,7 @@ export const accommodationService = {
   // Chief Warden Office issues the payment request. This is also where the hostel
   // is chosen — the only point in the flow where allotment happens — so the beds
   // are committed the moment the student is asked to pay.
+  // Amount comes from per-guest price + GST chosen here (presets from settings or manual).
   async issuePaymentRequest(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
@@ -887,13 +946,25 @@ export const accommodationService = {
     const hostel = await hostelQueries.findHostelById(hostelId)
     if (!hostel) return notFound("Hostel not found")
 
-    const config = await getAccommodationConfig()
-    const overrideAmount = Number(body?.amount)
-    const finalAmount = overrideAmount > 0 ? overrideAmount : request.quote?.total || 0
-    const remarks = String(body?.remarks || "").trim()
-    if (finalAmount !== (request.quote?.total || 0) && !remarks) {
-      return badRequest("Please add remarks explaining the custom amount")
+    const guests = Array.isArray(request.guests) ? request.guests : []
+    if (!guests.length) return badRequest("This request has no guests")
+
+    const guestChargesInput = Array.isArray(body?.guestCharges) ? body.guestCharges : null
+    if (!guestChargesInput || guestChargesInput.length !== guests.length) {
+      return badRequest("Set price and GST for every guest")
     }
+
+    const quote = buildQuoteFromGuestCharges({
+      guests,
+      nights: request.nights,
+      guestCharges: guestChargesInput,
+    })
+    if (quote.error) return badRequest(quote.error)
+    if (!(quote.total > 0)) return badRequest("Total amount must be greater than zero")
+
+    const config = await getAccommodationConfig()
+    const remarks = String(body?.remarks || "").trim()
+    const finalAmount = quote.total
 
     /**
      * Availability is a read-then-write, and the write lands on *this* request's
@@ -922,6 +993,7 @@ export const accommodationService = {
         )
       }
 
+      request.quote = quote
       request.payment.amount = finalAmount
       // Payment link / QR always come from settings — no manual entry.
       request.payment.paymentLink = config?.defaultPaymentLink || ""
@@ -934,7 +1006,7 @@ export const accommodationService = {
       request.stageDeadlineAt = null
       applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, {
         by: user._id,
-        note: `Payment requested · allotted to ${hostel.name}`,
+        note: `Payment requested · allotted to ${hostel.name} · ${finalAmount}`,
       })
       await accommodationOwner.persist(request)
       return null
@@ -958,8 +1030,8 @@ export const accommodationService = {
     return success(request, 200, "Payment requested and hostel allotted")
   },
 
-  // Student opts to settle the bill later. The booking carries on to room
-  // assignment; the bill stays outstanding until they pay.
+  // Student opts to settle the bill later. Rooms stay unassigned until payment
+  // is verified; the student may pay any time (including when the guest arrives).
   async deferPayment(requestId, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
@@ -975,31 +1047,38 @@ export const accommodationService = {
       note: "Student chose to pay later",
     })
     await accommodationOwner.persist(request)
-    notifySupervisorReadyForRooms(request)
-    return success(request, 200, "You can pay once your rooms are assigned")
+    return success(
+      request,
+      200,
+      "Payment deferred — rooms will be allocated only after payment. You can pay any time."
+    )
   },
 
   /**
    * Student submits proof of payment: UTR + the date they paid + a screenshot,
-   * all three required. Works for both modes:
-   *  - pay now   — at PAYMENT_REQUESTED, moves the request to PAYMENT_SUBMITTED.
-   *  - pay later — any time from room assignment onwards; the workflow status is
-   *    left alone (the stay is already running) and only payment.status moves.
+   * all three required. Works for:
+   *  - pay now / pay later before rooms — PAYMENT_REQUESTED or PAYMENT_DEFERRED
+   *    → PAYMENT_SUBMITTED (rooms wait for verification).
+   *  - legacy deferred after rooms already assigned — only payment.status moves.
    */
   async submitPayment(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!isOwner(request, user)) return forbidden("You do not have access to this request")
 
-    const isDeferredSettlement =
+    const paymentOpen =
+      request.status === ACCOMMODATION_STATUS.PAYMENT_REQUESTED ||
+      (request.status === ACCOMMODATION_STATUS.PAYMENT_DEFERRED &&
+        [PAYMENT_STATUS.DEFERRED, PAYMENT_STATUS.REJECTED].includes(request.payment?.status))
+
+    // Older bookings that got rooms before paying under the previous rules.
+    const isLegacyDeferredSettlement =
       request.payment?.mode === PAYMENT_MODE.LATER &&
       DEFERRED_PAYABLE_STATUSES.includes(request.status) &&
       [PAYMENT_STATUS.DEFERRED, PAYMENT_STATUS.REJECTED].includes(request.payment?.status)
 
-    if (!isDeferredSettlement && request.status !== ACCOMMODATION_STATUS.PAYMENT_REQUESTED) {
-      return request.status === ACCOMMODATION_STATUS.PAYMENT_DEFERRED
-        ? badRequest("You can pay once the hostel supervisor has assigned your rooms")
-        : badRequest("Payment is not currently open for this request")
+    if (!paymentOpen && !isLegacyDeferredSettlement) {
+      return badRequest("Payment is not currently open for this request")
     }
 
     const screenshotFileRef = String(body?.screenshotFileRef || "").trim()
@@ -1018,7 +1097,7 @@ export const accommodationService = {
     request.payment.paidAt = paidAt
     request.payment.status = PAYMENT_STATUS.SUBMITTED
     request.payment.submittedAt = new Date()
-    if (isDeferredSettlement) {
+    if (isLegacyDeferredSettlement) {
       request.timeline.push({
         status: request.status,
         by: user._id,
@@ -1026,7 +1105,10 @@ export const accommodationService = {
         note: "Deferred payment submitted",
       })
     } else {
-      request.payment.mode = PAYMENT_MODE.NOW
+      // Paying from the initial request is "now"; from deferred keeps mode "later".
+      if (request.status === ACCOMMODATION_STATUS.PAYMENT_REQUESTED) {
+        request.payment.mode = PAYMENT_MODE.NOW
+      }
       applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_SUBMITTED, { by: user._id, note: "Payment submitted" })
     }
     await accommodationOwner.persist(request)
@@ -1041,7 +1123,7 @@ export const accommodationService = {
       })
       .catch(() => {})
     notifyStaff(accountantEmails, {
-      heading: `A student has submitted proof of payment${isDeferredSettlement ? " for a deferred bill" : ""}.`,
+      heading: `A student has submitted proof of payment${isLegacyDeferredSettlement ? " for a deferred bill" : ""}.`,
       action: "Verify the payment",
       request,
       extra: `<p>UTR ${request.payment.utr} · amount ${request.payment.amount}</p>`,
@@ -1050,10 +1132,10 @@ export const accommodationService = {
   },
 
   /**
-   * Accountant verifies (or rejects) the submitted payment. A deferred payment
-   * arrives after the booking has already moved on, so it only moves
-   * payment.status — and, once verified, produces the invoice straight away
-   * (a pay-now request is invoiced by the stay-end sweep instead).
+   * Accountant verifies (or rejects) the submitted payment. After verification
+   * the supervisor can assign rooms. A legacy deferred bill paid after rooms
+   * were already assigned only updates payment.status and issues the invoice.
+   * Optional body.utr / body.paidAt correct the student's entry before verify.
    */
   async verifyPayment(requestId, action, body, user) {
     if (![PAYMENT_DECISION.VERIFY, PAYMENT_DECISION.REJECT].includes(action)) {
@@ -1064,7 +1146,22 @@ export const accommodationService = {
     if (request.payment?.status !== PAYMENT_STATUS.SUBMITTED) {
       return badRequest("No payment is awaiting verification for this request")
     }
-    const isDeferredSettlement = request.status !== ACCOMMODATION_STATUS.PAYMENT_SUBMITTED
+    // Workflow still at PAYMENT_SUBMITTED → normal path. Anything else is a
+    // legacy deferred settlement after the stay has already moved on.
+    const isLegacyDeferredSettlement = request.status !== ACCOMMODATION_STATUS.PAYMENT_SUBMITTED
+
+    // Optional corrections to the uploaded proof (typos) before verifying.
+    const wantsUtr = body?.utr != null && String(body.utr).trim() !== ""
+    const wantsPaidAt = body?.paidAt != null && String(body.paidAt).trim() !== ""
+    if (wantsUtr || wantsPaidAt) {
+      const parsed = parsePaymentDetails({
+        utr: wantsUtr ? body.utr : undefined,
+        paidAt: wantsPaidAt ? body.paidAt : undefined,
+      })
+      if (parsed.error) return badRequest(parsed.error)
+      if (parsed.hasUtr) request.payment.utr = parsed.utr
+      if (parsed.hasPaidAt) request.payment.paidAt = parsed.paidAt
+    }
 
     const note = String(body?.note || "").trim()
     if (action === PAYMENT_DECISION.VERIFY) {
@@ -1072,7 +1169,7 @@ export const accommodationService = {
       request.payment.verifiedBy = user._id
       request.payment.verifiedAt = new Date()
       request.payment.note = note
-      if (isDeferredSettlement) {
+      if (isLegacyDeferredSettlement) {
         request.timeline.push({
           status: request.status,
           by: user._id,
@@ -1087,7 +1184,7 @@ export const accommodationService = {
       if (!note) return badRequest("A reason is required to reject the payment")
       request.payment.status = PAYMENT_STATUS.REJECTED
       request.payment.note = note
-      if (isDeferredSettlement) {
+      if (isLegacyDeferredSettlement) {
         request.timeline.push({
           status: request.status,
           by: user._id,
@@ -1095,13 +1192,17 @@ export const accommodationService = {
           note: `Deferred payment rejected: ${note}`,
         })
       } else {
-        // Back to PAYMENT_REQUESTED so the student can pay again.
-        applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, { by: user._id, note })
+        // Restore the path they came from so pay-later stays deferred.
+        const backTo =
+          request.payment.mode === PAYMENT_MODE.LATER
+            ? ACCOMMODATION_STATUS.PAYMENT_DEFERRED
+            : ACCOMMODATION_STATUS.PAYMENT_REQUESTED
+        applyStatus(request, backTo, { by: user._id, note })
       }
     }
     await accommodationOwner.persist(request)
 
-    if (isDeferredSettlement && action === PAYMENT_DECISION.VERIFY) {
+    if (isLegacyDeferredSettlement && action === PAYMENT_DECISION.VERIFY) {
       await this._issueInvoice(request).catch(() => {})
     }
 
@@ -1115,6 +1216,43 @@ export const accommodationService = {
       })
       .catch(() => {})
     return success(request, 200, action === PAYMENT_DECISION.VERIFY ? "Payment verified" : "Payment rejected")
+  },
+
+  /**
+   * Accountant corrects UTR and/or payment date after proof is submitted or
+   * verified (typos, bank statement reconciliation). Does not change status.
+   */
+  async updatePaymentDetails(requestId, body, user) {
+    const request = await accommodationQueries.findRequestById(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    if (!request.payment?.amount) {
+      return badRequest("No payment has been requested for this request yet")
+    }
+    if (![PAYMENT_STATUS.SUBMITTED, PAYMENT_STATUS.VERIFIED].includes(request.payment.status)) {
+      return badRequest("Payment details can only be edited after proof is submitted or the bill is marked paid")
+    }
+
+    const parsed = parsePaymentDetails(body)
+    if (parsed.error) return badRequest(parsed.error)
+
+    const changes = []
+    if (parsed.hasUtr) {
+      request.payment.utr = parsed.utr
+      changes.push(`UTR ${parsed.utr}`)
+    }
+    if (parsed.hasPaidAt) {
+      request.payment.paidAt = parsed.paidAt
+      changes.push(`paid on ${parsed.paidAt.toISOString().slice(0, 10)}`)
+    }
+
+    request.timeline.push({
+      status: request.status,
+      by: user._id,
+      at: new Date(),
+      note: `Payment details updated: ${changes.join(", ")}`,
+    })
+    await accommodationOwner.persist(request)
+    return success(request, 200, "Payment details updated")
   },
 
   /**
@@ -1197,6 +1335,7 @@ export const accommodationService = {
 
   // CW Office view: per-hostel guest-bed availability for the requested dates.
   // Backs both the capacity screening and the hostel pick at payment time.
+  // Also returns price/GST presets for the per-guest charge form.
   async getAllotmentAvailability(requestId) {
     const request = await accommodationQueries.findRequestByIdLean(requestId)
     if (!request) return notFound("Accommodation request not found")
@@ -1205,7 +1344,16 @@ export const accommodationService = {
       to: request.stay?.toDate,
       excludeRequestId: requestId,
     })
-    return success({ stay: request.stay, persons: request.persons, hostels })
+    const config = await getAccommodationConfig()
+    return success({
+      stay: request.stay,
+      persons: request.persons,
+      hostels,
+      pricing: {
+        priceOptions: priceOptionsFromConfig(config),
+        gstOptions: gstOptionsFromConfig(config),
+      },
+    })
   },
 
   // Supervisor assignment view: per-room free beds in the allotted hostel.
@@ -1220,19 +1368,22 @@ export const accommodationService = {
     return success({ stay: request.stay, persons: request.persons, rooms })
   },
 
-  // Supervisor assigns specific guest rooms/beds (mandatory step). Reached once
-  // the payment is verified, or straight away when the student deferred it.
+  // Supervisor assigns specific guest rooms/beds (mandatory step). Reached only
+  // after payment is verified (pay-later also waits for payment first).
   async assignRooms(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     const assignable = [
       ACCOMMODATION_STATUS.PAYMENT_VERIFIED,
-      ACCOMMODATION_STATUS.PAYMENT_DEFERRED,
       ACCOMMODATION_STATUS.HOSTEL_ALLOTTED, // legacy in-flight requests
       ACCOMMODATION_STATUS.ROOMS_ASSIGNED, // reassignment
     ]
     if (!assignable.includes(request.status)) {
-      return badRequest("This request is not ready for room assignment")
+      return badRequest(
+        request.status === ACCOMMODATION_STATUS.PAYMENT_DEFERRED
+          ? "Rooms can be assigned only after payment is verified"
+          : "This request is not ready for room assignment"
+      )
     }
     const hostelId = request.allotment?.hostelId
     if (!hostelId) return badRequest("A hostel has not been allotted yet")
@@ -1387,8 +1538,14 @@ export const accommodationService = {
         applicantEmail: request.applicantEmail,
         persons: request.persons,
         nights: request.nights,
-        guests: (request.guests || []).map((g) => ({ name: g.name, gender: g.gender, relation: g.relation })),
+        guests: (request.guests || []).map((g) => ({
+          name: g.name,
+          gender: g.gender,
+          age: g.age,
+          relation: g.relation,
+        })),
         stay: request.stay,
+        roomPreference: request.roomPreference || null,
         status: request.status,
       },
     })

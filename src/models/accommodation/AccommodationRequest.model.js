@@ -49,7 +49,7 @@ export const ADDRESS_PROOF_TYPES = ["PAN", "Voter ID", "Driving License", "Insti
 
 export const PAYMENT_STATUS = {
   PENDING: "Pending",
-  DEFERRED: "Deferred", // student chose "pay later"; settles after rooms are assigned
+  DEFERRED: "Deferred", // student chose "pay later"; can pay any time; rooms after payment
   SUBMITTED: "Submitted",
   VERIFIED: "Verified",
   REJECTED: "Rejected",
@@ -64,10 +64,18 @@ export const PAYMENT_MODE = {
 // Guest days run 11:00 → 11:00. Anything outside that is a requested extension.
 export const STANDARD_CHECK_TIME = "11:00"
 
+export const ROOM_PREFERENCE = {
+  SINGLE: "Single",
+  DOUBLE: "Double",
+}
+
+export const ROOM_PREFERENCES = Object.values(ROOM_PREFERENCE)
+
 const GuestSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
     gender: { type: String, enum: ["Male", "Female", "Other"], required: true },
+    age: { type: Number, min: 0, max: 150 }, // years (required at submit)
     relation: { type: String, trim: true }, // relation to the student (required at submit)
     aadharNumber: { type: String, trim: true }, // 12-digit Aadhaar (required at submit)
     remarks: { type: String, trim: true },
@@ -83,15 +91,31 @@ const AddressProofSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// Per-guest charge lines set by Chief Warden Office when requesting payment.
+const GuestChargeSchema = new mongoose.Schema(
+  {
+    guestIndex: { type: Number, default: 0 },
+    guestName: { type: String, default: "" },
+    price: { type: Number, default: 0 }, // per-person amount for the stay
+    gstPercentage: { type: Number, default: 0 },
+    subtotal: { type: Number, default: 0 },
+    gstAmount: { type: Number, default: 0 },
+    total: { type: Number, default: 0 },
+  },
+  { _id: false }
+)
+
 const QuoteSchema = new mongoose.Schema(
   {
     persons: { type: Number, default: 0 },
     nights: { type: Number, default: 0 },
+    // Reference tariff (average / shared price) for invoice sheets; not auto-calc.
     feePerPersonPerNight: { type: Number, default: 0 },
     subtotal: { type: Number, default: 0 },
     gstPercentage: { type: Number, default: 0 },
     gstAmount: { type: Number, default: 0 },
     total: { type: Number, default: 0 },
+    guestCharges: { type: [GuestChargeSchema], default: [] },
   },
   { _id: false }
 )
@@ -170,6 +194,9 @@ const AccommodationRequestSchema = new mongoose.Schema(
     permanentAddress: { type: String, trim: true },
     addressProof: { type: AddressProofSchema, default: () => ({}) },
     guests: { type: [GuestSchema], default: [] },
+    // Student's preferred room type for guests (assignment still decided by supervisor).
+    // Required at submit; optional on schema so older requests remain valid.
+    roomPreference: { type: String, enum: ROOM_PREFERENCES },
 
     // fromDate/toDate stay date-only (the calendar days billed); the times are
     // kept separately as "HH:mm" so nights never shift with a timezone.

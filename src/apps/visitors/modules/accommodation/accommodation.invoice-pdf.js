@@ -350,7 +350,35 @@ export const buildInvoiceModel = ({ request, hostelName = "", gstin = "", studen
   const quote = request?.quote || {}
   const stay = request?.stay || {}
   const guests = Array.isArray(request?.guests) ? request.guests : []
+  const guestCharges = Array.isArray(quote.guestCharges) ? quote.guestCharges : []
   const total = Number(request?.payment?.amount) || Number(quote.total) || 0
+  const nights = String(request?.nights ?? quote.nights ?? "")
+
+  const rows = guestCharges.length
+    ? guestCharges.map((gc) => ({
+        guests: "1",
+        details: gc.guestName || guests[gc.guestIndex]?.name || "",
+        hostel: hostelName,
+        from: sheetDate(stay.fromDate),
+        to: sheetDate(stay.toDate),
+        days: nights,
+        tariff: money(gc.price),
+        gst: money(gc.gstAmount),
+        total: money(gc.total),
+      }))
+    : guests.length
+      ? [{
+          guests: String(guests.length),
+          details: guests.map((g) => g.name).filter(Boolean).join(", "),
+          hostel: hostelName,
+          from: sheetDate(stay.fromDate),
+          to: sheetDate(stay.toDate),
+          days: nights,
+          tariff: money(quote.feePerPersonPerNight),
+          gst: money(quote.gstAmount),
+          total: money(total),
+        }]
+      : []
 
   return {
     invoiceNumber: request?.invoice?.number || buildInvoiceNumber({ serial: 0 }),
@@ -361,19 +389,7 @@ export const buildInvoiceModel = ({ request, hostelName = "", gstin = "", studen
     requestedBy: studentName || request?.applicantName || "",
     purpose: stay.purpose || "",
     source: "Self",
-    rows: guests.length
-      ? [{
-          guests: String(guests.length),
-          details: guests.map((g) => g.name).filter(Boolean).join(", "),
-          hostel: hostelName,
-          from: sheetDate(stay.fromDate),
-          to: sheetDate(stay.toDate),
-          days: String(request?.nights ?? quote.nights ?? ""),
-          tariff: money(quote.feePerPersonPerNight),
-          gst: money(quote.gstAmount),
-          total: money(total),
-        }]
-      : [],
+    rows,
   }
 }
 

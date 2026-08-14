@@ -114,7 +114,7 @@ router.post(
   ctrl.submitPayment
 )
 
-// Student opts to settle the bill after their rooms are assigned
+// Student opts to pay later (rooms only after payment is verified)
 router.post(
   "/requests/:requestId/defer-payment",
   guard(["Student"]),
@@ -127,6 +127,14 @@ router.post(
   guard(["Admin"]),
   requireAdminSubRole([SUBROLES.ACCOUNTANT]),
   ctrl.verifyPayment
+)
+
+// Accountant corrects UTR / payment date on a submitted or verified payment
+router.post(
+  "/requests/:requestId/payment-details",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.ACCOUNTANT]),
+  ctrl.updatePaymentDetails
 )
 
 // Accounts office records money that never went through the portal, or
