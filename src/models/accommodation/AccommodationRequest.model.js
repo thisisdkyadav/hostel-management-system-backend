@@ -61,6 +61,18 @@ export const PAYMENT_MODE = {
   LATER: "later",
 }
 
+/** Student date-change requests handled by Chief Warden Office. */
+export const SCHEDULE_CHANGE_TYPE = {
+  POSTPONE: "postpone",
+  EXTEND: "extend",
+}
+
+export const SCHEDULE_CHANGE_STATUS = {
+  PENDING: "pending",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+}
+
 // Guest days run 11:00 → 11:00. Anything outside that is a requested extension.
 export const STANDARD_CHECK_TIME = "11:00"
 
@@ -151,6 +163,49 @@ const PaymentSchema = new mongoose.Schema(
   { _id: false }
 )
 
+// Extra charge after a postponed/extended stay when the initial bill is already paid.
+const AdditionalPaymentSchema = new mongoose.Schema(
+  {
+    amount: { type: Number, default: 0 },
+    status: { type: String, enum: Object.values(PAYMENT_STATUS), default: PAYMENT_STATUS.PENDING },
+    mode: { type: String, enum: [...Object.values(PAYMENT_MODE), null], default: null },
+    screenshotFileRef: { type: String, default: "" },
+    utr: { type: String, default: "" },
+    paidAt: { type: Date, default: null },
+    remarks: { type: String, default: "" },
+    submittedAt: { type: Date, default: null },
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    verifiedAt: { type: Date, default: null },
+    note: { type: String, default: "" },
+    label: { type: String, default: "" },
+    scheduleChangeId: { type: mongoose.Schema.Types.ObjectId, default: null },
+  },
+  { _id: true }
+)
+
+// Student-requested stay date changes (postpone whole stay or extend end date).
+const ScheduleChangeSchema = new mongoose.Schema(
+  {
+    type: { type: String, enum: Object.values(SCHEDULE_CHANGE_TYPE), required: true },
+    status: {
+      type: String,
+      enum: Object.values(SCHEDULE_CHANGE_STATUS),
+      default: SCHEDULE_CHANGE_STATUS.PENDING,
+    },
+    requestedFromDate: { type: Date, default: null },
+    requestedToDate: { type: Date, required: true },
+    previousFromDate: { type: Date, default: null },
+    previousToDate: { type: Date, default: null },
+    reason: { type: String, default: "" },
+    extraAmount: { type: Number, default: 0 },
+    decisionNote: { type: String, default: "" },
+    requestedAt: { type: Date, default: Date.now },
+    decidedAt: { type: Date, default: null },
+    decidedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+  },
+  { _id: true }
+)
+
 const RoomAssignmentSchema = new mongoose.Schema(
   {
     roomId: { type: mongoose.Schema.Types.ObjectId, ref: "Room", required: true },
@@ -222,6 +277,10 @@ const AccommodationRequestSchema = new mongoose.Schema(
     approvals: { type: [ApprovalEntrySchema], default: [] },
 
     payment: { type: PaymentSchema, default: () => ({}) },
+    // Second (and further) payment requests after the initial bill is already verified.
+    additionalPayments: { type: [AdditionalPaymentSchema], default: [] },
+    // Postponement / extension requests for stay dates (CWO approves).
+    scheduleChanges: { type: [ScheduleChangeSchema], default: [] },
 
     allotment: {
       hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", default: null },

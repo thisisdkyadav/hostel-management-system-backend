@@ -107,6 +107,25 @@ export const updatePaymentDetails = asyncHandler(async (req, res) => {
   )
 })
 
+export const requestScheduleChange = asyncHandler(async (req, res) => {
+  sendStandardResponse(
+    res,
+    await accommodationService.requestScheduleChange(req.params.requestId, req.body, req.user)
+  )
+})
+
+export const decideScheduleChange = asyncHandler(async (req, res) => {
+  sendStandardResponse(
+    res,
+    await accommodationService.decideScheduleChange(
+      req.params.requestId,
+      req.params.changeId,
+      req.body,
+      req.user
+    )
+  )
+})
+
 // Arrival tail (Supervisor / Gate + CW Office availability).
 export const getAllotmentAvailability = asyncHandler(async (req, res) => {
   sendStandardResponse(res, await accommodationService.getAllotmentAvailability(req.params.requestId))

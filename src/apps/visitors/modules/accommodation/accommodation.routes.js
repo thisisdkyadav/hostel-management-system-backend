@@ -121,6 +121,21 @@ router.post(
   ctrl.deferPayment
 )
 
+// Student requests postpone (new start+end) or extend (new end date)
+router.post(
+  "/requests/:requestId/schedule-change",
+  guard(["Student"]),
+  ctrl.requestScheduleChange
+)
+
+// Chief Warden Office approves / rejects postpone or extension
+router.post(
+  "/requests/:requestId/schedule-change/:changeId/decision",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
+  ctrl.decideScheduleChange
+)
+
 // Accountant verifies / rejects the payment
 router.post(
   "/requests/:requestId/payment-verify",

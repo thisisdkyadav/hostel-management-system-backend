@@ -18,6 +18,8 @@ import {
   ACCOMMODATION_ACTIONS,
   PAYMENT_STATUS,
   PAYMENT_MODE,
+  SCHEDULE_CHANGE_TYPE,
+  SCHEDULE_CHANGE_STATUS,
 } from "../../../../models/index.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { roomOwner } from "../../../../services/hostel/roomOwner.service.js"
@@ -53,6 +55,8 @@ import {
   FA_DECISION,
   PAYMENT_DECISION,
   MANUAL_SETTLEMENT,
+  SCHEDULE_DECISION,
+  SCHEDULE_LIMITS,
   CW_AUTO_APPROVE_HOURS,
   FA_TOKEN_TTL_MS,
   UTR_RE,
@@ -81,6 +85,56 @@ const cwDeadline = () => new Date(Date.now() + CW_AUTO_APPROVE_HOURS * 60 * 60 *
 const isOwner = (request, user) => String(request.requesterUserId) === String(user?._id)
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const ROUND2 = (n) => Math.round((Number(n) || 0) * 100) / 100
+
+/** Statuses where a student may ask to postpone or extend the stay. */
+const SCHEDULE_CHANGE_ELIGIBLE = [
+  ACCOMMODATION_STATUS.CW_APPROVED,
+  ACCOMMODATION_STATUS.PAYMENT_REQUESTED,
+  ACCOMMODATION_STATUS.PAYMENT_DEFERRED,
+  ACCOMMODATION_STATUS.PAYMENT_SUBMITTED,
+  ACCOMMODATION_STATUS.PAYMENT_VERIFIED,
+  ACCOMMODATION_STATUS.HOSTEL_ALLOTTED,
+  ACCOMMODATION_STATUS.ROOMS_ASSIGNED,
+  ACCOMMODATION_STATUS.CHECKED_IN,
+]
+
+/** Payment amount has already been set / payment step is live. */
+const paymentStepPassed = (request) =>
+  Number(request.payment?.amount) > 0 ||
+  [
+    ACCOMMODATION_STATUS.PAYMENT_REQUESTED,
+    ACCOMMODATION_STATUS.PAYMENT_DEFERRED,
+    ACCOMMODATION_STATUS.PAYMENT_SUBMITTED,
+    ACCOMMODATION_STATUS.PAYMENT_VERIFIED,
+    ACCOMMODATION_STATUS.HOSTEL_ALLOTTED,
+    ACCOMMODATION_STATUS.ROOMS_ASSIGNED,
+    ACCOMMODATION_STATUS.CHECKED_IN,
+    ACCOMMODATION_STATUS.CHECKED_OUT,
+    ACCOMMODATION_STATUS.INVOICED,
+  ].includes(request.status)
+
+const initialPaymentSettled = (request) => request.payment?.status === PAYMENT_STATUS.VERIFIED
+
+const openAdditionalPayment = (request) =>
+  (request.additionalPayments || []).find((p) =>
+    [PAYMENT_STATUS.PENDING, PAYMENT_STATUS.DEFERRED, PAYMENT_STATUS.REJECTED].includes(p.status)
+  )
+
+const submittedAdditionalPayment = (request) =>
+  (request.additionalPayments || []).find((p) => p.status === PAYMENT_STATUS.SUBMITTED)
+
+const parseStayDate = (raw) => {
+  if (raw == null || raw === "") return null
+  const d = new Date(raw)
+  return Number.isNaN(d.getTime()) ? null : d
+}
+
+const dayKey = (d) => {
+  const x = new Date(d)
+  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`
+}
 
 /** Parse optional UTR + paidAt for accountant corrections. Returns { error } or { utr?, paidAt? }. */
 const parsePaymentDetails = (body, { requireBoth = false } = {}) => {
@@ -1032,10 +1086,33 @@ export const accommodationService = {
 
   // Student opts to settle the bill later. Rooms stay unassigned until payment
   // is verified; the student may pay any time (including when the guest arrives).
+  // Also covers a second payment after an approved extension/postpone charge.
   async deferPayment(requestId, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!isOwner(request, user)) return forbidden("You do not have access to this request")
+
+    // Additional (post-extension) bill when the initial payment is already verified.
+    if (initialPaymentSettled(request)) {
+      const addl = openAdditionalPayment(request)
+      if (!addl || addl.status === PAYMENT_STATUS.DEFERRED) {
+        return badRequest("No additional payment is open to defer")
+      }
+      if (![PAYMENT_STATUS.PENDING, PAYMENT_STATUS.REJECTED].includes(addl.status)) {
+        return badRequest("This additional payment cannot be deferred right now")
+      }
+      addl.mode = PAYMENT_MODE.LATER
+      addl.status = PAYMENT_STATUS.DEFERRED
+      request.timeline.push({
+        status: request.status,
+        by: user._id,
+        at: new Date(),
+        note: `Additional payment deferred (${addl.label || "extra charge"})`,
+      })
+      await accommodationOwner.persist(request)
+      return success(request, 200, "Additional payment deferred — you can pay any time.")
+    }
+
     if (request.status !== ACCOMMODATION_STATUS.PAYMENT_REQUESTED) {
       return badRequest("Payment is not currently requested for this request")
     }
@@ -1060,11 +1137,56 @@ export const accommodationService = {
    *  - pay now / pay later before rooms — PAYMENT_REQUESTED or PAYMENT_DEFERRED
    *    → PAYMENT_SUBMITTED (rooms wait for verification).
    *  - legacy deferred after rooms already assigned — only payment.status moves.
+   *  - additional payment after an extension/postpone when initial bill is paid.
    */
   async submitPayment(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if (!isOwner(request, user)) return forbidden("You do not have access to this request")
+
+    const screenshotFileRef = String(body?.screenshotFileRef || "").trim()
+    if (!screenshotFileRef) return badRequest("A payment screenshot is required")
+    const utr = String(body?.utr || "").replace(/\s/g, "")
+    if (!utr) return badRequest("UTR is required")
+    if (!UTR_RE.test(utr)) return badRequest("UTR must be a 12-digit number")
+    const paidAtRaw = body?.paidAt
+    if (!paidAtRaw) return badRequest("Payment date is required")
+    const paidAt = new Date(paidAtRaw)
+    if (Number.isNaN(paidAt.getTime())) return badRequest("Payment date is invalid")
+    if (paidAt.getTime() > Date.now()) return badRequest("Payment date cannot be in the future")
+
+    // Second bill after extension/postpone (initial already verified).
+    if (initialPaymentSettled(request)) {
+      let addl = null
+      if (body?.additionalPaymentId) {
+        addl = (request.additionalPayments || []).id(body.additionalPaymentId)
+      }
+      if (!addl) addl = openAdditionalPayment(request)
+      if (!addl) return badRequest("No additional payment is open for this request")
+      if (![PAYMENT_STATUS.PENDING, PAYMENT_STATUS.DEFERRED, PAYMENT_STATUS.REJECTED].includes(addl.status)) {
+        return badRequest("This additional payment is not open for submission")
+      }
+      addl.screenshotFileRef = screenshotFileRef
+      addl.utr = utr
+      addl.paidAt = paidAt
+      addl.status = PAYMENT_STATUS.SUBMITTED
+      addl.submittedAt = new Date()
+      if (!addl.mode) addl.mode = PAYMENT_MODE.NOW
+      request.timeline.push({
+        status: request.status,
+        by: user._id,
+        at: new Date(),
+        note: `Additional payment submitted (${addl.label || "extra charge"})`,
+      })
+      await accommodationOwner.persist(request)
+      notifyStaff(accountantEmails, {
+        heading: "A student has submitted proof for an additional accommodation payment.",
+        action: "Verify the additional payment",
+        request,
+        extra: `<p>${addl.label || "Extra charge"} · UTR ${utr} · amount ${addl.amount}</p>`,
+      })
+      return success(request, 200, "Additional payment submitted for verification")
+    }
 
     const paymentOpen =
       request.status === ACCOMMODATION_STATUS.PAYMENT_REQUESTED ||
@@ -1080,17 +1202,6 @@ export const accommodationService = {
     if (!paymentOpen && !isLegacyDeferredSettlement) {
       return badRequest("Payment is not currently open for this request")
     }
-
-    const screenshotFileRef = String(body?.screenshotFileRef || "").trim()
-    if (!screenshotFileRef) return badRequest("A payment screenshot is required")
-    const utr = String(body?.utr || "").replace(/\s/g, "")
-    if (!utr) return badRequest("UTR is required")
-    if (!UTR_RE.test(utr)) return badRequest("UTR must be a 12-digit number")
-    const paidAtRaw = body?.paidAt
-    if (!paidAtRaw) return badRequest("Payment date is required")
-    const paidAt = new Date(paidAtRaw)
-    if (Number.isNaN(paidAt.getTime())) return badRequest("Payment date is invalid")
-    if (paidAt.getTime() > Date.now()) return badRequest("Payment date cannot be in the future")
 
     request.payment.screenshotFileRef = screenshotFileRef
     request.payment.utr = utr
@@ -1136,6 +1247,7 @@ export const accommodationService = {
    * the supervisor can assign rooms. A legacy deferred bill paid after rooms
    * were already assigned only updates payment.status and issues the invoice.
    * Optional body.utr / body.paidAt correct the student's entry before verify.
+   * body.additionalPaymentId targets a second (extension) payment when set.
    */
   async verifyPayment(requestId, action, body, user) {
     if (![PAYMENT_DECISION.VERIFY, PAYMENT_DECISION.REJECT].includes(action)) {
@@ -1143,6 +1255,71 @@ export const accommodationService = {
     }
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
+
+    // Prefer explicit additional payment id; else any submitted additional bill.
+    let addl = null
+    if (body?.additionalPaymentId) {
+      addl = (request.additionalPayments || []).id(body.additionalPaymentId)
+      if (!addl) return notFound("Additional payment not found")
+    } else if (request.payment?.status !== PAYMENT_STATUS.SUBMITTED) {
+      addl = submittedAdditionalPayment(request)
+    }
+
+    if (addl) {
+      if (addl.status !== PAYMENT_STATUS.SUBMITTED) {
+        return badRequest("This additional payment is not awaiting verification")
+      }
+      const wantsUtr = body?.utr != null && String(body.utr).trim() !== ""
+      const wantsPaidAt = body?.paidAt != null && String(body.paidAt).trim() !== ""
+      if (wantsUtr || wantsPaidAt) {
+        const parsed = parsePaymentDetails({
+          utr: wantsUtr ? body.utr : undefined,
+          paidAt: wantsPaidAt ? body.paidAt : undefined,
+        })
+        if (parsed.error) return badRequest(parsed.error)
+        if (parsed.hasUtr) addl.utr = parsed.utr
+        if (parsed.hasPaidAt) addl.paidAt = parsed.paidAt
+      }
+      const note = String(body?.note || "").trim()
+      if (action === PAYMENT_DECISION.VERIFY) {
+        addl.status = PAYMENT_STATUS.VERIFIED
+        addl.verifiedBy = user._id
+        addl.verifiedAt = new Date()
+        addl.note = note
+        request.timeline.push({
+          status: request.status,
+          by: user._id,
+          at: new Date(),
+          note: `Additional payment verified (${addl.label || "extra charge"})`,
+        })
+      } else {
+        if (!note) return badRequest("A reason is required to reject the payment")
+        addl.status = PAYMENT_STATUS.REJECTED
+        addl.note = note
+        request.timeline.push({
+          status: request.status,
+          by: user._id,
+          at: new Date(),
+          note: `Additional payment rejected: ${note}`,
+        })
+      }
+      await accommodationOwner.persist(request)
+      accommodationEmails
+        .sendStudentDecisionEmail({
+          requestId: request._id,
+          to: request.applicantEmail,
+          studentName: request.applicantName,
+          status: action === PAYMENT_DECISION.VERIFY ? "Additional payment verified" : "Additional payment rejected",
+          reason: note,
+        })
+        .catch(() => {})
+      return success(
+        request,
+        200,
+        action === PAYMENT_DECISION.VERIFY ? "Additional payment verified" : "Additional payment rejected"
+      )
+    }
+
     if (request.payment?.status !== PAYMENT_STATUS.SUBMITTED) {
       return badRequest("No payment is awaiting verification for this request")
     }
@@ -1216,6 +1393,264 @@ export const accommodationService = {
       })
       .catch(() => {})
     return success(request, 200, action === PAYMENT_DECISION.VERIFY ? "Payment verified" : "Payment rejected")
+  },
+
+  // ---- Stay date changes (postpone / extend) ----
+
+  /**
+   * Student requests to postpone the stay (new from + to) or extend the end date.
+   * Limits: 1 postpone and 2 extension requests per booking (any status counts).
+   */
+  async requestScheduleChange(requestId, body, user) {
+    const request = await accommodationQueries.findRequestById(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    if (!isOwner(request, user)) return forbidden("You do not have access to this request")
+    if (!SCHEDULE_CHANGE_ELIGIBLE.includes(request.status)) {
+      return badRequest("Stay dates can only be changed after the request is approved and before checkout")
+    }
+    if ((request.scheduleChanges || []).some((c) => c.status === SCHEDULE_CHANGE_STATUS.PENDING)) {
+      return badRequest("A date-change request is already pending for this booking")
+    }
+
+    const type = String(body?.type || "").trim()
+    if (![SCHEDULE_CHANGE_TYPE.POSTPONE, SCHEDULE_CHANGE_TYPE.EXTEND].includes(type)) {
+      return badRequest("Type must be postpone or extend")
+    }
+    const used = (request.scheduleChanges || []).filter((c) => c.type === type).length
+    const limit = SCHEDULE_LIMITS[type] ?? 0
+    if (used >= limit) {
+      return badRequest(
+        type === SCHEDULE_CHANGE_TYPE.POSTPONE
+          ? "Only one postponement request is allowed per booking"
+          : "Only two extension requests are allowed per booking"
+      )
+    }
+
+    const currentFrom = request.stay?.fromDate
+    const currentTo = request.stay?.toDate
+    if (!currentFrom || !currentTo) return badRequest("This booking has no stay dates")
+
+    const reason = String(body?.reason || "").trim()
+    if (!reason) return badRequest("Please explain why you need this change")
+
+    let requestedFromDate = currentFrom
+    let requestedToDate = parseStayDate(body?.toDate)
+    if (!requestedToDate) return badRequest("A new end date is required")
+
+    if (type === SCHEDULE_CHANGE_TYPE.POSTPONE) {
+      requestedFromDate = parseStayDate(body?.fromDate)
+      if (!requestedFromDate) return badRequest("A new start date is required to postpone")
+      if (requestedToDate.getTime() <= requestedFromDate.getTime()) {
+        return badRequest("End date must be after start date")
+      }
+      if (dayKey(requestedFromDate) === dayKey(currentFrom) && dayKey(requestedToDate) === dayKey(currentTo)) {
+        return badRequest("New dates are the same as the current stay")
+      }
+    } else {
+      // Extension: end date must move later; start stays fixed.
+      if (dayKey(requestedToDate) <= dayKey(currentTo)) {
+        return badRequest("Extension end date must be after the current check-out date")
+      }
+      requestedFromDate = currentFrom
+    }
+
+    request.scheduleChanges = request.scheduleChanges || []
+    request.scheduleChanges.push({
+      type,
+      status: SCHEDULE_CHANGE_STATUS.PENDING,
+      requestedFromDate,
+      requestedToDate,
+      previousFromDate: currentFrom,
+      previousToDate: currentTo,
+      reason,
+      requestedAt: new Date(),
+    })
+    request.timeline.push({
+      status: request.status,
+      by: user._id,
+      at: new Date(),
+      note:
+        type === SCHEDULE_CHANGE_TYPE.POSTPONE
+          ? `Postponement requested → ${dayKey(requestedFromDate)} to ${dayKey(requestedToDate)}`
+          : `Extension requested → end ${dayKey(requestedToDate)}`,
+    })
+    await accommodationOwner.persist(request)
+
+    notifyStaff(chiefWardenOfficeEmails, {
+      heading:
+        type === SCHEDULE_CHANGE_TYPE.POSTPONE
+          ? "A student requested to postpone guest accommodation dates."
+          : "A student requested to extend the guest stay end date.",
+      action: "Review date change",
+      request,
+      extra: `<p>Requested: ${dayKey(requestedFromDate)} → ${dayKey(requestedToDate)}. Reason: ${reason}</p>`,
+    })
+    return success(request, 200, "Date-change request submitted to Chief Warden Office")
+  },
+
+  /**
+   * Chief Warden Office approves or rejects a postpone/extend request.
+   * On approve: applies dates, rechecks hostel capacity if allotted, and may
+   * add extra amount — folded into the open bill if unpaid, else a second payment.
+   * body: { action: approve|reject, note?, extraAmount? }
+   */
+  async decideScheduleChange(requestId, changeId, body, user) {
+    const action = String(body?.action || "").trim()
+    if (![SCHEDULE_DECISION.APPROVE, SCHEDULE_DECISION.REJECT].includes(action)) {
+      return badRequest("Invalid action")
+    }
+    const request = await accommodationQueries.findRequestById(requestId)
+    if (!request) return notFound("Accommodation request not found")
+
+    const change = (request.scheduleChanges || []).id(changeId)
+    if (!change) return notFound("Date-change request not found")
+    if (change.status !== SCHEDULE_CHANGE_STATUS.PENDING) {
+      return badRequest("This date-change request has already been decided")
+    }
+
+    const note = String(body?.note || "").trim()
+    if (action === SCHEDULE_DECISION.REJECT) {
+      if (!note) return badRequest("A reason is required to reject the request")
+      change.status = SCHEDULE_CHANGE_STATUS.REJECTED
+      change.decisionNote = note
+      change.decidedAt = new Date()
+      change.decidedBy = user._id
+      request.timeline.push({
+        status: request.status,
+        by: user._id,
+        at: new Date(),
+        note: `${change.type === SCHEDULE_CHANGE_TYPE.POSTPONE ? "Postponement" : "Extension"} rejected: ${note}`,
+      })
+      await accommodationOwner.persist(request)
+      accommodationEmails
+        .sendStudentDecisionEmail({
+          requestId: request._id,
+          to: request.applicantEmail,
+          studentName: request.applicantName,
+          status: change.type === SCHEDULE_CHANGE_TYPE.POSTPONE ? "Postponement rejected" : "Extension rejected",
+          reason: note,
+        })
+        .catch(() => {})
+      return success(request, 200, "Date-change request rejected")
+    }
+
+    const newFrom = change.requestedFromDate
+    const newTo = change.requestedToDate
+    if (!newFrom || !newTo) return badRequest("Invalid requested dates on this change")
+
+    let extraAmount = ROUND2(body?.extraAmount)
+    if (Number.isNaN(extraAmount) || extraAmount < 0) return badRequest("Extra amount is invalid")
+    if (!paymentStepPassed(request)) {
+      // Amount not set yet — no extra charge path; dates only.
+      extraAmount = 0
+    }
+
+    // Capacity for the new window when a hostel is already allotted.
+    if (request.allotment?.hostelId) {
+      const hostelId = request.allotment.hostelId
+      const claim = await withLockRetry(`lock:accommodation:allot:${hostelId}`, 30, async () => {
+        const availability = await getHostelGuestAvailability({
+          hostelId,
+          from: newFrom,
+          to: newTo,
+          excludeRequestId: request._id,
+        })
+        const roomsNeeded = roomsNeededFor(request.persons, availability.largestRoom)
+        if (availability.availableRooms < roomsNeeded) {
+          return badRequest(
+            `Not enough guest rooms free for the new dates (need ${roomsNeeded}, ${availability.availableRooms} free)`
+          )
+        }
+        if (availability.available < request.persons) {
+          return badRequest(
+            `Not enough beds free for the new dates (need ${request.persons}, available ${availability.available})`
+          )
+        }
+        return null
+      })
+      if (claim === LOCK_NOT_ACQUIRED) {
+        return badRequest("This hostel is being updated right now — try again in a moment")
+      }
+      if (claim) return claim
+    }
+
+    // Apply new dates.
+    request.stay.fromDate = newFrom
+    request.stay.toDate = newTo
+    request.nights = computeNights(newFrom, newTo)
+    if (request.quote) {
+      request.quote.nights = request.nights
+      request.quote.persons = request.persons
+    }
+
+    change.status = SCHEDULE_CHANGE_STATUS.APPROVED
+    change.extraAmount = extraAmount
+    change.decisionNote = note
+    change.decidedAt = new Date()
+    change.decidedBy = user._id
+
+    let paymentMessage = ""
+    if (extraAmount > 0) {
+      if (!initialPaymentSettled(request)) {
+        // Unpaid (or not yet verified): student pays the combined total once.
+        request.payment.amount = ROUND2((Number(request.payment.amount) || 0) + extraAmount)
+        if (request.quote) {
+          request.quote.total = ROUND2((Number(request.quote.total) || 0) + extraAmount)
+          request.quote.subtotal = ROUND2((Number(request.quote.subtotal) || 0) + extraAmount)
+        }
+        if (request.payment.remarks) {
+          request.payment.remarks = `${request.payment.remarks} · +${extraAmount} for ${change.type}`
+        } else {
+          request.payment.remarks = `Includes +${extraAmount} for ${change.type}`
+        }
+        paymentMessage = ` Extra ₹${extraAmount} added to the open bill (pay once for the full amount).`
+      } else {
+        // Already paid: open a second payment with the same portal process.
+        const config = await getAccommodationConfig()
+        const label =
+          change.type === SCHEDULE_CHANGE_TYPE.POSTPONE ? "Postponement charge" : "Extension charge"
+        request.additionalPayments = request.additionalPayments || []
+        request.additionalPayments.push({
+          amount: extraAmount,
+          status: PAYMENT_STATUS.PENDING,
+          mode: null,
+          label,
+          scheduleChangeId: change._id,
+          remarks: note || label,
+        })
+        paymentMessage = ` A second payment of ₹${extraAmount} has been requested.`
+        accommodationEmails
+          .sendPaymentRequestEmail({
+            to: request.applicantEmail,
+            studentName: request.applicantName,
+            amount: extraAmount,
+            paymentLink: request.payment?.paymentLink || config?.defaultPaymentLink || "",
+            hostelName: "",
+            request,
+          })
+          .catch(() => {})
+      }
+    }
+
+    request.timeline.push({
+      status: request.status,
+      by: user._id,
+      at: new Date(),
+      note: `${change.type === SCHEDULE_CHANGE_TYPE.POSTPONE ? "Postponement" : "Extension"} approved → ${dayKey(newFrom)} to ${dayKey(newTo)}${extraAmount > 0 ? ` · extra ₹${extraAmount}` : ""}`,
+    })
+    await accommodationOwner.persist(request)
+
+    accommodationEmails
+      .sendStudentDecisionEmail({
+        requestId: request._id,
+        to: request.applicantEmail,
+        studentName: request.applicantName,
+        status: change.type === SCHEDULE_CHANGE_TYPE.POSTPONE ? "Postponement approved" : "Extension approved",
+        reason: `${note || "Approved."}${paymentMessage} New stay: ${dayKey(newFrom)} to ${dayKey(newTo)}.`,
+      })
+      .catch(() => {})
+
+    return success(request, 200, `Date change approved.${paymentMessage}`)
   },
 
   /**

@@ -46,6 +46,18 @@ export const MANUAL_SETTLEMENT = {
   MARK_UNPAID: "mark_unpaid",
 }
 
+// Student postpone / extend stay end (and start for postpone).
+export const SCHEDULE_DECISION = {
+  APPROVE: "approve",
+  REJECT: "reject",
+}
+
+// Max requests of each kind per accommodation booking (pending + decided).
+export const SCHEDULE_LIMITS = {
+  postpone: 1,
+  extend: 2,
+}
+
 export const CW_AUTO_APPROVE_HOURS = 24
 
 // Faculty-advisor recommendation links stay valid for two weeks.
