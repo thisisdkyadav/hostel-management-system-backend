@@ -285,6 +285,13 @@ export const hostelQueries = {
       .lean()
   },
 
+  /** All allocations for a hostel (session optional) — replace-mode bulk clear. */
+  async findAllocationsByHostel(hostelId, { session, select } = {}) {
+    let query = RoomAllocation.find({ hostelId })
+    if (select) query = query.select(select)
+    return withSession(query, session)
+  },
+
   /** Allocations on the given (rooms x beds) — bed conflict detection (session). */
   async findAllocationsByRoomsAndBeds(roomIds, bedNumbers, { session } = {}) {
     return withSession(

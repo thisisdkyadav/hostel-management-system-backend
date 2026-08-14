@@ -136,14 +136,17 @@ router.put(
   requireStudentEditCapability,
   bulkUpdateStudentsGroups
 );
+// Allocation writes: Admin + Hostel Supervisor. Supervisors are further limited
+// in the handler to their active hostel and to students already in that hostel
+// (or unallocated). Lookup is open to the same roles so the bulk UI can validate.
 router.put(
   '/hostels/:hostelId/room-allocations',
-  guard(['Admin']),
+  guard(['Admin', 'Hostel Supervisor']),
   updateRoomAllocations
 );
 router.get(
   '/room-allocations/student/:rollNumber',
-  guard(['Admin']),
+  guard(['Admin', 'Hostel Supervisor']),
   getAllocationStudentByRollNumber
 );
 router.get(

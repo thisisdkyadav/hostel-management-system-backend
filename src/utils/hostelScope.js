@@ -49,6 +49,16 @@ export const isHostelAllowed = (hostelId, scope) => {
   return scope.scopedHostelIds.has(toIdString(hostelId))
 }
 
+/**
+ * Allocation writes for hostel-bound staff: student must be unallocated, or
+ * already in an allowed hostel. Students allocated elsewhere are out of scope.
+ */
+export const isStudentAllocatableInScope = (currentAllocationHostelId, scope) => {
+  if (!scope?.hostelBound) return true
+  if (!currentAllocationHostelId) return true
+  return isHostelAllowed(currentAllocationHostelId, scope)
+}
+
 /** `findByRollNumbers`, narrowed to the caller's hostel when they have one. */
 export const findStudentsByRollNumbersInScope = async (rollNumbers, scope, { select, session, lean } = {}) => {
   if (!isHostelScoped(scope)) {
@@ -81,6 +91,7 @@ export default {
   getHostelScope,
   isHostelScoped,
   isHostelAllowed,
+  isStudentAllocatableInScope,
   findStudentsByRollNumbersInScope,
   findProfilesInScope,
   findProfileIdsInScope,

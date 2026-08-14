@@ -55,6 +55,14 @@ router.get(
   getRooms
 );
 
+// Bulk allocation update: Admin + Hostel Supervisor. Handler enforces active-hostel
+// and student-eligibility scope for hostel-bound roles.
+router.put(
+  '/update-allocations/:hostelId',
+  guard(['Admin', 'Hostel Supervisor']),
+  updateRoomAllocations
+);
+
 // Admin-only routes below
 router.use(authorizeRoles(['Admin']));
 router.use(requireRouteAccess('route.admin.hostels'));
@@ -71,7 +79,6 @@ router.put('/rooms/:hostelId/:roomId', updateRoom);
 
 // Allocation management
 router.delete('/deallocate/:allocationId', deleteAllocation);
-router.put('/update-allocations/:hostelId', updateRoomAllocations);
 router.delete('/delete-all-allocations/:hostelId', deleteAllAllocations);
 
 // Hostel archive

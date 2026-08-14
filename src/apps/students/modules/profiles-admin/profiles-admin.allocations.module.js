@@ -1,14 +1,60 @@
 import mongoose from 'mongoose';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
-import { badRequest, notFound, success } from '../../../../services/base/index.js';
+import { badRequest, forbidden, notFound, success } from '../../../../services/base/index.js';
 import { asyncHandler, sendStandardResponse } from '../../../../utils/index.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import {
+  getHostelScope,
+  isHostelAllowed,
+  isStudentAllocatableInScope,
+} from '../../../../utils/hostelScope.js';
+
+const toHostelIdString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  return value?.toString?.() ?? null;
+};
 
 const normalizeAllocationRollNumber = (rollNumber) => (
   typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
 );
+
+const ALLOCATION_MODES = new Set(['update', 'replace']);
+
+/**
+ * Request body shapes:
+ * - legacy array / single allocation object → mode "update"
+ * - { allocations, mode } → explicit mode ("update" | "replace")
+ *
+ * "replace" clears every allocation in the target hostel, then applies the list.
+ */
+const parseAllocationRequestBody = (body) => {
+  if (Array.isArray(body)) {
+    return { allocations: body, mode: 'update' };
+  }
+
+  if (body && typeof body === 'object') {
+    const hasWrapperKeys =
+      Object.prototype.hasOwnProperty.call(body, 'allocations')
+      || Object.prototype.hasOwnProperty.call(body, 'mode');
+
+    if (hasWrapperKeys) {
+      const modeRaw = typeof body.mode === 'string' ? body.mode.trim().toLowerCase() : 'update';
+      const mode = ALLOCATION_MODES.has(modeRaw) ? modeRaw : null;
+      const allocations = Array.isArray(body.allocations)
+        ? body.allocations
+        : (body.allocations ? [body.allocations] : []);
+      return { allocations, mode };
+    }
+
+    // Single allocation row without wrapper.
+    return { allocations: [body], mode: 'update' };
+  }
+
+  return { allocations: [], mode: 'update' };
+};
 
 /**
  * Pull { roomId, bedNumber } out of a MongoDB duplicate-key error so the caller
@@ -86,7 +132,24 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
   if (!mongoose.Types.ObjectId.isValid(hostelId)) {
     return sendStandardResponse(res, badRequest('A valid hostel must be selected'));
   }
-  const allocationsData = req.body;
+
+  // Hostel-bound staff (Hostel Supervisors, etc.) may only write allocations into
+  // their active hostel. Admins remain unbound.
+  const scope = getHostelScope(req.user);
+  if (scope.hostelBound) {
+    if (!scope.scopedHostelIds || scope.scopedHostelIds.size === 0) {
+      return sendStandardResponse(res, forbidden('No active hostel assigned'));
+    }
+    if (!isHostelAllowed(hostelId, scope)) {
+      return sendStandardResponse(res, forbidden('You can only update allocations for your active hostel'));
+    }
+  }
+
+  const { allocations: allocationsData, mode } = parseAllocationRequestBody(req.body);
+  if (!mode) {
+    return sendStandardResponse(res, badRequest('Invalid allocation mode. Use "update" or "replace".'));
+  }
+
   // roomId -> human label (unit-room / room), populated once rooms are resolved.
   // Declared out here so the catch block can name the exact bed on a dup-key error.
   const roomLabelById = new Map();
@@ -226,6 +289,18 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     const deleteMap = new Map();
     const queueDelete = (allocation) => deleteMap.set(String(allocation._id), allocation);
     const pending = [];
+    let clearedCount = 0;
+
+    // Replace mode: wipe every current allocation in this hostel before applying
+    // the provided list, so the list becomes the full occupancy of the hostel.
+    if (mode === 'replace') {
+      const hostelAllocations = await hostelQueries.findAllocationsByHostel(hostelId, {
+        session,
+        select: '_id roomId bedNumber studentProfileId hostelId',
+      });
+      hostelAllocations.forEach((allocation) => queueDelete(allocation));
+      clearedCount = hostelAllocations.length;
+    }
 
     for (const alloc of validAllocations) {
       const { unit, room, bedNumber, rollNumber } = alloc;
@@ -234,6 +309,21 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
       if (!studentProfile) {
         errors.push({ rollNumber, message: 'Student profile not found' });
         continue;
+      }
+
+      // Scoped writers may only allocate students already in their hostel, or
+      // students with no current allocation. Pulling someone out of another
+      // hostel is Admin-only.
+      if (scope.hostelBound) {
+        const currentAllocForScope = currentAllocMap[studentProfile._id.toString()];
+        const currentHostelId = toHostelIdString(currentAllocForScope?.hostelId);
+        if (!isStudentAllocatableInScope(currentHostelId, scope)) {
+          errors.push({
+            rollNumber,
+            message: 'Student is allocated in another hostel and cannot be reassigned here',
+          });
+          continue;
+        }
       }
 
       let roomDoc = null;
@@ -339,16 +429,26 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     await session.commitTransaction();
 
     const responseStatus = errors.length > 0 ? 207 : 200;
+    const successMessage = mode === 'replace'
+      ? (clearedCount > 0
+        ? `Cleared ${clearedCount} existing allocation${clearedCount === 1 ? '' : 's'} and applied the new list`
+        : 'Hostel had no prior allocations; applied the new list')
+      : 'Room allocations updated successfully';
+
     return sendStandardResponse(res, {
       success: true,
       statusCode: responseStatus,
       data: {
         allocations: results,
         errors,
+        mode,
+        clearedCount: mode === 'replace' ? clearedCount : 0,
       },
       message: errors.length > 0
-        ? 'Room allocations updated with some errors. Please review the errors for details.'
-        : 'Room allocations updated successfully',
+        ? (mode === 'replace'
+          ? 'Hostel allocations replaced with some errors. Please review the errors for details.'
+          : 'Room allocations updated with some errors. Please review the errors for details.')
+        : successMessage,
     });
   } catch (error) {
     await session.abortTransaction();
