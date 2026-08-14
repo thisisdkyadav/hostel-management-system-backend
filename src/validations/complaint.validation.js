@@ -121,6 +121,21 @@ export const updateComplaintResolutionNotesSchema = Joi.object({
 });
 
 /**
+ * Update complaint category
+ * PUT /api/complaint/:complaintId/category
+ */
+export const updateComplaintCategorySchema = Joi.object({
+  params: Joi.object({
+    complaintId: objectId.required(),
+  }),
+  body: Joi.object({
+    category: Joi.string()
+      .valid("Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other")
+      .required(),
+  }),
+});
+
+/**
  * Update complaint feedback
  * PATCH /api/complaint/:complaintId/feedback
  */
@@ -163,6 +178,7 @@ export default {
   getStudentComplaintsSchema,
   complaintStatusUpdateSchema,
   updateComplaintResolutionNotesSchema,
+  updateComplaintCategorySchema,
   updateComplaintFeedbackSchema,
   getAllComplaintsSchema,
 };

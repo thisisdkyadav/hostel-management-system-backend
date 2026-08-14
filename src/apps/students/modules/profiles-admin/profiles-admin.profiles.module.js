@@ -704,13 +704,20 @@ export const getStudents = asyncHandler(async (req, res) => {
   const searchQuery = { ...req.query };
   const constraintContext = getConstraintContext(req.user);
   const requestedHostelId = toObjectIdString(searchQuery.hostelId);
+  // Unallocated students have no hostel. Hostel-bound staff (e.g. supervisors
+  // allocating a bed) must still be able to list them, so skip hostel forcing
+  // when the caller explicitly asks for hasAllocation=false.
+  const isUnallocatedOnly = String(searchQuery.hasAllocation) === 'false';
 
   if (constraintContext.scopedHostelIds && constraintContext.scopedHostelIds.size === 0) {
     return sendStandardResponse(res, buildEmptyStudentsResult(searchQuery));
   }
 
   if (constraintContext.scopedHostelIds) {
-    if (requestedHostelId) {
+    if (isUnallocatedOnly) {
+      delete searchQuery.hostelId;
+      delete searchQuery.hostelIds;
+    } else if (requestedHostelId) {
       if (!constraintContext.scopedHostelIds.has(requestedHostelId)) {
         return sendStandardResponse(res, buildEmptyStudentsResult(searchQuery));
       }
@@ -724,7 +731,7 @@ export const getStudents = asyncHandler(async (req, res) => {
         delete searchQuery.hostelId;
       }
     }
-  } else if (req.user.hostel) {
+  } else if (req.user.hostel && !isUnallocatedOnly) {
     searchQuery.hostelId = req.user.hostel._id.toString();
   }
 
@@ -813,13 +820,17 @@ const applyStudentListScope = (searchQuery, user) => {
   const scopedQuery = { ...searchQuery };
   const constraintContext = getConstraintContext(user);
   const requestedHostelId = toObjectIdString(scopedQuery.hostelId);
+  const isUnallocatedOnly = String(scopedQuery.hasAllocation) === 'false';
 
   if (constraintContext.scopedHostelIds && constraintContext.scopedHostelIds.size === 0) {
     return { scopedQuery, constraintContext, forceEmpty: true };
   }
 
   if (constraintContext.scopedHostelIds) {
-    if (requestedHostelId) {
+    if (isUnallocatedOnly) {
+      delete scopedQuery.hostelId;
+      delete scopedQuery.hostelIds;
+    } else if (requestedHostelId) {
       if (!constraintContext.scopedHostelIds.has(requestedHostelId)) {
         return { scopedQuery, constraintContext, forceEmpty: true };
       }
@@ -833,7 +844,7 @@ const applyStudentListScope = (searchQuery, user) => {
         delete scopedQuery.hostelId;
       }
     }
-  } else if (user.hostel) {
+  } else if (user.hostel && !isUnallocatedOnly) {
     scopedQuery.hostelId = user.hostel._id.toString();
   }
 

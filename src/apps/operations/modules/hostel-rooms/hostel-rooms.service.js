@@ -17,6 +17,16 @@ import {
 import { MANUAL_ROOM_STATUSES } from '../../../../models/hostel/Room.model.js';
 import { roomOwner } from '../../../../services/hostel/roomOwner.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import { getHostelScope, isHostelAllowed } from '../../../../utils/hostelScope.js';
+
+const toIdString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.trim() || null;
+  if (typeof value === 'object') {
+    return value._id?.toString?.() || value.id?.toString?.() || value.toString?.() || null;
+  }
+  return String(value);
+};
 
 class HostelRoomsService {
   /**
@@ -121,16 +131,49 @@ class HostelRoomsService {
   }
 
   /**
-   * Allocate room to student
+   * Allocate room to student.
+   * Hostel-bound roles may only allocate into their active hostel.
+   * (roomOwner.allocate already requires the student to be unallocated.)
    */
-  async allocateRoom(allocationData) {
-    return roomOwner.allocate(allocationData);
+  async allocateRoom(allocationData, user) {
+    const scope = getHostelScope(user);
+    const hostelId = toIdString(allocationData?.hostelId);
+    const unitId = toIdString(allocationData?.unitId);
+    const roomId = toIdString(allocationData?.roomId);
+    const studentId = toIdString(allocationData?.studentId);
+    const userId = toIdString(allocationData?.userId);
+
+    if (scope.hostelBound && !isHostelAllowed(hostelId, scope)) {
+      return forbidden('You can only allocate students in your active hostel');
+    }
+
+    return roomOwner.allocate({
+      ...allocationData,
+      hostelId,
+      unitId: unitId || undefined,
+      roomId,
+      studentId,
+      userId,
+    });
   }
 
   /**
-   * Delete room allocation
+   * Delete room allocation.
+   * Hostel-bound roles may only remove allocations in their active hostel.
    */
-  async deleteAllocation(allocationId) {
+  async deleteAllocation(allocationId, user) {
+    const scope = getHostelScope(user);
+    if (scope.hostelBound) {
+      const allocation = await hostelQueries.findAllocationByIdWithRoom(allocationId);
+      if (!allocation) {
+        return notFound('Allocation not found');
+      }
+      const hostelId = toIdString(allocation.hostelId?._id || allocation.hostelId);
+      if (!isHostelAllowed(hostelId, scope)) {
+        return forbidden('You can only remove allocations in your active hostel');
+      }
+    }
+
     return roomOwner.deallocate(allocationId);
   }
 

@@ -14,6 +14,7 @@ import {
   getStudentComplaints,
   complaintStatusUpdate,
   updateComplaintResolutionNotes,
+  updateComplaintCategory,
   updateComplaintFeedback,
   getComplaintByToken,
   submitFeedbackByToken,
@@ -62,6 +63,9 @@ router.put('/:complaintId/status', guard(['Admin', 'Warden', 'Associate Warden',
 
 // Complaint resolution notes
 router.put('/:complaintId/resolution-notes', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Maintenance Staff']), updateComplaintResolutionNotes);
+
+// Complaint category (type) — hostel staff / admin only
+router.put('/:complaintId/category', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']), updateComplaintCategory);
 
 // Complaint feedback
 router.post('/:complaintId/feedback', guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor', 'Student']), updateComplaintFeedback);

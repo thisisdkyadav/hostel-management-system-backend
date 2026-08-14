@@ -63,12 +63,22 @@ router.put(
   updateRoomAllocations
 );
 
+// Single-room allocate / deallocate: Admin + Hostel Supervisor. Handler enforces
+// active-hostel scope for hostel-bound roles (target room/allocation only).
+router.post(
+  '/allocate',
+  guard(['Admin', 'Hostel Supervisor']),
+  allocateRoom
+);
+router.delete(
+  '/deallocate/:allocationId',
+  guard(['Admin', 'Hostel Supervisor']),
+  deleteAllocation
+);
+
 // Admin-only routes below
 router.use(authorizeRoles(['Admin']));
 router.use(requireRouteAccess('route.admin.hostels'));
-
-// Room allocation
-router.post('/allocate', allocateRoom);
 
 // Room management
 router.get('/rooms/:hostelId/edit', getRoomsForEdit);
@@ -78,7 +88,6 @@ router.put('/rooms/:hostelId/bulk-update', bulkUpdateRooms);
 router.put('/rooms/:hostelId/:roomId', updateRoom);
 
 // Allocation management
-router.delete('/deallocate/:allocationId', deleteAllocation);
 router.delete('/delete-all-allocations/:hostelId', deleteAllAllocations);
 
 // Hostel archive

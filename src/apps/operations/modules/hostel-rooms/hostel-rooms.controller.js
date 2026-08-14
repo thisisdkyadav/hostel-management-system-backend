@@ -60,7 +60,7 @@ export const updateRoomStatus = asyncHandler(async (req, res) => {
 });
 
 export const allocateRoom = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.allocateRoom(req.body);
+  const result = await hostelRoomsService.allocateRoom(req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -74,7 +74,7 @@ export const allocateRoom = asyncHandler(async (req, res) => {
 });
 
 export const deleteAllocation = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.deleteAllocation(req.params.allocationId);
+  const result = await hostelRoomsService.deleteAllocation(req.params.allocationId, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });

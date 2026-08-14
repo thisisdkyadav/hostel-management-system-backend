@@ -104,6 +104,14 @@ export const updateComplaintResolutionNotes = handler((req) =>
 );
 
 /**
+ * Update complaint category
+ * PUT /api/complaint/:complaintId/category
+ */
+export const updateComplaintCategory = handler((req) =>
+  complaintService.updateCategory(req.params.complaintId, req.body.category, req.user)
+);
+
+/**
  * Update complaint feedback
  * POST /api/complaint/:complaintId/feedback
  */

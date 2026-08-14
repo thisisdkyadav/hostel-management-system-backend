@@ -549,6 +549,32 @@ class ComplaintService {
   }
 
   /**
+   * Update complaint category (type)
+   */
+  async updateCategory(complaintId, category, user) {
+    const allowedCategories = ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other"];
+    if (!allowedCategories.includes(category)) {
+      return badRequest("Invalid complaint category");
+    }
+
+    const complaint = await complaintQueries.findComplaintById(complaintId);
+
+    if (!complaint) {
+      return notFound("Complaint not found");
+    }
+
+    const scopeContext = this.getComplaintScopeContext(user);
+    if (scopeContext.enforceConstraints && !this.isHostelAllowed(complaint.hostelId, scopeContext)) {
+      return forbidden("You are not authorized to update this complaint");
+    }
+
+    complaint.category = category;
+    await complaintOwner.persistComplaint(complaint);
+
+    return success(complaint);
+  }
+
+  /**
    * Update complaint feedback
    */
   async updateFeedback(complaintId, userId, feedbackData) {
