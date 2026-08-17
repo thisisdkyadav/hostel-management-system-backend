@@ -103,7 +103,7 @@ export const sendPaymentRequestEmail = async ({ to, studentName, amount, payment
   if (!to) return
   const payHtml = paymentLink
     ? `<p>Pay using this link / QR: <a href="${paymentLink}">${paymentLink}</a></p>`
-    : `<p>Please use the payment QR shown on your request page in the HMS portal.</p>`
+    : `<p>Please use the payment QR shown on your request page in the SMS portal.</p>`
   const hostelLine = hostelName
     ? `<p>Your guests have been allotted accommodation at <strong>${hostelName}</strong>.</p>`
     : ""
@@ -113,7 +113,7 @@ export const sendPaymentRequestEmail = async ({ to, studentName, amount, payment
     ${hostelLine}
     ${payHtml}
     <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
-    <p>Pay now and upload the UTR, payment date and a screenshot on the HMS portal — or choose
+    <p>Pay now and upload the UTR, payment date and a screenshot on the SMS portal — or choose
     <strong>Pay later</strong>. Rooms will be allocated only after payment; you can pay when the guest arrives.</p>
     ${ctaButton(studentRequestLink(request?._id), "Pay & upload proof")}`
   await emailService.sendCustomEmail({ to, subject: "Payment requested for your accommodation request", body })
@@ -138,7 +138,7 @@ export const sendInvoiceEmail = async ({ to, studentName, number, quote, gstin, 
     <p>Hostel: ${hostelName || "-"} · Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
     ${quoteHtml(quote)}
     ${gstinLine}
-    <p>Thank you for using the HMS guest accommodation service.</p>
+    <p>Thank you for using the SMS guest accommodation service.</p>
     ${ctaButton(studentRequestLink(request?._id), "View invoice")}`
   const attachments = pdf
     ? [{ filename: `${String(number).replace(/[^\w-]+/g, "-")}.pdf`, content: pdf, contentType: "application/pdf" }]
@@ -183,7 +183,7 @@ export const sendStudentDecisionEmail = async ({ to, studentName, status, reason
     <p>Dear ${studentName || "Student"},</p>
     <p>Your accommodation request status is now: <strong>${status}</strong>.</p>
     ${reasonHtml}
-    <p>You can view the latest details on the HMS portal.</p>
+    <p>You can view the latest details on the SMS portal.</p>
     ${ctaButton(studentRequestLink(requestId))}`
   await emailService.sendCustomEmail({ to, subject: `Accommodation request: ${status}`, body })
 }

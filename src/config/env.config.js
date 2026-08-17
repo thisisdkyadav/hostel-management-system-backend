@@ -102,12 +102,12 @@ export const env = {
     secure: process.env.SMTP_SECURE === "true",
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS,
-    from: process.env.SMTP_FROM || "HMS <saappsupport@iiti.ac.in>",
+    from: process.env.SMTP_FROM || "SMS <saappsupport@iiti.ac.in>",
     sendAs:
       process.env.SMTP_SEND_AS ||
       process.env.SMTP_FROM ||
       process.env.SMTP_USER ||
-      "HMS <saappsupport@iiti.ac.in>",
+      "SMS <saappsupport@iiti.ac.in>",
     accounts: parseSmtpAccounts(process.env.SMTP_ACCOUNTS),
     sendIntervalMs: parseInt(process.env.SMTP_SEND_INTERVAL_MS, 10) || 1000,
     developmentRedirectTo: process.env.SMTP_DEVELOPMENT_REDIRECT_TO || "",

@@ -712,7 +712,7 @@ class PorService {
           const link = buildApprovalDeepLink(reviewerRole, "PorRequest", { requestId: String(porRequestId) })
           return link
             ? `<p style="margin-top:18px;"><a href="${link}" class="button">Review &amp; Approve</a></p>`
-            : `<p>Please log in to HMS and review this POR request from your POR workspace.</p>`
+            : `<p>Please log in to SMS and review this POR request from your POR workspace.</p>`
         })()}
       `
 
@@ -800,7 +800,7 @@ class PorService {
         ${commentsBlock}
         ${(() => {
           const link = buildApprovalDeepLink(ROLES.STUDENT, "PorRequest", { requestId: String(porRequestId) })
-          if (!link) return `<p>Please log in to HMS to view the latest status in your POR workspace.</p>`
+          if (!link) return `<p>Please log in to SMS to view the latest status in your POR workspace.</p>`
           const label = action === "approved" ? "View POR" : "Open & update"
           return `<p style="margin-top:18px;"><a href="${link}" class="button">${label}</a></p>`
         })()}

@@ -140,10 +140,10 @@ export const notifyStageApprovers = async ({
       const link = buildApprovalDeepLink(recipient.role, entityType, linkParams)
       const body = `
         <p>Dear ${escapeHtml(recipient.name || "Approver")},</p>
-        <p>A ${escapeHtml(entityTypeLabel)} is awaiting your review at the <strong>${safeStage}</strong> stage in HMS.</p>
+        <p>A ${escapeHtml(entityTypeLabel)} is awaiting your review at the <strong>${safeStage}</strong> stage in SMS.</p>
         <p><strong>Item:</strong> ${safeEntityLabel}</p>
         ${movedBlock}${commentsBlock}
-        ${ctaButton(link, "Review & Approve") || "<p>Please log in to HMS to review this item.</p>"}
+        ${ctaButton(link, "Review & Approve") || "<p>Please log in to SMS to review this item.</p>"}
       `
       const result = await emailService.sendCustomEmail({ to: recipient.email, subject, body, useTemplate: true })
       if (result?.success) sent += 1

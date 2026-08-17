@@ -1,6 +1,6 @@
-# Hostel Management System — Backend
+# Student Management System — Backend
 
-The backend API server (Node ESM · Express · Mongoose 9 · MongoDB) for the Hostel
+The backend API server (Node ESM · Express · Mongoose 9 · MongoDB) for the Student
 Management System.
 
 ## 📖 Documentation

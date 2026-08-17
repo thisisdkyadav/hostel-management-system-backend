@@ -1,7 +1,7 @@
 {
   "name": "hms_backend",
   "version": "2.0.0",
-  "description": "Hostel Management System Backend",
+  "description": "Student Management System Backend",
   "main": "src/server.js",
   "type": "module",
   "scripts": {

@@ -17,7 +17,7 @@ export const baseEmailTemplate = (content) => `
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>HMS Notification</title>
+  <title>SMS Notification</title>
   <style>
     body {
       margin: 0;
@@ -143,14 +143,14 @@ export const baseEmailTemplate = (content) => `
 <body>
   <div class="container">
     <div class="header">
-      <h1>HMS</h1>
-      <p>Hostel Management System</p>
+      <h1>SMS</h1>
+      <p>Student Management System</p>
     </div>
     <div class="content">
       ${content}
     </div>
     <div class="footer">
-      <p>This is an automated message from the Hostel Management System.</p>
+      <p>This is an automated message from the Student Management System.</p>
       <p style="margin-top: 4px;">IIT Indore</p>
     </div>
   </div>
@@ -371,7 +371,7 @@ export const electionNominationReviewTemplate = ({
       </div>
     ` : ""}
 
-    <p class="muted-text">Please open the HMS portal for the latest nomination details and any next steps.</p>
+    <p class="muted-text">Please open the SMS portal for the latest nomination details and any next steps.</p>
   `
 
   return baseEmailTemplate(content)
