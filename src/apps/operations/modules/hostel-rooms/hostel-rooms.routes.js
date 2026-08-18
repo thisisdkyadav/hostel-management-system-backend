@@ -83,23 +83,39 @@ router.put(
   guard(['Admin', 'Hostel Supervisor']),
   updateRoomStatus
 );
+
+// Room management (list / add / bulk status+capacity / wipe allocations).
+// Static path segments must be registered before /rooms/:hostelId/:roomId.
+// Handler enforces active-hostel scope for hostel-bound roles.
+router.get(
+  '/rooms/:hostelId/edit',
+  guard(['Admin', 'Hostel Supervisor']),
+  getRoomsForEdit
+);
+router.post(
+  '/rooms/:hostelId/add',
+  guard(['Admin', 'Hostel Supervisor']),
+  addRooms
+);
+router.put(
+  '/rooms/:hostelId/bulk-update',
+  guard(['Admin', 'Hostel Supervisor']),
+  bulkUpdateRooms
+);
 router.put(
   '/rooms/:hostelId/:roomId',
   guard(['Admin', 'Hostel Supervisor']),
   updateRoom
 );
+router.delete(
+  '/delete-all-allocations/:hostelId',
+  guard(['Admin', 'Hostel Supervisor']),
+  deleteAllAllocations
+);
 
 // Admin-only routes below
 router.use(authorizeRoles(['Admin']));
 router.use(requireRouteAccess('route.admin.hostels'));
-
-// Room management
-router.get('/rooms/:hostelId/edit', getRoomsForEdit);
-router.post('/rooms/:hostelId/add', addRooms);
-router.put('/rooms/:hostelId/bulk-update', bulkUpdateRooms);
-
-// Allocation management
-router.delete('/delete-all-allocations/:hostelId', deleteAllAllocations);
 
 // Hostel archive
 router.put('/archive/:hostelId', changeArchiveStatus);

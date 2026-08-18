@@ -131,6 +131,18 @@ class HostelRoomsService {
   }
 
   /**
+   * Hostel-bound staff may only touch their active hostel.
+   */
+  assertHostelInScope(hostelId, user) {
+    const scope = getHostelScope(user);
+    if (!scope.hostelBound) return null;
+    if (!isHostelAllowed(hostelId, scope)) {
+      return forbidden('You can only manage rooms in your active hostel');
+    }
+    return null;
+  }
+
+  /**
    * Hostel-bound staff may only mutate rooms in their active hostel.
    */
   async assertRoomInScope(roomId, user) {
@@ -204,7 +216,10 @@ class HostelRoomsService {
   /**
    * Get rooms for edit
    */
-  async getRoomsForEdit(hostelId) {
+  async getRoomsForEdit(hostelId, user) {
+    const scoped = this.assertHostelInScope(hostelId, user);
+    if (scoped) return scoped;
+
     const rooms = await hostelQueries.findRoomsForEdit(hostelId);
 
     const finalResult = rooms.map((room) => ({
@@ -259,14 +274,19 @@ class HostelRoomsService {
   /**
    * Add rooms to hostel
    */
-  async addRooms(hostelId, roomsData) {
+  async addRooms(hostelId, roomsData, user) {
+    const scoped = this.assertHostelInScope(hostelId, user);
+    if (scoped) return scoped;
     return roomOwner.addRooms(hostelId, roomsData);
   }
 
   /**
    * Bulk update rooms
    */
-  async bulkUpdateRooms(hostelId, rooms) {
+  async bulkUpdateRooms(hostelId, rooms, user) {
+    const scoped = this.assertHostelInScope(hostelId, user);
+    if (scoped) return scoped;
+
     const hostel = await hostelQueries.findHostelById(hostelId);
     if (!hostel) {
       return notFound('Hostel not found');
@@ -387,7 +407,9 @@ class HostelRoomsService {
   /**
    * Delete all allocations for a hostel
    */
-  async deleteAllAllocations(hostelId) {
+  async deleteAllAllocations(hostelId, user) {
+    const scoped = this.assertHostelInScope(hostelId, user);
+    if (scoped) return scoped;
     return roomOwner.deleteAllAllocations(hostelId);
   }
 }

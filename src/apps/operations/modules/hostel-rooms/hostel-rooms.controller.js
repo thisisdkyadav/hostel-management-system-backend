@@ -84,7 +84,11 @@ export const deleteAllocation = asyncHandler(async (req, res) => {
 });
 
 export const getRoomsForEdit = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.getRoomsForEdit(req.params.hostelId);
+  const result = await hostelRoomsService.getRoomsForEdit(req.params.hostelId, req.user);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, success: false });
+  }
 
   res.status(result.statusCode).json({
     message: result.message,
@@ -108,7 +112,7 @@ export const updateRoom = asyncHandler(async (req, res) => {
 });
 
 export const addRooms = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.addRooms(req.params.hostelId, req.body);
+  const result = await hostelRoomsService.addRooms(req.params.hostelId, req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -118,7 +122,7 @@ export const addRooms = asyncHandler(async (req, res) => {
 });
 
 export const bulkUpdateRooms = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.bulkUpdateRooms(req.params.hostelId, req.body.rooms);
+  const result = await hostelRoomsService.bulkUpdateRooms(req.params.hostelId, req.body.rooms, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -142,6 +146,9 @@ export const changeArchiveStatus = asyncHandler(async (req, res) => {
 });
 
 export const deleteAllAllocations = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.deleteAllAllocations(req.params.hostelId);
+  const result = await hostelRoomsService.deleteAllAllocations(req.params.hostelId, req.user);
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
   res.status(result.statusCode).json({ message: result.message });
 });
