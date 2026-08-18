@@ -251,6 +251,23 @@ const normalizeGuestAge = (value) => {
   return Math.trunc(n)
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+/** Prefer request body, then profile, then an existing request value. */
+const resolveFacultyAdvisorEmail = (...candidates) => {
+  for (const candidate of candidates) {
+    const email = String(candidate || "").trim().toLowerCase()
+    if (email) return email
+  }
+  return null
+}
+
+const validateFacultyAdvisorEmail = (email) => {
+  if (!email) return "Faculty advisor / supervisor email is required"
+  if (!EMAIL_RE.test(email)) return "Enter a valid faculty advisor / supervisor email"
+  return null
+}
+
 const validateGuestsAndStay = (body) => {
   const guests = Array.isArray(body.guests) ? body.guests : []
   if (guests.length === 0) return "At least one guest is required"
@@ -336,8 +353,12 @@ export const accommodationService = {
     const quote = emptyQuote({ persons, nights })
 
     const profile = await studentProfileQueries.findByUserId(user._id, { lean: true })
-    const facultyAdvisorEmail =
-      String(body.facultyAdvisorEmail || profile?.facultyAdvisorEmail || "").toLowerCase() || null
+    const facultyAdvisorEmail = resolveFacultyAdvisorEmail(
+      body.facultyAdvisorEmail,
+      profile?.facultyAdvisorEmail
+    )
+    const faError = validateFacultyAdvisorEmail(facultyAdvisorEmail)
+    if (faError) return badRequest(faError)
 
     const request = accommodationOwner.buildRequest({
       typeKey,
@@ -758,7 +779,7 @@ export const accommodationService = {
     if (body.addressProof) request.addressProof = body.addressProof
     if (body.roomPreference !== undefined) request.roomPreference = body.roomPreference
     if (body.facultyAdvisorEmail !== undefined) {
-      request.facultyAdvisorEmail = String(body.facultyAdvisorEmail || "").toLowerCase() || null
+      request.facultyAdvisorEmail = String(body.facultyAdvisorEmail || "").trim().toLowerCase() || null
     }
 
     const validationError = validateGuestsAndStay({
@@ -767,6 +788,14 @@ export const accommodationService = {
       roomPreference: request.roomPreference,
     })
     if (validationError) return badRequest(validationError)
+
+    const profile = await studentProfileQueries.findByUserId(user._id, { lean: true })
+    request.facultyAdvisorEmail = resolveFacultyAdvisorEmail(
+      request.facultyAdvisorEmail,
+      profile?.facultyAdvisorEmail
+    )
+    const faError = validateFacultyAdvisorEmail(request.facultyAdvisorEmail)
+    if (faError) return badRequest(faError)
 
     const type = await getAccommodationType(request.typeKey)
     if (!type) return badRequest("Invalid accommodation type")
