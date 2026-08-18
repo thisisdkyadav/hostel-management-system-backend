@@ -28,6 +28,41 @@ const toIdString = (value) => {
   return String(value);
 };
 
+const shapeStudent = (allocation) => {
+  const profile = allocation?.studentProfileId;
+  if (!profile) return null;
+  const user = profile.userId || {};
+  return {
+    id: profile._id,
+    userId: user._id,
+    name: user.name,
+    email: user.email,
+    profileImage: user.profileImage,
+    rollNumber: profile.rollNumber,
+    department: profile.department,
+    bedNumber: allocation.bedNumber,
+    allocationId: allocation._id,
+  };
+};
+
+const isPopulated = (value) => Boolean(value && typeof value === "object" && (value.name || value.unitNumber || value.type))
+
+const shapeRoom = (room, hostel, unit) => ({
+  id: room._id,
+  roomNumber: room.roomNumber,
+  capacity: room.capacity,
+  originalCapacity: room.originalCapacity ?? null,
+  currentOccupancy: room.occupancy,
+  status: room.status,
+  hostel: isPopulated(hostel)
+    ? { _id: hostel._id, name: hostel.name, type: hostel.type }
+    : hostel || room.hostelId,
+  unit: isPopulated(unit)
+    ? { _id: unit._id, name: unit.unitNumber, unitNumber: unit.unitNumber }
+    : unit || room.unitId,
+  students: (room.allocations || []).map(shapeStudent).filter(Boolean),
+});
+
 class HostelRoomsService {
   /**
    * Get units for a hostel
@@ -39,16 +74,20 @@ class HostelRoomsService {
 
     const unitsWithRooms = await hostelQueries.findUnitsWithRooms(hostelId);
 
-    const finalResult = unitsWithRooms.map((unit) => ({
-      id: unit._id,
-      unitNumber: unit.unitNumber,
-      hostel: unit.hostelId.name,
-      floor: unit.floor,
-      commonAreaDetails: unit.commonAreaDetails,
-      roomCount: unit.roomCount,
-      capacity: unit.capacity,
-      occupancy: unit.occupancy,
-    }));
+    const finalResult = unitsWithRooms.map((unit) => {
+      const hostel = unit.hostelId;
+      return {
+        id: unit._id,
+        unitNumber: unit.unitNumber,
+        hostel: hostel?.name,
+        floor: unit.floor,
+        commonAreaDetails: unit.commonAreaDetails,
+        roomCount: unit.roomCount,
+        capacity: unit.capacity,
+        occupancy: unit.occupancy,
+        rooms: (unit.rooms || []).map((room) => shapeRoom(room, hostel, unit)),
+      };
+    });
 
     return success(finalResult);
   }
@@ -67,26 +106,9 @@ class HostelRoomsService {
       return forbidden("You do not have permission to access this unit's rooms");
     }
 
-    const finalResults = roomsWithStudents.map((room) => ({
-      id: room._id,
-      unit: room.unitId,
-      hostel: room.hostelId,
-      roomNumber: room.roomNumber,
-      capacity: room.capacity,
-      currentOccupancy: room.occupancy,
-      status: room.status,
-      students: room.allocations.map((allocation) => ({
-        id: allocation.studentProfileId._id,
-        userId: allocation.studentProfileId.userId._id,
-        name: allocation.studentProfileId.userId.name,
-        email: allocation.studentProfileId.userId.email,
-        profileImage: allocation.studentProfileId.userId.profileImage,
-        rollNumber: allocation.studentProfileId.rollNumber,
-        department: allocation.studentProfileId.department,
-        bedNumber: allocation.bedNumber,
-        allocationId: allocation._id,
-      })) || [],
-    }));
+    const finalResults = roomsWithStudents.map((room) =>
+      shapeRoom(room, room.hostelId, room.unitId),
+    );
 
     return success(finalResults, 200, 'Rooms fetched successfully');
   }
@@ -101,32 +123,34 @@ class HostelRoomsService {
 
     const roomsWithStudents = await hostelQueries.findRoomsByHostelWithAllocations(hostelId);
 
-    const finalResult = roomsWithStudents.map((room) => ({
-      id: room._id,
-      roomNumber: room.roomNumber,
-      capacity: room.capacity,
-      currentOccupancy: room.occupancy,
-      status: room.status,
-      hostel: room.hostelId,
-      students: room.allocations.map((allocation) => ({
-        id: allocation.studentProfileId._id,
-        name: allocation.studentProfileId.userId.name,
-        email: allocation.studentProfileId.userId.email,
-        profileImage: allocation.studentProfileId.userId.profileImage,
-        rollNumber: allocation.studentProfileId.rollNumber,
-        department: allocation.studentProfileId.department,
-        bedNumber: allocation.bedNumber,
-        allocationId: allocation._id,
-      })) || [],
-    }));
+    const finalResult = roomsWithStudents.map((room) =>
+      shapeRoom(room, room.hostelId, room.unitId),
+    );
 
     return success(finalResult, 200, 'Rooms fetched successfully');
   }
 
   /**
+   * Hostel-bound staff may only mutate rooms in their active hostel.
+   */
+  async assertRoomInScope(roomId, user) {
+    const scope = getHostelScope(user);
+    if (!scope.hostelBound) return null;
+
+    const room = await hostelQueries.findRoomById(roomId, { select: 'hostelId' });
+    if (!room) return notFound('Room not found');
+    if (!isHostelAllowed(room.hostelId, scope)) {
+      return forbidden('You can only update rooms in your active hostel');
+    }
+    return null;
+  }
+
+  /**
    * Update room status
    */
-  async updateRoomStatus(roomId, status) {
+  async updateRoomStatus(roomId, status, user) {
+    const scoped = await this.assertRoomInScope(roomId, user);
+    if (scoped) return scoped;
     return roomOwner.setRoomStatus(roomId, status, { manualStatuses: MANUAL_ROOM_STATUSES });
   }
 
@@ -197,18 +221,28 @@ class HostelRoomsService {
   /**
    * Update room
    */
-  async updateRoom(roomId, updateData) {
-    const { capacity, status } = updateData;
+  async updateRoom(roomId, updateData, user) {
+    const scoped = await this.assertRoomInScope(roomId, user);
+    if (scoped) return scoped;
+
+    const { status } = updateData;
+    const capacity = updateData.capacity === undefined || updateData.capacity === null
+      ? null
+      : Number(updateData.capacity);
 
     if (!MANUAL_ROOM_STATUSES.includes(status)) {
       return badRequest('Invalid status value ("Guest" is set automatically for accommodation bookings)');
+    }
+
+    if (capacity !== null && (!Number.isInteger(capacity) || capacity < 1)) {
+      return badRequest('Capacity must be a positive integer');
     }
 
     if (status === 'Active') {
       const activated = await roomOwner.setRoomStatus(roomId, 'Active', { manualStatuses: MANUAL_ROOM_STATUSES });
       if (!activated.success) return activated;
       // Setting capacity below current occupancy force-vacates the highest beds.
-      if (capacity !== undefined && capacity !== null) {
+      if (capacity !== null) {
         const result = await roomOwner.setRoomCapacity(roomId, capacity);
         if (!result.success) return result;
         return success(result.data, 200, 'Room updated successfully');

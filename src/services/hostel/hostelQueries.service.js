@@ -70,7 +70,17 @@ export const hostelQueries = {
   /** Units of a hostel with their rooms populated. HYDRATED (uses getter virtuals
    *  capacity/occupancy/roomCount), so do not switch to lean. */
   async findUnitsWithRooms(hostelId) {
-    return Unit.find({ hostelId }).populate("hostelId").populate("rooms")
+    return Unit.find({ hostelId }).populate("hostelId").populate({
+      path: "rooms",
+      options: { sort: { roomNumber: 1 } },
+      populate: {
+        path: "allocations",
+        populate: {
+          path: "studentProfileId",
+          populate: { path: "userId", select: "name email profileImage" },
+        },
+      },
+    })
   },
 
   /** Units matching the given unit numbers within a hostel. Optional session. */
@@ -89,6 +99,13 @@ export const hostelQueries = {
   },
 
   // ==================== Room ====================
+
+  /** Single room by id. Optional select. */
+  async findRoomById(roomId, { select } = {}) {
+    const query = Room.findById(roomId)
+    if (select) query.select(select)
+    return query
+  },
 
   /**
    * Aggregated room stats for one hostel (totalRooms, active, occupied, vacant,
@@ -152,13 +169,16 @@ export const hostelQueries = {
 
   /** Rooms of a hostel with allocations -> studentProfile -> user populated. */
   async findRoomsByHostelWithAllocations(hostelId) {
-    return Room.find({ hostelId }).populate({
-      path: "allocations",
-      populate: {
-        path: "studentProfileId",
-        populate: { path: "userId", select: "name email profileImage" },
-      },
-    })
+    return Room.find({ hostelId })
+      .populate("hostelId", "name type")
+      .populate("unitId", "unitNumber floor")
+      .populate({
+        path: "allocations",
+        populate: {
+          path: "studentProfileId",
+          populate: { path: "userId", select: "name email profileImage" },
+        },
+      })
   },
 
   /** Rooms of a unit with allocations + hostel + unit populated. */

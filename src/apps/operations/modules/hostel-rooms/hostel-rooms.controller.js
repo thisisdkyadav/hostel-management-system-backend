@@ -47,7 +47,7 @@ export const getRooms = asyncHandler(async (req, res) => {
 });
 
 export const updateRoomStatus = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.updateRoomStatus(req.params.roomId, req.body.status);
+  const result = await hostelRoomsService.updateRoomStatus(req.params.roomId, req.body.status, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -95,7 +95,7 @@ export const getRoomsForEdit = asyncHandler(async (req, res) => {
 });
 
 export const updateRoom = asyncHandler(async (req, res) => {
-  const result = await hostelRoomsService.updateRoom(req.params.roomId, req.body);
+  const result = await hostelRoomsService.updateRoom(req.params.roomId, req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });

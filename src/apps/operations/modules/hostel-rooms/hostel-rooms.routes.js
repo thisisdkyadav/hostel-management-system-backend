@@ -76,6 +76,19 @@ router.delete(
   deleteAllocation
 );
 
+// Status / capacity: Admin + Hostel Supervisor. Handler enforces active-hostel
+// scope for hostel-bound roles.
+router.put(
+  '/rooms/status/:roomId',
+  guard(['Admin', 'Hostel Supervisor']),
+  updateRoomStatus
+);
+router.put(
+  '/rooms/:hostelId/:roomId',
+  guard(['Admin', 'Hostel Supervisor']),
+  updateRoom
+);
+
 // Admin-only routes below
 router.use(authorizeRoles(['Admin']));
 router.use(requireRouteAccess('route.admin.hostels'));
@@ -83,9 +96,7 @@ router.use(requireRouteAccess('route.admin.hostels'));
 // Room management
 router.get('/rooms/:hostelId/edit', getRoomsForEdit);
 router.post('/rooms/:hostelId/add', addRooms);
-router.put('/rooms/status/:roomId', updateRoomStatus);
 router.put('/rooms/:hostelId/bulk-update', bulkUpdateRooms);
-router.put('/rooms/:hostelId/:roomId', updateRoom);
 
 // Allocation management
 router.delete('/delete-all-allocations/:hostelId', deleteAllAllocations);
