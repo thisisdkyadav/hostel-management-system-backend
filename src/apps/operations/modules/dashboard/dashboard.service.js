@@ -59,7 +59,9 @@ class DashboardService {
   }
 
   /**
-   * Get student statistics by degree and gender
+   * Get student statistics by degree and gender.
+   * Only Active students with a non-empty degree are counted; missing/blank
+   * degrees are omitted (no synthetic "Unknown" row).
    */
   async getStudentStats(hostelId = null) {
     const pipeline = [{ $match: { status: 'Active' } }];
@@ -76,40 +78,39 @@ class DashboardService {
     pipeline.push(
       { $lookup: { from: 'users', localField: 'userId', foreignField: '_id', as: 'user' } },
       { $unwind: '$user' },
-      { $match: { degree: { $ne: null } } },
+      {
+        $match: {
+          $expr: {
+            $gt: [{ $strLenCP: { $trim: { input: { $ifNull: ['$degree', ''] } } } }, 0],
+          },
+        },
+      },
       { $group: { _id: { degree: '$degree', gender: '$gender', isDayScholar: '$isDayScholar' }, count: { $sum: 1 } } }
     );
 
     const degreeRows = await studentProfileQueries.aggregateProfiles(pipeline);
 
-    const genderPipeline = [{ $match: { status: 'Active' } }];
-
-    if (hostelId) {
-      const hostelObjectId = typeof hostelId === 'string' ? new mongoose.Types.ObjectId(hostelId) : hostelId;
-      genderPipeline.push(
-        { $lookup: { from: 'roomallocations', localField: 'currentRoomAllocation', foreignField: '_id', as: 'allocation' } },
-        { $unwind: { path: '$allocation', preserveNullAndEmptyArrays: false } },
-        { $match: { 'allocation.hostelId': hostelObjectId } }
-      );
-    }
-
-    genderPipeline.push({ $group: { _id: '$gender', count: { $sum: 1 } } });
-
-    const genderTotals = await studentProfileQueries.aggregateProfiles(genderPipeline);
-    const totalBoys = genderTotals.find((g) => g._id === 'Male')?.count || 0;
-    const totalGirls = genderTotals.find((g) => g._id === 'Female')?.count || 0;
-
-    // Build per-degree hostler / day-scholar splits from the isDayScholar flag
+    // Build per-degree hostler / day-scholar splits from the isDayScholar flag.
+    // Totals are summed from the same rows so they cannot include students
+    // without a real degree.
     const byDegree = new Map();
+    let totalBoys = 0;
+    let totalGirls = 0;
     for (const row of degreeRows) {
-      const degreeName = row._id.degree || 'Unknown';
+      const degreeName = typeof row._id.degree === 'string' ? row._id.degree.trim() : '';
+      if (!degreeName) continue;
       if (!byDegree.has(degreeName)) {
         byDegree.set(degreeName, { degree: degreeName, hostler: { boys: 0, girls: 0 }, dayScholar: { boys: 0, girls: 0 } });
       }
       const entry = byDegree.get(degreeName);
       const bucket = row._id.isDayScholar ? entry.dayScholar : entry.hostler;
-      if (row._id.gender === 'Male') bucket.boys += row.count;
-      else if (row._id.gender === 'Female') bucket.girls += row.count;
+      if (row._id.gender === 'Male') {
+        bucket.boys += row.count;
+        totalBoys += row.count;
+      } else if (row._id.gender === 'Female') {
+        bucket.girls += row.count;
+        totalGirls += row.count;
+      }
     }
 
     const degreeWise = Array.from(byDegree.values()).map((entry) => {
