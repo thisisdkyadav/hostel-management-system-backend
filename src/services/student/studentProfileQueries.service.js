@@ -236,6 +236,17 @@ export const studentProfileQueries = {
   },
 
   /**
+   * Profiles by _id list. Options: { select, lean, session }.
+   */
+  async findByIds(ids, { select, lean, session } = {}) {
+    let query = StudentProfile.find({ _id: { $in: ids } })
+    if (select) query = query.select(select)
+    if (session) query = query.session(session)
+    if (lean) query = query.lean()
+    return query
+  },
+
+  /**
    * One profile by PARTIAL case-insensitive roll number (unanchored, raw pattern
    * — matches the original inventory `{ $regex: rollNumber, $options: 'i' }`).
    */

@@ -157,7 +157,7 @@ class HostelRoomsService {
   /**
    * Allocate room to student.
    * Hostel-bound roles may only allocate into their active hostel.
-   * (roomOwner.allocate already requires the student to be unallocated.)
+   * (roomOwner.allocate requires an Active hosteller and replaces an occupied bed.)
    */
   async allocateRoom(allocationData, user) {
     const scope = getHostelScope(user);

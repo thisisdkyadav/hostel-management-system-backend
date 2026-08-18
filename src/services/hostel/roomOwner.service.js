@@ -10,12 +10,14 @@
  *   - Room.occupancy === count(RoomAllocation for that room)
  *   - 0 <= Room.occupancy <= Room.capacity   (allocation never exceeds capacity)
  *   - occupancy is never negative
+ *   - every allocation's bedNumber is in 1..Room.capacity
+ *   - only Active, non-day-scholar students hold an allocation
  *
  * How it stays correct where the old code did not:
- *   - Allocation reserves a bed with a single ATOMIC guarded update
- *     (findOneAndUpdate occupancy++ only while occupancy < capacity) — no
- *     check-then-act race, so the last bed can't be double-booked.
- *   - Release decrements only while occupancy > 0 — occupancy can't go negative.
+ *   - Allocation writes go through applyAllocations, which evicts the occupant
+ *     of a claimed bed (and the incoming student's previous room) before insert,
+ *     then refuses any write that would leave occupancy > capacity.
+ *   - Reducing capacity vacates beds above the new capacity and any overflow.
  *   - Allocation writes + the occupancy change run in the SAME transaction.
  *   - Room status/capacity flips use aggregation-pipeline updates that reference
  *     the current field values atomically, replacing the read-modify-write
@@ -33,7 +35,35 @@ import mongoose from "mongoose"
 import { success, badRequest, notFound, withTransaction } from "../base/index.js"
 import { Hostel, Room, Unit, RoomAllocation } from "../../models/index.js"
 import { studentProfileOwner } from "../student/studentProfileOwner.service.js"
+import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
 import { MANUAL_ROOM_STATUSES } from "../../models/hostel/Room.model.js"
+
+const STUDENT_STATUS_ACTIVE = "Active"
+
+class AllocationError extends Error {
+  constructor(message, statusCode = 400) {
+    super(message)
+    this.name = "AllocationError"
+    this.statusCode = statusCode
+  }
+}
+
+const isAllocatableStudent = (student) => (
+  Boolean(student)
+  && student.status === STUDENT_STATUS_ACTIVE
+  && student.isDayScholar !== true
+)
+
+const studentAllocationError = (student) => {
+  if (!student) return new AllocationError("Student profile not found", 404)
+  if (student.isDayScholar === true) {
+    return new AllocationError("Day scholars cannot be allocated a room")
+  }
+  if (student.status !== STUDENT_STATUS_ACTIVE) {
+    return new AllocationError("Only active students can be allocated a room")
+  }
+  return new AllocationError("Student cannot be allocated a room")
+}
 
 const toObjectId = (value) =>
   value instanceof mongoose.Types.ObjectId ? value : new mongoose.Types.ObjectId(value)
@@ -163,8 +193,9 @@ async function deactivateRoomsRaw(roomIds, status, session) {
 }
 
 /**
- * Force-vacate the highest-bed allocations in a room down to `capacity`, inside
- * the caller's session. Returns the vacated allocations.
+ * Vacate allocations that cannot stay at `capacity`: ineligible students
+ * (not Active, or day scholar), beds numbered above capacity, then overflow
+ * by highest remaining bed. Sets capacity and occupancy from the leftover.
  */
 async function forceVacateToCapacity(roomId, capacity, session) {
   const allocations = await RoomAllocation.find({ roomId })
@@ -173,9 +204,35 @@ async function forceVacateToCapacity(roomId, capacity, session) {
     .session(session)
     .lean()
 
+  const studentIds = uniqueObjectIds(allocations.map((a) => a.studentProfileId))
+  const students = studentIds.length > 0
+    ? await studentProfileQueries.findByIds(studentIds, {
+      select: "status isDayScholar",
+      session,
+      lean: true,
+    })
+    : []
+  const studentById = new Map(students.map((student) => [String(student._id), student]))
+
+  const ineligible = []
+  const overBed = []
+  const within = []
+  for (const allocation of allocations) {
+    const student = studentById.get(String(allocation.studentProfileId))
+    if (!isAllocatableStudent(student)) {
+      ineligible.push(allocation)
+    } else if (allocation.bedNumber > capacity) {
+      overBed.push(allocation)
+    } else {
+      within.push(allocation)
+    }
+  }
+
+  const extra = within.length > capacity ? within.slice(0, within.length - capacity) : []
+  const excess = [...ineligible, ...overBed, ...extra]
   const vacated = []
-  if (allocations.length > capacity) {
-    const excess = allocations.slice(0, allocations.length - capacity) // highest bed numbers first
+
+  if (excess.length > 0) {
     const excessIds = excess.map((a) => a._id)
     await studentProfileOwner.updateMany(
       { currentRoomAllocation: { $in: excessIds } },
@@ -193,9 +250,182 @@ async function forceVacateToCapacity(roomId, capacity, session) {
     )
   }
 
-  const remaining = Math.min(allocations.length, capacity)
+  const remaining = allocations.length - excess.length
   await Room.updateOne({ _id: roomId }, { $set: { capacity, occupancy: remaining } }, { session })
   return vacated
+}
+
+async function removeAllocationsByIds(allocationIds, session) {
+  const ids = uniqueObjectIds(allocationIds)
+  if (ids.length === 0) return []
+
+  const removing = await RoomAllocation.find({ _id: { $in: ids } })
+    .select("_id roomId")
+    .session(session)
+    .lean()
+  if (removing.length === 0) return []
+
+  const removedIds = removing.map((a) => a._id)
+  await studentProfileOwner.updateMany(
+    { currentRoomAllocation: { $in: removedIds } },
+    { $unset: { currentRoomAllocation: "" } },
+    { session }
+  )
+  await RoomAllocation.collection.deleteMany({ _id: { $in: removedIds } }, { session })
+  return removing
+}
+
+/**
+ * Apply deletes + creates inside the caller's session. This is the hard gate:
+ * incoming students must be Active hostellers, each bed must fit in the room's
+ * capacity, occupied beds (and the incoming student's previous room) are
+ * vacated first, and the write is refused if occupancy would exceed capacity.
+ */
+async function applyAllocationsInSession({ deleteIds = [], createInputs = [] }, session) {
+  const createdDocs = createInputs.map(buildAllocationDoc)
+  const deleteSet = new Set((deleteIds || []).map((id) => String(id)))
+  const affected = new Set()
+
+  if (createdDocs.length > 0) {
+    const seenStudents = new Set()
+    const claimedBeds = new Set()
+    const studentIds = uniqueObjectIds(createdDocs.map((doc) => doc.studentProfileId))
+    const roomIds = uniqueObjectIds(createdDocs.map((doc) => doc.roomId))
+
+    const [students, rooms] = await Promise.all([
+      studentProfileQueries.findByIds(studentIds, {
+        select: "status isDayScholar userId",
+        session,
+        lean: true,
+      }),
+      Room.find({ _id: { $in: roomIds } }).session(session).lean(),
+    ])
+    const studentById = new Map(students.map((student) => [String(student._id), student]))
+    const roomById = new Map(rooms.map((room) => [String(room._id), room]))
+
+    for (const doc of createdDocs) {
+      const studentKey = String(doc.studentProfileId)
+      if (seenStudents.has(studentKey)) {
+        throw new AllocationError("Student is assigned more than once in this allocation")
+      }
+      seenStudents.add(studentKey)
+
+      const student = studentById.get(studentKey)
+      if (!isAllocatableStudent(student)) throw studentAllocationError(student)
+
+      const room = roomById.get(String(doc.roomId))
+      if (!room) throw new AllocationError("Room not found", 404)
+      if (room.status !== "Active") throw new AllocationError("Cannot allocate an inactive room")
+      if (doc.hostelId && String(room.hostelId) !== String(doc.hostelId)) {
+        throw new AllocationError("Room does not belong to the specified hostel")
+      }
+      if (doc.bedNumber < 1 || doc.bedNumber > room.capacity) {
+        throw new AllocationError(`Invalid bed number. Must be between 1 and ${room.capacity}`)
+      }
+
+      const bedKey = `${doc.roomId}:${doc.bedNumber}`
+      if (claimedBeds.has(bedKey)) {
+        throw new AllocationError(`Bed ${doc.bedNumber} is assigned to more than one student`)
+      }
+      claimedBeds.add(bedKey)
+      affected.add(String(doc.roomId))
+    }
+
+    const conflictOr = [
+      { studentProfileId: { $in: studentIds } },
+      ...createdDocs.map((doc) => ({ roomId: doc.roomId, bedNumber: doc.bedNumber })),
+    ]
+    const conflicts = await RoomAllocation.find({ $or: conflictOr })
+      .select("_id roomId")
+      .session(session)
+      .lean()
+    conflicts.forEach((allocation) => {
+      deleteSet.add(String(allocation._id))
+      affected.add(String(allocation.roomId))
+    })
+  }
+
+  const providedDeletes = deleteSet.size > 0
+    ? await RoomAllocation.find({ _id: { $in: [...deleteSet].map(toObjectId) } })
+      .select("_id roomId studentProfileId")
+      .session(session)
+      .lean()
+    : []
+  providedDeletes.forEach((allocation) => affected.add(String(allocation.roomId)))
+
+  const roomsToSweep = [...affected].map(toObjectId)
+  if (roomsToSweep.length > 0) {
+    const roomAllocations = await RoomAllocation.find({ roomId: { $in: roomsToSweep } })
+      .select("_id roomId studentProfileId bedNumber")
+      .session(session)
+      .lean()
+    const occupantIds = uniqueObjectIds(roomAllocations.map((a) => a.studentProfileId))
+    const occupants = occupantIds.length > 0
+      ? await studentProfileQueries.findByIds(occupantIds, {
+        select: "status isDayScholar",
+        session,
+        lean: true,
+      })
+      : []
+    const occupantById = new Map(occupants.map((student) => [String(student._id), student]))
+
+    for (const allocation of roomAllocations) {
+      if (!isAllocatableStudent(occupantById.get(String(allocation.studentProfileId)))) {
+        deleteSet.add(String(allocation._id))
+      }
+    }
+
+    const remainingByRoom = {}
+    for (const allocation of roomAllocations) {
+      if (deleteSet.has(String(allocation._id))) continue
+      const roomKey = String(allocation.roomId)
+      remainingByRoom[roomKey] = (remainingByRoom[roomKey] || 0) + 1
+    }
+
+    const roomById = new Map(
+      (await Room.find({ _id: { $in: roomsToSweep } }).select("capacity").session(session).lean())
+        .map((room) => [String(room._id), room])
+    )
+
+    for (const doc of createdDocs) {
+      const roomKey = String(doc.roomId)
+      const room = roomById.get(roomKey)
+      remainingByRoom[roomKey] = (remainingByRoom[roomKey] || 0) + 1
+      if (!room || remainingByRoom[roomKey] > room.capacity) {
+        throw new AllocationError("Room is already at full capacity")
+      }
+    }
+  }
+
+  if (deleteSet.size > 0) {
+    const removed = await removeAllocationsByIds([...deleteSet], session)
+    removed.forEach((allocation) => affected.add(String(allocation.roomId)))
+  }
+
+  if (createdDocs.length > 0) {
+    await RoomAllocation.collection.insertMany(createdDocs, { session })
+    const profileOps = createdDocs.map((doc) => ({
+      updateOne: {
+        filter: { _id: doc.studentProfileId },
+        update: { $set: { currentRoomAllocation: doc._id } },
+      },
+    }))
+    await studentProfileOwner.bulkWrite(profileOps, { session })
+  }
+
+  await syncOccupancy([...affected], session)
+
+  if (affected.size > 0) {
+    const settled = await Room.find({ _id: { $in: [...affected].map(toObjectId) } })
+      .select("occupancy capacity")
+      .session(session)
+      .lean()
+    if (settled.some((room) => room.occupancy > room.capacity)) {
+      throw new AllocationError("Room occupancy would exceed capacity")
+    }
+  }
+
+  return { createdDocs }
 }
 
 /**
@@ -363,63 +593,50 @@ export const roomOwner = {
   },
 
   /**
-   * Allocate one student to a specific bed. Atomic and race-safe.
-   * Preserves the exact validation/messages of the legacy allocateRoom.
+   * Allocate one student to a specific bed. Active hostellers only. If the bed
+   * is occupied, the previous student is fully vacated first. If the incoming
+   * student already has a room, that allocation is vacated too (a move).
    */
   async allocate({ roomId, hostelId, unitId, studentId, bedNumber, userId }) {
     if (!roomId || !hostelId || !studentId || !bedNumber || !userId) {
       return badRequest("Missing required fields")
     }
 
-    return withTransaction(async (session) => {
-      const hostel = await Hostel.findById(hostelId).session(session)
-      if (!hostel) return notFound("Hostel not found")
-      if (hostel.type === "unit-based" && !unitId) {
-        return badRequest("Unit ID is required for unit-based hostels")
-      }
+    try {
+      return await withTransaction(async (session) => {
+        const hostel = await Hostel.findById(hostelId).session(session)
+        if (!hostel) throw new AllocationError("Hostel not found", 404)
+        if (hostel.type === "unit-based" && !unitId) {
+          throw new AllocationError("Unit ID is required for unit-based hostels")
+        }
 
-      const room = await Room.findById(roomId).session(session)
-      if (!room) return notFound("Room not found")
-      if (room.status !== "Active") return badRequest("Cannot allocate an inactive room")
+        const room = await Room.findById(roomId).session(session)
+        if (!room) throw new AllocationError("Room not found", 404)
+        if (room.status !== "Active") throw new AllocationError("Cannot allocate an inactive room")
+        if (String(room.hostelId) !== String(hostel._id)) {
+          throw new AllocationError("Room does not belong to the specified hostel")
+        }
 
-      // Friendly, ordered messages (matches legacy ordering). The atomic reserve
-      // below is the real capacity guard for the concurrent case.
-      if (room.occupancy >= room.capacity) return badRequest("Room is already at full capacity")
-      if (bedNumber <= 0 || bedNumber > room.capacity) {
-        return badRequest(`Invalid bed number. Must be between 1 and ${room.capacity}`)
-      }
+        const { createdDocs } = await applyAllocationsInSession({
+          createInputs: [{
+            userId,
+            studentProfileId: studentId,
+            hostelId,
+            roomId,
+            unitId: hostel.type === "unit-based" ? (room.unitId || unitId) : undefined,
+            bedNumber,
+          }],
+        }, session)
 
-      const bedTaken = await RoomAllocation.findOne({ roomId, bedNumber }).session(session)
-      if (bedTaken) return badRequest("The selected bed is already occupied")
-
-      const studentAllocated = await RoomAllocation.findOne({ studentProfileId: studentId }).session(session)
-      if (studentAllocated) return badRequest("Student already has a room allocation. Please deallocate first.")
-
-      // Atomic bed reservation: increments occupancy only while there is room.
-      const reserved = await Room.findOneAndUpdate(
-        { _id: roomId, status: "Active", $expr: { $lt: ["$occupancy", "$capacity"] } },
-        { $inc: { occupancy: 1 } },
-        { new: true, session }
-      )
-      if (!reserved) return badRequest("Room is already at full capacity")
-
-      const doc = buildAllocationDoc({
-        userId,
-        studentProfileId: studentId,
-        hostelId,
-        roomId,
-        unitId: hostel.type === "unit-based" ? unitId : undefined,
-        bedNumber,
+        return success(createdDocs[0], 200, "Room allocated successfully")
       })
-      await RoomAllocation.collection.insertOne(doc, { session })
-      await studentProfileOwner.updateOne(
-        { _id: toObjectId(studentId) },
-        { $set: { currentRoomAllocation: doc._id } },
-        { session }
-      )
-
-      return success(doc, 200, "Room allocated successfully")
-    })
+    } catch (err) {
+      if (err instanceof AllocationError || err?.name === "AllocationError") {
+        return err.statusCode === 404 ? notFound(err.message) : badRequest(err.message)
+      }
+      if (err?.statusCode === 400) return badRequest(err.message)
+      throw err
+    }
   },
 
   /**
@@ -449,43 +666,13 @@ export const roomOwner = {
   /**
    * Apply a batch of allocation deletes + creates atomically, then settle
    * occupancy for every affected room by recomputing from ground truth.
-   * The caller (bulk-allocate) computes the delete/create sets and owns the txn.
+   * The caller owns the txn. Occupied target beds and the incoming students'
+   * previous rooms are vacated before insert.
    *
    * @returns {Promise<{createdDocs: Array}>}
    */
   async applyAllocations({ deleteIds = [], createInputs = [] }, session) {
-    const affected = new Set()
-
-    if (deleteIds.length > 0) {
-      const removing = await RoomAllocation.find({ _id: { $in: deleteIds } })
-        .select("_id roomId")
-        .session(session)
-        .lean()
-      removing.forEach((a) => affected.add(String(a.roomId)))
-      const removedIds = removing.map((a) => a._id)
-      await studentProfileOwner.updateMany(
-        { currentRoomAllocation: { $in: removedIds } },
-        { $unset: { currentRoomAllocation: "" } },
-        { session }
-      )
-      await RoomAllocation.collection.deleteMany({ _id: { $in: removedIds } }, { session })
-    }
-
-    const createdDocs = createInputs.map(buildAllocationDoc)
-    if (createdDocs.length > 0) {
-      await RoomAllocation.collection.insertMany(createdDocs, { session })
-      const profileOps = createdDocs.map((d) => ({
-        updateOne: {
-          filter: { _id: d.studentProfileId },
-          update: { $set: { currentRoomAllocation: d._id } },
-        },
-      }))
-      await studentProfileOwner.bulkWrite(profileOps, { session })
-      createdDocs.forEach((d) => affected.add(String(d.roomId)))
-    }
-
-    await syncOccupancy([...affected], session)
-    return { createdDocs }
+    return applyAllocationsInSession({ deleteIds, createInputs }, session)
   },
 
   /**
@@ -612,9 +799,11 @@ export const roomOwner = {
   async holdRoomsForGuest(roomIds, session) {
     const ids = uniqueObjectIds(roomIds)
     if (ids.length === 0) return
+    // Only empty Active rooms can flip: setting capacity to 0 on an occupied
+    // room would make occupancy > capacity.
     await Room.updateMany(
-      { _id: { $in: ids }, status: "Active" },
-      [{ $set: { originalCapacity: "$capacity", capacity: 0, status: "Guest" } }],
+      { _id: { $in: ids }, status: "Active", occupancy: 0 },
+      [{ $set: { originalCapacity: "$capacity", capacity: 0, occupancy: 0, status: "Guest" } }],
       { session, updatePipeline: true }
     )
   },
@@ -650,6 +839,13 @@ export const roomOwner = {
       }
     }
     if (ops.length > 0) await Room.bulkWrite(ops)
+
+    await withTransaction(async (session) => {
+      const latest = await Room.find(filter).select("_id capacity occupancy").session(session).lean()
+      for (const room of latest) {
+        await forceVacateToCapacity(room._id, room.capacity, session)
+      }
+    })
 
     return success({ checked: rooms.length, corrected }, 200, `Reconciled ${corrected.length} room(s)`)
   },

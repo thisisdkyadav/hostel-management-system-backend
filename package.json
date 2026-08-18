@@ -18,6 +18,7 @@
     "reconcile:inventory-available": "node scripts/reconcile_inventory_available.mjs",
     "migrate:proposal-due-days": "node scripts/migrate_proposal_due_days.mjs",
     "check:boundary": "node scripts/check-model-boundary.mjs",
+    "check:allocations": "node scripts/check_allocation_invariants.mjs",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

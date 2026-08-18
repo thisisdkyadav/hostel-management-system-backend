@@ -368,6 +368,24 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
         continue;
       }
 
+      if (studentProfile.isDayScholar === true) {
+        errors.push({ rollNumber, message: 'Day scholars cannot be allocated a room' });
+        continue;
+      }
+
+      if (studentProfile.status !== 'Active') {
+        errors.push({ rollNumber, message: 'Only active students can be allocated a room' });
+        continue;
+      }
+
+      if (bedNumber > roomDoc.capacity) {
+        errors.push({
+          rollNumber,
+          message: `Invalid bed number. Must be between 1 and ${roomDoc.capacity}`,
+        });
+        continue;
+      }
+
       const existingAlloc = existingAllocMap[`${roomDoc._id}:${bedNumber}`];
       if (existingAlloc) queueDelete(existingAlloc);
 
@@ -391,10 +409,20 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
     // allocations are reported as errors instead of silently over-filling the room.
     const availableByRoom = {};
     const claimedBeds = new Set();
+    const claimedStudents = new Set();
     const createInputs = [];
     const createMeta = [];
     for (const { rollNumber, studentProfile, roomDoc, bedNumber } of pending) {
       const rid = roomDoc._id.toString();
+      const studentKey = studentProfile._id.toString();
+
+      if (claimedStudents.has(studentKey)) {
+        errors.push({
+          rollNumber,
+          message: 'Student is assigned more than once in this upload',
+        });
+        continue;
+      }
 
       // Reject two rows in the SAME upload targeting the same bed. Without this
       // both reach insertMany and collide on the unique { roomId, bedNumber }
@@ -420,6 +448,7 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
       }
       availableByRoom[rid] -= 1;
       claimedBeds.add(bedKey);
+      claimedStudents.add(studentKey);
       createInputs.push({
         userId: studentProfile.userId,
         studentProfileId: studentProfile._id,
@@ -476,9 +505,13 @@ export const updateRoomAllocations = asyncHandler(async (req, res) => {
       return sendStandardResponse(
         res,
         badRequest(
-          `Bed ${dup.bedNumber} in room ${roomLabel} is already occupied. Deallocate the current occupant first, or choose a different bed.`,
+          `Bed ${dup.bedNumber} in room ${roomLabel} is already occupied.`,
         ),
       );
+    }
+
+    if (error?.name === 'AllocationError' || error?.statusCode === 400) {
+      return sendStandardResponse(res, badRequest(error.message));
     }
 
     throw error;
