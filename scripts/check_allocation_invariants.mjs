@@ -20,7 +20,7 @@
 import mongoose from "mongoose"
 
 import connectDatabase from "../src/config/database.config.js"
-import { Hostel, Room, RoomAllocation, StudentProfile } from "../src/models/index.js"
+import { Hostel, Room, RoomAllocation, StudentProfile, Unit } from "../src/models/index.js"
 
 const SAMPLE_LIMIT = 25
 
@@ -51,14 +51,16 @@ const run = async () => {
   await connectDatabase()
 
   try {
-    const [hostels, rooms, allocations] = await Promise.all([
+    const [hostels, rooms, units, allocations] = await Promise.all([
       Hostel.find({}).select("name type").lean(),
       Room.find({}).select("hostelId unitId roomNumber capacity occupancy status").lean(),
+      Unit.find({}).select("unitNumber hostelId").lean(),
       RoomAllocation.find({}).select("userId studentProfileId hostelId roomId unitId bedNumber").lean(),
     ])
 
     const hostelById = new Map(hostels.map((hostel) => [toId(hostel._id), hostel]))
     const roomById = new Map(rooms.map((room) => [toId(room._id), room]))
+    const unitById = new Map(units.map((unit) => [toId(unit._id), unit]))
 
     const profileIds = new Set()
     allocations.forEach((allocation) => {
@@ -102,10 +104,16 @@ const run = async () => {
     const allocationsByBed = new Map()
     const allocationById = new Map(allocations.map((allocation) => [toId(allocation._id), allocation]))
 
+    const unitNumberOf = (room) => {
+      if (!room?.unitId) return ""
+      return unitById.get(toId(room.unitId))?.unitNumber || ""
+    }
+
     const roomLabel = (room, hostel) => {
       const hostelName = hostel?.name || "unknown-hostel"
       const roomNumber = room?.roomNumber || "?"
-      return `${hostelName} / ${roomNumber}`
+      const unitNumber = unitNumberOf(room)
+      return unitNumber ? `${hostelName} / ${unitNumber} / ${roomNumber}` : `${hostelName} / ${roomNumber}`
     }
 
     for (const allocation of allocations) {
@@ -165,6 +173,7 @@ const run = async () => {
             allocationId,
             rollNumber: student?.rollNumber,
             room: roomLabel(room, hostel),
+            unitNumber: unitNumberOf(room) || "(none)",
             bedNumber: allocation.bedNumber,
           })
         } else if (allocation.bedNumber > room.capacity) {
@@ -172,6 +181,7 @@ const run = async () => {
             allocationId,
             rollNumber: student?.rollNumber,
             room: roomLabel(room, hostel),
+            unitNumber: unitNumberOf(room) || "(none)",
             bedNumber: allocation.bedNumber,
             capacity: room.capacity,
           })
@@ -308,9 +318,9 @@ const run = async () => {
     printIssue("Allocations on non-Active rooms", issues.inactiveRoomOccupied, (s) =>
       `${s.rollNumber || "?"}  ${s.room}  status=${s.status}  bed ${s.bedNumber}`)
     printIssue("Beds numbered above room capacity", issues.bedOutsideCapacity, (s) =>
-      `${s.rollNumber || "?"}  ${s.room}  bed ${s.bedNumber}  capacity ${s.capacity}`)
+      `${s.rollNumber || "?"}  ${s.room}  unit ${s.unitNumber}  bed ${s.bedNumber}  capacity ${s.capacity}`)
     printIssue("Invalid bed numbers (not a positive integer)", issues.invalidBedNumber, (s) =>
-      `${s.rollNumber || "?"}  ${s.room}  bed=${JSON.stringify(s.bedNumber)}`)
+      `${s.rollNumber || "?"}  ${s.room}  unit ${s.unitNumber}  bed=${JSON.stringify(s.bedNumber)}`)
     printIssue("Rooms over capacity", issues.overCapacity, (s) =>
       `${s.room}  ${s.allocationCount}/${s.capacity} allocated  occupancy=${s.occupancy}  status=${s.status}`)
     printIssue("Room.occupancy != allocation count", issues.occupancyDrift, (s) =>
