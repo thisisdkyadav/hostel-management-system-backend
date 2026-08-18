@@ -5,8 +5,20 @@
 
 import { emailService } from "../../../../services/email/index.js"
 import env from "../../../../config/env.config.js"
+import { ACCOMMODATION_STATUS } from "../../../../models/accommodation/AccommodationRequest.model.js"
 
 const money = (n) => `Rs. ${(Number(n) || 0).toFixed(2)}`
+
+/** Soft labels for students — avoid "approve/approved" before hostel allotment. */
+const STUDENT_STATUS_LABEL = {
+  [ACCOMMODATION_STATUS.PENDING_CWO_CAPACITY]: "Checking availability",
+  [ACCOMMODATION_STATUS.PENDING_FA_RECOMMENDATION]: "With faculty advisor / supervisor",
+  [ACCOMMODATION_STATUS.PENDING_CW_APPROVAL]: "With Chief Warden",
+  [ACCOMMODATION_STATUS.CW_APPROVED]: "Processing — payment details coming",
+  [ACCOMMODATION_STATUS.RETURNED_TO_STUDENT]: "Returned for updates",
+}
+
+const studentStatusLabel = (status) => STUDENT_STATUS_LABEL[status] || status
 
 // Deep link straight to the student's request detail (mirrors AccommodationPage's
 // ?request=<id> handler, same scheme the POR/event approval emails use).
@@ -178,12 +190,13 @@ export const sendStaffQueueEmail = async ({ to = [], heading, action, request, s
 
 export const sendStudentDecisionEmail = async ({ to, studentName, status, reason, requestId }) => {
   if (!to) return
+  const label = studentStatusLabel(status)
   const reasonHtml = reason ? `<p>Remarks: ${reason}</p>` : ""
   const body = `
     <p>Dear ${studentName || "Student"},</p>
-    <p>Your accommodation request status is now: <strong>${status}</strong>.</p>
+    <p>Your accommodation request status is now: <strong>${label}</strong>.</p>
     ${reasonHtml}
     <p>You can view the latest details on the SMS portal.</p>
     ${ctaButton(studentRequestLink(requestId))}`
-  await emailService.sendCustomEmail({ to, subject: `Accommodation request: ${status}`, body })
+  await emailService.sendCustomEmail({ to, subject: `Accommodation request: ${label}`, body })
 }
