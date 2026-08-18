@@ -36,7 +36,6 @@ export const normalizeAccommodationConfig = (raw = {}) => {
     (Number.isFinite(gstPercentage3) && gstPercentage3 > 0)
 
   return {
-    defaultPaymentLink: String(raw.defaultPaymentLink || ""),
     defaultPaymentQR: String(raw.defaultPaymentQR || ""),
     pricePerPerson1: hasAnyPrice ? pricePerPerson1 || 0 : Number(raw.feePerPersonPerNight) || 0,
     pricePerPerson2: hasAnyPrice ? pricePerPerson2 || 0 : 0,

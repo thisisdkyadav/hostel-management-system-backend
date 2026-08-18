@@ -1078,8 +1078,8 @@ export const accommodationService = {
 
       request.quote = quote
       request.payment.amount = finalAmount
-      // Payment link / QR always come from settings — no manual entry.
-      request.payment.paymentLink = config?.defaultPaymentLink || ""
+      // QR image comes from Accommodation settings (uploaded fileRef). No payment link.
+      request.payment.paymentLink = ""
       request.payment.qrRef = config?.defaultPaymentQR || ""
       request.payment.remarks = remarks
       request.payment.status = PAYMENT_STATUS.PENDING
@@ -1105,7 +1105,6 @@ export const accommodationService = {
         to: request.applicantEmail,
         studentName: request.applicantName,
         amount: request.payment.amount,
-        paymentLink: request.payment.paymentLink,
         hostelName: hostel.name,
         request,
       })
@@ -1648,12 +1647,16 @@ export const accommodationService = {
           remarks: note || label,
         })
         paymentMessage = ` A second payment of ₹${extraAmount} has been requested.`
+        // Ensure the student still has the current QR when paying the second bill.
+        if (!request.payment.qrRef && config?.defaultPaymentQR) {
+          request.payment.qrRef = config.defaultPaymentQR
+        }
+        request.payment.paymentLink = ""
         accommodationEmails
           .sendPaymentRequestEmail({
             to: request.applicantEmail,
             studentName: request.applicantName,
             amount: extraAmount,
-            paymentLink: request.payment?.paymentLink || config?.defaultPaymentLink || "",
             hostelName: "",
             request,
           })
@@ -1685,19 +1688,47 @@ export const accommodationService = {
   /**
    * Accountant corrects UTR and/or payment date after proof is submitted or
    * verified (typos, bank statement reconciliation). Does not change status.
+   * Optional body.additionalPaymentId targets an extension / extra payment.
    */
   async updatePaymentDetails(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
+
+    const parsed = parsePaymentDetails(body)
+    if (parsed.error) return badRequest(parsed.error)
+
+    // Extension / second bill — edit that row, not the main payment.
+    if (body?.additionalPaymentId) {
+      const addl = (request.additionalPayments || []).id(body.additionalPaymentId)
+      if (!addl) return notFound("Additional payment not found")
+      if (![PAYMENT_STATUS.SUBMITTED, PAYMENT_STATUS.VERIFIED].includes(addl.status)) {
+        return badRequest("Payment details can only be edited after proof is submitted or the bill is marked paid")
+      }
+      const changes = []
+      if (parsed.hasUtr) {
+        addl.utr = parsed.utr
+        changes.push(`UTR ${parsed.utr}`)
+      }
+      if (parsed.hasPaidAt) {
+        addl.paidAt = parsed.paidAt
+        changes.push(`paid on ${parsed.paidAt.toISOString().slice(0, 10)}`)
+      }
+      request.timeline.push({
+        status: request.status,
+        by: user._id,
+        at: new Date(),
+        note: `Additional payment details updated (${addl.label || "extra"}): ${changes.join(", ")}`,
+      })
+      await accommodationOwner.persist(request)
+      return success(request, 200, "Payment details updated")
+    }
+
     if (!request.payment?.amount) {
       return badRequest("No payment has been requested for this request yet")
     }
     if (![PAYMENT_STATUS.SUBMITTED, PAYMENT_STATUS.VERIFIED].includes(request.payment.status)) {
       return badRequest("Payment details can only be edited after proof is submitted or the bill is marked paid")
     }
-
-    const parsed = parsePaymentDetails(body)
-    if (parsed.error) return badRequest(parsed.error)
 
     const changes = []
     if (parsed.hasUtr) {

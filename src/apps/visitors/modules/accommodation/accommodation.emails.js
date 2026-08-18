@@ -111,19 +111,16 @@ export const sendStudentSubmittedEmail = async ({ to, studentName, request }) =>
   await emailService.sendCustomEmail({ to, subject: "Accommodation request submitted", body })
 }
 
-export const sendPaymentRequestEmail = async ({ to, studentName, amount, paymentLink, hostelName, request }) => {
+export const sendPaymentRequestEmail = async ({ to, studentName, amount, hostelName, request }) => {
   if (!to) return
-  const payHtml = paymentLink
-    ? `<p>Pay using this link / QR: <a href="${paymentLink}">${paymentLink}</a></p>`
-    : `<p>Please use the payment QR shown on your request page in the SMS portal.</p>`
   const hostelLine = hostelName
     ? `<p>Your guests have been allotted accommodation at <strong>${hostelName}</strong>.</p>`
     : ""
   const body = `
     <p>Dear ${studentName || "Student"},</p>
-    <p>Your accommodation request has been approved. The amount payable is <strong>${money(amount)}</strong>.</p>
+    <p>Payment has been requested for your accommodation. The amount payable is <strong>${money(amount)}</strong>.</p>
     ${hostelLine}
-    ${payHtml}
+    <p>Open your request in the SMS portal and scan the payment QR shown there.</p>
     <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
     <p>Pay now and upload the UTR, payment date and a screenshot on the SMS portal — or choose
     <strong>Pay later</strong>. Rooms will be allocated only after payment; you can pay when the guest arrives.</p>

@@ -101,6 +101,21 @@ export const getAllocationStudentByRollNumber = asyncHandler(async (req, res) =>
     return sendStandardResponse(res, notFound('Student profile not found'));
   }
 
+  const currentAllocationHostelId = toHostelIdString(
+    studentProfile.currentRoomAllocation?.hostelId?._id
+      || studentProfile.currentRoomAllocation?.hostelId,
+  );
+
+  // Hostel-bound staff may only look up unallocated students or students already
+  // in their active hostel (same eligibility as allocation writes).
+  const scope = getHostelScope(req.user);
+  if (!isStudentAllocatableInScope(currentAllocationHostelId, scope)) {
+    return sendStandardResponse(
+      res,
+      forbidden('You can only view allocation details for unallocated students or students in your active hostel'),
+    );
+  }
+
   const currentAllocation = studentProfile.currentRoomAllocation
     ? {
         hostelId: studentProfile.currentRoomAllocation.hostelId?._id?.toString() || null,

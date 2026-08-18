@@ -301,7 +301,7 @@ const drawChargeTable = (doc, y, { rows, total, utr }) => {
   cellText(doc, "Payment Transaction ID", PAGE_MARGIN, y, labelWidth, footRow, { bold: true, size: 7.5 })
   const utrWidth = tableWidth - labelWidth
   box(doc, PAGE_MARGIN + labelWidth, y, utrWidth, footRow)
-  cellText(doc, utr ? `${utr} (12-Digit UTR)` : "", PAGE_MARGIN + labelWidth, y, utrWidth, footRow, { size: 7.5 })
+  cellText(doc, utr || "", PAGE_MARGIN + labelWidth, y, utrWidth, footRow, { size: 7.5 })
   y += footRow
 
   return y
@@ -338,6 +338,22 @@ const drawPaymentDetails = (doc, y, { requestedBy, purpose, source }) => {
   // Trailing blank band, as on the source sheet.
   box(doc, PAGE_MARGIN, y, CONTENT_WIDTH, rowHeight * 1.6)
   return y + rowHeight * 1.6
+}
+
+/** Standard computer-generated invoice disclaimer (footer). */
+const drawComputerGeneratedNote = (doc, y) => {
+  const top = Math.max(y + 18, doc.page.height - PAGE_MARGIN - 28)
+  doc
+    .font("Helvetica-Oblique")
+    .fontSize(7.5)
+    .fillColor("#444")
+    .text(
+      "This is a computer-generated invoice and does not require a physical signature.",
+      PAGE_MARGIN,
+      top,
+      { width: CONTENT_WIDTH, align: "center" }
+    )
+  return top + 14
 }
 
 // ---- public API ---------------------------------------------------------
@@ -410,7 +426,8 @@ export const renderInvoicePdf = (model) =>
       y = drawDeclaration(doc, y, model)
       y = drawChargeTable(doc, y, model)
       y = drawSignatory(doc, y)
-      drawPaymentDetails(doc, y, model)
+      y = drawPaymentDetails(doc, y, model)
+      drawComputerGeneratedNote(doc, y)
 
       doc.end()
     } catch (error) {

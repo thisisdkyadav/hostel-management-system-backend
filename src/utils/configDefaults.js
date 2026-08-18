@@ -29,7 +29,7 @@ export const defaultConfigs = {
   },
   accommodation: {
     value: {
-      defaultPaymentLink: "",
+      // Uploaded QR image fileRef shown to students (no payment link).
       defaultPaymentQR: "",
       // Three preset prices per person (Chief Warden Office picks one per guest, or types a custom amount).
       pricePerPerson1: 0,
@@ -42,7 +42,7 @@ export const defaultConfigs = {
       gstin: "",
     },
     description:
-      "Visitor accommodation: payment link/QR, three preset prices per person, three GST % options (Chief Warden Office selects per guest when requesting payment), and GSTIN for invoices.",
+      "Visitor accommodation: payment QR image, three preset prices per person, three GST % options (Chief Warden Office selects per guest when requesting payment), and GSTIN for invoices.",
   },
   academicHolidays: {
     value: {},
