@@ -165,10 +165,11 @@ router.post(
   uploadDisCoProcessPDF
 );
 
-// Payment screenshot upload
+// Payment screenshot / accommodation payment QR upload
+// Students: payment proof on a request. Admins (CWO/Accountant): default QR in settings.
 router.post(
   '/payment-screenshot',
-  authorizeRoles(['Student']),
+  authorizeRoles(['Student', 'Admin']),
   upload.single('image'),
   uploadPaymentScreenshot
 );
