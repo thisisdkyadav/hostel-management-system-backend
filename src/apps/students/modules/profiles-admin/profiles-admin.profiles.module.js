@@ -260,6 +260,85 @@ const normalizeUpdateRollNumber = (rollNumber) => (
   typeof rollNumber === 'string' ? rollNumber.trim().toUpperCase() : ''
 );
 
+const normalizeUpdateEmail = (email) => (
+  typeof email === 'string' ? email.trim() : ''
+);
+
+const normalizeEmailKey = (email) => normalizeUpdateEmail(email).toLowerCase();
+
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const isDuplicateKeyError = (err) => (
+  Boolean(err) && (err.code === 11000 || (typeof err.message === 'string' && err.message.includes('E11000')))
+);
+
+/**
+ * Reject in-file identity collisions before any writes. A single duplicate
+ * email in a transactional bulkWrite used to abort the whole chunk and surface
+ * as a generic "Duplicate entry" for every row.
+ */
+const partitionBulkUpdateStudents = (students) => {
+  const errors = [];
+  const rollCounts = new Map();
+  const emailToRolls = new Map();
+  const missingRollStudents = [];
+
+  students.forEach((student) => {
+    const rollNumber = normalizeUpdateRollNumber(student.rollNumber);
+    if (!rollNumber) {
+      missingRollStudents.push(student);
+      return;
+    }
+
+    rollCounts.set(rollNumber, (rollCounts.get(rollNumber) || 0) + 1);
+
+    const email = normalizeUpdateEmail(student.email);
+    if (!email) return;
+
+    const emailKey = email.toLowerCase();
+    if (!emailToRolls.has(emailKey)) {
+      emailToRolls.set(emailKey, new Set());
+    }
+    emailToRolls.get(emailKey).add(rollNumber);
+  });
+
+  const excludedRolls = new Set();
+
+  for (const [rollNumber, count] of rollCounts.entries()) {
+    if (count < 2) continue;
+    excludedRolls.add(rollNumber);
+    errors.push({
+      student: rollNumber,
+      message: `Duplicate roll number ${rollNumber} in update file`,
+    });
+  }
+
+  for (const [emailKey, rolls] of emailToRolls.entries()) {
+    if (rolls.size < 2) continue;
+    for (const rollNumber of rolls) {
+      excludedRolls.add(rollNumber);
+      errors.push({
+        student: rollNumber,
+        message: `Duplicate email ${emailKey} in update file`,
+      });
+    }
+  }
+
+  missingRollStudents.forEach((student) => {
+    errors.push({
+      student: student.email || student.rollNumber || 'Unknown',
+      message: 'Missing required field: rollNumber',
+    });
+  });
+
+  const studentsToProcess = students.filter((student) => {
+    const rollNumber = normalizeUpdateRollNumber(student.rollNumber);
+    return Boolean(rollNumber) && !excludedRolls.has(rollNumber);
+  });
+
+  return { studentsToProcess, errors };
+};
+
 const buildUserUpdatePayload = (student) => {
   const userUpdate = {};
 
@@ -377,6 +456,44 @@ const processUpdateStudentsChunk = async ({
     profileByRollNumber.set(profile.rollNumber.toUpperCase(), profile);
   });
 
+  const userIds = existingProfiles
+    .map((profile) => profile.userId)
+    .filter(Boolean);
+
+  // Session-bound finds must stay sequential.
+  const currentUsers = userIds.length > 0
+    ? await userQueries.findUsers(
+      { _id: { $in: userIds } },
+      { select: '_id email', lean: true, session }
+    )
+    : [];
+  const userById = new Map(
+    currentUsers.map((user) => [user._id.toString(), user])
+  );
+
+  const emailsToCheck = [...new Set(
+    chunkStudents
+      .map((student) => normalizeUpdateEmail(student.email))
+      .filter(Boolean)
+  )];
+  const usersWithEmail = emailsToCheck.length > 0
+    ? await userQueries.findUsers(
+      {
+        $or: emailsToCheck.map((email) => ({
+          email: { $regex: `^${escapeRegex(email)}$`, $options: 'i' },
+        })),
+      },
+      { select: '_id email', lean: true, session }
+    )
+    : [];
+  const ownerByEmailKey = new Map();
+  usersWithEmail.forEach((user) => {
+    const emailKey = normalizeEmailKey(user.email);
+    if (emailKey && !ownerByEmailKey.has(emailKey)) {
+      ownerByEmailKey.set(emailKey, user._id.toString());
+    }
+  });
+
   const userBulkOps = [];
   const profileBulkOps = [];
 
@@ -405,14 +522,28 @@ const processUpdateStudentsChunk = async ({
       continue;
     }
 
+    const userIdString = userId.toString();
     const userUpdate = buildUserUpdatePayload(student);
-    if (Object.keys(userUpdate).length > 0) {
-      userBulkOps.push({
-        updateOne: {
-          filter: { _id: userId },
-          update: { $set: userUpdate },
-        },
-      });
+    if (userUpdate.email) {
+      const nextEmail = normalizeUpdateEmail(userUpdate.email);
+      const nextEmailKey = nextEmail.toLowerCase();
+      const currentEmailKey = normalizeEmailKey(userById.get(userIdString)?.email);
+
+      // Re-uploading a student's own email is not a change. Writing it still
+      // hits User.email's unique index if another row in the same bulkWrite
+      // is also setting that value.
+      if (nextEmailKey && nextEmailKey === currentEmailKey) {
+        delete userUpdate.email;
+      } else if (nextEmailKey) {
+        const ownerId = ownerByEmailKey.get(nextEmailKey);
+        if (ownerId && ownerId !== userIdString) {
+          errors.push({
+            student: rollNumber,
+            message: `Email ${nextEmail} is already used by another user`,
+          });
+          continue;
+        }
+      }
     }
 
     const batchResolution = resolveBatchUpdate({
@@ -426,6 +557,15 @@ const processUpdateStudentsChunk = async ({
         message: batchResolution.message,
       });
       continue;
+    }
+
+    if (Object.keys(userUpdate).length > 0) {
+      userBulkOps.push({
+        updateOne: {
+          filter: { _id: userId },
+          update: { $set: userUpdate },
+        },
+      });
     }
 
     const profileUpdate = buildProfileUpdatePayload(student, currentUserId, batchResolution.value);
@@ -610,7 +750,12 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
   });
 
   try {
-    const studentChunks = splitIntoChunks(studentsArray, UPDATE_STUDENTS_CHUNK_SIZE);
+    const { studentsToProcess, errors: identityErrors } = partitionBulkUpdateStudents(studentsArray);
+    errors.push(...identityErrors);
+    progress.processed += studentsArray.length - studentsToProcess.length;
+    progress.failed = errors.length;
+
+    const studentChunks = splitIntoChunks(studentsToProcess, UPDATE_STUDENTS_CHUNK_SIZE);
 
     for (let chunkIndex = 0; chunkIndex < studentChunks.length; chunkIndex += 1) {
       const chunkStudents = studentChunks[chunkIndex];
@@ -618,15 +763,36 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
 
       let chunkResult = { results: [], userOpsCount: 0, profileOpsCount: 0 };
       try {
-        await session.withTransaction(async () => {
-          chunkResult = await processUpdateStudentsChunk({
-            chunkStudents,
-            session,
-            currentUserId: currentUser?._id || null,
-            errors,
-            scope,
+        try {
+          await session.withTransaction(async () => {
+            chunkResult = await processUpdateStudentsChunk({
+              chunkStudents,
+              session,
+              currentUserId: currentUser?._id || null,
+              errors,
+              scope,
+            });
           });
-        });
+        } catch (txnError) {
+          // A leftover unique-index clash must not 409 the whole request.
+          // The transaction already rolled back this chunk only.
+          if (!isDuplicateKeyError(txnError)) {
+            throw txnError;
+          }
+
+          const field = Object.keys(txnError.keyValue || {})[0];
+          const value = field ? txnError.keyValue[field] : null;
+          const message = value
+            ? `${field} "${value}" is already used. This batch of ${chunkStudents.length} students was not applied.`
+            : `A unique field in this batch is already used (likely email). This batch of ${chunkStudents.length} students was not applied.`;
+
+          chunkStudents.forEach((student) => {
+            const rollNumber = normalizeUpdateRollNumber(student.rollNumber);
+            if (!rollNumber) return;
+            errors.push({ student: rollNumber, message });
+          });
+          chunkResult = { results: [], userOpsCount: 0, profileOpsCount: 0 };
+        }
       } finally {
         await session.endSession();
       }
@@ -650,7 +816,7 @@ export const updateStudentsProfiles = asyncHandler(async (req, res) => {
       });
     }
 
-    if (totalUserOps === 0 && totalProfileOps === 0) {
+    if (totalUserOps === 0 && totalProfileOps === 0 && errors.length === 0) {
       emitStudentUpdateProgress({
         userId: updateUserId,
         jobId: updateJobId,
