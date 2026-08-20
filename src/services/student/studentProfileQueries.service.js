@@ -42,6 +42,19 @@ export const studentProfileQueries = {
     return query
   },
 
+  /**
+   * Profiles for a set of userIds. Options match findByRollNumbers:
+   * { select, lean, session, populate }.
+   */
+  async findByUserIds(userIds, { select, lean, session, populate } = {}) {
+    let query = StudentProfile.find({ userId: { $in: userIds } })
+    if (select) query = query.select(select)
+    if (populate) query = query.populate(populate)
+    if (session) query = query.session(session)
+    if (lean) query = query.lean()
+    return query
+  },
+
   /** One profile by userId with currentRoomAllocation → hostelId populated (notifications). */
   async findByUserIdWithAllocationHostel(userId) {
     return StudentProfile.findOne({ userId }).populate("currentRoomAllocation", "hostelId")

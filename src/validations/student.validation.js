@@ -246,6 +246,36 @@ export const bulkUpdateDayScholarDetailsSchema = Joi.object({
  * Check missing roll numbers from a CSV upload
  * POST /api/v1/students/profiles-admin/profiles/check-roll-numbers
  */
+const looseCsvString = Joi.alternatives().try(Joi.string(), Joi.number()).allow("", null)
+
+/**
+ * Check uploaded student CSV fields against stored profiles
+ * POST /api/v1/students/profiles-admin/profiles/check-consistency
+ */
+export const checkStudentDataConsistencySchema = Joi.object({
+  students: Joi.array().items(
+    Joi.object({
+      rollNumber: looseCsvString,
+      name: looseCsvString,
+      email: looseCsvString,
+      secondaryEmail: looseCsvString,
+      facultyAdvisorEmail: looseCsvString,
+      phone: looseCsvString,
+      profileImage: looseCsvString,
+      gender: looseCsvString,
+      dateOfBirth: looseCsvString,
+      degree: looseCsvString,
+      department: looseCsvString,
+      year: looseCsvString,
+      address: looseCsvString,
+      admissionDate: looseCsvString,
+      guardian: looseCsvString,
+      guardianPhone: looseCsvString,
+      guardianEmail: looseCsvString,
+    }).unknown(true)
+  ).min(1).max(MAX_BULK_RECORDS).required(),
+})
+
 export const checkMissingRollNumbersSchema = Joi.object({
   rollNumbers: Joi.array().items(Joi.string().trim()).min(1).max(MAX_BULK_RECORDS).required(),
   scopeType: Joi.string().valid('system', 'group', 'batch').default('system'),
@@ -286,4 +316,5 @@ export default {
   bulkUpdateStudentsStatusSchema,
   bulkUpdateDayScholarDetailsSchema,
   checkMissingRollNumbersSchema,
+  checkStudentDataConsistencySchema,
 };

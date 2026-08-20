@@ -18,6 +18,7 @@ import {
 } from './profiles-admin.profiles.module.js';
 import {
   checkMissingRollNumbers,
+  checkStudentDataConsistency,
   bulkUpdateStudentsStatus,
   bulkUpdateDayScholarDetails,
   bulkUpdateStudentsBatch,
@@ -43,7 +44,7 @@ import { requireAnyCapability, requireRouteAccess } from '../../../../middleware
 import { routeGuard } from '../../../../lib/api-kit/index.js';
 import { validate } from '../../../../middlewares/validate.middleware.js';
 import { ROLES } from '../../../../core/constants/roles.constants.js';
-import { checkMissingRollNumbersSchema } from '../../../../validations/student.validation.js';
+import { checkMissingRollNumbersSchema, checkStudentDataConsistencySchema } from '../../../../validations/student.validation.js';
 
 const router = express.Router();
 
@@ -111,6 +112,12 @@ router.post(
   guard(BULK_TOOL_ROLES),
   validate(checkMissingRollNumbersSchema),
   checkMissingRollNumbers
+);
+router.post(
+  '/profiles/check-consistency',
+  guard(BULK_TOOL_ROLES),
+  validate(checkStudentDataConsistencySchema),
+  checkStudentDataConsistency
 );
 router.post(
   '/profiles/status',

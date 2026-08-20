@@ -16,6 +16,8 @@
 
 import { User } from "../../models/index.js"
 
+const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
 export const userQueries = {
   /**
    * One user by id, HYDRATED, password field excluded — the canonical
@@ -44,6 +46,44 @@ export const userQueries = {
     if (select) query = query.select(select)
     if (lean) query = query.lean()
     return query
+  },
+
+  /**
+   * Users whose email matches any of `emails` exactly, case-insensitive.
+   * Tries an indexed $in first, then a case-insensitive pass for leftovers.
+   */
+  async findUsersByEmailsCI(emails, { select, lean } = {}) {
+    const unique = [...new Set(
+      (Array.isArray(emails) ? emails : [])
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter(Boolean)
+    )]
+    if (unique.length === 0) return []
+
+    const lowered = [...new Set(unique.map((email) => email.toLowerCase()))]
+    const exactValues = [...new Set([...unique, ...lowered])]
+
+    let exactQuery = User.find({ email: { $in: exactValues } })
+    if (select) exactQuery = exactQuery.select(select)
+    if (lean) exactQuery = exactQuery.lean()
+    const exactMatches = await exactQuery
+
+    const foundLower = new Set(
+      exactMatches
+        .map((user) => (typeof user?.email === "string" ? user.email.toLowerCase() : ""))
+        .filter(Boolean)
+    )
+    const missing = lowered.filter((email) => !foundLower.has(email))
+    if (missing.length === 0) return exactMatches
+
+    let leftoverQuery = User.find({
+      $or: missing.map((email) => ({ email: new RegExp(`^${escapeRegex(email)}$`, "i") })),
+    })
+    if (select) leftoverQuery = leftoverQuery.select(select)
+    if (lean) leftoverQuery = leftoverQuery.lean()
+    const leftoverMatches = await leftoverQuery
+
+    return [...exactMatches, ...leftoverMatches]
   },
 
   // ---- repository-style reads (User is queried many ways; filter built by caller) ----
