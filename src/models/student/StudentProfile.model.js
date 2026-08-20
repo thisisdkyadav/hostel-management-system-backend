@@ -557,7 +557,33 @@ StudentProfileSchema.statics.searchStudents = async function (params) {
 
   pipeline.push({
     $facet: {
-      data: [{ $sort: { [sortBy]: sortOrder === "desc" ? -1 : 1 } }, { $skip: (parseInt(page) - 1) * parseInt(limit) }, { $limit: parseInt(limit) }],
+      data: [
+        { $sort: { [sortBy]: sortOrder === "desc" ? -1 : 1 } },
+        { $skip: (parseInt(page) - 1) * parseInt(limit) },
+        { $limit: parseInt(limit) },
+        {
+          $lookup: {
+            from: "complaints",
+            let: { uid: "$userId" },
+            pipeline: [
+              {
+                $match: {
+                  $expr: { $eq: ["$userId", "$$uid"] },
+                  status: { $nin: ["Resolved", "Rejected"] },
+                },
+              },
+              { $count: "n" },
+            ],
+            as: "activeComplaints",
+          },
+        },
+        {
+          $addFields: {
+            activeComplaintCount: { $ifNull: [{ $arrayElemAt: ["$activeComplaints.n", 0] }, 0] },
+          },
+        },
+        { $project: { activeComplaints: 0 } },
+      ],
       totalCount: [{ $count: "count" }],
     },
   })

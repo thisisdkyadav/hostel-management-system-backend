@@ -37,9 +37,12 @@ const shapeStudent = (allocation) => {
     userId: user._id,
     name: user.name,
     email: user.email,
+    phone: user.phone,
     profileImage: user.profileImage,
     rollNumber: profile.rollNumber,
     department: profile.department,
+    degree: profile.degree,
+    batch: profile.batch,
     bedNumber: allocation.bedNumber,
     allocationId: allocation._id,
   };

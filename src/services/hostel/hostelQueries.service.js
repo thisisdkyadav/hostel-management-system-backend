@@ -77,7 +77,7 @@ export const hostelQueries = {
         path: "allocations",
         populate: {
           path: "studentProfileId",
-          populate: { path: "userId", select: "name email profileImage" },
+          populate: { path: "userId", select: "name email phone profileImage" },
         },
       },
     })
@@ -176,7 +176,7 @@ export const hostelQueries = {
         path: "allocations",
         populate: {
           path: "studentProfileId",
-          populate: { path: "userId", select: "name email profileImage" },
+          populate: { path: "userId", select: "name email phone profileImage" },
         },
       })
   },
@@ -188,7 +188,7 @@ export const hostelQueries = {
         path: "allocations",
         populate: {
           path: "studentProfileId",
-          populate: { path: "userId", select: "name email profileImage" },
+          populate: { path: "userId", select: "name email phone profileImage" },
         },
       })
       .populate("hostelId", "name type")
