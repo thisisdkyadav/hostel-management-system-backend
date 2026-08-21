@@ -174,14 +174,21 @@ describe("notifications — GET / targeting & filters", () => {
     expect(active.body.meta.totalCount).toBe(5)
   })
 
-  it("500s when search is used (documented current behavior)", async () => {
-    // SUSPECTED BUG: the search branch builds $or with { sender: regex } (and
-    // regex-in-array for hostelId/degree/department), but `sender` is an
-    // ObjectId path — mongoose throws a CastError and the endpoint returns
-    // 500 "Internal server error" instead of filtered results.
+  it("searches text fields without crashing", async () => {
+    // The search branch no longer regexes ObjectId/array paths (CastError ->
+    // 500); only title/message are searched.
     const res = await adminApi.get("/api/v1/notification?search=water%20supply")
-    expect(res.status).toBe(500)
-    expect(res.body.error).toBe("Internal server error")
+    expect(res.status).toBe(200)
+    expect(res.body.success).not.toBe(false)
+    for (const n of res.body.data) {
+      const haystack = `${n.title ?? ""} ${n.message ?? ""}`.toLowerCase()
+      expect(haystack).toContain("water")
+    }
+  })
+
+  it("escapes regex metacharacters in search", async () => {
+    const res = await adminApi.get("/api/v1/notification?search=" + encodeURIComponent("a(b"))
+    expect(res.status).toBe(200)
   })
 
   it("paginates", async () => {
@@ -190,12 +197,13 @@ describe("notifications — GET / targeting & filters", () => {
     expect(res.body.meta).toMatchObject({ totalCount: 6, totalPages: 3, currentPage: 2 })
   })
 
-  it("500 for a student without any profile (documented current behavior)", async () => {
-    // SUSPECTED BUG: getAll dereferences the (missing) student profile without
-    // a null check, so profile-less students get a 500 instead of an empty list.
+  it("200 with broadcast-only notifications for a student without any profile", async () => {
+    // Profile-less students now see broadcast notifications instead of a 500.
     const api = await as(await seed.student())
     const res = await api.get("/api/v1/notification")
-    expect(res.status).toBe(500)
-    expect(res.body.error).toBe("Internal server error")
+    expect(res.status).toBe(200)
+
+    const stats = await api.get("/api/v1/notification/stats")
+    expect(stats.status).toBe(200)
   })
 })

@@ -42,7 +42,13 @@ class SignatureService {
 
   async updateMySignature(user, data = {}) {
     const type = data.type === "text" ? "text" : "image"
-    const name = text(data.name) || text(user.name)
+    // Session userData does not carry `name`, so fall back to the stored user.
+    let displayName = text(data.name) || text(user.name)
+    if (!displayName) {
+      const stored = await userQueries.findUserById(user._id, { select: "name", lean: true })
+      displayName = text(stored?.name)
+    }
+    const name = displayName
 
     if (!name) {
       return badRequest("A name is required for the signature")
@@ -74,12 +80,12 @@ class SignatureService {
       { new: true, runValidators: true, select: "signature", lean: true }
     )
 
-    return success({ signature: serializeSignature(updated?.signature) }, "Signature saved")
+    return success({ signature: serializeSignature(updated?.signature) }, 200, "Signature saved")
   }
 
   async deleteMySignature(user) {
     await userOwner.updateUserById(user._id, { $unset: { signature: "" } })
-    return success({ signature: null }, "Signature removed")
+    return success({ signature: null }, 200, "Signature removed")
   }
 
   /**

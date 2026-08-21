@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 16
+export const AUTHZ_CATALOG_VERSION = 17
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -89,6 +89,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.superAdmin.apiKeys", "Super Admin API Keys", ["/super-admin/api-keys"]),
   route("route.superAdmin.authz", "Super Admin AuthZ", ["/super-admin/authz", "/super-admin/authz/help"]),
   route("route.superAdmin.profile", "Super Admin Profile", ["/super-admin/profile"]),
+  route("route.superAdmin.students", "Super Admin Student Directory", ["/students/profiles-admin"]),
   route("route.superAdmin.media", "Super Admin Media"),
 
   // Warden family

@@ -152,13 +152,10 @@ describe("profiles-admin auth wall", () => {
     expect((await studentApi.get(`${BASE}/departments/list`)).status).toBe(200) // lists allow Students
   })
 
-  it("SUSPECTED BUG: Super Admin is denied by the unmapped routeGuard", async () => {
-    // SUSPECTED BUG: routeGuard maps Admin/Warden/Associate Warden/Hostel
-    // Supervisor but not Super Admin, and defaults to deny for unmapped roles —
-    // so the highest-privileged account cannot browse student profiles here.
-    const res = await superAdminApi.get(`${BASE}/profiles`)
-    expect(res.status).toBe(403)
-    expect(res.body.success).toBe(false)
+  it("grants Super Admin the directory via the mapped route.superAdmin.students key", async () => {
+    const res = await superAdminApi.get(`${BASE}/profiles?limit=5`)
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
   })
 })
 
@@ -214,14 +211,13 @@ describe("GET /profiles", () => {
     expect(rolls).toContain("ADM002")
   })
 
-  it("SUSPECTED BUG: a hostel-bound warden with no active hostel sees EVERYTHING on reads", async () => {
-    // SUSPECTED BUG: getConstraintContext only scopes when req.user.hostel is
-    // set, regardless of role — a warden whose session lost its hostel gets an
-    // unscoped directory (writes fail closed, reads fail open).
+  it("fails CLOSED: a hostel-bound warden with no active hostel sees nothing", async () => {
+    // Reads and writes now agree: a hostel-bound staff member whose session
+    // has no resolvable hostel gets an empty directory instead of all students.
     const res = await wardenApi.get(`${BASE}/profiles?limit=100`)
     expect(res.status).toBe(200)
-    const rolls = res.body.data.students.map((s) => s.rollNumber)
-    expect(rolls).toContain("ADM003") // belongs to another hostel
+    expect(res.body.data.students).toHaveLength(0)
+    expect(Number(res.body.data.pagination?.total ?? res.body.data.total ?? 0)).toBe(0)
   })
 
   it("scopes a warden with an active hostel like supervisors", async () => {

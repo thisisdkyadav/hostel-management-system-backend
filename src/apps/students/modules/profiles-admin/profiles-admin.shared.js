@@ -1,4 +1,10 @@
+import { ROLES } from '../../../../core/constants/roles.constants.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
+
+// Roles whose reach must be limited to their active hostel. A hostel-bound
+// staff member with no resolvable hostel fails CLOSED (empty scope) instead of
+// reading system-wide.
+const HOSTEL_BOUND_ROLES = new Set([ROLES.WARDEN, ROLES.ASSOCIATE_WARDEN, ROLES.HOSTEL_SUPERVISOR]);
 
 export const toObjectIdString = (value) => {
   if (!value) return null;
@@ -9,6 +15,10 @@ export const toObjectIdString = (value) => {
 
 export const getConstraintContext = (user) => {
   const ownHostelId = toObjectIdString(user?.hostel?._id || user?.hostel);
+  // Fail closed: hostel-bound staff without an active hostel see nothing.
+  if (HOSTEL_BOUND_ROLES.has(user?.role) && !ownHostelId) {
+    return { scopedHostelIds: new Set() };
+  }
   const scopedHostelIds = ownHostelId ? new Set([ownHostelId]) : null;
 
   return {

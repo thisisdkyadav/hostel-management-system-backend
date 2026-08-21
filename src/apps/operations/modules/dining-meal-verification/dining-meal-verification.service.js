@@ -440,9 +440,16 @@ export const getDiningMealVerificationContext = async ({ user = null } = {}) => 
     return notFound("Caterer login")
   }
 
-  const currentPeriod = await getActiveDiningPeriodForDate(now)
-    .populate({ path: "catererIds", select: "name email" })
-    .lean()
+  // populate through the queries service — getActiveDiningPeriodForDate is
+  // async, so chaining .populate() on its return value never worked.
+  const currentPeriod = await diningQueries.findOnePeriod(
+    {
+      isArchived: false,
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+    },
+    { lean: true, populate: [{ path: "catererIds", select: "name email" }] }
+  )
   const currentMealSlot = currentPeriod ? getMealSlotForDate(currentPeriod, now) : null
   const isCatererInCurrentPeriod = currentPeriod
     ? (currentPeriod.catererIds || []).some((periodCaterer) => String(periodCaterer?._id || periodCaterer) === String(caterer._id))

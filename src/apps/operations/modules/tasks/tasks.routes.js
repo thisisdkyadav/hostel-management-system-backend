@@ -38,7 +38,7 @@ const guardMy = routeGuard(
     Admin: 'route.admin.taskManagement',
     'Super Admin': 'route.superAdmin.dashboard',
   },
-  { onUnmapped: 'allow' }
+  { onUnmapped: 'deny' }
 );
 
 // Admin-only routes

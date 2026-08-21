@@ -5,6 +5,7 @@ import {
   notFound,
   success,
 } from "../../../../services/base/ServiceResponse.js"
+import { APPROVAL_LOG_STAGES } from "../../../../models/event/ApprovalLog.model.js"
 import { clubQueries } from "../../../../services/club/clubQueries.service.js"
 import { porCategoryOwner } from "../../../../services/club/porCategoryOwner.service.js"
 import { porCategoryQueries } from "../../../../services/club/porCategoryQueries.service.js"
@@ -1239,6 +1240,17 @@ class PorService {
 
       if (!label) {
         return { success: false, message: `Step ${index + 1} needs a label` }
+      }
+
+      // Every approval writes an ApprovalLog whose stage IS the step label,
+      // so custom labels must be rejected here — otherwise the category is
+      // created fine but every later approval fails validation after the
+      // request state has already moved.
+      if (!APPROVAL_LOG_STAGES.includes(label)) {
+        return {
+          success: false,
+          message: `Step ${index + 1} label "${label}" is not a valid approval stage. Allowed: ${APPROVAL_LOG_STAGES.join(", ")}`,
+        }
       }
 
       if (reviewerUserIds.length === 0) {

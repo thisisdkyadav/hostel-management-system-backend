@@ -14,7 +14,13 @@ afterAll(async () => {
 // ---- fixtures --------------------------------------------------------------
 
 /** Dining user with the Caterer sub-role + linked Caterer record. */
-async function catererLogin(name = "Meghna Foods") {
+const nameSeq = (() => {
+  let n = 0
+  return () => ++n
+})()
+
+async function catererLogin(name) {
+  name = name ? `${name} ${nameSeq()}` : `Meghna Foods ${Date.now().toString(36)}${nameSeq()}`
   const { default: Caterer } = await import("../../../src/models/index.js").then((m) => ({
     default: m.Caterer,
   }))
@@ -97,16 +103,28 @@ describe("dining meal verification — context & feed", () => {
     expect(res.body.message).toMatch(/caterer login/i)
   })
 
-  it("SUSPECTED BUG: GET /context always 500s — getActiveDiningPeriodForDate(now) is async, .populate() is called on its Promise", async () => {
-    // dining-meal-verification.service.js:443 chains .populate(...) onto an
-    // awaited-in-flight Promise, so the endpoint can never succeed.
+  it("context returns the caterer and current period membership", async () => {
     const { user, caterer } = await catererLogin()
-    await activePeriod([caterer._id])
+    const other = (await catererLogin("Other Foods")).caterer
+    await activePeriod([caterer._id, other._id])
     const api = await as(user)
 
     const res = await api.get("/api/v1/dining-meal-verification/context")
-    expect(res.status).toBe(500)
-    expect(JSON.stringify(res.body)).toMatch(/populate is not a function/)
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.caterer.id).toBe(String(caterer._id))
+    expect(res.body.data.currentPeriod).toBeTruthy()
+    expect(res.body.data.currentPeriod.isCatererInPeriod).toBe(true)
+    expect(res.body.data.currentPeriod.currentMealSlot.key).toBe("all-day-meal")
+    const ids = res.body.data.currentPeriod.caterers.map((c) => c.id)
+    expect(ids).toContain(String(caterer._id))
+    expect(ids).toContain(String(other._id))
+
+    // a caterer NOT in the period sees isCatererInPeriod false
+    const outsiderApi = await as((await catererLogin("Outsider Foods")).user)
+    const out = await outsiderApi.get("/api/v1/dining-meal-verification/context")
+    expect(out.status).toBe(200)
+    expect(out.body.data.currentPeriod.isCatererInPeriod).toBe(false)
   })
 
   it("feed lists verifications for this caterer with pagination", async () => {

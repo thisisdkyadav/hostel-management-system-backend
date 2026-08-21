@@ -39,8 +39,9 @@ class StudentInventoryService {
       return badRequest('Item type ID does not match the hostel inventory record');
     }
 
-    const itemCount = count || 1;
-    if (itemCount <= 0) {
+    // `count || 1` silently coerced count: 0 into 1 — validate explicitly.
+    const itemCount = Number(count);
+    if (!Number.isFinite(itemCount) || !Number.isInteger(itemCount) || itemCount < 1) {
       return badRequest('Count must be a positive number');
     }
 

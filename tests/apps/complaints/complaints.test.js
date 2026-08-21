@@ -58,13 +58,14 @@ describe("POST /complaint (create)", () => {
     expect(res.body.message).toBe("Room allocation not found not found")
   })
 
-  it("404 even for an allocated student when the body omits userId", async () => {
-    // The allocation lookup uses req.body.userId, not the authenticated user —
-    // clients must echo their own id for creation to work.
+  it("resolves the allocation from the authenticated student when body omits userId", async () => {
+    // Students no longer need to echo their own id — ownership and the
+    // allocation both come from the session user.
     const { user } = studentWithAllocation
     const api = await as(user)
     const res = await api.post(BASE).send({ title: "No userId", description: "d" })
-    expect(res.status).toBe(404)
+    expect(res.status).toBe(200)
+    expect(String(res.body.data.userId)).toBe(String(user._id))
   })
 
   it("creates a complaint for a student and stamps hostel/unit/room from the allocation", async () => {
@@ -114,12 +115,12 @@ describe("POST /complaint (create)", () => {
     expect(res.body.data.hostelId ?? null).toBeNull()
   })
 
-  it("trusts body.userId for ownership — a student can file under someone else's id", async () => {
-    // SUSPECTED BUG: createComplaint never checks that body.userId belongs to
-    // the authenticated student; the allocation (and therefore hostel/room) is
-    // resolved from the *body* id, so a Student can attribute a complaint to
-    // another user who has an allocation.
-    const impostor = await seed.student()
+  it("ignores body.userId for students — allocation and ownership follow the caller", async () => {
+    // A student can no longer attribute a complaint to another user: the
+    // allocation (and therefore hostel/room) is resolved from the impostor's
+    // own id, and the victim's identity never enters the record.
+    const wiredImpostor = await complaintsFixtures.studentWithRoom(seed)
+    const impostor = wiredImpostor.user
     const { user: victim } = studentWithAllocation
     const api = await as(impostor)
     const res = await api.post(BASE).send({
@@ -128,7 +129,8 @@ describe("POST /complaint (create)", () => {
       description: "The reporter is the impostor, not the victim",
     })
     expect(res.status).toBe(200)
-    expect(String(res.body.data.userId)).toBe(String(victim._id))
+    expect(String(res.body.data.userId)).toBe(String(impostor._id))
+    expect(String(res.body.data.hostelId)).toBe(String(wiredImpostor.hostel._id))
   })
 })
 

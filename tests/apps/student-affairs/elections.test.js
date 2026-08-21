@@ -902,20 +902,18 @@ describe("elections", () => {
     expect(statuses.map((r) => r.rollNumber).sort()).toEqual(["EL004", "EL005", "EL006"])
   })
 
-  it("POST /:id/voting-emails/send currently fails with 500 in this environment", async () => {
-    // SUSPECTED BUG: triggerElectionVotingEmailDispatchForElection ->
-    // persistDispatchState -> emitVotingDispatchUpdate -> emitToRole throws
-    // "Socket.IO not initialized" because getIO() throws when no socket server
-    // is attached (supertest app). The dispatch path never guards this call,
-    // so the endpoint 500s anywhere Socket.IO isn't initialized. Documenting
-    // current behavior; once emitToRole degrades gracefully this should
-    // assert the queued:true happy path instead.
+  it("POST /:id/voting-emails/send reaches dispatch validation instead of crashing (socket-less tolerated)", async () => {
+    // emitToRole now no-ops when Socket.IO isn't initialized, so the dispatch
+    // path survives headless environments instead of 500ing mid-persist. In
+    // this fixture every recipient has already voted, so the endpoint answers
+    // its business-logic 400 rather than a socket TypeError 500.
     const res = await adminApi.post(`${BASE}/${electionVote.id}/voting-emails/send`).send({
       resendMode: "generate_new",
       reminder: false,
       targetRollNumbers: ["el006"],
     })
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/no eligible voters/i)
   })
 
   it("POST /:id/voting-emails/send refuses elections outside the dispatch window with 403", async () => {

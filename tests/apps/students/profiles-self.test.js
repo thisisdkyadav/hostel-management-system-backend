@@ -282,26 +282,24 @@ describe("POST /:userId/id-card", () => {
     expect(res.status).toBe(403)
   })
 
-  it("SUSPECTED BUG: the :userId path param is ignored — it always writes the caller's own card", async () => {
-    // SUSPECTED BUG: uploadStudentIdCard never reads req.params.userId; the
-    // service writes idCard for currentUser._id. A student can therefore POST
-    // to ANY /:userId/id-card (including another student's id) and the update
-    // silently lands on their own profile instead of 403/404.
+  it("rejects uploads targeting another student's :userId", async () => {
+    // The :userId path param is enforced: a student may only upload onto
+    // their own profile; anything else is a 403 and nothing is written.
     const api = await as(otherStudent)
     const res = await api.post(`${BASE}/${student._id}/id-card`).send({
       front: "https://storage.example/mine-front.jpg",
       back: "https://storage.example/mine-back.jpg",
     })
-    expect(res.status).toBe(200)
-    expect(res.body.message).toBe("Student ID card uploaded successfully")
+    expect(res.status).toBe(403)
+    expect(res.body.message).toMatch(/your own ID card/i)
 
     // The OTHER student's card was NOT touched...
     const adminApi = await as(await seed.admin())
     const victimCard = await adminApi.get(`${BASE}/${student._id}/id-card`)
     expect(victimCard.body.front).toBe("https://storage.example/front.jpg")
 
-    // ...the CALLER's card was.
+    // ...and neither was the CALLER's.
     const callerCard = await api.get(`${BASE}/${otherStudent._id}/id-card`)
-    expect(callerCard.body.front).toBe("https://storage.example/mine-front.jpg")
+    expect(callerCard.body.front).not.toBe("https://storage.example/mine-front.jpg")
   })
 })

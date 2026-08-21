@@ -18,11 +18,14 @@ export const createComplaint = handler(async (req) => {
   const user = req.user;
   const { userId, title, description, location, category, attachments } = req.body;
 
-  const allocationResult = await complaintService.getAllocationDetails(user, userId);
+  // Students always own their own complaints — never trust body.userId.
+  const ownerUserId = user.role === 'Student' ? user._id : userId;
+
+  const allocationResult = await complaintService.getAllocationDetails(user, ownerUserId);
   if (!allocationResult.success) return allocationResult;
 
   return complaintService.createComplaint({
-    userId,
+    userId: ownerUserId,
     title,
     description,
     location,

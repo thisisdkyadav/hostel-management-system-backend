@@ -247,16 +247,18 @@ describe("POST /api/v1/security/entries (Hostel Gate only)", () => {
     expect(res.body.message).toBe("Room allocation not found not found")
   })
 
-  it("500 when the session user has no hostel // SUSPECTED BUG: service dereferences req.user.hostel._id unguarded, so a gate user without a hostel in session crashes instead of a clean 400", async () => {
+  it("201 even when the session user has no hostel (hostel name resolves from the target hostel)", async () => {
     const bareGate = await seed.createUser({ role: "Hostel Gate" })
     const api = await as(bareGate) // hostel stays null in the session
     const res = await api
       .post(`${BASE}/entries`)
       .send({ hostelId: String(hostelB._id), unit: "U1", room: "101", bed: "1", status: "Checked In" })
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(201)
+    expect(res.body.success).toBe(true)
+    expect(res.body.studentEntry.hostelName).toBe(hostelB.name)
   })
 
-  it("fails validation even for a fully allocated student // SUSPECTED BUG: the service builds hostelName from studentUnit.hostelId.name, but findUnitByNumber returns an unpopulated Unit whose hostelId is a bare ObjectId — so hostelName is always undefined and every POST /security/entries fails with a 422 ValidationError", async () => {
+  it("201 for a fully allocated student — hostelName now resolves from the hostel record", async () => {
     const res = await gateApi
       .post(`${BASE}/entries`)
       .send({
@@ -267,10 +269,12 @@ describe("POST /api/v1/security/entries (Hostel Gate only)", () => {
         status: "Checked In",
         reason: "Returned from leave",
       })
-    expect(res.status).toBe(422)
-    expect(res.body.success).toBe(false)
-    expect(res.body.message).toBe("Validation failed")
-    expect(res.body.errors.some((e) => e.field === "hostelName")).toBe(true)
+    expect(res.status).toBe(201)
+    expect(res.body.success).toBe(true)
+    expect(res.body.message).toBe("Student entry added successfully")
+    expect(res.body.studentEntry.hostelName).toBe(hostelB.name)
+    // gateUser has no hostel in session, so the entry is flagged cross-hostel
+    expect(res.body.studentEntry.isSameHostel).toBe(false)
   })
 })
 
@@ -308,11 +312,12 @@ describe("POST /api/v1/security/entries/email (Hostel Gate only)", () => {
     expect(res.body.message).toBe("User not found not found")
   })
 
-  it("500 when the user has no room allocation // SUSPECTED BUG: findCurrentAllocationByUser result is dereferenced without a null check, so unallocated users crash with 500 instead of a clean 404", async () => {
+  it("404 when the user has no room allocation (clean not-found, no crash)", async () => {
     const res = await gateApi
       .post(`${BASE}/entries/email`)
       .send({ email: studentPlain.email, status: "Checked In" })
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/not allocated to any room/i)
   })
 
   it("201 creates an entry from the student's current allocation", async () => {

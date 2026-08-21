@@ -1,6 +1,6 @@
 import { userQueries } from "../services/user/userQueries.service.js"
 import { diningQueries } from "../services/dining/diningQueries.service.js"
-import { getIO } from "../loaders/socket.loader.js"
+import { getIO, isSocketInitialized } from "../loaders/socket.loader.js"
 import { addOnlineUser, removeOnlineUser, updateUserActivity } from "./redisOnlineUsers.js"
 
 /**
@@ -181,8 +181,10 @@ export const emitToUser = (userId, event, data) => {
  * @param {Object} data - Event data
  */
 export const emitToRole = (role, event, data) => {
-  const io = getIO()
-  io.to(`role:${role}`).emit(event, data)
+  // Notifications are fire-and-forget: without a live Socket.IO server
+  // (jobs, schedulers, tests) the emit is skipped, never fatal.
+  if (!isSocketInitialized()) return
+  getIO().to(`role:${role}`).emit(event, data)
 }
 
 /**

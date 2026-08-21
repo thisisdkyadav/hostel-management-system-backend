@@ -83,6 +83,9 @@ export const getIO = () => {
   return io;
 };
 
+/** True once initializeSocketIO has run — lets fire-and-forget emitters no-op. */
+export const isSocketInitialized = () => Boolean(io);
+
 /**
  * Get Redis clients
  * @returns {Object} Redis pub and sub clients

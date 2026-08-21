@@ -273,16 +273,24 @@ class ProfilesSelfService {
   }
 
   /**
-   * Upload student ID card
+   * Upload student ID card for the :userId in the path. Students may only
+   * upload onto their own profile.
    */
-  async uploadStudentIdCard(currentUser, idCardData) {
+  async uploadStudentIdCard(currentUser, idCardData, targetUserId) {
     const { front, back } = idCardData;
 
     if (currentUser.role !== 'Student') {
       return forbidden('Unauthorized');
     }
 
+    if (!targetUserId || String(targetUserId) !== String(currentUser._id)) {
+      return forbidden('You can only upload your own ID card');
+    }
+
     const studentProfile = await studentProfileQueries.findByUserId(currentUser._id);
+    if (!studentProfile) {
+      return notFound('Student profile not found');
+    }
     studentProfile.idCard = { front, back };
     await studentProfile.save();
 

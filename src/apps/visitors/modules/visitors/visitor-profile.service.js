@@ -5,7 +5,7 @@
  * @module apps/visitors/modules/visitors/visitor-profile.service
  */
 
-import { success, notFound, error } from '../../../../services/base/index.js';
+import { success, notFound, forbidden, error } from '../../../../services/base/index.js';
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 
@@ -45,10 +45,18 @@ class VisitorProfileService {
   /**
    * Update visitor profile
    * @param {string} visitorId - Visitor profile ID
+   * @param {string} userId - Authenticated student's id (ownership check)
    * @param {Object} data - Update data
    */
-  async updateVisitorProfile(visitorId, data) {
+  async updateVisitorProfile(visitorId, userId, data) {
     try {
+      const existing = await visitorQueries.findProfileById(visitorId);
+      if (!existing) {
+        return notFound(ENTITY);
+      }
+      if (String(existing.studentUserId) !== String(userId)) {
+        return forbidden('You can only manage your own visitor profiles');
+      }
       const visitorProfile = await visitorOwner.updateProfileById(visitorId, data);
       if (!visitorProfile) {
         return notFound(ENTITY);
@@ -63,9 +71,17 @@ class VisitorProfileService {
   /**
    * Delete visitor profile
    * @param {string} visitorId - Visitor profile ID
+   * @param {string} userId - Authenticated student's id (ownership check)
    */
-  async deleteVisitorProfile(visitorId) {
+  async deleteVisitorProfile(visitorId, userId) {
     try {
+      const existing = await visitorQueries.findProfileById(visitorId);
+      if (!existing) {
+        return notFound(ENTITY);
+      }
+      if (String(existing.studentUserId) !== String(userId)) {
+        return forbidden('You can only manage your own visitor profiles');
+      }
       const deleted = await visitorOwner.deleteProfileById(visitorId);
       if (!deleted) {
         return notFound(ENTITY);

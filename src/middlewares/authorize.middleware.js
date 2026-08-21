@@ -8,13 +8,16 @@
  * @param {string[]} roles - Allowed roles
  */
 export const authorizeRoles = (roles = []) => {
+  // Accept a single role string too — several routers call authorize('Student').
+  // A raw string would crash .join() and substring-match in .includes().
+  const allowed = Array.isArray(roles) ? roles : [roles];
   return (req, res, next) => {
     try {
       if (!req.user) {
         return res.status(401).json({ success: false, message: "Authentication required" })
       }
 
-      if (roles.length === 0 || roles.includes(req.user.role)) {
+      if (allowed.length === 0 || allowed.includes(req.user.role)) {
         return next()
       }
 
@@ -22,7 +25,7 @@ export const authorizeRoles = (roles = []) => {
 
       return res.status(403).json({
         success: false,
-        message: `Access denied. Required role: ${roles.join(" or ")}`,
+        message: `Access denied. Required role: ${allowed.join(" or ")}`,
       })
     } catch (error) {
       return res.status(500).json({

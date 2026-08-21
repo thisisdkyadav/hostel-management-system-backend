@@ -21,7 +21,7 @@ export const createVisitorProfile = asyncHandler(async (req, res) => {
 })
 
 export const updateVisitorProfile = asyncHandler(async (req, res) => {
-  const result = await visitorProfileService.updateVisitorProfile(req.params.visitorId, req.body)
+  const result = await visitorProfileService.updateVisitorProfile(req.params.visitorId, req.user._id, req.body)
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message, success: false })
   }
@@ -29,7 +29,7 @@ export const updateVisitorProfile = asyncHandler(async (req, res) => {
 })
 
 export const deleteVisitorProfile = asyncHandler(async (req, res) => {
-  const result = await visitorProfileService.deleteVisitorProfile(req.params.visitorId)
+  const result = await visitorProfileService.deleteVisitorProfile(req.params.visitorId, req.user._id)
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message, success: false })
   }

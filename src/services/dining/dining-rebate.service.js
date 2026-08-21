@@ -257,7 +257,8 @@ const buildValidatedRebateSegments = async ({ userId, startDate, endDate, reason
     }
 
     segments.push({
-      period: segment.period,
+      // the model field is periodId — a bare "period" key made every create fail validation
+      periodId: segment.period._id,
       allocation,
       startDate: segment.startDate,
       endDate: segment.endDate,

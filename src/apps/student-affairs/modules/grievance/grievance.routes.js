@@ -16,6 +16,7 @@
  */
 
 import express from 'express';
+import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles as authorize } from '../../../../middlewares/authorize.middleware.js';
 import { validate } from '../../../../middlewares/validate.middleware.js';
 import * as grievanceController from './grievance.controller.js';
@@ -24,13 +25,16 @@ import { SA_ROLE_GROUPS } from '../../constants/index.js';
 
 const router = express.Router();
 
+// Every grievance route is private — identity first, then role gates below.
+router.use(authenticate);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // STATISTICS (before /:id to avoid route conflict)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 router.get(
   '/stats',
-  authorize(...SA_ROLE_GROUPS.ADMINS),
+  authorize(SA_ROLE_GROUPS.ADMINS),
   grievanceController.getStatistics
 );
 
@@ -67,7 +71,7 @@ router
 
 router.patch(
   '/:id/status',
-  authorize(...SA_ROLE_GROUPS.GRIEVANCE_HANDLERS),
+  authorize(SA_ROLE_GROUPS.GRIEVANCE_HANDLERS),
   validate(validation.idParamSchema, 'params'),
   validate(validation.updateStatusSchema),
   grievanceController.updateStatus
@@ -75,7 +79,7 @@ router.patch(
 
 router.patch(
   '/:id/assign',
-  authorize(...SA_ROLE_GROUPS.ADMINS),
+  authorize(SA_ROLE_GROUPS.ADMINS),
   validate(validation.idParamSchema, 'params'),
   validate(validation.assignGrievanceSchema),
   grievanceController.assignGrievance
@@ -83,7 +87,7 @@ router.patch(
 
 router.patch(
   '/:id/resolve',
-  authorize(...SA_ROLE_GROUPS.GRIEVANCE_HANDLERS),
+  authorize(SA_ROLE_GROUPS.GRIEVANCE_HANDLERS),
   validate(validation.idParamSchema, 'params'),
   validate(validation.resolveGrievanceSchema),
   grievanceController.resolveGrievance
@@ -95,6 +99,7 @@ router.patch(
 
 router.post(
   '/:id/comments',
+  authorize(['Student', ...SA_ROLE_GROUPS.GRIEVANCE_HANDLERS]),
   validate(validation.idParamSchema, 'params'),
   validate(validation.addCommentSchema),
   grievanceController.addComment

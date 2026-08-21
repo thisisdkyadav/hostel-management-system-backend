@@ -58,6 +58,11 @@ export const visitorQueries = {
   // ==================== VisitorProfile ====================
 
   /** A student's saved visitor profiles (hydrated). */
+  /** Single visitor profile by id. */
+  async findProfileById(profileId) {
+    return VisitorProfile.findById(profileId)
+  },
+
   async findProfilesByStudent(studentUserId) {
     return VisitorProfile.find({ studentUserId })
   },

@@ -443,30 +443,17 @@ describe("student-affairs /por", () => {
     // "Dean SA"]. Approving at a custom-labeled step therefore fails with 422
     // AFTER the state transition was already persisted — the request moves but
     // the API reports an error and no history entry is written.
-    it("custom step labels pass category validation but break approval (422)", async () => {
+    it("rejects custom step labels at category creation (they would corrupt approvals)", async () => {
+      // Step labels become ApprovalLog.stage values, so only the enum stages
+      // are accepted up front — previously the category was created fine and
+      // every later approval failed 422 AFTER the request had already advanced.
       const apiAdmin = await as(adminPlain)
       const cat = await apiAdmin.post(`${BASE}/categories`).send({
         name: "Custom Label POR",
         gymkhanaSteps: [{ label: "Club Review", reviewerUserIds: [String(rev1._id)] }],
       })
-      expect(cat.status).toBe(201) // accepted without enum validation
-
-      const api = await as(student)
-      const created = await api
-        .post(BASE)
-        .send({ ...requestPayload(), porCategoryId: cat.body.data.category.id })
-      expect(created.status).toBe(201)
-      const id = created.body.data.request.id
-
-      const apiRev = await as(rev1)
-      const approve = await apiRev.post(`${BASE}/${id}/approve`).send({})
-      expect(approve.status).toBe(422)
-      expect(approve.body.errors[0].message).toMatch(/not a valid enum value for path `stage`/)
-
-      // The state transition WAS persisted despite the error response.
-      const listing = await (await as(saAdmin)).get(`${BASE}/student/${String(student._id)}`)
-      const moved = listing.body.data.requests.find((r) => r.id === String(id))
-      expect(moved.status).toBe("pending_student_affairs") // single-step category
+      expect(cat.status).toBeGreaterThanOrEqual(400)
+      expect(JSON.stringify(cat.body)).toMatch(/valid approval stage|Club Review/)
     })
   })
 

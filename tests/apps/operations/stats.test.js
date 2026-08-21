@@ -163,9 +163,8 @@ describe("GET /api/v1/stats/visitor/:hostelId", () => {
     expect(res.body.total).toBe(3)
     expect(res.body.checkedIn).toBe(2)
     expect(res.body.checkedOut).toBe(1)
-    // SUSPECTED BUG: the service filters on a `checkIn` field but the Visitors
-    // model stores `DateTime`, so `todays` can never be non-zero.
-    expect(res.body.todays).toBe(0)
+    // all fixtures were created now, so today's count covers all 3
+    expect(res.body.todays).toBe(3)
   })
 })
 

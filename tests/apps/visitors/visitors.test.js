@@ -176,17 +176,23 @@ describe("visitor profiles (student)", () => {
     expect(missing.status).toBe(404)
   })
 
-  it("SUSPECTED BUG: any student can update/delete another student's visitor profile (no ownership check)", async () => {
+  it("rejects updates/deletes of another student's visitor profile (ownership enforced)", async () => {
     const owner = await seed.student()
     const attacker = await seed.student()
     const ownerApi = await as(owner)
     const profile = await apiVisitorProfile(ownerApi)
 
     const attackerApi = await as(attacker)
-    const res = await attackerApi.put(`/api/v1/visitor/profiles/${profile._id}`).send({ name: "Hacked" })
-    // documents current behavior: succeeds because ownership is never checked
-    expect(res.status).toBe(200)
-    expect(res.body.visitorProfile.name).toBe("Hacked")
+    const upd = await attackerApi.put(`/api/v1/visitor/profiles/${profile._id}`).send({ name: "Hacked" })
+    expect(upd.status).toBe(403)
+    expect(upd.body.message).toMatch(/your own visitor profiles/i)
+
+    const del = await attackerApi.delete(`/api/v1/visitor/profiles/${profile._id}`)
+    expect(del.status).toBe(403)
+
+    // the owner is unaffected
+    const ok = await ownerApi.put(`/api/v1/visitor/profiles/${profile._id}`).send({ name: "Still Mine" })
+    expect(ok.status).toBe(200)
   })
 })
 

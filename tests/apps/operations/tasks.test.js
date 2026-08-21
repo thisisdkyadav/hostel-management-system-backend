@@ -148,11 +148,10 @@ describe("GET /api/v1/tasks/my-tasks", () => {
     expect(res.body.tasks.every((t) => t.assignedUsers.some((u) => String(u._id) === String(assignee._id)))).toBe(true)
   })
 
-  it("200 with an empty list for roles without a route mapping // SUSPECTED BUG (by design?): guardMy uses onUnmapped:'allow', so ANY authenticated role (e.g. Student) passes the guard and gets a 200 instead of a 403", async () => {
+  it("403 for roles without a route mapping (guardMy is deny-by-default)", async () => {
     const api = await as(student)
     const res = await api.get(`${BASE}/my-tasks`)
-    expect(res.status).toBe(200)
-    expect(res.body.tasks).toEqual([])
+    expect(res.status).toBe(403)
   })
 
   it("filters by status", async () => {

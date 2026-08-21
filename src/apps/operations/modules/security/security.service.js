@@ -64,13 +64,17 @@ class SecurityService {
       return notFound('Room allocation not found');
     }
 
+    // Unit.hostelId is a bare ObjectId — resolve the name from the hostel itself.
+    const hostel = await hostelQueries.findHostelById(hostelId);
     const dateAndTime = date && time ? new Date(`${date} ${time}`) : new Date();
-    const isSameHostel = studentUnit.hostelId === user.hostel._id;
+    const isSameHostel = Boolean(
+      user?.hostel?._id && String(user.hostel._id) === String(hostelId)
+    );
 
     const studentEntry = await checkInOutOwner.createEntry({
       userId: roomAllocation.userId,
       hostelId,
-      hostelName: studentUnit.hostelId.name,
+      hostelName: hostel?.name || null,
       unit,
       room,
       bed,
@@ -96,16 +100,24 @@ class SecurityService {
     }
 
     const roomAllocation = await hostelQueries.findCurrentAllocationByUser(user._id);
+    if (!roomAllocation) {
+      return notFound('Student is not allocated to any room');
+    }
 
-    const isSameHostel = roomAllocation.hostelId === securityUser.hostel._id;
+    const allocationHostelId = roomAllocation.hostelId?._id || roomAllocation.hostelId;
+    // Officers without a hostel assignment log against the student's hostel.
+    const officerHostelId = securityUser?.hostel?._id || allocationHostelId;
+    const isSameHostel = Boolean(
+      officerHostelId && String(officerHostelId) === String(allocationHostelId)
+    );
 
     const studentEntry = await checkInOutOwner.createEntry({
       userId: user._id,
       status,
-      hostelId: securityUser.hostel._id,
-      hostelName: roomAllocation.hostelId.name,
-      unit: roomAllocation.unitId.unitNumber,
-      room: roomAllocation.roomId.roomNumber,
+      hostelId: officerHostelId,
+      hostelName: roomAllocation.hostelId?.name || null,
+      unit: roomAllocation.unitId?.unitNumber || null,
+      room: roomAllocation.roomId?.roomNumber || null,
       bed: roomAllocation.bedNumber,
       isSameHostel,
       reason

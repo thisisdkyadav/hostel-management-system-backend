@@ -81,7 +81,7 @@ class GrievanceService extends BaseService {
    */
   async getGrievances(query, user) {
     // TODO: Implement when model is ready
-    return success({ grievances: [], pagination: {} }, 'Grievance model not implemented yet');
+    return success({ grievances: [], pagination: {} }, 200, 'Grievance model not implemented yet');
   }
 
   /**

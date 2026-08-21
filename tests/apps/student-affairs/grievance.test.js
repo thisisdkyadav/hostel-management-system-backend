@@ -6,18 +6,11 @@ import { seed } from "../../helpers/seed.js"
 /**
  * Integration tests for /api/v1/student-affairs/grievances.
  *
- * The grievance module is an unfinished stub, and its wiring is broken in two
- * ways that these tests DOCUMENT (see SUSPECTED BUG notes):
- *
- * 1. The router has NO `authenticate` middleware, so `req.user` is never
- *    populated. Every role-gated endpoint therefore answers 401
- *    ("Authentication required") even for callers carrying a valid session,
- *    and the role gates can never produce a 403.
- * 2. `grievanceService.getGrievances` passes its message as the statusCode
- *    argument of `success()` (`success(data, 'msg')`), so GET / answers 500.
- *
- * Controllers use sendRawResponse: failure -> { message }; validation
- * failures -> 422 via the global error handler.
+ * The grievance module is an unfinished stub: persistence operations answer
+ * 400/404 with "Grievance model not implemented yet", while GET / and
+ * GET /stats return zeroed payloads. The router mounts `authenticate` for all
+ * routes; role gates decide the rest. Controllers use sendRawResponse:
+ * failure -> { message }; validation failures -> 422 via the global handler.
  */
 
 const BASE = "/api/v1/student-affairs/grievances"
@@ -38,7 +31,7 @@ describe("student-affairs /grievances", () => {
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // POST / (create)
+  // POST / (create) — Student-only
   // ═══════════════════════════════════════════════════════════════════════════
   describe("POST /", () => {
     const validPayload = {
@@ -56,56 +49,53 @@ describe("student-affairs /grievances", () => {
       expect(res.body.message).toBe("Authentication required")
     })
 
-    // SUSPECTED BUG: even authenticated callers get 401 because the router
-    // never mounts `authenticate`, so req.user stays undefined and the
-    // Student-only role gate rejects everyone. A 403-for-wrong-role or a
-    // successful create is unreachable today.
-    it("401 even for authenticated users (missing authenticate middleware)", async () => {
+    it("403 for non-student roles (Admin, Warden)", async () => {
       const apiAdmin = await as(admin)
-      const adminRes = await apiAdmin.post(BASE).send(validPayload)
-      expect(adminRes.status).toBe(401)
+      expect((await apiAdmin.post(BASE).send(validPayload)).status).toBe(403)
 
-      const apiStudent = await as(studentUser)
-      const studentRes = await apiStudent.post(BASE).send(validPayload)
-      expect(studentRes.status).toBe(401)
+      const apiWarden = await as(wardenUser)
+      expect((await apiWarden.post(BASE).send(validPayload)).status).toBe(403)
     })
 
-    // The authorize('Student') gate runs BEFORE body validation, and because
-    // req.user is never populated every caller — valid payload or not — gets
-    // 401. Schema rejections are therefore unreachable on this route today.
-    it("401 even before validation can reject bad payloads", async () => {
-      const api = await anon()
+    it("reaches the stub for students: 400 'model not implemented yet'", async () => {
+      const api = await as(studentUser)
+      const res = await api.post(BASE).send(validPayload)
+      expect(res.status).toBe(400)
+      expect(res.body.message).toMatch(/not implemented yet/)
+    })
+
+    it("422 for invalid payloads (role gate passes, then validation)", async () => {
+      const api = await as(studentUser)
 
       const missing = await api.post(BASE).send({})
-      expect(missing.status).toBe(401)
+      expect(missing.status).toBe(422)
 
       const badCategory = await api.post(BASE).send({ ...validPayload, category: "universe" })
-      expect(badCategory.status).toBe(401)
+      expect(badCategory.status).toBe(422)
     })
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // GET / (list)
+  // GET / (list) — any authenticated user; stub returns a zeroed page
   // ═══════════════════════════════════════════════════════════════════════════
   describe("GET /", () => {
-    // SUSPECTED BUG: grievanceService.getGrievances calls
-    // `success({ grievances, pagination }, 'Grievance model not implemented yet')`
-    // — the message lands in the statusCode slot, so sendRawResponse calls
-    // res.status("<string>") and the request blows up with a 500.
-    it("500 due to success() statusCode misuse (stub bug)", async () => {
+    it("401 unauthenticated", async () => {
       const api = await anon()
       const res = await api.get(BASE)
-      expect(res.status).toBe(500)
+      expect(res.status).toBe(401)
     })
 
-    it("500 also for authenticated callers", async () => {
+    it("200 with the empty stub payload (envelope intact)", async () => {
       const api = await as(admin)
       const res = await api.get(BASE)
-      expect(res.status).toBe(500)
+      expect(res.status).toBe(200)
+      // sendRawResponse emits the bare service data
+      expect(res.body.grievances).toEqual([])
+      expect(res.body.pagination).toEqual({})
     })
 
     it("422 for invalid query filters (validation runs before the service)", async () => {
-      const api = await anon()
+      const api = await as(admin)
 
       const badStatus = await api.get(BASE).query({ status: "not-a-status" })
       expect(badStatus.status).toBe(422)
@@ -119,7 +109,7 @@ describe("student-affairs /grievances", () => {
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // GET /stats — Admin-level gate (unreachable: always 401, see module note)
+  // GET /stats — Admin-level gate
   // ═══════════════════════════════════════════════════════════════════════════
   describe("GET /stats", () => {
     it("401 unauthenticated", async () => {
@@ -128,37 +118,48 @@ describe("student-affairs /grievances", () => {
       expect(res.status).toBe(401)
     })
 
-    // SUSPECTED BUG: same missing-authenticate issue — Admin/Super Admin also
-    // receive 401 instead of the zeroed stats payload.
-    it("401 even for Admin and Super Admin (req.user never populated)", async () => {
+    it("403 for Student and Warden", async () => {
+      const apiStudent = await as(studentUser)
+      expect((await apiStudent.get(`${BASE}/stats`)).status).toBe(403)
+
+      const apiWarden = await as(wardenUser)
+      expect((await apiWarden.get(`${BASE}/stats`)).status).toBe(403)
+    })
+
+    it("200 with zeroed stats for Admin and Super Admin", async () => {
       const apiAdmin = await as(admin)
-      expect((await apiAdmin.get(`${BASE}/stats`)).status).toBe(401)
+      const res = await apiAdmin.get(`${BASE}/stats`)
+      expect(res.status).toBe(200)
+      expect(res.body.total).toBe(0)
 
       const apiSuper = await as(superAdminUser)
-      expect((await apiSuper.get(`${BASE}/stats`)).status).toBe(401)
+      expect((await apiSuper.get(`${BASE}/stats`)).status).toBe(200)
     })
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // GET /:id and DELETE /:id — no gates at all; stub answers 404
+  // GET /:id and DELETE /:id — authenticated; stub answers 404
   // ═══════════════════════════════════════════════════════════════════════════
   describe("GET /:id & DELETE /:id", () => {
-    it("422 for malformed id", async () => {
+    it("401 unauthenticated; 422 for malformed id", async () => {
       const api = await anon()
-      const res = await api.get(`${BASE}/not-an-id`)
+      expect((await api.get(`${BASE}/not-an-id`)).status).toBe(401)
+
+      const authed = await as(studentUser)
+      const res = await authed.get(`${BASE}/not-an-id`)
       expect(res.status).toBe(422)
       expect(res.body.errors[0].field).toBe("id")
     })
 
-    it("404 from the stub for a well-formed id (anonymous allowed)", async () => {
-      const api = await anon()
+    it("404 from the stub for a well-formed id", async () => {
+      const api = await as(studentUser)
       const res = await api.get(`${BASE}/${VALID_ID}`)
       expect(res.status).toBe(404)
       expect(res.body.message).toMatch(/not implemented yet/)
     })
 
-    it("DELETE is not role-gated; stub returns 404 for valid id", async () => {
-      const api = await anon()
+    it("DELETE reaches the stub for any authenticated caller", async () => {
+      const api = await as(studentUser)
       const res = await api.delete(`${BASE}/${VALID_ID}`)
       expect(res.status).toBe(404)
       expect(res.body.message).toMatch(/not implemented yet/)
@@ -169,7 +170,7 @@ describe("student-affairs /grievances", () => {
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PATCH /:id/status — gated (and thus always 401 today)
+  // PATCH /:id/status — handlers only (Admin/Super Admin/SA roles)
   // ═══════════════════════════════════════════════════════════════════════════
   describe("PATCH /:id/status", () => {
     it("401 unauthenticated", async () => {
@@ -178,45 +179,40 @@ describe("student-affairs /grievances", () => {
       expect(res.status).toBe(401)
     })
 
-    it("401 for every authenticated role (broken identity plumbing)", async () => {
+    it("403 for Student and Warden", async () => {
       const apiStudent = await as(studentUser)
       expect(
-        (
-          await apiStudent.patch(`${BASE}/${VALID_ID}/status`).send({ status: "under_review" })
-        ).status
-      ).toBe(401)
+        (await apiStudent.patch(`${BASE}/${VALID_ID}/status`).send({ status: "under_review" })).status
+      ).toBe(403)
 
       const apiWarden = await as(wardenUser)
       expect(
-        (
-          await apiWarden.patch(`${BASE}/${VALID_ID}/status`).send({ status: "under_review" })
-        ).status
-      ).toBe(401)
-
-      const apiAdmin = await as(admin)
-      expect(
-        (await apiAdmin.patch(`${BASE}/${VALID_ID}/status`).send({ status: "under_review" }))
-          .status
-      ).toBe(401)
+        (await apiWarden.patch(`${BASE}/${VALID_ID}/status`).send({ status: "under_review" })).status
+      ).toBe(403)
     })
 
-    // The handler gate runs before body validation, so bad payloads also get
-    // 401 (not 422) while req.user is never populated.
-    it("401 for invalid status payloads too (gate precedes validation)", async () => {
-      const api = await anon()
+    it("reaches the stub for handlers: 404 after valid payload", async () => {
+      const apiAdmin = await as(admin)
+      const res = await apiAdmin.patch(`${BASE}/${VALID_ID}/status`).send({ status: "under_review" })
+      expect(res.status).toBe(404)
+      expect(res.body.message).toMatch(/not implemented yet/)
+    })
+
+    it("422 for invalid status payloads once past the gate", async () => {
+      const api = await as(admin)
       const badValue = await api.patch(`${BASE}/${VALID_ID}/status`).send({ status: "finished" })
-      expect(badValue.status).toBe(401)
+      expect(badValue.status).toBe(422)
 
       const missing = await api.patch(`${BASE}/${VALID_ID}/status`).send({ notes: "no status" })
-      expect(missing.status).toBe(401)
+      expect(missing.status).toBe(422)
     })
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PATCH /:id/assign — Admin-level gate (always 401 today)
+  // PATCH /:id/assign — Admin-level gate
   // ═══════════════════════════════════════════════════════════════════════════
   describe("PATCH /:id/assign", () => {
-    it("401 unauthenticated and authenticated alike", async () => {
+    it("401 unauthenticated; 403 for Warden", async () => {
       const apiAnon = await anon()
       expect(
         (await apiAnon.patch(`${BASE}/${VALID_ID}/assign`).send({ assigneeId: VALID_ID })).status
@@ -225,75 +221,84 @@ describe("student-affairs /grievances", () => {
       const apiWarden = await as(wardenUser)
       expect(
         (await apiWarden.patch(`${BASE}/${VALID_ID}/assign`).send({ assigneeId: VALID_ID })).status
-      ).toBe(401)
-
-      const apiAdmin = await as(admin)
-      expect(
-        (await apiAdmin.patch(`${BASE}/${VALID_ID}/assign`).send({ assigneeId: VALID_ID })).status
-      ).toBe(401)
+      ).toBe(403)
     })
 
-    it("401 for invalid assignee payloads too (gate precedes validation)", async () => {
-      const api = await anon()
-      const missing = await api.patch(`${BASE}/${VALID_ID}/assign`).send({})
-      expect(missing.status).toBe(401)
+    it("reaches the stub for Admin; 422 for invalid payloads", async () => {
+      const apiAdmin = await as(admin)
+      const ok = await apiAdmin.patch(`${BASE}/${VALID_ID}/assign`).send({ assigneeId: VALID_ID })
+      expect(ok.status).toBe(404)
 
-      const invalid = await api.patch(`${BASE}/${VALID_ID}/assign`).send({ assigneeId: "nope" })
-      expect(invalid.status).toBe(401)
+      const missing = await apiAdmin.patch(`${BASE}/${VALID_ID}/assign`).send({})
+      expect(missing.status).toBe(422)
+
+      const invalid = await apiAdmin.patch(`${BASE}/${VALID_ID}/assign`).send({ assigneeId: "nope" })
+      expect(invalid.status).toBe(422)
     })
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // PATCH /:id/resolve — handlers-only gate (always 401 today)
+  // PATCH /:id/resolve — handlers-only gate
   // ═══════════════════════════════════════════════════════════════════════════
   describe("PATCH /:id/resolve", () => {
-    it("401 unauthenticated and authenticated alike", async () => {
+    it("401 unauthenticated; 403 for Student", async () => {
       const apiAnon = await anon()
       const anonRes = await apiAnon
         .patch(`${BASE}/${VALID_ID}/resolve`)
         .send({ resolution: "Fixed the water pump yesterday morning" })
       expect(anonRes.status).toBe(401)
 
-      const apiAdmin = await as(admin)
-      const adminRes = await apiAdmin
-        .patch(`${BASE}/${VALID_ID}/resolve`)
-        .send({ resolution: "Replaced the motor; supply restored" })
-      expect(adminRes.status).toBe(401)
+      const apiStudent = await as(studentUser)
+      expect(
+        (
+          await apiStudent
+            .patch(`${BASE}/${VALID_ID}/resolve`)
+            .send({ resolution: "Fixed the water pump yesterday morning" })
+        ).status
+      ).toBe(403)
     })
 
-    it("401 for short resolution too (gate precedes validation)", async () => {
-      const api = await anon()
-      const res = await api.patch(`${BASE}/${VALID_ID}/resolve`).send({ resolution: "fixed" })
-      expect(res.status).toBe(401)
+    it("reaches the stub for Admin; 422 for short resolution", async () => {
+      const api = await as(admin)
+      const short = await api.patch(`${BASE}/${VALID_ID}/resolve`).send({ resolution: "fixed" })
+      expect(short.status).toBe(422)
+
+      const ok = await api
+        .patch(`${BASE}/${VALID_ID}/resolve`)
+        .send({ resolution: "Replaced the motor; supply restored" })
+      expect(ok.status).toBe(404)
     })
   })
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // POST /:id/comments — no role gate at all
+  // POST /:id/comments — Student + grievance handlers
   // ═══════════════════════════════════════════════════════════════════════════
   describe("POST /:id/comments", () => {
-    // SUSPECTED BUG: the comments route has neither authenticate nor any role
-    // gate, so anonymous callers pass validation and reach the (stubbed)
-    // service. Documented to match current behavior.
-    it("reaches the service even without authentication", async () => {
+    it("401 unauthenticated", async () => {
       const api = await anon()
       const res = await api.post(`${BASE}/${VALID_ID}/comments`).send({ content: "anon ping" })
-      expect(res.status).toBe(404)
-      expect(res.body.message).toMatch(/not implemented yet/)
+      expect(res.status).toBe(401)
     })
 
-    it("422 for empty content", async () => {
-      const api = await anon()
+    it("403 for Warden (not a handler)", async () => {
+      const api = await as(wardenUser)
+      const res = await api.post(`${BASE}/${VALID_ID}/comments`).send({ content: "warden ping" })
+      expect(res.status).toBe(403)
+    })
+
+    it("422 for empty content (Student allowed)", async () => {
+      const api = await as(studentUser)
       const res = await api.post(`${BASE}/${VALID_ID}/comments`).send({ content: "" })
       expect(res.status).toBe(422)
     })
 
     it("404 from the stub for valid content", async () => {
-      const api = await anon()
+      const api = await as(studentUser)
       const res = await api
         .post(`${BASE}/${VALID_ID}/comments`)
         .send({ content: "Any update on this?", isInternal: false })
       expect(res.status).toBe(404)
+      expect(res.body.message).toMatch(/not implemented yet/)
     })
   })
 })

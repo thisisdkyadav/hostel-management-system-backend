@@ -20,9 +20,14 @@ export const getAllUndertakings = asyncHandler(async (req, res) => {
 // 2. Create Undertaking
 export const createUndertaking = asyncHandler(async (req, res) => {
   const result = await undertakingService.createUndertaking(req.body, req.user);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message });
+  }
+
   res.status(result.statusCode).json({
     message: result.message,
-    undertaking: result.data.undertaking,
+    undertaking: result.data?.undertaking,
   });
 });
 

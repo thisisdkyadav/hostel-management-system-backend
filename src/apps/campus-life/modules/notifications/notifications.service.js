@@ -54,8 +54,16 @@ class NotificationService {
 
       if (user.role === 'Student') {
         const studentProfile = await studentProfileQueries.findByUserIdWithAllocationHostel(user._id);
-        const hostelIdVal = studentProfile.currentRoomAllocation?.hostelId;
-        const { gender: studentGender, degree: studentDegree, department: studentDepartment } = studentProfile;
+        // A student without a profile simply sees broadcast notifications.
+        const profileAttributes = studentProfile
+          ? {
+              hostelIdVal: studentProfile.currentRoomAllocation?.hostelId,
+              gender: studentProfile.gender,
+              degree: studentProfile.degree,
+              department: studentProfile.department,
+            }
+          : { hostelIdVal: null, gender: null, degree: null, department: null };
+        const { hostelIdVal, gender: studentGender, degree: studentDegree, department: studentDepartment } = profileAttributes;
         queryObj.$and = [
           { $or: [{ gender: null }, { gender: studentGender }] },
           { $or: [{ hostelId: { $size: 0 } }, { hostelId: null }, { hostelId: hostelIdVal }] },
@@ -99,15 +107,10 @@ class NotificationService {
       }
 
       if (search) {
-        const regex = new RegExp(search, 'i');
-        queryObj.$or = [
-          { title: regex },
-          { message: regex },
-          { sender: regex },
-          { hostelId: { $in: [regex] } },
-          { degree: { $in: [regex] } },
-          { department: { $in: [regex] } }
-        ];
+        const regex = new RegExp(String(search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        // sender/hostelId/degree/department are ObjectIds or arrays — regexing
+        // them throws CastError. Text fields only; the UI filters the rest.
+        queryObj.$or = [{ title: regex }, { message: regex }];
       }
 
       const pageInt = parseInt(page) || 1;
@@ -137,8 +140,11 @@ class NotificationService {
       let queryObj = {};
       if (user.role === 'Student') {
         const studentProfile = await studentProfileQueries.findByUserIdWithAllocationHostel(user._id);
-        const hostelId = studentProfile.currentRoomAllocation?.hostelId;
-        const { gender, degree, department } = studentProfile;
+        // Profile-less students still get broadcast counts.
+        const hostelId = studentProfile?.currentRoomAllocation?.hostelId ?? null;
+        const gender = studentProfile?.gender ?? null;
+        const degree = studentProfile?.degree ?? null;
+        const department = studentProfile?.department ?? null;
         queryObj = {
           $and: [
             { $or: [{ gender: null }, { gender: gender }] },
@@ -170,8 +176,11 @@ class NotificationService {
       let queryObj = {};
       if (user.role === 'Student') {
         const studentProfile = await studentProfileQueries.findByUserIdWithAllocationHostel(user._id);
-        const hostelId = studentProfile.currentRoomAllocation?.hostelId;
-        const { gender, degree, department } = studentProfile;
+        // Profile-less students still get broadcast counts.
+        const hostelId = studentProfile?.currentRoomAllocation?.hostelId ?? null;
+        const gender = studentProfile?.gender ?? null;
+        const degree = studentProfile?.degree ?? null;
+        const department = studentProfile?.department ?? null;
         queryObj = {
           $and: [
             { $or: [{ gender: null }, { gender: gender }] },

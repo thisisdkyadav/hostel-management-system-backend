@@ -136,7 +136,8 @@ class StatsService {
       visitorQueries.countVisitors({ hostelId }),
       visitorQueries.countVisitors({ status: 'Checked In', hostelId }),
       visitorQueries.countVisitors({ status: 'Checked Out', hostelId }),
-      visitorQueries.countVisitors({ hostelId, checkIn: { $gte: todayStart, $lt: todayEnd } })
+      // the Visitors model stores the visit time in `DateTime` (there is no checkIn field)
+      visitorQueries.countVisitors({ hostelId, DateTime: { $gte: todayStart, $lt: todayEnd } })
     ]);
 
     return success({ total, checkedIn, checkedOut, todays });

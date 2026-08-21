@@ -52,6 +52,7 @@ router.use(authenticate);
 
 const guard = routeGuard({
   [ROLES.ADMIN]: 'route.admin.students',
+  [ROLES.SUPER_ADMIN]: 'route.superAdmin.students',
   [ROLES.WARDEN]: 'route.warden.students',
   [ROLES.ASSOCIATE_WARDEN]: 'route.associateWarden.students',
   [ROLES.HOSTEL_SUPERVISOR]: 'route.hostelSupervisor.students',
@@ -67,7 +68,7 @@ const requireStudentEditCapability = requireAnyCapability(['cap.students.edit.pe
 
 router.get(
   '/profiles',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudents
 );
 router.post(
@@ -77,34 +78,34 @@ router.post(
 );
 router.put(
   '/profiles',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireAnyCapability(['cap.students.edit.personal']),
   updateStudentsProfiles
 );
 router.post(
   '/profiles/ids',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getMultipleStudentDetails
 );
 router.post(
   '/profiles/export',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentExportDetails
 );
 router.get(
   '/profile/details/:userId',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentDetails
 );
 router.put(
   '/profile/:userId',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   requireAnyCapability(['cap.students.edit.personal']),
   updateStudentProfile
 );
 router.get(
   '/id/:userId',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getStudentId
 );
 router.post(
@@ -158,7 +159,7 @@ router.get(
 );
 router.get(
   '/taxonomy/options',
-  guard(['Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
+  guard(['Admin', 'Super Admin', 'Warden', 'Associate Warden', 'Hostel Supervisor']),
   getTaxonomyOptions
 );
 router.get(

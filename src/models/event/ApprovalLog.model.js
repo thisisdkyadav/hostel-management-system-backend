@@ -5,6 +5,17 @@
 
 import mongoose from "mongoose"
 
+export const APPROVAL_LOG_STAGES = [
+  "Student",
+  "Club",
+  "GS Gymkhana",
+  "President Gymkhana",
+  "Student Affairs",
+  "Officer SA",
+  "Associate Dean SA",
+  "Dean SA",
+]
+
 const ApprovalLogSchema = new mongoose.Schema(
   {
     entityType: {
@@ -19,16 +30,7 @@ const ApprovalLogSchema = new mongoose.Schema(
     },
     stage: {
       type: String,
-      enum: [
-        "Student",
-        "Club",
-        "GS Gymkhana",
-        "President Gymkhana",
-        "Student Affairs",
-        "Officer SA",
-        "Associate Dean SA",
-        "Dean SA",
-      ],
+      enum: APPROVAL_LOG_STAGES,
       required: true,
     },
     action: {

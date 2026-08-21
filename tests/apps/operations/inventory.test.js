@@ -254,15 +254,15 @@ describe("student inventory", () => {
     expect(res.status).toBe(400)
     expect(res.body.message).toMatch(/does not match/i)
 
-    // SUSPECTED BUG (documented): count 0 is silently coerced to 1 ("count || 1")
+    // zero/negative/non-numeric counts are rejected instead of coerced
     res = await api.post("/api/v1/inventory/student").send({
       studentProfileId: profile._id,
       hostelInventoryId,
       itemTypeId: type._id,
       count: 0,
     })
-    expect(res.status).toBe(201)
-    expect(res.body.count).toBe(1)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/positive number/i)
 
     // happy path
     res = await api.post("/api/v1/inventory/student").send({

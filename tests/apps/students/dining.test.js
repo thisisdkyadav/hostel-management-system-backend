@@ -339,24 +339,20 @@ describe("dining rebates", () => {
     expect(res.body.message).toBe("Short-term rebate must be requested at least 2 day(s) in advance")
   })
 
-  it("SUSPECTED BUG: a fully valid short-term rebate request fails with 422", async () => {
-    // SUSPECTED BUG: dining-rebate.service.js buildValidatedRebateSegments
-    // builds each segment with a `period` key (the populated object) but the
-    // DiningRebate schema requires `periodId`. insertMany therefore always
-    // fails Mongoose validation, so NO rebate can ever be created through the
-    // API — every valid request returns 422 "Validation failed".
+  it("creates a fully valid short-term rebate (auto-approved)", async () => {
     const res = await studentApi
       .post(`${BASE}/rebates`)
       .send({ startDate: utcDay(11), endDate: utcDay(12), reason: "Short trip home" })
-    expect(res.status).toBe(422)
-    expect(res.body.success).toBe(false)
-    expect(res.body.message).toBe("Validation failed")
-    expect(res.body.errors.some((e) => e.field === "periodId")).toBe(true)
+    expect(res.status).toBe(201)
+    expect(res.body.success).toBe(true)
+    const created = res.body.data.rebates?.[0] ?? res.body.data[0]
+    expect(created.status).toBe("approved")
+    expect(created.type).toBe("short-term")
+    expect(created.dayCount).toBe(2)
   })
 
-  it("SUSPECTED BUG: a valid long-term (> continuous limit) request also fails with 422", async () => {
-    // Same root cause as above; documents that even the pending-approval flow
-    // is unreachable through the API.
+  it("creates a long-term (> continuous limit) request as pending approval", async () => {
+    // Long-term rebates skip auto-approval and wait for the dining office.
     const longPeriod = await createDiningPeriod({
       eligibilityMode: "custom",
       eligibleRollNumbers: ["REB001"],
@@ -376,13 +372,13 @@ describe("dining rebates", () => {
     const res = await studentApi
       .post(`${BASE}/rebates`)
       .send({ startDate: utcDay(50), endDate: utcDay(53), reason: "Semester break travel" })
-    expect(res.status).toBe(422)
-    expect(res.body.message).toBe("Validation failed")
+    expect(res.status).toBe(201)
+    const created = res.body.data.rebates?.[0] ?? res.body.data[0]
+    expect(created.status).toBe("pending")
+    expect(created.type).toBe("long-term")
   })
 
   it("rejects overlapping rebate days with 400", async () => {
-    // Seed the conflicting approved rebate directly (creation through the API
-    // is broken — see the SUSPECTED BUG tests above).
     const profile = await (
       await import("../../../src/models/index.js")
     ).StudentProfile.findOne({ userId: student._id })
@@ -493,9 +489,10 @@ describe("dining rebates", () => {
     const res = await studentApi.get(`${BASE}/rebates`)
     expect(res.status).toBe(200)
     expect(res.body.success).toBe(true)
-    expect(res.body.data.rebates).toHaveLength(1)
+    expect(res.body.data.rebates.length).toBeGreaterThanOrEqual(1)
 
-    const rebate = res.body.data.rebates[0]
+    const rebate = res.body.data.rebates.find((r) => r.dayCount === 2 && r.type === "short-term")
+    expect(rebate).toBeTruthy()
     expect(rebate.rollNumber).toBe("REB001")
     expect(rebate.status).toBe("approved")
     expect(rebate.type).toBe("short-term")

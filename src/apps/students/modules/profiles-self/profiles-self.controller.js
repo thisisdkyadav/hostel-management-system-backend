@@ -49,7 +49,7 @@ export const getStudentIdCard = asyncHandler(async (req, res) => {
 });
 
 export const uploadStudentIdCard = asyncHandler(async (req, res) => {
-  const result = await profilesSelfService.uploadStudentIdCard(req.user, req.body);
+  const result = await profilesSelfService.uploadStudentIdCard(req.user, req.body, req.params.userId);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
