@@ -331,6 +331,7 @@ class EmailService {
   /**
    * Normalize attachment inputs to nodemailer attachment config.
    * Supports:
+   * - { filename, content, contentType }  (in-memory buffers, e.g. generated PDFs)
    * - { filename, path }
    * - { filename, url }
    * - { filename, fileUrl }
@@ -345,11 +346,27 @@ class EmailService {
     for (const attachment of rawAttachments) {
       if (!attachment) continue;
       const filename = attachment.filename || attachment.fileName || 'attachment.pdf';
+
+      if (attachment.content != null) {
+        const item = { filename, content: attachment.content };
+        if (attachment.contentType) item.contentType = attachment.contentType;
+        if (attachment.encoding) item.encoding = attachment.encoding;
+        if (attachment.cid) item.cid = attachment.cid;
+        normalized.push(item);
+        continue;
+      }
+
       const filePath = attachment.path || attachment.url || attachment.fileUrl;
       if (!filePath || typeof filePath !== 'string') continue;
 
       if (/^https?:\/\//i.test(filePath)) {
         normalized.push({ filename, path: filePath });
+        continue;
+      }
+
+      const legacyPath = fileAccessService.resolveLegacyPath(filePath);
+      if (legacyPath) {
+        normalized.push({ filename, path: legacyPath });
         continue;
       }
 

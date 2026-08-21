@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { env } from '../../config/env.config.js';
 import { storageClient } from './storage.client.js';
-import { isLegacyUploadPath, isMediaRef, resolveLegacyUploadPath } from './file-ref.service.js';
+import { isHttpUrl, isLegacyUploadPath, isMediaRef, resolveLegacyUploadPath } from './file-ref.service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,7 +78,15 @@ class FileAccessService {
       };
     }
 
+    if (isHttpUrl(fileValue)) {
+      throw new Error('Remote HTTP file references are not supported');
+    }
+
     throw new Error('Unsupported file reference');
+  }
+
+  resolveLegacyPath(fileValue) {
+    return resolveLegacyUploadPath(fileValue, uploadsRoot);
   }
 }
 

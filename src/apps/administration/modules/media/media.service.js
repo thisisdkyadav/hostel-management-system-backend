@@ -39,6 +39,8 @@ const HOSTEL_STAFF_STUDENT_DOCS = new Set([
   'certificates',
   'payment-screenshots',
 ]);
+const DISCO_POLICIES = new Set(['disco-process-docs']);
+const SIGNATURE_POLICIES = new Set(['signature-images']);
 
 const toId = (value) => {
   if (!value) return '';
@@ -90,6 +92,14 @@ const canViewMedia = async (user, meta, fileRef) => {
   }
 
   if (OPEN_TO_AUTHENTICATED.has(policy)) {
+    return true;
+  }
+
+  if (DISCO_POLICIES.has(policy) && ADMIN_ROLES.has(user.role)) {
+    return true;
+  }
+
+  if (SIGNATURE_POLICIES.has(policy) && ADMIN_ROLES.has(user.role)) {
     return true;
   }
 
@@ -155,7 +165,7 @@ const signAuthorizedRef = async (user, ref, { disposition, expiresInSeconds }) =
     if (isMissingFileError(err)) {
       return { error: notFound('File') };
     }
-    return { error: error('Failed to resolve media', 502, err.message) };
+    return { error: error('Failed to resolve media', 502) };
   }
 
   if (!signed?.url) {

@@ -116,6 +116,7 @@ class UploadService {
       policy: 'h2-form',
       actorId: userId,
       actorRole: 'Student',
+      entityHint: String(userId || ''),
     });
   }
 
@@ -190,6 +191,7 @@ class UploadService {
       policy: 'payment-screenshot',
       actorId: userId,
       actorRole: userRole || 'Student',
+      entityHint: String(userId || ''),
     });
   }
 
@@ -222,7 +224,7 @@ class UploadService {
     });
   }
 
-  async uploadCertificate({ userId, file }) {
+  async uploadCertificate({ userId, studentId, file }) {
     const mimeValidation = sanitizeMimeMatch(file, MIXED_MIME_TYPES);
     if (!mimeValidation.ok) return errorResult(400, 'Only PDF and image files are allowed');
 
@@ -231,6 +233,7 @@ class UploadService {
       policy: 'certificate',
       actorId: userId,
       actorRole: 'Admin',
+      entityHint: String(studentId || ''),
     });
   }
 
@@ -246,6 +249,7 @@ class UploadService {
       policy: 'election-nomination-document',
       actorId: userId,
       actorRole: 'Student',
+      entityHint: String(userId || ''),
     });
   }
 
@@ -258,6 +262,7 @@ class UploadService {
       policy: 'overall-best-performer-proof-pdf',
       actorId: userId,
       actorRole: 'Student',
+      entityHint: String(userId || ''),
     });
   }
 
@@ -282,6 +287,7 @@ class UploadService {
         policy,
         actorId: userId,
         actorRole: 'Student',
+        entityHint: String(userId || ''),
       });
 
       if (result.success) return result;

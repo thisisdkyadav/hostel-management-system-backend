@@ -206,6 +206,7 @@ export const uploadSignatureImage = asyncHandler(async (req, res) => {
 export const uploadCertificate = asyncHandler(async (req, res) => {
   const result = await uploadService.uploadCertificate({
     userId: req.user?._id,
+    studentId: req.body?.studentId,
     file: getFileFromRequest(req),
   });
 
