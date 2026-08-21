@@ -37,7 +37,7 @@ export const getUsersByRole = asyncHandler(async (req, res) => {
 });
 
 export const bulkPasswordUpdate = asyncHandler(async (req, res) => {
-  const result = await userService.bulkPasswordUpdate(req.body.passwordUpdates);
+  const result = await userService.bulkPasswordUpdate(req.user, req.body.passwordUpdates);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -47,7 +47,7 @@ export const bulkPasswordUpdate = asyncHandler(async (req, res) => {
 });
 
 export const removeUserPassword = asyncHandler(async (req, res) => {
-  const result = await userService.removeUserPassword(req.params.id);
+  const result = await userService.removeUserPassword(req.user, req.params.id);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -57,7 +57,7 @@ export const removeUserPassword = asyncHandler(async (req, res) => {
 });
 
 export const bulkRemovePasswords = asyncHandler(async (req, res) => {
-  const result = await userService.bulkRemovePasswords(req.body.emails);
+  const result = await userService.bulkRemovePasswords(req.user, req.body.emails);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });
@@ -67,7 +67,7 @@ export const bulkRemovePasswords = asyncHandler(async (req, res) => {
 });
 
 export const removePasswordsByRole = asyncHandler(async (req, res) => {
-  const result = await userService.removePasswordsByRole(req.body.role);
+  const result = await userService.removePasswordsByRole(req.user, req.body.role);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ message: result.message });

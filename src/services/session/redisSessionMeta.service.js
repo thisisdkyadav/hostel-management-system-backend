@@ -155,6 +155,31 @@ export const touchSessionMeta = async (sessionId, lastActive = new Date()) => {
   return true;
 };
 
+/**
+ * Revoke every session belonging to a user: removes the live session payload
+ * (`sess:<id>`, shared with the Go auth backend), its meta hash, and the
+ * user's session-index entry. Best-effort by design — callers must not fail
+ * the primary operation when revocation errors.
+ */
+export const revokeUserSessions = async (userId) => {
+  const userIdString = userId?.toString?.() || "";
+  if (!userIdString) return 0;
+
+  const client = getSessionRedisClient();
+  const sessionIds = await client.zrevrange(getUserSessionsKey(userIdString), 0, -1);
+  if (sessionIds.length === 0) return 0;
+
+  const pipeline = client.multi();
+  sessionIds.forEach((sessionId) => {
+    pipeline.del(`${env.REDIS_SESSION_PREFIX}${sessionId}`);
+    pipeline.del(getSessionMetaKey(sessionId));
+  });
+  pipeline.del(getUserSessionsKey(userIdString));
+  await pipeline.exec();
+
+  return sessionIds.length;
+};
+
 export const deleteSessionMeta = async (sessionId, userId = null) => {
   const sessionIdString = sessionId?.toString?.() || "";
   if (!sessionIdString) return false;
