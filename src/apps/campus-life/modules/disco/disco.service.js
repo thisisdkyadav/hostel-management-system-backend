@@ -21,6 +21,7 @@ import { discoOwner } from "../../../../services/disco/discoOwner.service.js";
 import { discoQueries } from "../../../../services/disco/discoQueries.service.js";
 import { emailCustomService } from "../../../administration/modules/email/email.service.js";
 import { fileAccessService } from "../../../../services/storage/file-access.service.js";
+import { isMediaRef } from "../../../../services/storage/file-ref.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -573,6 +574,9 @@ const normalizeCaseDocumentList = ({ documents, uploadedBy, fallbackName }) => {
     }
 
     const pdfUrl = item.pdfUrl.trim();
+    if (!isMediaRef(pdfUrl)) {
+      return { error: badRequest("Document must be a stored media reference") };
+    }
     list.push({
       pdfUrl,
       pdfName: item.pdfName?.trim() || safeFileNameFromUrl(pdfUrl, fallbackName),
@@ -1108,6 +1112,9 @@ class DisCoService {
       }
 
       const statementPdfUrl = statement.statementPdfUrl.trim();
+      if (!isMediaRef(statementPdfUrl)) {
+        return badRequest("Statement PDF must be a stored media reference");
+      }
       statementMap.set(studentUserId, {
         studentUserId,
         studentRole: expectedRole,
@@ -1391,6 +1398,9 @@ class DisCoService {
    */
   async uploadCommitteeMinutes(caseId, { pdfUrl, pdfName }, adminUser) {
     if (!pdfUrl?.trim()) return badRequest("Meeting minutes PDF is required");
+    if (!isMediaRef(pdfUrl.trim())) {
+      return badRequest("Meeting minutes PDF must be a stored media reference");
+    }
 
     const caseDoc = await discoQueries.findProcessCaseById(caseId);
     if (!caseDoc) return notFound("Disciplinary process case");

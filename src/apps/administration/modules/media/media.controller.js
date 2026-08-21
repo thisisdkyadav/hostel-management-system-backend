@@ -1,54 +1,26 @@
-import { asyncHandler } from '../../../../utils/index.js';
-import { fileAccessService } from '../../../../services/storage/file-access.service.js';
+import { handler } from '../../../../lib/api-kit/index.js';
+import { mediaService } from './media.service.js';
 
-const DEFAULT_TTL_SECONDS = 300;
+export const resolveMedia = handler(async (req, res) => {
+  const result = await mediaService.resolveOne(req.user, {
+    ref: req.query.ref,
+    disposition: req.query.disposition,
+    expiresInSeconds: req.query.expiresInSeconds,
+  });
 
-export const resolveMedia = asyncHandler(async (req, res) => {
-  const ref = String(req.query.ref || '').trim();
-  const disposition = String(req.query.disposition || 'inline').trim() || 'inline';
-  const redirect = String(req.query.redirect || '0') === '1';
-  const expiresInSeconds = Number(req.query.expiresInSeconds || DEFAULT_TTL_SECONDS);
+  if (!result.success) return result;
 
-  if (!ref) {
-    return res.status(400).json({ success: false, message: 'Media ref is required' });
+  if (String(req.query.redirect || '0') === '1' && result.data?.url) {
+    return res.redirect(result.data.url);
   }
 
-  const signedUrl = await fileAccessService.createSignedUrl(ref, {
-    disposition,
-    expiresInSeconds,
-  });
-
-  if (redirect) {
-    return res.redirect(signedUrl);
-  }
-
-  return res.json({
-    success: true,
-    ref,
-    url: signedUrl,
-  });
+  return result;
 });
 
-export const resolveMediaBatch = asyncHandler(async (req, res) => {
-  const refs = Array.isArray(req.body?.refs) ? req.body.refs : [];
-  const disposition = String(req.body?.disposition || 'inline').trim() || 'inline';
-  const expiresInSeconds = Number(req.body?.expiresInSeconds || DEFAULT_TTL_SECONDS);
-
-  const items = await Promise.all(
-    refs
-      .filter((ref) => typeof ref === 'string' && ref.trim())
-      .map(async (ref) => ({
-        ref,
-        url: await fileAccessService.createSignedUrl(ref, {
-          disposition,
-          expiresInSeconds,
-        }),
-      }))
-  );
-
-  return res.json({
-    success: true,
-    items,
-  });
-});
-
+export const resolveMediaBatch = handler((req) =>
+  mediaService.resolveBatch(req.user, {
+    refs: req.body?.refs,
+    disposition: req.body?.disposition,
+    expiresInSeconds: req.body?.expiresInSeconds,
+  })
+);

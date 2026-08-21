@@ -59,9 +59,15 @@ export const mediaReference = Joi.string()
     const normalized = String(value || '').trim();
     if (!normalized) return normalized;
     if (/^https?:\/\//i.test(normalized)) return normalized;
-    if (/^media:\/\/[a-zA-Z0-9-]+$/i.test(normalized)) return normalized;
+    if (/^media:\/\/[A-Za-z0-9_-]+$/.test(normalized)) return normalized;
     return helpers.message('Invalid file reference');
   });
+
+/** Stored file refs only — no http(s) or filesystem paths. */
+export const storedMediaRef = Joi.string()
+  .trim()
+  .pattern(/^media:\/\/[A-Za-z0-9_-]+$/)
+  .message('Invalid file reference');
 
 // ============================================
 // Common Schema Parts
@@ -160,6 +166,7 @@ export default {
   phone,
   name,
   mediaReference,
+  storedMediaRef,
   idParamSchema,
   paginationSchema,
   searchSchema,

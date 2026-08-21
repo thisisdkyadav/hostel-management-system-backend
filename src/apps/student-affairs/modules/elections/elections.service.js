@@ -36,6 +36,8 @@ import {
   triggerElectionTestEmailDispatchForElection,
   triggerElectionVotingEmailDispatchForElection,
 } from "./elections-voting-dispatch.service.js"
+import { fileAccessService } from "../../../../services/storage/file-access.service.js"
+import { isMediaRef } from "../../../../services/storage/file-ref.service.js"
 
 const normalizeStringArray = (values = []) => {
   if (!Array.isArray(values)) return []
@@ -1309,6 +1311,19 @@ const sendNominationSupportRequests = async ({
   return { failures, sentKeys }
 }
 
+const toPublicFileUrl = async (value) => {
+  const normalized = String(value || "").trim()
+  if (!normalized || !isMediaRef(normalized)) return normalized
+  try {
+    return await fileAccessService.createSignedUrl(normalized, {
+      disposition: "inline",
+      expiresInSeconds: 3600,
+    })
+  } catch {
+    return ""
+  }
+}
+
 const serializeBallotCandidate = (nomination) => ({
   nominationId: String(nomination._id),
   candidateName: nomination.candidateUserId?.name || nomination.candidateRollNumber,
@@ -1355,12 +1370,14 @@ const buildElectionBallotPayload = async (election, voterUserId, { source = "ema
     { populate: { path: "candidateUserId", select: "name email profileImage" } }
   )
 
-  const nominationsByPostId = verifiedNominations.reduce((acc, nomination) => {
+  const nominationsByPostId = {}
+  for (const nomination of verifiedNominations) {
     const postId = String(nomination.postId)
-    if (!acc[postId]) acc[postId] = []
-    acc[postId].push(serializeBallotCandidate(nomination))
-    return acc
-  }, {})
+    if (!nominationsByPostId[postId]) nominationsByPostId[postId] = []
+    const candidate = serializeBallotCandidate(nomination)
+    candidate.candidateProfileImage = await toPublicFileUrl(candidate.candidateProfileImage)
+    nominationsByPostId[postId].push(candidate)
+  }
 
   const posts = eligiblePosts
     .map((post) => ({
@@ -2392,7 +2409,7 @@ class ElectionsService {
         postTitle: nomination.postTitle,
         candidateName: nomination.candidateUserId?.name || "",
         candidateEmail: nomination.candidateUserId?.email || "",
-        candidateProfileImage: nomination.candidateUserId?.profileImage || "",
+        candidateProfileImage: await toPublicFileUrl(nomination.candidateUserId?.profileImage || ""),
         candidateRollNumber: nomination.candidateRollNumber,
         supportType,
         supporter: serializeSupporter(supporterEntry),

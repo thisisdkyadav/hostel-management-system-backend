@@ -66,6 +66,30 @@ class StorageClient {
     return parseJsonResponse(response);
   }
 
+  async getMetadata(fileRef) {
+    ensureConfigured();
+    const fileId = parseMediaRef(fileRef);
+    if (!fileId) {
+      throw new Error('Invalid storage file ref');
+    }
+
+    const response = await fetch(`${this.baseUrl}/internal/v1/files/${encodeURIComponent(fileId)}/meta`, {
+      method: 'GET',
+      headers: buildInternalHeaders(),
+    });
+
+    const payload = await parseJsonResponse(response);
+    return {
+      fileId: payload?.file_id || payload?.fileId || fileId,
+      fileRef: payload?.file_ref || payload?.fileRef || fileRef,
+      policy: payload?.policy || '',
+      actorId: payload?.actor_id || payload?.actorId || '',
+      actorRole: payload?.actor_role || payload?.actorRole || '',
+      entityHint: payload?.entity_hint || payload?.entityHint || '',
+      contentType: payload?.content_type || payload?.contentType || '',
+    };
+  }
+
   async sign({ fileRef, expiresInSeconds, disposition = 'inline' }) {
     ensureConfigured();
 

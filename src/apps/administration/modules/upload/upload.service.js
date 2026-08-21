@@ -179,7 +179,7 @@ class UploadService {
     });
   }
 
-  async uploadPaymentScreenshot({ userId, file }) {
+  async uploadPaymentScreenshot({ userId, userRole, file }) {
     const mimeValidation = sanitizeMimeMatch(file, IMAGE_MIME_TYPES);
     if (!mimeValidation.ok) {
       return errorResult(400, 'Only image files are allowed (png, jpg, jpeg, webp, gif)');
@@ -189,7 +189,7 @@ class UploadService {
       file,
       policy: 'payment-screenshot',
       actorId: userId,
-      actorRole: 'Student',
+      actorRole: userRole || 'Student',
     });
   }
 

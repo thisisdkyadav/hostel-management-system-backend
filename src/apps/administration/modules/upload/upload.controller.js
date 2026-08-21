@@ -156,6 +156,7 @@ export const uploadDisCoProcessPDF = asyncHandler(async (req, res) => {
 export const uploadPaymentScreenshot = asyncHandler(async (req, res) => {
   const result = await uploadService.uploadPaymentScreenshot({
     userId: req.user?._id,
+    userRole: req.user?.role,
     file: getFileFromRequest(req),
   });
 

@@ -20,6 +20,13 @@ export const certificateQueries = {
       .sort({ createdAt: -1 })
       .populate({ path: "userId", select: "name email" })
   },
+
+  async findOneByCertificateUrl(certificateUrl, { select, lean } = {}) {
+    let query = Certificate.findOne({ certificateUrl })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
 }
 
 export default certificateQueries

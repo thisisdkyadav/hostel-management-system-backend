@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 15
+export const AUTHZ_CATALOG_VERSION = 16
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -81,6 +81,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.others", "Others", ["/admin/others"]),
   route("route.admin.taskManagement", "Task Management", ["/admin/task-management"]),
   route("route.admin.sheet", "Sheet", ["/admin/sheet"]),
+  route("route.admin.media", "Admin Media"),
 
   // Super Admin
   route("route.superAdmin.dashboard", "Super Admin Dashboard", ["/super-admin"]),
@@ -88,6 +89,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.superAdmin.apiKeys", "Super Admin API Keys", ["/super-admin/api-keys"]),
   route("route.superAdmin.authz", "Super Admin AuthZ", ["/super-admin/authz", "/super-admin/authz/help"]),
   route("route.superAdmin.profile", "Super Admin Profile", ["/super-admin/profile"]),
+  route("route.superAdmin.media", "Super Admin Media"),
 
   // Warden family
   route("route.warden.dashboard", "Warden Dashboard", ["/warden"]),
@@ -103,6 +105,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.warden.undertakings", "Warden Undertakings", ["/warden/undertakings"]),
   route("route.warden.myTasks", "Warden Tasks", ["/warden/my-tasks"]),
   route("route.warden.profile", "Warden Profile", ["/warden/profile"]),
+  route("route.warden.media", "Warden Media"),
 
   route("route.associateWarden.dashboard", "Associate Warden Dashboard", ["/associate-warden"]),
   route("route.associateWarden.hostels", "Associate Warden Hostels", ["/associate-warden/hostels/:hostelName", "/associate-warden/hostels/:hostelName/units/:unitNumber"]),
@@ -117,6 +120,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.associateWarden.undertakings", "Associate Warden Undertakings", ["/associate-warden/undertakings"]),
   route("route.associateWarden.myTasks", "Associate Warden Tasks", ["/associate-warden/my-tasks"]),
   route("route.associateWarden.profile", "Associate Warden Profile", ["/associate-warden/profile"]),
+  route("route.associateWarden.media", "Associate Warden Media"),
 
   route("route.hostelSupervisor.dashboard", "Hostel Supervisor Dashboard", ["/hostel-supervisor"]),
   route("route.hostelSupervisor.hostels", "Hostel Supervisor Hostels", ["/hostel-supervisor/hostels/:hostelName", "/hostel-supervisor/hostels/:hostelName/units/:unitNumber"]),
@@ -132,11 +136,13 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.hostelSupervisor.myTasks", "Hostel Supervisor Tasks", ["/hostel-supervisor/my-tasks"]),
   route("route.hostelSupervisor.leaves", "Hostel Supervisor Leaves", ["/hostel-supervisor/leaves"]),
   route("route.hostelSupervisor.profile", "Hostel Supervisor Profile", ["/hostel-supervisor/profile"]),
+  route("route.hostelSupervisor.media", "Hostel Supervisor Media"),
 
   // Security
   route("route.security.attendance", "Security Attendance", ["/guard"]),
   route("route.security.myTasks", "Security Tasks", ["/guard/my-tasks"]),
   route("route.security.lostAndFound", "Security Lost and Found", ["/guard/lost-and-found"]),
+  route("route.security.media", "Security Media"),
 
   // Hostel Gate
   route("route.hostelGate.dashboard", "Hostel Gate Dashboard", ["/hostel-gate"]),
@@ -148,12 +154,14 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.hostelGate.visitors", "Hostel Gate Visitors", ["/hostel-gate/visitors"]),
   route("route.hostelGate.myTasks", "Hostel Gate Tasks", ["/hostel-gate/my-tasks"]),
   route("route.hostelGate.lostAndFound", "Hostel Gate Lost and Found", ["/hostel-gate/lost-and-found"]),
+  route("route.hostelGate.media", "Hostel Gate Media"),
 
   // Maintenance
   route("route.maintenance.dashboard", "Maintenance Dashboard", ["/maintenance"]),
   route("route.maintenance.attendance", "Maintenance Attendance", ["/maintenance/attendance"]),
   route("route.maintenance.myTasks", "Maintenance Tasks", ["/maintenance/my-tasks"]),
   route("route.maintenance.leaves", "Maintenance Leaves", ["/maintenance/leaves"]),
+  route("route.maintenance.media", "Maintenance Media"),
 
   // Student
   route("route.student.dashboard", "Student Dashboard", ["/student"]),
@@ -171,6 +179,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.student.overallBestPerformer", "Student Overall Best Performer", ["/student/overall-best-performer"]),
   route("route.student.elections", "Student Elections", ["/student/elections"]),
   route("route.student.profile", "Student Profile", ["/student/profile"]),
+  route("route.student.media", "Student Media"),
 
   // Gymkhana
   route("route.gymkhana.dashboard", "Gymkhana Dashboard", ["/gymkhana"]),
@@ -181,10 +190,12 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.gymkhana.megaEvents", "Gymkhana Mega Events", ["/gymkhana/mega-events"]),
   route("route.gymkhana.elections", "Gymkhana Elections", ["/gymkhana/elections"]),
   route("route.gymkhana.profile", "Gymkhana Profile", ["/gymkhana/profile"]),
+  route("route.gymkhana.media", "Gymkhana Media"),
 
   // Academics
   route("route.academics.bestPerformer", "Academics Best Performer", ["/academics", "/academics/overall-best-performer"]),
   route("route.academics.profile", "Academics Profile", ["/academics/profile"]),
+  route("route.academics.media", "Academics Media"),
 
   // Dining — Caterer sub-role
   route("route.caterer.dashboard", "Caterer Dashboard", ["/caterer"]),
@@ -194,6 +205,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   // Dining — Office sub-role
   route("route.diningOffice.dashboard", "Dining Office Dashboard", ["/dining-office"]),
   route("route.diningOffice.profile", "Dining Office Profile", ["/dining-office/profile"]),
+  route("route.dining.media", "Dining Media"),
 ]
 
 export const AUTHZ_CAPABILITY_DEFINITIONS = [
@@ -240,8 +252,12 @@ export const AUTHZ_ROUTE_KEYS_BY_SUBROLE = {
   [DINING_SUBROLES.OFFICE]: [
     ...AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.diningOffice.")),
     ...DINING_OFFICE_ADMIN_ROUTE_KEYS,
+    "route.dining.media",
   ],
-  [DINING_SUBROLES.CATERER]: AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
+  [DINING_SUBROLES.CATERER]: [
+    ...AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
+    "route.dining.media",
+  ],
 }
 
 export const AUTHZ_CAPABILITY_DEFAULTS_BY_ROLE = Object.values(ROLES).reduce((acc, role) => {
