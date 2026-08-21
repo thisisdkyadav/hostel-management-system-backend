@@ -3,11 +3,15 @@
  *
  * Only paths still referenced from Mongo are uploaded (orphans on disk stay put).
  * Original files are never deleted. Dry run by default.
+ * Every rewrite is recorded in a JSON map so Mongo can be pointed back at the
+ * old `/uploads/...` paths.
  *
  *   node scripts/migrate_legacy_uploads_to_storage.mjs
  *   node scripts/migrate_legacy_uploads_to_storage.mjs --apply
  *   node scripts/migrate_legacy_uploads_to_storage.mjs --apply --limit=25
  *   node scripts/migrate_legacy_uploads_to_storage.mjs --collection=User
+ *   node scripts/migrate_legacy_uploads_to_storage.mjs --apply --map=./legacy-map.json
+ *   node scripts/migrate_legacy_uploads_to_storage.mjs --revert=./legacy-map.json
  */
 
 import fs from "fs"
@@ -48,6 +52,17 @@ const limitArg = process.argv.find((arg) => arg.startsWith("--limit="))
 const LIMIT = limitArg ? Number(limitArg.slice("--limit=".length)) : 0
 const collectionArg = process.argv.find((arg) => arg.startsWith("--collection="))
 const ONLY_COLLECTION = collectionArg ? collectionArg.slice("--collection=".length) : ""
+const mapArg = process.argv.find((arg) => arg.startsWith("--map="))
+const revertArg = process.argv.find((arg) => arg.startsWith("--revert="))
+const REVERT_MAP_PATH = revertArg ? path.resolve(revertArg.slice("--revert=".length)) : ""
+const MAP_DIR = path.join(__dirname, "migration-maps")
+
+const defaultMapPath = () => {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-")
+  return path.join(MAP_DIR, `legacy-uploads-${stamp}.json`)
+}
+
+const MAP_PATH = mapArg ? path.resolve(mapArg.slice("--map=".length)) : defaultMapPath()
 
 const OBJECT_ID_RE = /^[a-fA-F0-9]{24}$/
 
@@ -311,6 +326,11 @@ const SOURCES = [
   },
 ]
 
+const sourceByName = new Map()
+for (const source of SOURCES) {
+  sourceByName.set(source.name, source)
+}
+
 const stats = {
   docs: 0,
   hits: 0,
@@ -337,6 +357,8 @@ const remember = (bucket, message) => {
 
 const userCache = new Map()
 const uploadedByPath = new Map()
+const mapEntries = []
+const skippedEntries = []
 
 const loadUser = async (userId) => {
   const id = toId(userId)
@@ -444,6 +466,14 @@ const migrateSource = async (source) => {
       const policy = policyFromRef(hit.legacyRef)
       if (!policy) {
         remember("unknownPolicy", hit.legacyRef)
+        skippedEntries.push({
+          source: source.name,
+          collection: col.collectionName,
+          documentId: String(doc._id),
+          mongoPath: hit.mongoPath,
+          legacyRef: hit.legacyRef,
+          reason: "unknown-policy",
+        })
         continue
       }
 
@@ -458,7 +488,36 @@ const migrateSource = async (source) => {
         policy,
         ...actor,
       })
-      if (!fileRef || String(fileRef).startsWith("dry-run:")) continue
+      if (!fileRef) {
+        skippedEntries.push({
+          source: source.name,
+          collection: col.collectionName,
+          documentId: String(doc._id),
+          mongoPath: hit.mongoPath,
+          legacyRef: hit.legacyRef,
+          diskPath: resolveLegacyUploadPath(hit.legacyRef, UPLOADS_ROOT),
+          policy,
+          reason: fs.existsSync(resolveLegacyUploadPath(hit.legacyRef, UPLOADS_ROOT) || "")
+            ? "upload-failed"
+            : "missing-file",
+        })
+        continue
+      }
+
+      const absolutePath = resolveLegacyUploadPath(hit.legacyRef, UPLOADS_ROOT)
+      mapEntries.push({
+        source: source.name,
+        collection: col.collectionName,
+        documentId: String(doc._id),
+        mongoPath: hit.mongoPath,
+        legacyRef: hit.legacyRef,
+        diskPath: absolutePath,
+        mediaRef: String(fileRef).startsWith("dry-run:") ? null : fileRef,
+        policy,
+        planned: !APPLY,
+      })
+
+      if (!APPLY || String(fileRef).startsWith("dry-run:")) continue
       $set[hit.mongoPath] = fileRef
     }
 
@@ -477,12 +536,118 @@ const printSamples = (label, items) => {
   for (const item of items) console.log(`    - ${item}`)
 }
 
+const writeMapFile = (payload) => {
+  fs.mkdirSync(path.dirname(MAP_PATH), { recursive: true })
+  fs.writeFileSync(MAP_PATH, `${JSON.stringify(payload, null, 2)}\n`)
+}
+
+const readCurrentValue = (doc, mongoPath) => {
+  const parts = String(mongoPath || "").split(".").filter(Boolean)
+  let current = doc
+  for (const part of parts) {
+    if (current == null) return undefined
+    current = current[part]
+  }
+  return current
+}
+
+const revertFromMap = async (mapPath) => {
+  if (!fs.existsSync(mapPath)) {
+    throw new Error(`Revert map not found: ${mapPath}`)
+  }
+
+  const payload = JSON.parse(fs.readFileSync(mapPath, "utf8"))
+  const entries = Array.isArray(payload.entries) ? payload.entries : []
+  if (!entries.length) {
+    console.log("Revert map has no entries.")
+    return
+  }
+
+  const bySource = new Map()
+  for (const entry of entries) {
+    const key = entry.source
+    if (!bySource.has(key)) bySource.set(key, [])
+    bySource.get(key).push(entry)
+  }
+
+  let restored = 0
+  let skipped = 0
+  let missingDocs = 0
+
+  for (const [sourceName, sourceEntries] of bySource) {
+    const source = sourceByName.get(sourceName)
+    if (!source) {
+      console.log(`- skip unknown source ${sourceName} (${sourceEntries.length} entries)`)
+      skipped += sourceEntries.length
+      continue
+    }
+
+    const col = source.Model.collection
+    const byDoc = new Map()
+    for (const entry of sourceEntries) {
+      if (!byDoc.has(entry.documentId)) byDoc.set(entry.documentId, [])
+      byDoc.get(entry.documentId).push(entry)
+    }
+
+    let sourceRestored = 0
+    for (const [documentId, docEntries] of byDoc) {
+      if (!OBJECT_ID_RE.test(documentId)) {
+        skipped += docEntries.length
+        continue
+      }
+
+      const doc = await col.findOne({ _id: new mongoose.Types.ObjectId(documentId) })
+      if (!doc) {
+        missingDocs += 1
+        skipped += docEntries.length
+        continue
+      }
+
+      const $set = {}
+      for (const entry of docEntries) {
+        if (!entry.legacyRef || !entry.mongoPath) {
+          skipped += 1
+          continue
+        }
+        const current = readCurrentValue(doc, entry.mongoPath)
+        if (entry.mediaRef && current && current !== entry.mediaRef) {
+          skipped += 1
+          continue
+        }
+        $set[entry.mongoPath] = entry.legacyRef
+      }
+
+      if (Object.keys($set).length === 0) continue
+      await col.updateOne({ _id: doc._id }, { $set })
+      restored += Object.keys($set).length
+      sourceRestored += Object.keys($set).length
+    }
+
+    console.log(`- ${sourceName}: restored ${sourceRestored} field(s)`)
+  }
+
+  console.log("")
+  console.log("Revert summary")
+  console.log(`- Fields restored to /uploads/ paths: ${restored}`)
+  console.log(`- Skipped (changed since migrate, missing doc, or unknown source): ${skipped}`)
+  console.log(`- Missing documents: ${missingDocs}`)
+}
+
 const run = async () => {
   await connectDatabase()
+
+  if (REVERT_MAP_PATH) {
+    console.log("Legacy media:// -> /uploads revert")
+    console.log(`Map: ${REVERT_MAP_PATH}`)
+    console.log("")
+    await revertFromMap(REVERT_MAP_PATH)
+    return
+  }
 
   console.log("Legacy /uploads -> media:// migration")
   console.log(`Mode: ${APPLY ? "APPLY (upload + rewrite)" : "DRY RUN (no writes)"}`)
   console.log(`Uploads root: ${UPLOADS_ROOT}`)
+  console.log(`Map file: ${MAP_PATH}`)
   if (LIMIT) console.log(`Hit limit: ${LIMIT}`)
   if (ONLY_COLLECTION) console.log(`Collection filter: ${ONLY_COLLECTION}`)
   console.log("")
@@ -522,10 +687,23 @@ const run = async () => {
   printSamples("Unknown policy", samples.unknownPolicy)
   printSamples("Upload failed", samples.uploadFailed)
 
+  writeMapFile({
+    createdAt: new Date().toISOString(),
+    mode: APPLY ? "apply" : "dry-run",
+    uploadsRoot: UPLOADS_ROOT,
+    entries: mapEntries,
+    skipped: skippedEntries,
+  })
+  console.log(`- Map written: ${MAP_PATH} (${mapEntries.length} migrated, ${skippedEntries.length} skipped)`)
+
   if (!APPLY) {
     console.log("")
     console.log("Dry run only. Re-run with --apply to upload into storage-backend and rewrite Mongo.")
     console.log("Original files under backend/uploads are left in place.")
+    console.log(`Revert later with: node scripts/migrate_legacy_uploads_to_storage.mjs --revert=${MAP_PATH}`)
+  } else {
+    console.log("")
+    console.log(`Revert with: node scripts/migrate_legacy_uploads_to_storage.mjs --revert=${MAP_PATH}`)
   }
 }
 

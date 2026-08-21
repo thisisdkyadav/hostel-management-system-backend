@@ -28,8 +28,13 @@ class FileAccessService {
   }
 
   async createSignedUrl(fileValue, { expiresInSeconds, disposition = 'inline' } = {}) {
+    const signed = await this.signForAccess(fileValue, { expiresInSeconds, disposition });
+    return signed.url;
+  }
+
+  async signForAccess(fileValue, { expiresInSeconds, disposition = 'inline' } = {}) {
     if (!isMediaRef(fileValue)) {
-      return '';
+      return { url: '', meta: null };
     }
 
     const result = await storageClient.sign({
@@ -37,7 +42,11 @@ class FileAccessService {
       expiresInSeconds: normalizeTtlSeconds(expiresInSeconds),
       disposition,
     });
-    return result.url;
+
+    return {
+      url: result.url || '',
+      meta: result.policy ? result : null,
+    };
   }
 
   async getMetadata(fileValue) {

@@ -6,3 +6,4 @@ node_modules
 
 /uploads
 /logs
+/scripts/migration-maps

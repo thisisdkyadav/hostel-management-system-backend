@@ -25,11 +25,25 @@ const parseJsonResponse = async (response) => {
   }
 
   if (!response.ok) {
-    throw new Error(payload?.message || payload?.error || `Storage request failed with status ${response.status}`);
+    const error = new Error(
+      payload?.message || payload?.error || `Storage request failed with status ${response.status}`
+    );
+    error.status = response.status;
+    throw error;
   }
 
   return payload;
 };
+
+export const normalizeFileMeta = (payload, fileRef, fileId = '') => ({
+  fileId: payload?.file_id || payload?.fileId || fileId,
+  fileRef: payload?.file_ref || payload?.fileRef || fileRef,
+  policy: payload?.policy || '',
+  actorId: payload?.actor_id || payload?.actorId || '',
+  actorRole: payload?.actor_role || payload?.actorRole || '',
+  entityHint: payload?.entity_hint || payload?.entityHint || '',
+  contentType: payload?.content_type || payload?.contentType || '',
+});
 
 class StorageClient {
   get baseUrl() {
@@ -79,15 +93,7 @@ class StorageClient {
     });
 
     const payload = await parseJsonResponse(response);
-    return {
-      fileId: payload?.file_id || payload?.fileId || fileId,
-      fileRef: payload?.file_ref || payload?.fileRef || fileRef,
-      policy: payload?.policy || '',
-      actorId: payload?.actor_id || payload?.actorId || '',
-      actorRole: payload?.actor_role || payload?.actorRole || '',
-      entityHint: payload?.entity_hint || payload?.entityHint || '',
-      contentType: payload?.content_type || payload?.contentType || '',
-    };
+    return normalizeFileMeta(payload, fileRef, fileId);
   }
 
   async sign({ fileRef, expiresInSeconds, disposition = 'inline' }) {
@@ -110,6 +116,7 @@ class StorageClient {
     const relativeUrl = typeof payload?.url === 'string' ? payload.url : '';
     return {
       ...payload,
+      ...normalizeFileMeta(payload, fileRef),
       url: relativeUrl.startsWith('http') ? relativeUrl : `${this.baseUrl}${relativeUrl}`,
     };
   }

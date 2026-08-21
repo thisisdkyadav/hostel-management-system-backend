@@ -6,6 +6,7 @@ import { studentProfileQueries } from '../../../../services/student/studentProfi
 import { certificateQueries } from '../../../../services/certificate/certificateQueries.service.js';
 import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { env } from '../../../../config/env.config.js';
+import { logger } from '../../../../services/base/Logger.js';
 
 const DEFAULT_TTL_SECONDS = Number(env.storage.signedUrlTtlSeconds) || 300;
 const MAX_RESOLVE_TTL_SECONDS = DEFAULT_TTL_SECONDS;
@@ -132,40 +133,47 @@ const canViewMedia = async (user, meta, fileRef) => {
   return false;
 };
 
+const isMissingFileError = (err) => {
+  const message = String(err?.message || '').toLowerCase();
+  return err?.status === 404 || message.includes('file not found');
+};
+
 const signAuthorizedRef = async (user, ref, { disposition, expiresInSeconds }) => {
   const normalized = String(ref || '').trim();
   if (!isMediaRef(normalized)) {
     return { error: badRequest('Invalid file reference') };
   }
 
-  let meta;
+  let signed;
   try {
-    meta = await fileAccessService.getMetadata(normalized);
-  } catch (err) {
-    const message = String(err?.message || '');
-    if (message.toLowerCase().includes('not found')) {
-      return { error: notFound('File') };
-    }
-    return { error: error('Failed to resolve media', 502, message) };
-  }
-
-  const allowed = await canViewMedia(user, meta, normalized);
-  if (!allowed) {
-    return { error: forbidden('You do not have access to this file') };
-  }
-
-  try {
-    const url = await fileAccessService.createSignedUrl(normalized, {
+    signed = await fileAccessService.signForAccess(normalized, {
       disposition,
       expiresInSeconds,
     });
-    if (!url) {
-      return { error: error('Failed to sign media', 502) };
-    }
-    return { ref: normalized, url };
   } catch (err) {
-    return { error: error('Failed to sign media', 502, err.message) };
+    logger.error('Failed to sign media', { ref: normalized, status: err?.status, message: err?.message });
+    if (isMissingFileError(err)) {
+      return { error: notFound('File') };
+    }
+    return { error: error('Failed to resolve media', 502, err.message) };
   }
+
+  if (!signed?.url) {
+    return { error: error('Failed to resolve media', 502) };
+  }
+
+  if (signed.meta?.policy) {
+    const allowed = await canViewMedia(user, signed.meta, normalized);
+    if (!allowed) {
+      return { error: forbidden('You do not have access to this file') };
+    }
+  } else {
+    logger.warn('Storage sign response had no file policy; allowing authenticated resolve', {
+      ref: normalized,
+    });
+  }
+
+  return { ref: normalized, url: signed.url };
 };
 
 class MediaService {
