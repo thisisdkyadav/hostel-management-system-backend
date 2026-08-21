@@ -1,0 +1,16 @@
+{
+  "name": "hms_backend_integration_tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "API-level integration tests for the HMS Express backend. Fully separate from the backend app code.",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:area": "vitest run apps"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0",
+    "vitest": "^3.0.0"
+  }
+}
