@@ -169,6 +169,23 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
  * @param {String} event - Event name
  * @param {Object} data - Event data
  */
+// ---------------------------------------------------------------------------
+// Realtime invalidation broadcasts
+//
+// The frontend QueryInvalidationBridge listens for these event names and
+// refetches the matching react-query caches. Payloads are intentionally
+// minimal; fire-and-forget, no-op without a live Socket.IO server.
+// ---------------------------------------------------------------------------
+
+const emitBroadcast = (event, payload = {}) => {
+  if (!isSocketInitialized()) return
+  getIO().emit(event, { at: new Date().toISOString(), ...payload })
+}
+
+export const emitVisitorUpdate = (payload = {}) => emitBroadcast("visitor-update", payload)
+export const emitComplaintUpdate = (payload = {}) => emitBroadcast("complaint-update", payload)
+export const emitNotificationEvent = (payload = {}) => emitBroadcast("notification", payload)
+
 export const emitToUser = (userId, event, data) => {
   const io = getIO()
   io.to(`user:${userId}`).emit(event, data)

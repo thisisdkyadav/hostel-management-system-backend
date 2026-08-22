@@ -5,6 +5,7 @@
  */
 
 import { success, notFound, forbidden, paginated, badRequest } from '../../../../services/base/index.js';
+import { emitComplaintUpdate } from '../../../../utils/socketHandlers.js';
 import { complaintOwner } from '../../../../services/complaint/complaintOwner.service.js';
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
@@ -230,6 +231,7 @@ class ComplaintService {
     });
 
     await invalidateStudentDashboardCache(complaint.userId || userId);
+    emitComplaintUpdate({ id: complaint._id?.toString(), action: 'created' });
 
     return success(complaint);
   }
@@ -395,6 +397,8 @@ class ComplaintService {
     complaint.resolutionDate = status === 'Resolved' ? new Date() : null;
     await complaintOwner.persistComplaint(complaint);
 
+    emitComplaintUpdate({ id: complaint._id?.toString(), action: 'status-updated' });
+
     return success(complaint);
   }
 
@@ -524,6 +528,8 @@ class ComplaintService {
       }
     }
 
+    emitComplaintUpdate({ id: complaint._id?.toString(), action: 'status-updated' });
+
     return success(complaint);
   }
 
@@ -544,6 +550,8 @@ class ComplaintService {
 
     complaint.resolutionNotes = resolutionNotes;
     await complaintOwner.persistComplaint(complaint);
+
+    emitComplaintUpdate({ id: complaint._id?.toString(), action: 'resolution-notes' });
 
     return success(complaint);
   }
@@ -571,6 +579,8 @@ class ComplaintService {
     complaint.category = category;
     await complaintOwner.persistComplaint(complaint);
 
+    emitComplaintUpdate({ id: complaint._id?.toString(), action: 'category' });
+
     return success(complaint);
   }
 
@@ -594,6 +604,8 @@ class ComplaintService {
       feedbackRating,
       satisfactionStatus,
     });
+
+    emitComplaintUpdate({ id: complaint._id?.toString(), action: 'feedback' });
 
     return success(complaint);
   }

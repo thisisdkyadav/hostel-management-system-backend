@@ -6,6 +6,7 @@
  */
 
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
+import { emitNotificationEvent } from '../../../../utils/socketHandlers.js'
 import { success, error } from '../../../../services/base/index.js';
 import { notificationOwner } from '../../../../services/notification/notificationOwner.service.js';
 import { notificationQueries } from '../../../../services/notification/notificationQueries.service.js';
@@ -33,6 +34,8 @@ class NotificationService {
         gender,
         expiryDate
       });
+
+      emitNotificationEvent({ id: notification?._id?.toString(), action: 'created' });
 
       return success({ message: 'Notification created successfully', notification }, 201);
     } catch (err) {
@@ -249,6 +252,7 @@ class NotificationService {
     }
 
     const notification = await notificationOwner.createNotification(notificationData)
+    emitNotificationEvent({ id: notification?._id?.toString(), action: 'created' })
     return notification
   }
 
@@ -365,6 +369,9 @@ class NotificationService {
    */
   async deleteNotification(notificationId) {
     const result = await notificationOwner.deleteNotificationById(notificationId)
+    if (result) {
+      emitNotificationEvent({ id: notificationId?.toString(), action: 'deleted' })
+    }
     return !!result
   }
 
@@ -395,6 +402,9 @@ class NotificationService {
 
     const notification = await notificationOwner.updateNotificationById(notificationId, filteredUpdates)
 
+    if (notification) {
+      emitNotificationEvent({ id: notification._id?.toString(), action: 'updated' })
+    }
     return notification
   }
 

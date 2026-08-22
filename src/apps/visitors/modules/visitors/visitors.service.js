@@ -10,6 +10,7 @@ import { hostelQueries } from '../../../../services/hostel/hostelQueries.service
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
+import { emitVisitorUpdate } from '../../../../utils/socketHandlers.js';
 import {
   success,
   notFound,
@@ -38,6 +39,8 @@ class VisitorsService {
       userId: user._id,
       h2FormUrl,
     });
+
+    emitVisitorUpdate({ id: created?._id?.toString(), action: 'created' });
 
     return {
       success: true,
@@ -217,6 +220,7 @@ class VisitorsService {
     if (!updated) {
       return notFound(ENTITY);
     }
+    emitVisitorUpdate({ id: updated?._id?.toString(), action: 'updated' });
     return success({ message: 'Visitor request updated successfully', data: updated });
   }
 
@@ -230,6 +234,7 @@ class VisitorsService {
       if (!deleted) {
         return notFound(ENTITY);
       }
+      emitVisitorUpdate({ id: requestId?.toString(), action: 'deleted' });
       return success({ message: 'Visitor request deleted successfully' });
     } catch (err) {
       // pre('findOneAndDelete') guard throws for a non-pending request.
@@ -264,6 +269,7 @@ class VisitorsService {
     if (!updated) {
       return notFound(ENTITY);
     }
+    emitVisitorUpdate({ id: updated?._id?.toString(), action: status.toLowerCase() });
     return success({ message: `Visitor request status updated to ${status}`, data: updated });
   }
 
@@ -316,6 +322,7 @@ class VisitorsService {
         throw new Error('Visitor request not found');
       }
 
+      emitVisitorUpdate({ id: updatedReq?._id?.toString(), action: 'allocated' });
       return success({ message: 'Rooms allocated successfully', data: updatedReq });
     });
   }
@@ -332,6 +339,7 @@ class VisitorsService {
     if (!updated) {
       return notFound(ENTITY);
     }
+    emitVisitorUpdate({ id: updated?._id?.toString(), action: 'checked-in' });
     return success({ message: 'Check-in successful', data: updated });
   }
 
@@ -347,6 +355,7 @@ class VisitorsService {
     if (!updated) {
       return notFound(ENTITY);
     }
+    emitVisitorUpdate({ id: updated?._id?.toString(), action: 'checked-out' });
     return success({ message: 'Check-out successful', data: updated });
   }
 
@@ -366,6 +375,7 @@ class VisitorsService {
     if (!updated) {
       return notFound(ENTITY);
     }
+    emitVisitorUpdate({ id: updated?._id?.toString(), action: 'check-times' });
     return success({ message: 'Check-in/out time updated successfully', data: updated });
   }
 
@@ -410,6 +420,7 @@ class VisitorsService {
     if (!updated) {
       return notFound(ENTITY);
     }
+    emitVisitorUpdate({ id: updated?._id?.toString(), action: 'payment-info' });
     return success({ message: 'Payment information updated successfully', data: updated });
   }
 }

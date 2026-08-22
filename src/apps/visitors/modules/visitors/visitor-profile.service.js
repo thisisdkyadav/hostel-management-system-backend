@@ -6,6 +6,7 @@
  */
 
 import { success, notFound, forbidden, error } from '../../../../services/base/index.js';
+import { emitVisitorUpdate } from '../../../../utils/socketHandlers.js';
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
 
@@ -36,6 +37,8 @@ class VisitorProfileService {
       ...data
     });
 
+    emitVisitorUpdate({ id: visitorProfile?._id?.toString(), action: 'profile-created' });
+
     return success(
       { message: 'Visitor profile created successfully', visitorProfile, success: true },
       201
@@ -61,6 +64,7 @@ class VisitorProfileService {
       if (!visitorProfile) {
         return notFound(ENTITY);
       }
+      emitVisitorUpdate({ id: visitorId?.toString(), action: 'profile-updated' });
       return success({ message: 'Visitor profile updated successfully', visitorProfile });
     } catch (err) {
       // pre('findOneAndUpdate') guard throws when the profile has linked requests.
@@ -86,6 +90,7 @@ class VisitorProfileService {
       if (!deleted) {
         return notFound(ENTITY);
       }
+      emitVisitorUpdate({ id: visitorId?.toString(), action: 'profile-deleted' });
       return success({ message: 'Visitor profile deleted successfully', success: true });
     } catch (err) {
       // pre('findOneAndDelete') guard throws when the profile has linked requests.
