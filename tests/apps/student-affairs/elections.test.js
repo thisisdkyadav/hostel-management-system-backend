@@ -1074,3 +1074,392 @@ describe("elections", () => {
     expect(res.status).toBe(404)
   })
 })
+
+describe("elections hardening: stage gates, token expiry/replay, double votes, republish, zero-eligible", () => {
+  let adminApi
+  let anonApi
+  let electionH // nomination -> voting -> published results
+  let hardPostId
+  let shadowPostId
+  let nominationE // EZC1's verified nomination on electionH
+  let candidate
+  let voterA // votes via portal, then gets a (burned) ballot token
+  let voterB // expired ballot token, falls back to the portal
+  let voterC // sees only the post that has real candidates
+
+  const students2 = {}
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    anonApi = await anon()
+
+    students2.EZC1 = await saSeed.studentWithProfile({
+      rollNumber: "EZC1",
+      idCard: { front: "/uploads/ezc1-front.png", back: "" },
+    })
+    students2.EZV1 = await saSeed.studentWithProfile({ rollNumber: "EZV1" })
+    students2.EZV2 = await saSeed.studentWithProfile({ rollNumber: "EZV2" })
+    students2.EZV3 = await saSeed.studentWithProfile({ rollNumber: "EZV3" })
+    // In the candidate scope of Shadow Post but will never nominate.
+    students2.EZG1 = await saSeed.studentWithProfile({ rollNumber: "EZG1" })
+    candidate = students2.EZC1
+    voterA = students2.EZV1
+    voterB = students2.EZV2
+    voterC = students2.EZV3
+
+    const payload = makeElectionPayload({
+      title: "Hardening Election",
+      timeline: nominationTimeline(),
+      posts: [
+        makePost({
+          title: "Hardening Post",
+          candidateRolls: ["EZC1"],
+          voterRolls: ["EZV1", "EZV2", "EZV3"],
+        }),
+        // EZG1 is in scope but will never nominate for this post.
+        makePost({ title: "Shadow Post", candidateRolls: ["EZG1"], voterRolls: ["EZV3"] }),
+      ],
+    })
+    payload.electionCommission = { chiefElectionOfficerRollNumber: "", officerRollNumbers: [] }
+    const created = await adminApi.post(BASE).send(payload)
+    expect(created.status).toBe(201)
+    electionH = created.body.data
+    expect(electionH.currentStage).toBe("nomination")
+
+    const detail = await adminApi.get(`${BASE}/${electionH.id}`)
+    hardPostId = String(detail.body.data.posts.find((p) => p.title === "Hardening Post").id)
+    shadowPostId = String(detail.body.data.posts.find((p) => p.title === "Shadow Post").id)
+  })
+
+  it("files and verifies the candidate nomination while nominations are open", async () => {
+    const api = await as(candidate.user)
+    const res = await api
+      .post(`${BASE}/${electionH.id}/posts/${hardPostId}/nominations`)
+      .send(nominationPayload("EZV1", "EZV2"))
+    expect(res.status).toBe(200)
+    nominationE = res.body.data
+
+    const review = await adminApi
+      .post(`${BASE}/${electionH.id}/nominations/${nominationE.id}/review`)
+      .send({ status: "verified", notes: "ok" })
+    expect(review.status).toBe(200)
+  })
+
+  it("POST /:id/posts/:postId/vote refuses voting before the voting window opens with 403", async () => {
+    const api = await as(voterA.user)
+    const res = await api
+      .post(`${BASE}/${electionH.id}/posts/${hardPostId}/vote`)
+      .send({ candidateNominationId: String(nominationE.id) })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toMatch(/Voting is not open/i)
+  })
+
+  it("POST /supporter-confirmation/:token/respond rejects an invalid decision with a validation error", async () => {
+    const res = await anonApi
+      .post(`${BASE}/supporter-confirmation/${"x".repeat(40)}/respond`)
+      .send({ decision: "maybe" })
+    expect(res.status).toBe(422)
+  })
+
+  it("an expired supporter token shows tokenState=expired and refuses to respond with 400", async () => {
+    const { rawToken } = await saSeed.actionLinkToken({
+      type: "election_nomination_support",
+      subjectModel: "ElectionNomination",
+      subjectId: nominationE.id,
+      recipientUserId: voterA.user._id,
+      recipientEmail: voterA.user.email,
+      payload: {
+        electionId: String(electionH.id),
+        postId: hardPostId,
+        supportType: "proposer",
+        supporterRollNumber: "EZV1",
+      },
+      expiresAt: h(-1),
+    })
+
+    const view = await anonApi.get(`${BASE}/supporter-confirmation/${rawToken}`)
+    expect(view.status).toBe(200)
+    expect(view.body.data.tokenState).toBe("expired")
+
+    const respond = await anonApi
+      .post(`${BASE}/supporter-confirmation/${rawToken}/respond`)
+      .send({ decision: "accepted" })
+    expect(respond.status).toBe(400)
+    expect(respond.body.message).toMatch(/expired/i)
+
+    // The entry stays pending after the failed response.
+    const detail = await adminApi.get(`${BASE}/${electionH.id}`)
+    const stored = detail.body.data.nominations.find(
+      (n) => String(n.id) === String(nominationE.id)
+    )
+    expect(stored.proposerEntries[0].status).toBe("pending")
+  })
+
+  it("PUT /:id moves electionH into the voting stage", async () => {
+    const payload = makeElectionPayload({
+      title: "Hardening Election",
+      timeline: votingTimeline(),
+      posts: [
+        makePost({
+          title: "Hardening Post",
+          candidateRolls: ["EZC1"],
+          voterRolls: ["EZV1", "EZV2", "EZV3"],
+        }),
+        makePost({ title: "Shadow Post", candidateRolls: ["EZG1"], voterRolls: ["EZV3"] }),
+      ],
+    })
+    payload.electionCommission = { chiefElectionOfficerRollNumber: "", officerRollNumbers: [] }
+    payload.posts[0].id = hardPostId
+    payload.posts[1].id = shadowPostId
+    const res = await adminApi.put(`${BASE}/${electionH.id}`).send(payload)
+    expect(res.status).toBe(200)
+    expect(res.body.data.currentStage).toBe("voting")
+  })
+
+  it("a ballot for a NOTA-only post is dropped instead of offered to the voter", async () => {
+    // EZV3 is eligible on both posts, but Shadow Post has no verified
+    // candidates. buildElectionBallotPayload filters out posts whose candidate
+    // list would be NOTA-only, so the ballot exposes just Hardening Post.
+    const api = await as(voterC.user)
+    const current = await api.get(`${BASE}/student/current`)
+    expect(current.status).toBe(200)
+    const election = current.body.data.elections.find(
+      (e) => String(e.id) === String(electionH.id)
+    )
+    expect(election.mode).toBe("voting")
+    const titles = election.posts.map((p) => p.postTitle || p.title)
+    expect(titles.length).toBeGreaterThanOrEqual(1)
+    expect(JSON.stringify(election.posts)).not.toContain(shadowPostId)
+
+    // Voting still succeeds with exactly one vote per *offered* post.
+    const res = await api.post(`${BASE}/${electionH.id}/votes/submit`).send({
+      votes: [{ postId: hardPostId, candidateNominationId: String(nominationE.id) }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.submittedPosts).toBe(1)
+  })
+
+  it("double-vote across channels: portal vote burns a later-issued email ballot", async () => {
+    const api = await as(voterA.user)
+    const portalVote = await api
+      .post(`${BASE}/${electionH.id}/posts/${hardPostId}/vote`)
+      .send({ candidateNominationId: String(nominationE.id) })
+    expect(portalVote.status).toBe(200)
+
+    // A fresh email link minted afterwards is already dead weight...
+    const { rawToken } = await saSeed.actionLinkToken({
+      type: "election_voting_ballot",
+      subjectModel: "Election",
+      subjectId: electionH.id,
+      recipientUserId: voterA.user._id,
+      recipientEmail: voterA.user.email,
+      payload: { electionId: String(electionH.id) },
+      expiresAt: h(12),
+    })
+    const view = await anonApi.get(`${BASE}/ballot/${rawToken}`)
+    expect(view.status).toBe(200)
+    expect(view.body.data.tokenState).toBe("used")
+
+    // ...and submitting through it cannot cast a second ballot.
+    const replay = await anonApi.post(`${BASE}/ballot/${rawToken}/submit`).send({
+      votes: [{ postId: hardPostId, candidateNominationId: "nota" }],
+    })
+    expect(replay.status).toBe(400)
+    expect(replay.body.message).toMatch(/already been submitted/i)
+  })
+
+  it("an expired ballot token is rejected for GET and submit; the portal still works", async () => {
+    const { rawToken } = await saSeed.actionLinkToken({
+      type: "election_voting_ballot",
+      subjectModel: "Election",
+      subjectId: electionH.id,
+      recipientUserId: voterB.user._id,
+      recipientEmail: voterB.user.email,
+      payload: { electionId: String(electionH.id) },
+      expiresAt: h(-1),
+    })
+
+    const view = await anonApi.get(`${BASE}/ballot/${rawToken}`)
+    expect(view.status).toBe(200)
+    expect(view.body.data.tokenState).toBe("expired")
+    expect(view.body.data.election.votingStartAt).toBeTruthy()
+
+    const submit = await anonApi.post(`${BASE}/ballot/${rawToken}/submit`).send({
+      votes: [{ postId: hardPostId, candidateNominationId: "nota" }],
+    })
+    expect(submit.status).toBe(400)
+    expect(submit.body.message).toMatch(/expired/i)
+
+    // The voter can fall back to the portal channel.
+    const api = await as(voterB.user)
+    const portalVote = await api
+      .post(`${BASE}/${electionH.id}/votes/submit`)
+      .send({ votes: [{ postId: hardPostId, candidateNominationId: "nota" }] })
+    expect(portalVote.status).toBe(200)
+  })
+
+  it("POST /ballot/:token/submit rejects a malformed candidate selection with a validation error", async () => {
+    const res = await anonApi.post(`${BASE}/ballot/${"y".repeat(40)}/submit`).send({
+      votes: [{ postId: hardPostId, candidateNominationId: "definitely-not-an-id" }],
+    })
+    // Validation runs before token resolution, so the body shape fails first.
+    expect(res.status).toBe(422)
+  })
+
+  it("PUT /:id moves electionH into the results stage before publishing", async () => {
+    // The Shadow Post has no nominations and no votes, so it can be dropped
+    // now; a zero-candidate post could otherwise never be published at all.
+    const payload = makeElectionPayload({
+      title: "Hardening Election",
+      timeline: resultsTimeline(),
+      posts: [
+        makePost({
+          title: "Hardening Post",
+          candidateRolls: ["EZC1"],
+          voterRolls: ["EZV1", "EZV2", "EZV3"],
+        }),
+      ],
+    })
+    payload.electionCommission = { chiefElectionOfficerRollNumber: "", officerRollNumbers: [] }
+    payload.posts[0].id = hardPostId
+    const res = await adminApi.put(`${BASE}/${electionH.id}`).send(payload)
+    expect(res.status).toBe(200)
+    expect(res.body.data.currentStage).toBe("results")
+  })
+
+  it("results publish twice: republishing overwrites winners, including a NOTA winner", async () => {
+    const first = await adminApi.post(`${BASE}/${electionH.id}/results/publish`).send({
+      posts: [{ postId: hardPostId, winnerNominationIds: [String(nominationE.id)] }],
+    })
+    expect(first.status).toBe(200)
+    expect(first.body.data.results.posts[0].publishedWinnerIsNota).toBe(false)
+    expect(first.body.data.results.posts[0].publishedWinnerNames).toContain(candidate.user.name)
+
+    const second = await adminApi.post(`${BASE}/${electionH.id}/results/publish`).send({
+      posts: [{ postId: hardPostId, winnerNominationIds: ["nota"], notes: "No confidence" }],
+    })
+    expect(second.status).toBe(200)
+    expect(second.body.message).toBe("Results published successfully")
+    const post = second.body.data.results.posts.find(
+      (p) => String(p.postId) === String(hardPostId)
+    )
+    expect(post.publishedWinnerIsNota).toBe(true)
+    expect(post.publishedWinnerNames).toContain("NOTA")
+
+    // Persisted state reflects the latest publication.
+    const detail = await adminApi.get(`${BASE}/${electionH.id}`)
+    expect(detail.body.data.results.isPublished).toBe(true)
+  })
+
+  it("clone copies the source timeline verbatim, colliding dates included", async () => {
+    // Dedicated pre-voting source (voting has not started yet and no
+    // nominations are pending review).
+    const preVotingTimeline = () => ({
+      announcementAt: h(-48),
+      nominationStartAt: h(-48),
+      nominationEndAt: h(-47),
+      withdrawalEndAt: h(-46),
+      campaigningStartAt: h(-45),
+      campaigningEndAt: h(-44),
+      votingEmailStartAt: null,
+      votingStartAt: h(24),
+      votingEndAt: h(48),
+      resultsAnnouncedAt: h(72),
+      handoverAt: null,
+    })
+    const payload = makeElectionPayload({
+      title: "Clone Source Election",
+      timeline: preVotingTimeline(),
+      posts: [makePost({ title: "Clone Post", candidateRolls: ["EZG1"], voterRolls: ["EZV3"] })],
+    })
+    payload.electionCommission = { chiefElectionOfficerRollNumber: "", officerRollNumbers: [] }
+    const created = await adminApi.post(BASE).send(payload)
+    expect(created.status).toBe(201)
+    const sourceId = created.body.data.id
+
+    const res = await adminApi.post(`${BASE}/${sourceId}/clone`).send({
+      title: "Cloned With Stale Dates",
+    })
+    expect(res.status).toBe(201)
+    const cloneId = res.body.data.id
+
+    const sourceDetail = await adminApi.get(`${BASE}/${sourceId}`)
+    expect(sourceDetail.status).toBe(200)
+    const detail = await adminApi.get(`${BASE}/${cloneId}`)
+    expect(detail.status).toBe(200)
+    expect(detail.body.data.status).toBe("draft")
+    // Dates are copied verbatim from the source — including ones already in
+    // the past relative to the new cycle — so a cloned draft inherits an
+    // already-expired nomination window that must be fixed via PUT before
+    // publishing.
+    expect(detail.body.data.timeline.nominationStartAt).toBe(
+      sourceDetail.body.data.timeline.nominationStartAt
+    )
+    expect(detail.body.data.timeline.votingStartAt).toBe(
+      sourceDetail.body.data.timeline.votingStartAt
+    )
+
+    // Cloning validates the incoming title.
+    const badTitle = await adminApi.post(`${BASE}/${sourceId}/clone`).send({ title: "ab" })
+    expect(badTitle.status).toBe(422)
+  })
+
+  it("zero-eligible elections report empty recipients and refuse dispatch with a business 400", async () => {
+    const pastVotingTimeline = () => ({
+      announcementAt: h(-48),
+      nominationStartAt: h(-24),
+      nominationEndAt: h(-20),
+      withdrawalEndAt: h(-18),
+      campaigningStartAt: h(-16),
+      campaigningEndAt: h(-14),
+      votingEmailStartAt: h(-2),
+      votingStartAt: h(-1),
+      votingEndAt: h(23),
+      resultsAnnouncedAt: h(48),
+      handoverAt: null,
+    })
+    const payload = makeElectionPayload({
+      title: "Ghost Voters Election",
+      timeline: pastVotingTimeline(),
+      posts: [
+        makePost({
+          title: "Ghost Post",
+          candidateRolls: [],
+          voterRolls: [],
+        }),
+      ],
+    })
+    // Scopes point at a batch that no student belongs to, so the election is
+    // published and valid yet has zero eligible candidates/voters.
+    payload.posts[0].candidateEligibility = { batches: ["2099"], groups: [], extraRollNumbers: [] }
+    payload.posts[0].voterEligibility = { batches: ["2099"], groups: [], extraRollNumbers: [] }
+    payload.electionCommission = { chiefElectionOfficerRollNumber: "", officerRollNumbers: [] }
+    const created = await adminApi.post(BASE).send(payload)
+    expect(created.status).toBe(201)
+    const ghostElection = created.body.data
+
+    const recipients = await adminApi.get(
+      `${BASE}/${ghostElection.id}/voting-emails/recipients`
+    )
+    expect(recipients.status).toBe(200)
+    expect(recipients.body.data.sentRecipients).toEqual([])
+    expect(recipients.body.data.notSentRecipients).toEqual([])
+
+    const send = await adminApi
+      .post(`${BASE}/${ghostElection.id}/voting-emails/send`)
+      .send({})
+    expect(send.status).toBe(400)
+    expect(send.body.message).toMatch(/No eligible voters/i)
+  })
+
+  it("nominations are refused once the stage has advanced past nominations", async () => {
+    // electionH is now in its voting/results window; even an eligible,
+    // ID-card-bearing candidate is locked out by the stage gate.
+    const api = await as(candidate.user)
+    const res = await api
+      .post(`${BASE}/${electionH.id}/posts/${shadowPostId}/nominations`)
+      .send(nominationPayload("EZV1", "EZV2"))
+    expect(res.status).toBe(403)
+    expect(res.body.message).toMatch(/Nominations are not open/i)
+  })
+})

@@ -688,3 +688,282 @@ describe("disco — process workflow", () => {
     expect((await adminApi.get(`${CASES}/000000000000000000000000/export`)).status).toBe(404)
   })
 })
+
+describe("disco — date validation on update and per-student actions", () => {
+  let adminApi, accusing, accused
+
+  const createCase = async () => {
+    const res = await adminApi
+      .post(CASES)
+      .send({ complaintPdfUrl: "/uploads/complaints/date-edge.pdf" })
+    expect(res.status).toBe(201)
+    return res.body.case
+  }
+
+  const completeStageTwo = async (caseId) => {
+    const res = await adminApi.patch(`${CASES}/${caseId}/stage2`).send({
+      accusedStudentIds: [String(accused._id)],
+      statements: [{ studentUserId: String(accused._id), statementPdfUrl: "media://stmt-date-edge" }],
+    })
+    expect(res.status).toBe(200)
+  }
+
+  /** Drive a fresh case all the way to "ready for finalize". */
+  const stageReadyCase = async () => {
+    const kase = await createCase()
+    await completeStageTwo(String(kase.id))
+    const emailRes = await adminApi.post(`${CASES}/${kase.id}/send-email`).send({
+      to: ["de1@x.com", "de2@x.com"],
+      subject: "Date edge committee",
+      body: "Body",
+    })
+    expect(emailRes.status).toBe(200)
+    await adminApi.patch(`${CASES}/${kase.id}/committee-minutes`).send({ pdfUrl: "media://minutes-date-edge" })
+    return kase
+  }
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    ;({ user: accusing } = await campusSeed.studentWithProfile({ profile: { rollNumber: "DSC101" } }))
+    ;({ user: accused } = await campusSeed.studentWithProfile({ profile: { rollNumber: "DSC102" } }))
+  })
+
+  it("PUT rejects an inverted punishment window (start > end)", async () => {
+    const addRes = await adminApi.post("/api/v1/disCo/add").send({
+      studentId: String(accusing._id),
+      reason: "Noise violation",
+      actionTaken: "Warning",
+      date: new Date().toISOString(),
+    })
+    expect(addRes.status).toBe(201)
+
+    const listRes = await adminApi.get(`/api/v1/disCo/${accusing._id}`)
+    const actionId = String(listRes.body.actions[0]._id)
+
+    const res = await adminApi.put(`/api/v1/disCo/update/${actionId}`).send({
+      punishmentStartDate: future(10).toISOString(),
+      punishmentEndDate: new Date().toISOString(),
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Punishment end date cannot be before punishment start date")
+
+    // The failed update must not have touched stored dates.
+    const after = await adminApi.get(`/api/v1/disCo/${accusing._id}`)
+    const stored = after.body.actions[0]
+    expect(new Date(stored.punishmentEndDate).getTime())
+      .toBeGreaterThanOrEqual(new Date(stored.punishmentStartDate).getTime())
+  })
+
+  it("finalize per_student rejects inverted per-student dates", async () => {
+    const kase = await stageReadyCase()
+    const res = await adminApi.patch(`${CASES}/${kase.id}/finalize`).send({
+      decision: "action",
+      actionMode: "per_student",
+      studentActions: [
+        {
+          studentUserId: String(accused._id),
+          reason: "Proven misconduct",
+          actionTaken: "Fine",
+          date: new Date().toISOString(),
+          punishmentStartDate: future(5).toISOString(),
+          punishmentEndDate: new Date().toISOString(),
+        },
+      ],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Punishment end date cannot be before punishment start date")
+  })
+
+  it("finalize per_student rejects duplicate studentUserId entries", async () => {
+    const kase = await stageReadyCase()
+    const res = await adminApi.patch(`${CASES}/${kase.id}/finalize`).send({
+      decision: "action",
+      actionMode: "per_student",
+      studentActions: [
+        {
+          studentUserId: String(accused._id),
+          reason: "First",
+          actionTaken: "Fine",
+          date: new Date().toISOString(),
+        },
+        {
+          studentUserId: String(accused._id),
+          reason: "Second entry for same student",
+          actionTaken: "Bigger fine",
+          date: new Date().toISOString(),
+        },
+      ],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Duplicate per-student action provided")
+  })
+})
+
+describe("disco — reminder double-completion preserves metadata", () => {
+  let adminApi, studentUser
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    ;({ user: studentUser } = await campusSeed.studentWithProfile({ profile: { rollNumber: "DSC103" } }))
+  })
+
+  it("second PATCH does not overwrite doneAt/doneBy", async () => {
+    const addRes = await adminApi.post("/api/v1/disCo/add").send({
+      studentId: String(studentUser._id),
+      reason: "Late return",
+      actionTaken: "Notice",
+      date: new Date().toISOString(),
+      reminderItems: [{ action: "Verify compliance", dueDate: future(3).toISOString() }],
+    })
+    expect(addRes.status).toBe(201)
+
+    const listRes = await adminApi.get(`/api/v1/disCo/${studentUser._id}`)
+    const actionId = String(listRes.body.actions[0]._id)
+    const reminderId = String(listRes.body.actions[0].reminderItems[0]._id)
+
+    const first = await adminApi.patch(
+      `/api/v1/disCo/update/${actionId}/reminders/${reminderId}/done`
+    )
+    expect(first.status).toBe(200)
+    const doneAtFirst = first.body.action.reminderItems[0].doneAt
+    const doneByFirst = first.body.action.reminderItems[0].doneBy.id
+    expect(doneAtFirst).toBeTruthy()
+
+    // Small delay so a buggy re-write would produce a visibly different stamp.
+    await new Promise((resolve) => setTimeout(resolve, 25))
+
+    const second = await adminApi.patch(
+      `/api/v1/disCo/update/${actionId}/reminders/${reminderId}/done`
+    )
+    expect(second.status).toBe(200)
+    expect(second.body.action.reminderItems[0].doneAt).toBe(doneAtFirst)
+    expect(second.body.action.reminderItems[0].doneBy.id).toBe(doneByFirst)
+  })
+})
+
+describe("disco — process lifecycle violations after closure", () => {
+  let adminApi, accused
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    ;({ user: accused } = await campusSeed.studentWithProfile({ profile: { rollNumber: "DSC104" } }))
+  })
+
+  it("actions created by a finalized case remain editable and deletable", async () => {
+    const caseRes = await adminApi
+      .post(CASES)
+      .send({ complaintPdfUrl: "/uploads/complaints/lifecycle.pdf" })
+    const kase = caseRes.body.case
+
+    const stage2 = await adminApi.patch(`${CASES}/${kase.id}/stage2`).send({
+      accusedStudentIds: [String(accused._id)],
+      statements: [{ studentUserId: String(accused._id), statementPdfUrl: "media://stmt-lifecycle" }],
+    })
+    expect(stage2.status).toBe(200)
+
+    const emailRes = await adminApi.post(`${CASES}/${kase.id}/send-email`).send({
+      to: ["lc1@x.com", "lc2@x.com"],
+      subject: "Lifecycle committee",
+      body: "Body",
+    })
+    expect(emailRes.status).toBe(200)
+
+    await adminApi.patch(`${CASES}/${kase.id}/committee-minutes`).send({ pdfUrl: "media://minutes-lifecycle" })
+
+    const finRes = await adminApi.patch(`${CASES}/${kase.id}/finalize`).send({
+      decision: "action",
+      reason: "Proven misconduct",
+      actionTaken: "Hostel restriction 7 days",
+      date: new Date().toISOString(),
+      studentUserIds: [String(accused._id)],
+    })
+    expect(finRes.status).toBe(200)
+    const createdActionId = String(finRes.body.createdActions[0])
+    expect(finRes.body.case.caseStatus).toBe("finalized_with_action")
+
+    // SUSPECTED BUG: the process is closed (finalized_with_action) yet the
+    // DisCo actions it produced can still be edited through the legacy PUT.
+    const editRes = await adminApi.put(`/api/v1/disCo/update/${createdActionId}`).send({
+      remarks: "Edited after the case was closed",
+    })
+    expect(editRes.status).toBe(200)
+    expect(editRes.body.action.remarks).toBe("Edited after the case was closed")
+
+    // SUSPECTED BUG: the closed case's created action can be deleted outright,
+    // leaving finalDecision.createdDisCoActionIds pointing at a missing doc.
+    const delRes = await adminApi.delete(`/api/v1/disCo/${createdActionId}`)
+    expect(delRes.status).toBe(200)
+
+    const detail = await adminApi.get(`${CASES}/${kase.id}`)
+    expect(detail.status).toBe(200)
+    expect(detail.body.case.finalDecision.createdDisCoActionIds).toContain(createdActionId)
+    const actionsRes = await adminApi.get(`/api/v1/disCo/${accused._id}`)
+    expect(actionsRes.body.actions.map((a) => String(a._id))).not.toContain(createdActionId)
+  })
+})
+
+describe("disco — export bundle with mixed reachable/unreachable file refs", () => {
+  let adminApi, accusing, accused
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    ;({ user: accusing } = await campusSeed.studentWithProfile({ profile: { rollNumber: "DSC105" } }))
+    ;({ user: accused } = await campusSeed.studentWithProfile({ profile: { rollNumber: "DSC106" } }))
+  })
+
+  it("includes readable legacy uploads, warns about unreachable media refs only", async () => {
+    // Complaint uses a legacy /uploads path that resolves to a real file on
+    // disk (read directly by fileAccessService); statements/evidence use
+    // media:// refs whose storage service (:5100) is unreachable here.
+    const caseRes = await adminApi.post(CASES).send({
+      complaintPdfUrl: "/uploads/lost-and-found/684ffef1d2b2ae1648a22b15-1761228740293-3383966.jpg",
+      complaintPdfName: "reachable-complaint.jpg",
+    })
+    const kase = caseRes.body.case
+
+    const stage2 = await adminApi.patch(`${CASES}/${kase.id}/stage2`).send({
+      accusingStudentIds: [String(accusing._id)],
+      accusedStudentIds: [String(accused._id)],
+      statements: [
+        { studentUserId: String(accusing._id), statementPdfUrl: "media://stmt-unreachable-a", statementPdfName: "accusing-stmt.pdf" },
+        { studentUserId: String(accused._id), statementPdfUrl: "media://stmt-unreachable-b", statementPdfName: "accused-stmt.pdf" },
+      ],
+      evidenceDocuments: [{ pdfUrl: "media://evidence-unreachable", pdfName: "evidence.pdf" }],
+    })
+    expect(stage2.status).toBe(200)
+
+    const emailRes = await adminApi.post(`${CASES}/${kase.id}/send-email`).send({
+      to: ["mx1@x.com", "mx2@x.com"],
+      subject: "Mixed export committee",
+      body: "Body",
+    })
+    expect(emailRes.status).toBe(200)
+    await adminApi.patch(`${CASES}/${kase.id}/committee-minutes`).send({ pdfUrl: "media://minutes-mixed" })
+    const finRes = await adminApi.patch(`${CASES}/${kase.id}/finalize`).send({
+      decision: "reject",
+      decisionDescription: "Closed for export test",
+    })
+    expect(finRes.status).toBe(200)
+
+    const zipRes = await binaryGet(adminApi, `${CASES}/${kase.id}/export`)
+    expect(zipRes.status).toBe(200)
+    const zip = Buffer.from(zipRes.body)
+    expect(zip.slice(0, 2).toString()).toBe("PK")
+
+    // Zip entries are stored uncompressed, so text is greppable in raw bytes.
+    const text = zip.toString("latin1")
+    expect(text).toContain("README.txt")
+    expect(text).toContain("case-data.json")
+    expect(text).toContain("missing-files.txt")
+
+    // Unreachable media refs must surface as warnings...
+    expect(text).toContain("Statement for")           // both students warned
+    expect(text).toContain("Evidence document")       // evidence warned
+    expect(text).toContain("Committee meeting minutes could not be included")
+    // ...while the reachable legacy upload must NOT be warned about.
+    expect(text).not.toContain("Complaint PDF could not be included")
+    // And the reachable complaint's bytes should actually be inside the zip
+    // (JPEG SOI magic appears in the stored entry data).
+    expect(zip.indexOf(Buffer.from([0xff, 0xd8, 0xff]))).toBeGreaterThan(-1)
+  })
+})

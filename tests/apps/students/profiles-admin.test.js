@@ -1195,3 +1195,275 @@ describe("taxonomy renames (Admin + route.admin.settings)", () => {
     expect(details.body.data.student.groups).toContain("Club-Renamed")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: bulk create mixed rows + roll-number normalization
+// ---------------------------------------------------------------------------
+
+describe("POST /profiles (bulk create) — mixed rows + normalization", () => {
+  it("applies valid rows and reports invalid ones per-row with 207", async () => {
+    const goodRoll = `MIX${uniq()}`.toUpperCase()
+    const badRoll = `BAD${uniq()}`.toUpperCase()
+    const res = await adminApi.post(`${BASE}/profiles`).send([
+      {
+        name: "Mixed Valid Row",
+        email: `mix-valid-${uniq()}@hms.test`,
+        rollNumber: goodRoll,
+        gender: "Female",
+        isDayScholar: false,
+      },
+      {
+        name: "Mixed Invalid Row",
+        email: `mix-bad-${uniq()}@hms.test`,
+        rollNumber: badRoll,
+        // missing gender + isDayScholar
+      },
+    ])
+    expect(res.status).toBe(207)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.results).toHaveLength(1)
+    expect(res.body.data.errors).toHaveLength(1)
+    expect(res.body.data.errors[0].student).toBe(badRoll)
+    expect(res.body.message).toBe("Created 1 out of 2 student profiles")
+
+    // Only the valid row persisted.
+    const list = await adminApi.get(`${BASE}/profiles?rollNumber=${goodRoll}`)
+    expect(list.body.data.students).toHaveLength(1)
+    const ghost = await adminApi.get(`${BASE}/profiles?rollNumber=${badRoll}`)
+    expect(ghost.body.data.students).toHaveLength(0)
+  })
+
+  it("normalizes lowercase roll numbers to uppercase on create", async () => {
+    const rawRoll = `low${uniq()}`
+    const res = await adminApi.post(`${BASE}/profiles`).send({
+      name: "Lowercase Roll",
+      email: `lower-${uniq()}@hms.test`,
+      rollNumber: rawRoll,
+      gender: "Male",
+      isDayScholar: false,
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.data.results.profile.rollNumber).toBe(rawRoll.toUpperCase())
+
+    // Lookup by the UPPERCASE form (the normalized one) finds the student.
+    const list = await adminApi.get(
+      `${BASE}/profiles?rollNumber=${rawRoll.toUpperCase()}`
+    )
+    expect(list.body.data.students).toHaveLength(1)
+    expect(list.body.data.students[0].rollNumber).toBe(rawRoll.toUpperCase())
+  })
+
+  it("detects duplicates case-insensitively against existing rolls", async () => {
+    const res = await adminApi.post(`${BASE}/profiles`).send({
+      name: "Case Clash",
+      email: `case-clash-${uniq()}@hms.test`,
+      rollNumber: "adm001", // existing ADM001, different case
+      gender: "Male",
+      isDayScholar: false,
+    })
+    expect(res.status).toBe(207)
+    expect(res.body.data.errors[0].message).toContain(`Roll number ADM001 already exists`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: capability denial vs role denial vs route access
+// ---------------------------------------------------------------------------
+
+describe("capability cap.students.edit.personal denials are distinct from role 403s", () => {
+  it("denies wardens on PUT /profiles via CAPABILITY while their route access still works", async () => {
+    // Wardens hold route.warden.students (reads succeed) but the edit
+    // capability is deny-by-default -> a distinct 403 message.
+    const denied = await wardenApi
+      .put(`${BASE}/profiles`)
+      .send([{ rollNumber: "ADM001", name: "Capability Nope" }])
+    expect(denied.status).toBe(403)
+    expect(denied.body.success).toBe(false)
+    expect(denied.body.message).toBe("You do not have permission to perform this action")
+
+    const read = await wardenApi.get(`${BASE}/profiles?limit=1`)
+    expect(read.status).toBe(200)
+  })
+
+  it("denies students on PUT /profiles via ROLE with the role-list message", async () => {
+    const denied = await studentApi
+      .put(`${BASE}/profiles`)
+      .send([{ rollNumber: "ADM001", name: "Role Nope" }])
+    expect(denied.status).toBe(403)
+    expect(denied.body.success).toBe(false)
+    expect(denied.body.message).toMatch(/^Access denied\. Required role: /)
+    expect(denied.body.message).not.toBe("You do not have permission to perform this action")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: update routes with empty bodies
+// ---------------------------------------------------------------------------
+
+describe("update routes with empty bodies", () => {
+  it("PUT /profiles with an identity-only row answers 'no updates needed'", async () => {
+    const res = await adminApi.put(`${BASE}/profiles`).send([{ rollNumber: "ADM002" }])
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.message).toBe("No updates were needed for the provided data")
+    expect(res.body.data.errors).toEqual([])
+    expect(res.body.data.results[0]).toMatchObject({
+      rollNumber: "ADM002",
+      updated: { user: false, profile: false },
+    })
+
+    // Nothing actually changed.
+    const details = await adminApi.get(`${BASE}/profile/details/${sA2.user._id}`)
+    expect(details.body.data.student.name).toBe("Renamed Via Bulk")
+  })
+
+  it("PUT /profile/:userId with {} succeeds as a no-op without corrupting data", async () => {
+    const before = await adminApi.get(`${BASE}/profile/details/${sExtra.user._id}`)
+    expect(before.status).toBe(200)
+
+    const res = await adminApi.put(`${BASE}/profile/${sExtra.user._id}`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.message).toBe("Student profile updated successfully")
+
+    const after = await adminApi.get(`${BASE}/profile/details/${sExtra.user._id}`)
+    expect(after.status).toBe(200)
+    expect(after.body.data.student.rollNumber).toBe(before.body.data.student.rollNumber)
+    expect(after.body.data.student.gender).toBe(before.body.data.student.gender)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: directory search/filter param edges
+// ---------------------------------------------------------------------------
+
+describe("GET /profiles search/filter param edges", () => {
+  it("accepts large limits and reports them back in pagination", async () => {
+    const res = await adminApi.get(`${BASE}/profiles?page=1&limit=1000`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.pagination.limit).toBe(1000)
+    expect(res.body.data.pagination.page).toBe(1)
+    expect(res.body.data.students.length).toBeLessThanOrEqual(1000)
+  })
+
+  it("SUSPECTED BUG: page=0 crashes with a 500 instead of clamping to page 1", async () => {
+    // SUSPECTED BUG: searchStudents computes $skip as (page-1)*limit without
+    // validating page >= 1; page=0 yields a negative $skip, which MongoDB
+    // rejects and the request surfaces as a generic 500.
+    const res = await adminApi.get(`${BASE}/profiles?page=0&limit=10`)
+    expect(res.status).toBe(500)
+    expect(res.body.success).toBe(false)
+  })
+
+  it("SUSPECTED BUG: page=-1 crashes with a 500 instead of clamping", async () => {
+    // SUSPECTED BUG: same negative-$skip path as page=0.
+    const res = await adminApi.get(`${BASE}/profiles?page=-1&limit=10`)
+    expect(res.status).toBe(500)
+  })
+
+  it("SUSPECTED BUG: regex metacharacters in the name filter crash with a 500", async () => {
+    // SUSPECTED BUG: user input goes straight into $regex without escaping;
+    // an unbalanced "(" produces an invalid pattern and a 500.
+    const res = await adminApi.get(`${BASE}/profiles?name=${encodeURIComponent("(")}`)
+    expect(res.status).toBe(500)
+    expect(res.body.success).toBe(false)
+  })
+
+  it("treats unknown degree/department filters as exact matches returning empty pages", async () => {
+    const degree = await adminApi.get(`${BASE}/profiles?degree=PhD-Invisible&limit=10`)
+    expect(degree.status).toBe(200)
+    expect(degree.body.data.students).toEqual([])
+    expect(degree.body.data.pagination.total).toBe(0)
+
+    const department = await adminApi.get(`${BASE}/profiles?department=Underwater+Weaving&limit=10`)
+    expect(department.status).toBe(200)
+    expect(department.body.data.students).toEqual([])
+    expect(department.body.data.pagination.total).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: allocation replace-mode reusing beds freed by queued deletes
+// ---------------------------------------------------------------------------
+
+describe("PUT /hostels/:hostelId/room-allocations replace-mode queued deletes", () => {
+  it("lets the replace list reuse the exact bed the wipe just freed", async () => {
+    // hostelB state: ADM003 @ B201 bed 1 (capacity 1, occupancy 1). A naive
+    // capacity check would refuse the new list because the room looks full;
+    // the queued delete from the wipe must free the seat first.
+    // ADM005 was marked a day scholar by an earlier test — undo that first.
+    await adminApi
+      .put(`${BASE}/profiles/day-scholar`)
+      .send({ data: { ADM005: { isDayScholar: false } } })
+    const res = await adminApi
+      .put(`${BASE}/hostels/${hostelB._id}/room-allocations`)
+      .send({
+        mode: "replace",
+        allocations: [{ room: "B201", bedNumber: 1, rollNumber: "adm005" }],
+      })
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.clearedCount).toBe(1)
+    expect(res.body.data.allocations.map((a) => a.rollNumber)).toEqual(["ADM005"])
+    expect(res.body.message).toBe("Cleared 1 existing allocation and applied the new list")
+
+    // The old occupant is out; the new occupant holds the freed bed.
+    const old = await adminApi.get(`${BASE}/room-allocations/student/ADM003`)
+    expect(old.body.data.student.currentAllocation).toBeNull()
+    const fresh = await adminApi.get(`${BASE}/room-allocations/student/ADM005`)
+    expect(fresh.body.data.student.currentAllocation).toMatchObject({
+      hostelName: "Beta Bhavan",
+      roomNumber: "B201",
+      bedNumber: 1,
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: taxonomy endpoints with empty configs vs populated configs
+// ---------------------------------------------------------------------------
+
+describe("taxonomy endpoints with empty configs", () => {
+  afterAll(async () => {
+    // Restore the populated taxonomy this file leaves behind.
+    await setConfig("studentBatches", { BTech: { CSE: ["2023", "2025"] } })
+  })
+
+  it("returns an empty batch list when the batches config is empty", async () => {
+    await setConfig("studentBatches", {})
+    const res = await adminApi.get(`${BASE}/batches/list?degree=BTech&department=CSE`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.batches).toEqual([])
+  })
+
+  it("respects an explicitly EMPTIED taxonomy config (no silent defaults)", async () => {
+    // The documents exist with empty values -> the API must not resurrect
+    // built-in defaults over an intentional wipe.
+    await setConfig("degrees", [])
+    await setConfig("departments", [])
+    await setConfig("studentGroups", [])
+
+    const options = await adminApi.get(`${BASE}/taxonomy/options`)
+    expect(options.status).toBe(200)
+    expect(options.body.data.degrees).toEqual([])
+    expect(options.body.data.departments).toEqual([])
+    expect(options.body.data.studentGroups).toEqual([])
+
+    // The profile-distinct lists stay honest regardless of config: they read
+    // actual student data.
+    const depts = await adminApi.get(`${BASE}/departments/list`)
+    expect(depts.body.data.departments).toContain("CSE")
+  })
+
+  it("falls back to built-in defaults when the taxonomy config documents are MISSING entirely", async () => {
+    const { Configuration } = await import("../../../src/models/index.js")
+    await Configuration.deleteMany({ key: { $in: ["degrees", "departments", "studentGroups"] } })
+
+    const options = await adminApi.get(`${BASE}/taxonomy/options`)
+    expect(options.status).toBe(200)
+    // Missing docs are recreated from defaultConfigs on read.
+    expect(options.body.data.degrees).toContain("BTech")
+    expect(options.body.data.departments).toContain("Computer Science")
+    expect(options.body.data.studentGroups).toEqual([])
+  })
+})

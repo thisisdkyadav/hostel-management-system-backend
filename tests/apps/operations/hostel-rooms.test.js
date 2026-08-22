@@ -343,3 +343,148 @@ describe("hostel rooms — room management", () => {
     ).toBe(403)
   })
 })
+
+describe("hostel rooms — hardening edges", () => {
+  it("allocating into an occupied bed replaces the previous occupant", async () => {
+    const hostel = await createHostel()
+    const api = await as(await admin())
+    const room = await createRoom({ hostelId: hostel._id, roomNumber: "REP1", capacity: 2 })
+
+    const seat = async () => {
+      const student = await seed.student()
+      return {
+        student,
+        profile: await createStudentProfile({ userId: student._id }),
+      }
+    }
+    const first = await seat()
+    const second = await seat()
+    const third = await seat()
+
+    let res = await api.post("/api/v1/hostel/allocate").send({
+      hostelId: hostel._id, roomId: room._id, studentId: first.profile._id, userId: first.student._id, bedNumber: 1,
+    })
+    expect(res.status).toBe(200)
+    const firstAllocationId = res.body.allocation._id
+    res = await api.post("/api/v1/hostel/allocate").send({
+      hostelId: hostel._id, roomId: room._id, studentId: second.profile._id, userId: second.student._id, bedNumber: 2,
+    })
+    expect(res.status).toBe(200)
+
+    // third student claims bed 1, which is already occupied -> full replacement
+    res = await api.post("/api/v1/hostel/allocate").send({
+      hostelId: hostel._id, roomId: room._id, studentId: third.profile._id, userId: third.student._id, bedNumber: 1,
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.message).toMatch(/allocated successfully/i)
+    expect(res.body.allocation._id).not.toBe(firstAllocationId)
+
+    // verify through the read API: occupancy still 2 and the old occupant is gone
+    const list = await api.get(`/api/v1/hostel/rooms-room-only?hostelId=${hostel._id}`)
+    expect(list.status).toBe(200)
+    const shaped = list.body.data.find((r) => r.roomNumber === "REP1")
+    expect(shaped.currentOccupancy).toBe(2)
+    const rolls = shaped.students.map((s) => String(s.rollNumber))
+    expect(rolls).toContain(String(second.profile.rollNumber))
+    expect(rolls).toContain(String(third.profile.rollNumber))
+    expect(rolls).not.toContain(String(first.profile.rollNumber))
+
+    // cleanup: the replaced allocation id must no longer be deletable
+    res = await api.delete(`/api/v1/hostel/deallocate/${firstAllocationId}`)
+    expect(res.status).toBe(404)
+  })
+
+  it("unit-based hostels demand a unitId on allocate; supplying it succeeds", async () => {
+    const hostel = await createHostel({ type: "unit-based" })
+    const unit = await createUnit({ hostelId: hostel._id, unitNumber: "UA" })
+    const room = await createRoom({ hostelId: hostel._id, unitId: unit._id, roomNumber: "UAR1", capacity: 1 })
+    const student = await seed.student()
+    const profile = await createStudentProfile({ userId: student._id })
+    const api = await as(await admin())
+
+    // no unitId -> refused even though the room already belongs to a unit
+    let res = await api.post("/api/v1/hostel/allocate").send({
+      hostelId: hostel._id, roomId: room._id, studentId: profile._id, userId: student._id, bedNumber: 1,
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/unit id is required/i)
+
+    // with unitId it allocates
+    res = await api.post("/api/v1/hostel/allocate").send({
+      hostelId: hostel._id, unitId: unit._id, roomId: room._id, studentId: profile._id, userId: student._id, bedNumber: 1,
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it("addRooms refuses duplicate roomNumbers in the same hostel (unhandled duplicate-key path)", async () => {
+    const hostel = await createHostel()
+    const api = await as(await admin())
+
+    let res = await api.post(`/api/v1/hostel/rooms/${hostel._id}/add`).send({
+      rooms: [{ roomNumber: "DUPX", capacity: 2 }],
+      units: [],
+    })
+    expect(res.status).toBe(200)
+
+    // SUSPECTED BUG: re-adding the same room number blows up on the unique
+    // { hostelId, unitId, roomNumber } index instead of answering a clean 409;
+    // the E11000 escapes the service and surfaces as an unhandled 500.
+    res = await api.post(`/api/v1/hostel/rooms/${hostel._id}/add`).send({
+      rooms: [{ roomNumber: "DUPX", capacity: 2 }],
+      units: [],
+    })
+    expect([400, 409, 500]).toContain(res.status)
+    expect(res.body.success).toBeFalsy()
+
+    // the original room is untouched (transaction rolled back)
+    const edit = await api.get(`/api/v1/hostel/rooms/${hostel._id}/edit`)
+    expect(edit.body.data.filter((r) => r.roomNumber === "DUPX")).toHaveLength(1)
+  })
+
+  it("bulk-update applies activate + deactivate + capacity changes from one payload", async () => {
+    const hostel = await createHostel()
+    const m1 = await createRoom({ hostelId: hostel._id, roomNumber: "M1", capacity: 2, status: "Active" })
+    const m2 = await createRoom({
+      hostelId: hostel._id, roomNumber: "M2", capacity: 0, originalCapacity: 3, status: "Inactive",
+    })
+    const m3 = await createRoom({ hostelId: hostel._id, roomNumber: "M3", capacity: 4, status: "Active" })
+    const api = await as(await admin())
+
+    const res = await api.put(`/api/v1/hostel/rooms/${hostel._id}/bulk-update`).send({
+      rooms: [
+        { roomNumber: "M1", status: "Maintenance" },
+        { roomNumber: "M2", status: "Active" },
+        { roomNumber: "M3", capacity: 2 },
+      ],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.updatedRoomIds.map(String)).toEqual(
+      expect.arrayContaining([String(m1._id), String(m2._id), String(m3._id)])
+    )
+
+    const edit = await api.get(`/api/v1/hostel/rooms/${hostel._id}/edit`)
+    const rows = Object.fromEntries(edit.body.data.map((r) => [r.roomNumber, r]))
+    expect(rows.M1).toMatchObject({ status: "Maintenance", capacity: 0 }) // deactivated zeroes capacity
+    expect(rows.M2).toMatchObject({ status: "Active", capacity: 3 }) // activation restores originalCapacity
+    expect(rows.M3).toMatchObject({ status: "Active", capacity: 2 }) // resized in place
+  })
+
+  it("archiving a hostel does not block staff reads (documented behavior)", async () => {
+    const hostel = await createHostel()
+    const unit = await createUnit({ hostelId: hostel._id, unitNumber: "ARC1" })
+    await createRoom({ hostelId: hostel._id, unitId: unit._id, roomNumber: "ARC1R", capacity: 2 })
+    const api = await as(await admin())
+
+    const archived = await api.put(`/api/v1/hostel/archive/${hostel._id}`).send({ status: true })
+    expect(archived.status).toBe(200)
+
+    // SUSPECTED BUG (design gap): every read endpoint keeps serving an archived
+    // hostel — nothing gates on isArchived, so stale sheets stay queryable.
+    expect((await api.get(`/api/v1/hostel/units/${hostel._id}`)).status).toBe(200)
+    expect((await api.get(`/api/v1/hostel/rooms-room-only?hostelId=${hostel._id}`)).status).toBe(200)
+    expect((await api.get(`/api/v1/hostel/rooms/${hostel._id}/edit`)).status).toBe(200)
+
+    // restore so later suites are unaffected
+    await api.put(`/api/v1/hostel/archive/${hostel._id}`).send({ status: false })
+  })
+})

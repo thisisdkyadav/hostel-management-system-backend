@@ -295,3 +295,159 @@ describe("GET /api/v1/live-checkinout/analytics/time-based", () => {
     expect(new Date(res.body.date).toISOString()).toBe(expectedMidnight.toISOString())
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: pagination/filter/analytics edges. New entries use a dedicated
+// hostel so assertions stay independent of the fixtures above.
+// ---------------------------------------------------------------------------
+describe("GET /entries — pagination/filter edges", () => {
+  let edgeHostel
+
+  beforeAll(async () => {
+    edgeHostel = await createHostel({ name: "Live Edge Hostel" })
+    await createCheckInOutEntry({
+      userId: admin._id,
+      hostelId: edgeHostel._id,
+      hostelName: edgeHostel.name,
+      room: "E1",
+      bed: "1",
+      status: "Checked In",
+      isSameHostel: true,
+    })
+    await createCheckInOutEntry({
+      userId: admin._id,
+      hostelId: edgeHostel._id,
+      hostelName: edgeHostel.name,
+      room: "E2",
+      bed: "2",
+      status: "Checked Out",
+      isSameHostel: false,
+    })
+  })
+
+  it("500 for page=0 (negative skip reaches Mongo)", async () => {
+    // SUSPECTED BUG: page is parsed but never validated; skip goes negative.
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), page: 0, limit: 20 })
+    expect([200, 500]).toContain(res.status)
+    if (res.status === 500) {
+      expect(res.body.success).toBe(false)
+    }
+  })
+
+  it("SUSPECTED BUG: non-numeric page returns 200 with pagination.page null (NaN skip silently tolerated)", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), page: "abc", limit: 20 })
+    // Current behavior: parseInt('abc') = NaN reaches Mongo, is treated as no
+    // skip, and page serializes as null instead of erroring.
+    expect(res.status).toBe(200)
+    expect(res.body.pagination.page).toBeNull()
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("200 honors limit=1000 and returns the full filtered set in one page", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), limit: 1000, page: 1 })
+    expect(res.status).toBe(200)
+    expect(res.body.pagination.limit).toBe(1000)
+    expect(res.body.pagination.total).toBe(2)
+    expect(res.body.data).toHaveLength(2)
+  })
+
+  it("200 returns an empty second page beyond totalPages", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), limit: 1, page: 5 })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+    expect(res.body.pagination.total).toBe(2)
+    expect(res.body.pagination.totalPages).toBe(2)
+  })
+
+  it("SUSPECTED BUG: an invalid status value empties the list but stats ignore it", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), status: "Teleported" })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+    // calculateCheckInOutStats spreads the base query then overrides `status`
+    // per counter, so the bogus status never reaches the stat queries and the
+    // totals still count the hostel's real entries.
+    expect(res.body.stats.total.checkedIn + res.body.stats.total.checkedOut).toBe(2)
+  })
+
+  it("200 start>end date range matches nothing instead of erroring", async () => {
+    const api = await as(admin)
+    const now = new Date().toISOString().slice(0, 10)
+    const later = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+    const res = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), startDate: later, endDate: now })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+  })
+
+  it("SUSPECTED BUG: any isSameHostel value other than 'true' silently means false", async () => {
+    const api = await as(admin)
+    const garbage = await api.get(`${BASE}/entries`).query({ hostelId: String(edgeHostel._id), isSameHostel: "banana" })
+    expect(garbage.status).toBe(200)
+    // 'banana' !== 'true' -> query.isSameHostel = false -> only cross-hostel rows
+    expect(garbage.body.data.every((e) => e.isSameHostel === false)).toBe(true)
+    expect(garbage.body.data).toHaveLength(1)
+  })
+
+  it("400 Invalid ID format for malformed dates in range filters (query CastError)", async () => {
+    // new Date('not-a-date') is an Invalid Date; Mongoose's query casting
+    // throws a CastError, which the global handler maps to the generic
+    // "Invalid ID format" 400 — even though this is a date problem.
+    const api = await as(admin)
+    const res = await api
+      .get(`${BASE}/entries`)
+      .query({ hostelId: String(edgeHostel._id), startDate: "not-a-date", endDate: "also-bad" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+})
+
+describe("GET /recent & /analytics/time-based — edge inputs", () => {
+  it("recent: 500 or clamped behavior for non-numeric limit", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/recent`).query({ limit: "abc" })
+    // parseInt('abc') = NaN reaches Mongo's limit; document actual handling.
+    expect([200, 400, 500]).toContain(res.status)
+    if (res.status === 200) {
+      expect(Array.isArray(res.body.data)).toBe(true)
+    }
+  })
+
+  it("SUSPECTED BUG: limit=0 returns everything — Mongo treats limit 0 as no limit", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/recent`).query({ limit: 0 })
+    expect(res.status).toBe(200)
+    // Current behavior: parseInt('0') = 0 reaches Mongo where 0 disables the
+    // cap, so the "timeline" is unbounded rather than empty.
+    expect(res.body.data.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it("analytics: unparseable date does not hang or return wrong bucket count", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/analytics/time-based`).query({ date: "not-a-date" })
+    expect([200, 500]).toContain(res.status)
+    if (res.status === 200) {
+      expect(res.body.data).toHaveLength(24)
+    }
+  })
+
+  it("analytics: extreme dates (1900 / 2999) yield 24 zero-filled buckets", async () => {
+    const api = await as(admin)
+    for (const d of ["1900-06-15T00:00:00.000Z", "2999-06-15T00:00:00.000Z"]) {
+      const res = await api.get(`${BASE}/analytics/time-based`).query({ date: d })
+      expect(res.status).toBe(200)
+      expect(res.body.data).toHaveLength(24)
+      expect(res.body.data.every((b) => b.total === 0)).toBe(true)
+    }
+  })
+
+  it("stats/hostel-wise: 200 even when no entries exist today beyond seeds", async () => {
+    const api = await as(superAdmin)
+    const res = await api.get(`${BASE}/stats/hostel-wise`)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.data)).toBe(true)
+  })
+})

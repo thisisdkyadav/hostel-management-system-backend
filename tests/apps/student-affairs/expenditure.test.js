@@ -514,4 +514,274 @@ describe("student-affairs /expenditure", () => {
       expect(removed.body.data.totals.documentCount).toBe(1)
     })
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: ATTACHMENT COUNT BOUNDARY (MAX_ATTACHMENTS = 20)
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: attachment boundaries", () => {
+    let occurrenceId
+
+    const refAt = (i) => `media://itest-attach-${String(i).padStart(3, "0")}`
+    const manyAttachments = (n) =>
+      Array.from({ length: n }, (_, i) => attachment(refAt(i)))
+
+    beforeAll(async () => {
+      const res = await createOccurrence({ title: "Attachment Boundary Playground" })
+      occurrenceId = res.body.data.occurrence._id
+    })
+
+    it("201 accepts exactly 20 attachments (cap boundary) and persists them", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/${occurrenceId}/expenses`).send({
+        title: "Capped Attachments Expense",
+        amount: 10,
+        attachments: manyAttachments(20),
+      })
+      expect(res.status).toBe(201)
+      const stored = res.body.data.occurrence.expenses.find(
+        (e) => e.title === "Capped Attachments Expense"
+      )
+      expect(stored.attachments).toHaveLength(20)
+      expect(stored.attachments[19].fileRef).toBe(refAt(19))
+    })
+
+    it("422 for 21 attachments (one past the cap)", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/${occurrenceId}/expenses`).send({
+        title: "Over Cap Expense",
+        amount: 10,
+        attachments: manyAttachments(21),
+      })
+      expect(res.status).toBe(422)
+      expect(JSON.stringify(res.body.errors)).toMatch(/20/)
+    })
+
+    it("422 for occurrence documents above the same cap", async () => {
+      const api = await as(admin)
+      const res = await api
+        .post(`${BASE}/${occurrenceId}/documents`)
+        .send({ attachments: manyAttachments(21) })
+      expect(res.status).toBe(422)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: AMOUNT EDGE CASES (zero / huge / string / negative payments)
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: amount edge cases", () => {
+    let occurrenceId
+
+    beforeAll(async () => {
+      const res = await createOccurrence({ title: "Amount Edge Playground", totalBudget: 100 })
+      occurrenceId = res.body.data.occurrence._id
+    })
+
+    it("201 accepts a zero-amount expense without changing expenseTotal", async () => {
+      const api = await as(admin)
+      const res = await api
+        .post(`${BASE}/${occurrenceId}/expenses`)
+        .send({ title: "Zero Cost Item", amount: 0 })
+      expect(res.status).toBe(201)
+      expect(res.body.data.totals.expenseTotal).toBe(0)
+      expect(res.body.data.totals.expenseCount).toBe(1)
+    })
+
+    it("422 for a string amount", async () => {
+      const api = await as(admin)
+      const res = await api
+        .post(`${BASE}/${occurrenceId}/expenses`)
+        .send({ title: "String Amount", amount: "lots" })
+      expect(res.status).toBe(422)
+    })
+
+    it("201 accepts a very large numeric amount and totals stay exact", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/${occurrenceId}/payments`).send({
+        source: "Endowment",
+        amount: 9007199254740991, // Number.MAX_SAFE_INTEGER
+      })
+      expect(res.status).toBe(201)
+      expect(res.body.data.totals.paymentTotal).toBe(9007199254740991)
+    })
+
+    it("422 for a negative payment amount", async () => {
+      const api = await as(admin)
+      const res = await api
+        .post(`${BASE}/${occurrenceId}/payments`)
+        .send({ source: "Refund Attempt", amount: -50 })
+      expect(res.status).toBe(422)
+    })
+
+    it("bill amount defaults to 0 when omitted", async () => {
+      const api = await as(admin)
+      const expenseRes = await api
+        .post(`${BASE}/${occurrenceId}/expenses`)
+        .send({ title: "Bill Default Parent", amount: 5 })
+      const expenseId = expenseRes.body.data.occurrence.expenses.find(
+        (e) => e.title === "Bill Default Parent"
+      )._id
+
+      const res = await api
+        .post(`${BASE}/${occurrenceId}/expenses/${expenseId}/bills`)
+        .send({ vendor: "No Amount Vendor" })
+      expect(res.status).toBe(201)
+      expect(res.body.data.totals.billTotal).toBe(0)
+    })
+
+    it("422 for a non-ISO incurredAt value", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/${occurrenceId}/expenses`).send({
+        title: "Bad Date",
+        amount: 1,
+        incurredAt: "31/12/2026",
+      })
+      expect(res.status).toBe(422)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: CATEGORY IS FREE-FORM (documented behavior — no enum)
+  // The schema validates category only as text(100); arbitrary values persist.
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: category boundaries", () => {
+    let occurrenceId
+
+    beforeAll(async () => {
+      const res = await createOccurrence({ title: "Category Playground" })
+      occurrenceId = res.body.data.occurrence._id
+    })
+
+    it("accepts an out-of-vocabulary category and persists it verbatim", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/${occurrenceId}/expenses`).send({
+        title: "Odd Category",
+        category: "warp-core-consumables",
+        amount: 42,
+      })
+      expect(res.status).toBe(201)
+      const stored = res.body.data.occurrence.expenses.find((e) => e.title === "Odd Category")
+      expect(stored.category).toBe("warp-core-consumables")
+    })
+
+    it("422 for a category longer than 100 chars", async () => {
+      const api = await as(admin)
+      const res = await api
+        .post(`${BASE}/${occurrenceId}/expenses`)
+        .send({ title: "Long Category", category: "x".repeat(101), amount: 1 })
+      expect(res.status).toBe(422)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: LIST FILTERS + OCCURRENCE STATUS TRANSITIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: status filter lifecycle", () => {
+    let openId
+    let closedId
+
+    beforeAll(async () => {
+      const openRes = await createOccurrence({ title: "Still Open Occurrence" })
+      openId = openRes.body.data.occurrence._id
+      const closedRes = await createOccurrence({ title: "Now Closed Occurrence" })
+      closedId = closedRes.body.data.occurrence._id
+      const api = await as(admin)
+      await api.patch(`${BASE}/${closedId}`).send({ status: "closed" })
+    })
+
+    it("status=open excludes closed occurrences; status=closed includes only those", async () => {
+      const api = await as(admin)
+
+      const openList = await api.get(BASE).query({ status: "open" })
+      expect(openList.status).toBe(200)
+      expect(
+        openList.body.data.occurrences.some((o) => o._id === closedId)
+      ).toBe(false)
+      expect(
+        openList.body.data.occurrences.some((o) => o._id === openId)
+      ).toBe(true)
+
+      const closedList = await api.get(BASE).query({ status: "closed" })
+      expect(closedList.status).toBe(200)
+      expect(closedList.body.data.occurrences.map((o) => o._id)).toContain(closedId)
+      expect(closedList.body.data.occurrences.every((o) => o._id !== openId)).toBe(true)
+    })
+
+    // SUSPECTED BUG (documented behavior): closing an occurrence does NOT lock
+    // it — expenses/bills/payments/documents can still be mutated freely while
+    // the occurrence is "closed".
+    it("entries can still be mutated after the occurrence is closed", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/${closedId}/expenses`).send({
+        title: "Post Closure Expense",
+        amount: 25,
+      })
+      expect(res.status).toBe(201)
+      expect(res.body.data.totals.expenseTotal).toBe(25)
+    })
+
+    it("reopen path: patching back to open is reflected in the open filter", async () => {
+      const api = await as(admin)
+      const reopened = await api.patch(`${BASE}/${closedId}`).send({ status: "open" })
+      expect(reopened.status).toBe(200)
+      expect(reopened.body.data.occurrence.status).toBe("open")
+
+      const closedList = await api.get(BASE).query({ status: "closed" })
+      expect(closedList.body.data.occurrences.some((o) => o._id === closedId)).toBe(false)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: CROSS-REFERENCE PARAM EDGE CASES
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: cross-reference params", () => {
+    let occA
+    let occB
+    let expenseInA
+
+    beforeAll(async () => {
+      const a = await createOccurrence({ title: "Cross Ref A" })
+      occA = a.body.data.occurrence._id
+      const b = await createOccurrence({ title: "Cross Ref B" })
+      occB = b.body.data.occurrence._id
+
+      const api = await as(admin)
+      const added = await api
+        .post(`${BASE}/${occA}/expenses`)
+        .send({ title: "Belongs To A", amount: 10 })
+      expenseInA = added.body.data.occurrence.expenses[0]._id
+    })
+
+    it("404 when the occurrence id does not match the expense's parent", async () => {
+      const api = await as(admin)
+      const patched = await api
+        .patch(`${BASE}/${occB}/expenses/${expenseInA}`)
+        .send({ amount: 99 })
+      expect(patched.status).toBe(404)
+      // The parent occurrence exists, so the nested expense lookup is what fails
+      expect(patched.body.message).toMatch(/Expense not found/)
+    })
+
+    it("404 when deleting an expense through the wrong parent occurrence", async () => {
+      const api = await as(admin)
+      const res = await api.delete(`${BASE}/${occB}/expenses/${expenseInA}`)
+      expect(res.status).toBe(404)
+      expect(res.body.message).toMatch(/Expense not found/)
+
+      // The expense survives the failed deletion
+      const verify = await api.get(`${BASE}/${occA}`)
+      expect(verify.body.data.occurrence.expenses).toHaveLength(1)
+    })
+
+    it("422 for malformed nested param ids", async () => {
+      const api = await as(admin)
+      const badExpenseId = await api.patch(`${BASE}/${occA}/expenses/nope`).send({ amount: 1 })
+      expect(badExpenseId.status).toBe(422)
+
+      const badPaymentId = await api.delete(`${BASE}/${occA}/payments/nope`)
+      expect(badPaymentId.status).toBe(422)
+
+      const badDocId = await api.delete(`${BASE}/${occA}/documents/nope`)
+      expect(badDocId.status).toBe(422)
+    })
+  })
 })

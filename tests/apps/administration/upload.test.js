@@ -33,6 +33,10 @@ let received = [] // { policy, actorRole, entityHint, filename, contentType }
 let stubServer = null
 let originalServiceUrl = null
 let originalInternalKey = null
+// Per-test failure injection: rules are consumed (first match wins) when a
+// request arrives whose `policy` field equals rule.policy. The stub then
+// answers with rule.status (default 400) and `{ message: rule.message }`.
+let stubFailureRules = []
 
 beforeAll(async () => {
   stubServer = http.createServer((req, res) => {
@@ -61,6 +65,16 @@ beforeAll(async () => {
 
       const n = received.length
       const name = fileMeta.filename || "upload.bin"
+      const policy = field("policy")
+
+      // failure injection (consumed on first match)
+      const ruleIndex = stubFailureRules.findIndex((r) => r.policy === policy)
+      if (ruleIndex !== -1) {
+        const [rule] = stubFailureRules.splice(ruleIndex, 1)
+        res.writeHead(rule.status || 400, { "content-type": "application/json" })
+        return res.end(JSON.stringify({ message: rule.message }))
+      }
+
       res.setHeader("content-type", "application/json")
       res.end(
         JSON.stringify({
@@ -332,5 +346,191 @@ describe("upload — size limits (election nomination / POR / disCo)", () => {
 
     const studentApi = await as(await seed.student())
     expect((await studentApi.post("/api/v1/upload/disco-process-pdf").attach("document", pdf(), "d.pdf")).status).toBe(403)
+  })
+})
+
+describe("upload — profile image role edges", () => {
+  it("Warden and Hostel Supervisor may upload their own profile image", async () => {
+    for (const makeUser of [seed.warden, seed.hostelSupervisor]) {
+      const staff = await makeUser()
+      const api = await as(staff)
+      const res = await api.post(`/api/v1/upload/profile/${staff._id}`).attach("image", png(), "staff.png")
+      expect(res.status).toBe(200)
+      expectStoragePayload(res.body)
+    }
+  })
+
+  it("SUSPECTED BUG: the self-only restriction applies to Students only — a Warden can push a profile image onto any userId", async () => {
+    // uploadProfileImage only 403s when userRole === 'Student' && userId !==
+    // currentUserId. Staff roles are admitted by the route with no target
+    // check, so a Warden can overwrite any user's profile-image fileRef.
+    // Documenting current behavior.
+    const warden = await seed.warden()
+    const student = await seed.student()
+    const api = await as(warden)
+
+    const before = received.length
+    const res = await api.post(`/api/v1/upload/profile/${student._id}`).attach("image", png(), "w.png")
+    expect(res.status).toBe(200) // current behavior; arguably should be 403
+    expect(received[before].policy).toBe("profile-image")
+    expect(received[before].entityHint).toBe(String(student._id))
+  })
+})
+
+describe("upload — student id card side param", () => {
+  it("SUSPECTED BUG: any side string is accepted (no enum validation)", async () => {
+    // The route takes :side as a free string; only 'front'/'back' are meaningful
+    // downstream, but 'diagonal' sails through with that value baked into the
+    // entityHint. Documenting current behavior.
+    const student = await seed.student()
+    const api = await as(student)
+
+    const before = received.length
+    const res = await api.post("/api/v1/upload/student-id/diagonal").attach("image", png(), "x.png")
+    expect(res.status).toBe(200) // current behavior; arguably should be 400
+    expectStoragePayload(res.body)
+    expect(received[before].entityHint).toBe(`${student._id}:diagonal`)
+  })
+
+  it("entityHint carries userId:side for valid sides", async () => {
+    const student = await seed.student()
+    const api = await as(student)
+
+    const before = received.length
+    const res = await api.post("/api/v1/upload/student-id/back").attach("image", png(), "b.png")
+    expect(res.status).toBe(200)
+    expect(received[before].entityHint).toBe(`${student._id}:back`)
+    expect(received[before].actorRole).toBe("Student")
+  })
+})
+
+describe("upload — signature image by staff roles", () => {
+  it("Warden and Admin can both register a signature; actorRole is passed through", async () => {
+    const warden = await seed.warden()
+    const wardenApi = await as(warden)
+    let before = received.length
+    let res = await wardenApi.post("/api/v1/upload/signature-image").attach("image", png(), "w.png")
+    expect(res.status).toBe(200)
+    expectStoragePayload(res.body)
+    expect(received[before]).toMatchObject({ policy: "signature-image", actorRole: "Warden", entityHint: String(warden._id) })
+
+    const adminApi = await as(await seed.admin())
+    before = received.length
+    res = await adminApi.post("/api/v1/upload/signature-image").attach("image", png(), "a.png")
+    expect(res.status).toBe(200)
+    expectStoragePayload(res.body)
+    expect(received[before].actorRole).toBe("Admin")
+
+    // non-image files stay rejected regardless of role
+    res = await adminApi.post("/api/v1/upload/signature-image").attach("image", TEXT_BYTES, "x.txt")
+    expect(res.status).toBe(400)
+  })
+})
+
+describe("upload — election nomination at the exact 10MB boundary", () => {
+  it("SUSPECTED BUG: a file of exactly 10*1024*1024 bytes is rejected by multer (limit is exclusive)", async () => {
+    // The route documents "Document size must be 10MB or smaller" and the
+    // service-level validateSize uses `>` (inclusive), but busboy truncates a
+    // file as soon as fileSize === fileSizeLimit and fires 'limit', so multer
+    // raises LIMIT_FILE_SIZE for a payload of EXACTLY 10MB. Off-by-one: the
+    // largest accepted document is actually 10MB - 1 byte.
+    const header = Buffer.from("%PDF-1.4\n")
+    const exactPdf = () =>
+      Buffer.concat([header, Buffer.alloc(10 * 1024 * 1024 - header.length, 0)])
+
+    const api = await as(await seed.student())
+    const res = await api
+      .post("/api/v1/upload/election-nomination-document")
+      .attach("document", exactPdf(), "exact.pdf")
+    expect(res.status).toBe(400) // current behavior; arguably should be 200
+    expect(JSON.stringify(res.body)).toMatch(/10MB or smaller/)
+  })
+
+  it("accepts one byte under the 10MB limit (the true inclusive boundary)", async () => {
+    const header = Buffer.from("%PDF-1.4\n")
+    const justUnderPdf = () =>
+      Buffer.concat([header, Buffer.alloc(10 * 1024 * 1024 - header.length - 1, 0)])
+
+    const api = await as(await seed.student())
+    const before = received.length
+    const res = await api
+      .post("/api/v1/upload/election-nomination-document")
+      .attach("document", justUnderPdf(), "under.pdf")
+    expect(res.status).toBe(200)
+    expectStoragePayload(res.body)
+    expect(received[before].policy).toBe("election-nomination-document")
+  })
+
+  it("disco-process documents over 10MB are rejected at multer level with 400", async () => {
+    const bigPdf = () => Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.alloc(10 * 1024 * 1024 + 1, 1)])
+    const api = await as(await seed.admin())
+    const res = await api
+      .post("/api/v1/upload/disco-process-pdf")
+      .attach("document", bigPdf(), "big.pdf")
+    expect(res.status).toBe(400)
+    expect(JSON.stringify(res.body)).toMatch(/10MB or smaller/)
+  })
+})
+
+describe("upload — POR document policy fallback chain (failure injection)", () => {
+  it("falls back to the next policy when the stub reports an unknown upload policy, then succeeds", async () => {
+    const api = await as(await seed.student())
+
+    const before = received.length
+    stubFailureRules = [
+      { policy: "por-document-pdf", message: "unknown upload policy: por-document-pdf", status: 400 },
+    ]
+    try {
+      const res = await api.post("/api/v1/upload/por-document-pdf").attach("document", pdf(), "por.pdf")
+      expect(res.status).toBe(200)
+      expectStoragePayload(res.body)
+      // two attempts recorded: primary policy failed with the unknown-policy
+      // error, first fallback (overall-best-performer-proof-pdf) succeeded
+      const attempted = received.slice(before).map((e) => e.policy)
+      expect(attempted).toEqual(["por-document-pdf", "overall-best-performer-proof-pdf"])
+    } finally {
+      stubFailureRules = []
+    }
+  })
+
+  it("exhausts all three fallback policies and returns 502 with the last unknown-policy error", async () => {
+    const api = await as(await seed.student())
+
+    const before = received.length
+    stubFailureRules = [
+      { policy: "por-document-pdf", message: "unknown upload policy: por-document-pdf" },
+      { policy: "overall-best-performer-proof-pdf", message: "unknown upload policy: overall-best-performer-proof-pdf" },
+      { policy: "h2-form", message: "unknown upload policy: h2-form" },
+    ]
+    try {
+      const res = await api.post("/api/v1/upload/por-document-pdf").attach("document", pdf(), "por.pdf")
+      // _uploadWithPolicy always maps storage errors to 502, message preserved
+      expect(res.status).toBe(502)
+      expect(res.body.error).toMatch(/unknown upload policy: h2-form/)
+      expect(received.slice(before).map((e) => e.policy)).toEqual([
+        "por-document-pdf",
+        "overall-best-performer-proof-pdf",
+        "h2-form",
+      ])
+    } finally {
+      stubFailureRules = []
+    }
+  })
+
+  it("a non-unknown-policy failure stops the chain immediately (no fallback attempts)", async () => {
+    const api = await as(await seed.student())
+
+    const before = received.length
+    stubFailureRules = [
+      { policy: "por-document-pdf", message: "storage exploded", status: 500 },
+    ]
+    try {
+      const res = await api.post("/api/v1/upload/por-document-pdf").attach("document", pdf(), "por.pdf")
+      expect(res.status).toBe(502)
+      expect(res.body.error).toMatch(/storage exploded/)
+      expect(received.slice(before).map((e) => e.policy)).toEqual(["por-document-pdf"])
+    } finally {
+      stubFailureRules = []
+    }
   })
 })

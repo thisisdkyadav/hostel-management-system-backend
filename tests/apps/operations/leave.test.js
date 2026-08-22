@@ -325,3 +325,264 @@ describe("PUT /api/v1/leave/:id/join (admin only) + full workflow", () => {
     expect(after.joinStatus).toBe("Joined")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: validation edges on create
+// ---------------------------------------------------------------------------
+describe("POST /api/v1/leave — validation edges", () => {
+  let admin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+  })
+
+  const validPayload = () => ({
+    reason: "Edge case",
+    startDate: new Date(),
+    endDate: new Date(Date.now() + 86400000),
+  })
+
+  it.each(["reason", "startDate", "endDate"])("422 when %s is missing (one at a time)", async (field) => {
+    const payload = validPayload()
+    delete payload[field]
+    const api = await as(admin)
+    const res = await api.post(BASE).send(payload)
+    expect(res.status).toBe(422)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Validation failed")
+    expect(res.body.errors.some((e) => e.field === field)).toBe(true)
+  })
+
+  it("422 when reason is an empty string", async () => {
+    const api = await as(admin)
+    const res = await api.post(BASE).send({ ...validPayload(), reason: "" })
+    expect(res.status).toBe(422)
+    expect(res.body.success).toBe(false)
+  })
+
+  it("422 Validation failed when startDate is an unparseable string", async () => {
+    // On document save, Mongoose aggregates the date cast failure into a
+    // ValidationError, so this reaches the 422 handler (not the CastError 400).
+    const api = await as(admin)
+    const res = await api.post(BASE).send({ ...validPayload(), startDate: "not-a-date" })
+    expect(res.status).toBe(422)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Validation failed")
+  })
+
+  it("201 accepts date-only strings for startDate/endDate", async () => {
+    const api = await as(admin)
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10)
+    const res = await api.post(BASE).send({ reason: "Date-only", startDate: tomorrow, endDate: tomorrow })
+    expect(res.status).toBe(201)
+    expect(new Date(res.body.leave.startDate).toISOString().slice(0, 10)).toBe(tomorrow)
+  })
+
+  it("201 accepts extreme dates (year 1900 start, year 2999 end)", async () => {
+    const api = await as(admin)
+    const res = await api
+      .post(BASE)
+      .send({ reason: "Time traveler", startDate: new Date("1900-01-01T00:00:00.000Z"), endDate: new Date("2999-12-31T23:59:59.000Z") })
+    expect(res.status).toBe(201)
+    expect(new Date(res.body.leave.startDate).getUTCFullYear()).toBe(1900)
+    expect(new Date(res.body.leave.endDate).getUTCFullYear()).toBe(2999)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: cross-family denials (roles outside the leave module entirely)
+// ---------------------------------------------------------------------------
+describe("leave routes — cross-family role denials", () => {
+  it("403 for Security and Hostel Gate on POST /", async () => {
+    for (const user of [await seed.security(), await seed.createUser({ role: "Hostel Gate" })]) {
+      const api = await as(user)
+      const res = await api.post(BASE).send({ reason: "x", startDate: new Date(), endDate: new Date() })
+      expect(res.status).toBe(403)
+      expect(res.body.success).toBe(false)
+    }
+  })
+
+  it("403 for Security on GET /my-leaves", async () => {
+    const api = await as(await seed.security())
+    const res = await api.get(`${BASE}/my-leaves`)
+    expect(res.status).toBe(403)
+  })
+
+  it("403 for Security and Hostel Gate on admin-only routes (/all, approve)", async () => {
+    const { createLeave } = await import("../../helpers/seed/operations.js")
+    const staff = await seed.maintenanceStaff()
+    const leave = await createLeave({ userId: staff._id, reason: "Denial target" })
+    for (const user of [await seed.security(), await seed.createUser({ role: "Hostel Gate" })]) {
+      const api = await as(user)
+      expect((await api.get(`${BASE}/all`)).status).toBe(403)
+      expect((await api.put(`${BASE}/${leave._id}/approve`).send({ approvalInfo: "x" })).status).toBe(403)
+      expect((await api.put(`${BASE}/${leave._id}/reject`).send({ reasonForRejection: "x" })).status).toBe(403)
+      expect((await api.put(`${BASE}/${leave._id}/join`).send({ joinInfo: "x" })).status).toBe(403)
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: state-machine edges (no transitions are guarded server-side)
+// ---------------------------------------------------------------------------
+describe("PUT /api/v1/leave/:id/approve|reject|join — state machine edges", () => {
+  let admin
+  let rejectThenApprove, approveThenReject, pendingJoin, joinedAgain
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    const staff = await seed.hostelSupervisor()
+    const { createLeave } = await import("../../helpers/seed/operations.js")
+    rejectThenApprove = await createLeave({ userId: staff._id, reason: "Reject then approve", status: "Rejected" })
+    approveThenReject = await createLeave({ userId: staff._id, reason: "Approve then reject", status: "Approved" })
+    pendingJoin = await createLeave({ userId: staff._id, reason: "Join while pending" })
+    joinedAgain = await createLeave({ userId: staff._id, reason: "Join twice", status: "Approved", joinStatus: undefined })
+  })
+
+  it("SUSPECTED BUG: approving an already-Rejected leave succeeds — no state guard", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${rejectThenApprove._id}/approve`).send({ approvalInfo: "flip" })
+    // Current behavior: 200, status flips Rejected -> Approved.
+    expect(res.status).toBe(200)
+    expect(res.body.leave.status).toBe("Approved")
+  })
+
+  it("SUSPECTED BUG: rejecting an already-Approved leave succeeds — no state guard", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${approveThenReject._id}/reject`).send({ reasonForRejection: "changed mind" })
+    expect(res.status).toBe(200)
+    expect(res.body.leave.status).toBe("Rejected")
+  })
+
+  it("SUSPECTED BUG: joining a still-Pending leave succeeds without approval", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${pendingJoin._id}/join`).send({ joinInfo: "never approved" })
+    expect(res.status).toBe(200)
+    expect(res.body.leave.joinStatus).toBe("Joined")
+    expect(res.body.leave.status).toBe("Pending")
+  })
+
+  it("SUSPECTED BUG: joining twice overwrites joinInfo/joinDate instead of conflicting", async () => {
+    const api = await as(admin)
+    const first = await api.put(`${BASE}/${joinedAgain._id}/join`).send({ joinInfo: "first join" })
+    expect(first.status).toBe(200)
+    const second = await api.put(`${BASE}/${joinedAgain._id}/join`).send({ joinInfo: "second join" })
+    expect(second.status).toBe(200)
+    expect(second.body.leave.joinInfo).toBe("second join")
+  })
+
+  it("400 Invalid ID format for malformed ids on reject and join", async () => {
+    const api = await as(admin)
+    const rej = await api.put(`${BASE}/bogus/reject`).send({ reasonForRejection: "x" })
+    expect(rej.status).toBe(400)
+    expect(rej.body.message).toBe("Invalid ID format")
+
+    const join = await api.put(`${BASE}/bogus/join`).send({ joinInfo: "x" })
+    expect(join.status).toBe(400)
+    expect(join.body.message).toBe("Invalid ID format")
+  })
+
+  it("approve/reject succeed even when their body fields are missing (optional fields)", async () => {
+    // approvalInfo / reasonForRejection are not required by the schema.
+    const staff = await seed.maintenanceStaff()
+    const { createLeave } = await import("../../helpers/seed/operations.js")
+    const a = await createLeave({ userId: staff._id, reason: "No info approve" })
+    const r = await createLeave({ userId: staff._id, reason: "No reason reject" })
+    const api = await as(admin)
+    const resA = await api.put(`${BASE}/${a._id}/approve`).send({})
+    expect(resA.status).toBe(200)
+    const resR = await api.put(`${BASE}/${r._id}/reject`).send({})
+    expect(resR.status).toBe(200)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: GET /all pagination + filter edges
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/leave/all — pagination/filter edges", () => {
+  let admin, owner
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    owner = await seed.warden()
+    const { createLeave } = await import("../../helpers/seed/operations.js")
+    await createLeave({ userId: owner._id, reason: "Edge A", status: "Pending" })
+    await createLeave({ userId: owner._id, reason: "Edge B", status: "Approved" })
+  })
+
+  it("200 totalCount 0 for a status value outside the enum (filter is passed through verbatim)", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/all`).query({ status: "Bogus" })
+    expect(res.status).toBe(200)
+    expect(res.body.totalCount).toBe(0)
+    expect(res.body.leaves).toHaveLength(0)
+    expect(res.body.totalPages).toBe(0)
+  })
+
+  it("400 Invalid ID format for a malformed userId filter (CastError)", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/all`).query({ userId: "not-an-id" })
+    expect(res.status).toBe(400)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("500 Error getting leaves for page=0 (negative skip reaches Mongo)", async () => {
+    // SUSPECTED BUG: page=0 is not validated; skip becomes negative and Mongo
+    // rejects it, surfacing as a 500 from the service fallback.
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/all`).query({ userId: String(owner._id), page: 0 })
+    expect(res.status).toBe(500)
+    expect(res.body.success).toBeUndefined()
+    expect(res.body.message).toBe("Error getting leaves")
+  })
+
+  it("SUSPECTED BUG: non-numeric page returns 200 with currentPage null (NaN skip silently tolerated)", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/all`).query({ userId: String(owner._id), page: "abc" })
+    // Current behavior: parseInt('abc') = NaN reaches the query, Mongo treats
+    // it as no-skip, and currentPage serializes as null instead of erroring.
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body.leaves)).toBe(true)
+    expect(res.body.currentPage).toBeNull()
+  })
+
+  it("200 returns an empty page beyond totalPages while totals stay correct", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/all`).query({ userId: String(owner._id), limit: 2, page: 99 })
+    expect(res.status).toBe(200)
+    expect(res.body.totalCount).toBe(2)
+    expect(res.body.currentPage).toBe(99)
+    expect(res.body.leaves).toHaveLength(0)
+  })
+
+  it("200 honors limit=1000 in one page", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/all`).query({ userId: String(owner._id), limit: 1000, page: 1 })
+    expect(res.status).toBe(200)
+    expect(res.body.limit).toBe(1000)
+    expect(res.body.totalCount).toBe(2)
+    expect(res.body.leaves).toHaveLength(2)
+  })
+
+  it("200 start>end createdAt range matches nothing", async () => {
+    const api = await as(admin)
+    const now = new Date().toISOString()
+    const later = new Date(Date.now() + 7 * 86400000).toISOString()
+    const res = await api.get(`${BASE}/all`).query({ startDate: later, endDate: now })
+    expect(res.status).toBe(200)
+    expect(res.body.totalCount).toBe(0)
+    expect(res.body.leaves).toHaveLength(0)
+  })
+
+  it("200 filters by extreme date ranges without crashing (year 1900 / 2999)", async () => {
+    const api = await as(admin)
+    const wide = await api.get(`${BASE}/all`).query({ startDate: "1900-01-01", endDate: "2999-12-31" })
+    expect(wide.status).toBe(200)
+    expect(wide.body.totalCount).toBeGreaterThanOrEqual(2)
+
+    const ancient = await api.get(`${BASE}/all`).query({ endDate: "1900-12-31" })
+    expect(ancient.status).toBe(200)
+    expect(ancient.body.totalCount).toBe(0)
+  })
+})

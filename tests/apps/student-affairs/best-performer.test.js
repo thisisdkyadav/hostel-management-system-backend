@@ -566,3 +566,173 @@ describe("overall best performer", () => {
     expect(portal.body.data.hasApplied).toBe(false)
   })
 })
+
+describe("overall best performer hardening: window boundaries, invalid scores, rescore rules", () => {
+  let adminApi
+  let academicsApi
+  let occurrence // short-lived window used for the boundary tests
+  let applicant // eligible student for the short-window occurrence
+  let applicationId
+
+  const getApplicationId = async () => {
+    const detail = await adminApi.get(`${BASE}/occurrences/${occurrence.id}`)
+    const entry = detail.body.data.leaderboard.find((item) => item.rollNumber === applicant.profile.rollNumber)
+    expect(entry).toBeTruthy()
+    return entry.id
+  }
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    academicsApi = await as(await saSeed.academics("HOD"))
+    applicant = await saSeed.studentWithProfile({ rollNumber: "BPH001" })
+  })
+
+  it("GET /occurrences/:id rejects students with 403 (guard)", async () => {
+    const anyId = "000000000000000000000001"
+    const api = await as(applicant.user)
+    const res = await api.get(`${BASE}/occurrences/${anyId}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("POST /occurrences rejects Academics with 403 (admin/super-admin only)", async () => {
+    const res = await academicsApi.post(`${BASE}/occurrences`).send({
+      title: "HOD Occurrence",
+      awardYear: 2026,
+      applyStartAt: hoursFromNow(-1).toISOString(),
+      applyEndAt: hoursFromNow(24).toISOString(),
+      eligibleRollNumbers: ["BPH001"],
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it("POST /applications/:id/review rejects an invalid decision with a validation error", async () => {
+    // Use a well-formed but unknown application id — validation runs before
+    // the service lookup, so the shape of the error is what matters here.
+    const res = await adminApi
+      .post(`${BASE}/applications/000000000000000000000002/review`)
+      .send({ decision: "maybe" })
+    expect(res.status).toBe(422)
+  })
+
+  it("PATCH /applications/:id/coursework-score rejects negative, non-numeric and huge values one at a time", async () => {
+    const anyId = "000000000000000000000003"
+    for (const scoreValue of [-1, "abc", 12.5, 6.49]) {
+      const res = await adminApi
+        .patch(`${BASE}/applications/${anyId}/coursework-score`)
+        .send({ scoreValue })
+      expect(res.status).toBe(422)
+    }
+  })
+
+  it("creating an occurrence whose window has not opened reports 'scheduled'", async () => {
+    const res = await adminApi.post(`${BASE}/occurrences`).send({
+      title: "OBP Hardening",
+      awardYear: 2027,
+      applyStartAt: hoursFromNow(6).toISOString(),
+      applyEndAt: hoursFromNow(48).toISOString(),
+      eligibleRollNumbers: ["BPH001"],
+    })
+    expect(res.status).toBe(201)
+    occurrence = res.body.data.occurrence
+    expect(occurrence.status).toBe("active")
+    expect(occurrence.applicationWindowStatus).toBe("scheduled")
+  })
+
+  it("applying before the window opens is rejected with 400", async () => {
+    const api = await as(applicant.user)
+    const res = await api
+      .post(`${BASE}/occurrences/${occurrence.id}/application`)
+      .send(applicationPayload())
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/between the configured start and end date/i)
+
+    // Portal state mirrors the not-yet-open window.
+    const portal = await api.get(`${BASE}/student/portal-state`)
+    expect(portal.status).toBe(200)
+    expect(portal.body.data.applicationWindowStatus).toBe("scheduled")
+    expect(portal.body.data.canAccessPortal).toBe(false)
+  })
+
+  it("moving the start time to exactly now opens the window and accepts an application", async () => {
+    const openNow = await adminApi.put(`${BASE}/occurrences/${occurrence.id}`).send({
+      applyStartAt: new Date().toISOString(),
+      applyEndAt: new Date(Date.now() + 3_000).toISOString(), // closes in 3s
+    })
+    expect(openNow.status).toBe(200)
+    expect(openNow.body.data.occurrence.applicationWindowStatus).toBe("open")
+
+    const api = await as(applicant.user)
+    const submit = await api
+      .post(`${BASE}/occurrences/${occurrence.id}/application`)
+      .send(applicationPayload())
+    expect(submit.status).toBe(200)
+    expect(submit.body.message).toBe("Application submitted successfully")
+    applicationId = submit.body.data.application.id
+  })
+
+  it("after the window's end timestamp passes, further edits are rejected with 400", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 3200))
+
+    const api = await as(applicant.user)
+    const res = await api
+      .post(`${BASE}/occurrences/${occurrence.id}/application`)
+      .send(applicationPayload())
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/between the configured start and end date/i)
+
+    // The occurrence auto-closes once the window lapses.
+    const selector = await adminApi.get(`${BASE}/occurrences/selector`)
+    const serialized = selector.body.data.occurrences.find(
+      (o) => String(o.id) === String(occurrence.id)
+    )
+    expect(serialized.status).toBe("closed")
+  })
+
+  it("review becomes available as soon as applyEndAt has passed, without waiting for lazy status flip", async () => {
+    // closeExpiredOccurrences flips the stored status lazily, but the review
+    // guard compares now() against applyEndAt directly — which already lapsed
+    // above — so approval succeeds immediately.
+    const res = await adminApi
+      .post(`${BASE}/applications/${applicationId}/review`)
+      .send({ decision: "approved", remarks: "ok" })
+    expect(res.status).toBe(200)
+    expect(res.body.message).toBe("Application approved")
+  })
+
+  it("item-type reclassification on an approved application re-scores the final score", async () => {
+    const before = await adminApi.get(`${BASE}/occurrences/${occurrence.id}`)
+    const entry = before.body.data.leaderboard.find(
+      (item) => item.rollNumber === applicant.profile.rollNumber
+    )
+    const previousTotal = entry.finalScore
+
+    const res = await adminApi
+      .patch(`${BASE}/applications/${applicationId}/item-type`)
+      .send({
+        sectionKey: "responsibilityItems",
+        itemIndex: 0,
+        scoreType: "participation",
+      })
+    expect(res.status).toBe(200)
+    // responsibilities drop from 4 to 1 -> approved finalScore follows the total.
+    expect(res.body.data.application.responsibilityItems[0].calculatedPoints).toBe(1)
+    expect(res.body.data.application.review.finalScore).toBeCloseTo(previousTotal - 3, 2)
+  })
+
+  it("editing scores after rejection keeps the serialized final score at 0", async () => {
+    const reject = await adminApi
+      .post(`${BASE}/applications/${applicationId}/review`)
+      .send({ decision: "rejected", remarks: "Insufficient evidence" })
+    expect(reject.status).toBe(200)
+    expect(reject.body.data.application.finalScore).toBe(0)
+
+    const rescore = await adminApi
+      .patch(`${BASE}/applications/${applicationId}/coursework-score`)
+      .send({ scoreValue: 10 })
+    expect(rescore.status).toBe(200)
+    // calculatedTotal is recomputed (coursework 15 max) but the serialized
+    // finalScore stays 0 because review.status === "rejected".
+    expect(rescore.body.data.application.calculatedTotal).toBeGreaterThan(0)
+    expect(rescore.body.data.application.finalScore).toBe(0)
+  })
+})

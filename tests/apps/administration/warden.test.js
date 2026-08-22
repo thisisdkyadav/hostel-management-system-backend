@@ -278,3 +278,38 @@ describe("Hostel Supervisor profile & active hostel", () => {
     expect(res.body.message).toMatch(/not assigned/i)
   })
 })
+
+describe("Cross-family & edge-case hardening", () => {
+  it("403 cross-family (reverse): an Associate Warden cannot use the plain Warden active-hostel route", async () => {
+    const hostel = await seedHostel()
+    const { user } = await seedAssociateWardenProfile({ hostels: [hostel], activeHostel: hostel })
+    const api = await as(user)
+
+    const res = await api.put(`${BASE}/active-hostel`).send({ hostelId: String(hostel._id) })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toMatch(/Access denied/i)
+  })
+
+  it("404 when an authenticated Hostel Supervisor has no staff profile", async () => {
+    const supervisor = await seed.hostelSupervisor() // User only, no StaffRoles doc
+    const api = await as(supervisor)
+    const res = await api.get(`${BASE}/hostel-supervisor/profile`)
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/Hostel Supervisor profile not found/i)
+  })
+
+  it("SUSPECTED BUG: a non-ObjectId hostelId string crashes the warden switch with a 500", async () => {
+    // staffRoles doc's hostelIds.some((id) => id.equals("garbage")) throws a
+    // mongoose CastError inside the service; asyncHandler surfaces it as a
+    // 500 instead of a 400/403. Documenting current behavior.
+    const assigned = await seedHostel()
+    const { user } = await seedWardenProfile({ hostels: [assigned], activeHostel: assigned })
+    const api = await as(user)
+
+    const res = await api.put(`${BASE}/active-hostel`).send({ hostelId: "not-an-objectid" })
+    expect([400, 403, 500]).toContain(res.status) // pinned loosely until triaged
+    if (res.status === 500) {
+      expect(res.body.success).toBe(false)
+    }
+  })
+})

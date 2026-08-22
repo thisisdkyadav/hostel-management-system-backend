@@ -256,3 +256,181 @@ describe("events — PUT /:id and DELETE /:id", () => {
     expect(listRes.body.events).toHaveLength(0)
   })
 })
+
+describe("events — hardening: gender scoping", () => {
+  let adminApi, hostelF
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    hostelF = await campusSeed.createHostel({ name: "Gender Scope Hostel F", gender: "Girls" })
+
+    await adminApi.post("/api/v1/event").send({
+      eventName: "GS Female Only",
+      description: "girls of hostel F",
+      dateAndTime: future(11),
+      hostelId: String(hostelF._id),
+      gender: "Female",
+    })
+    await adminApi.post("/api/v1/event").send({
+      eventName: "GS Male Only",
+      description: "boys only despite girls hostel",
+      dateAndTime: future(12),
+      hostelId: String(hostelF._id),
+      gender: "Male",
+    })
+    await adminApi.post("/api/v1/event").send({
+      eventName: "GS Global Event",
+      description: "no hostel no gender",
+      dateAndTime: future(13),
+    })
+    await adminApi.post("/api/v1/event").send({
+      eventName: "GS Other Gender Event",
+      description: "for the Other gender bucket",
+      dateAndTime: future(14),
+      gender: "Other",
+    })
+    await refreshEventsCache()
+  })
+
+  it("female student of the hostel sees same-hostel Female + global events only", async () => {
+    const { user } = await campusSeed.studentWithProfile({
+      profile: { gender: "Female", hostel: hostelF },
+    })
+    const res = await as(user).then((api) => api.get("/api/v1/event"))
+    expect(res.status).toBe(200)
+    const names = res.body.events.map((e) => e.eventName)
+    expect(names).toContain("GS Female Only")
+    expect(names).toContain("GS Global Event")
+    expect(names).not.toContain("GS Male Only")
+    expect(names).not.toContain("GS Other Gender Event")
+  })
+
+  it("'Other'-gender events reach students whose profile gender is 'Other'", async () => {
+    const { user } = await campusSeed.studentWithProfile({ profile: { gender: "Other" } })
+    const res = await as(user).then((api) => api.get("/api/v1/event"))
+    expect(res.status).toBe(200)
+    const names = res.body.events.map((e) => e.eventName)
+    expect(names).toContain("GS Other Gender Event")
+    // No allocation -> still sees fully-global events.
+    expect(names).toContain("GS Global Event")
+    expect(names).not.toContain("GS Male Only")
+    expect(names).not.toContain("GS Female Only")
+  })
+
+  it("male student never sees the Female-only event even in his own hostel", async () => {
+    const { user } = await campusSeed.studentWithProfile({
+      profile: { gender: "Male", hostel: hostelF },
+    })
+    const res = await as(user).then((api) => api.get("/api/v1/event"))
+    const names = res.body.events.map((e) => e.eventName)
+    expect(names).toContain("GS Male Only")
+    expect(names).not.toContain("GS Female Only")
+  })
+
+  it("unknown filter values normalize to 'all' (documented)", async () => {
+    const res = await adminApi.get("/api/v1/event?filter=yesterday")
+    expect(res.status).toBe(200)
+    expect(res.body.filters).toEqual({ filter: "all", search: "" })
+    // 'all' ordering: upcoming first (soonest first), then past.
+    const times = res.body.events
+      .filter((e) => new Date(e.dateAndTime).getTime() > Date.now())
+      .map((e) => new Date(e.dateAndTime).getTime())
+    expect([...times].sort((a, b) => a - b)).toEqual(times)
+  })
+})
+
+describe("events — hardening: past-date creation and optional-field updates", () => {
+  let adminApi, hostelG
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    hostelG = await campusSeed.createHostel({ name: "Event Edit Hostel G" })
+  })
+
+  it("creating an event with a past dateAndTime succeeds and lands in filter=past (documented)", async () => {
+    // SUSPECTED BUG (design gap): there is no validation against creating
+    // already-past events; admins can backdate freely.
+    const res = await adminApi.post("/api/v1/event").send({
+      eventName: "GS Backdated Event",
+      description: "created after it supposedly happened",
+      dateAndTime: past(2),
+    })
+    expect(res.status).toBe(201)
+
+    const pastList = await adminApi.get("/api/v1/event?filter=past&search=backdated")
+    expect(pastList.body.events.map((e) => e.eventName)).toEqual(["GS Backdated Event"])
+  })
+
+  it("missing description alone surfaces as the generic 500 (documented)", async () => {
+    // SUSPECTED BUG: required-field violations are caught by the service's
+    // blanket catch -> 500 "Failed to create Event" instead of a 4xx.
+    const res = await adminApi
+      .post("/api/v1/event")
+      .send({ eventName: "No description event", dateAndTime: future(6) })
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to create Event")
+  })
+
+  it("PUT omitting hostelId silently clears an event's hostel scope (documented)", async () => {
+    // SUSPECTED BUG: updateEvent coerces hostelId to `hostelId || null`, so any
+    // partial update that omits hostelId DETACHES a hostel-scoped event from
+    // its hostel. Because null-hostel events are treated as global, this
+    // silently WIDENS the audience from one hostel to every student.
+    const created = await adminApi.post("/api/v1/event").send({
+      eventName: "GS Scoped Editable",
+      description: "scoped before edit",
+      dateAndTime: future(15),
+      hostelId: String(hostelG._id),
+      gender: "Male",
+    })
+    const eventId = created.body.event._id
+
+    const res = await adminApi.put(`/api/v1/event/${eventId}`).send({
+      eventName: "GS Scoped Editable Renamed",
+      description: "still scoped? apparently not",
+      dateAndTime: future(16),
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.event.hostelId).toBeNull()
+
+    // Persisted: the event is now visible to students of OTHER hostels too.
+    await refreshEventsCache()
+    const otherHostel = await campusSeed.createHostel({ name: "Event Edit Hostel H" })
+    const { user } = await campusSeed.studentWithProfile({
+      profile: { gender: "Male", hostel: otherHostel },
+    })
+    const scoped = await as(user).then((api) => api.get("/api/v1/event"))
+    // Before the update a hostel-H male student could never see this event;
+    // after the partial update it leaks into his feed.
+    expect(scoped.body.events.map((e) => e.eventName)).toContain("GS Scoped Editable Renamed")
+  })
+
+  it("gender: omitted stays untouched; explicit null clears it (documented)", async () => {
+    const created = await adminApi.post("/api/v1/event").send({
+      eventName: "GS Gender Editable",
+      description: "gender dance",
+      dateAndTime: future(17),
+      gender: "Female",
+    })
+    const eventId = created.body.event._id
+
+    // Omitted gender is stripped from the update by mongoose -> unchanged.
+    let res = await adminApi.put(`/api/v1/event/${eventId}`).send({
+      eventName: "GS Gender Editable",
+      description: "gender omitted",
+      dateAndTime: future(17),
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.event.gender).toBe("Female")
+
+    // Explicit null clears the gender restriction.
+    res = await adminApi.put(`/api/v1/event/${eventId}`).send({
+      eventName: "GS Gender Editable",
+      description: "gender cleared",
+      dateAndTime: future(18),
+      gender: null,
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.event.gender).toBeNull()
+  })
+})

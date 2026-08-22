@@ -505,6 +505,126 @@ describe("dining rebates", () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Registration-window boundaries + eligibility edges
+// ---------------------------------------------------------------------------
+
+describe("dining window boundaries and eligibility edges", () => {
+  it("treats a period before its allocation window as upcoming and refuses selection", async () => {
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "WIN001" })
+    const caterer = await createCaterer({ name: "Upcoming Mess" })
+    // Window opens an hour from now -> the period exists but selection must not.
+    await createDiningPeriod({
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["WIN001"],
+      allocationStartAt: new Date(Date.now() + 60 * 60 * 1000),
+      allocationEndAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 0 }],
+    })
+
+    const api = await as(student)
+    const portal = await api.get(`${BASE}/portal`)
+    expect(portal.status).toBe(200)
+    expect(portal.body.data.activeAllocationPeriod).toBeNull()
+    expect(portal.body.data.canSelect).toBe(false)
+    const upcoming = portal.body.data.upcomingAllocationPeriod
+    expect(upcoming).toBeTruthy()
+    expect(upcoming.allocationStatus).toBe("Not started")
+
+    const select = await api.post(`${BASE}/select`).send({ catererId: String(caterer._id) })
+    expect(select.status).toBe(400)
+    expect(select.body.message).toBe("No dining allocation period is open right now")
+  })
+
+  it("keeps the window selectable right up to allocationEndAt (inclusive upper bound)", async () => {
+    // NOTE: the service compares with $gte(now), so the window stays open AT
+    // the end instant. The exact instant cannot be hit without clock control;
+    // we approximate by selecting inside a window that closes ~1.5s later.
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "WIN002" })
+    const caterer = await createCaterer({ name: "Closing Mess" })
+    await createDiningPeriod({
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["WIN002"],
+      allocationStartAt: new Date(Date.now() - 60 * 60 * 1000),
+      allocationEndAt: new Date(Date.now() + 1500),
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 0 }],
+    })
+
+    const api = await as(student)
+    const res = await api.post(`${BASE}/select`).send({ catererId: String(caterer._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.message).toBe("Caterer selected successfully")
+    expect(res.body.data.activeAllocationPeriod.selectedAllocation.catererId).toBe(String(caterer._id))
+  })
+
+  it("reports a caterer whose capacity is already fully seeded as full", async () => {
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "WIN003" })
+    const fullMess = await createCaterer({ name: "Seeded Full Mess" })
+    const spareMess = await createCaterer({ name: "Spare Mess" })
+    // allocatedCount arrives at max WITHOUT any real allocations — the portal
+    // must flag it and selection must refuse it.
+    await createDiningPeriod({
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["WIN003"],
+      catererIds: [fullMess._id, spareMess._id],
+      catererCapacities: [
+        { catererId: fullMess._id, maxStudentCount: 2, allocatedCount: 2 },
+        { catererId: spareMess._id, maxStudentCount: 2, allocatedCount: 0 },
+      ],
+    })
+
+    const api = await as(student)
+    const portal = await api.get(`${BASE}/portal`)
+    const capacities = portal.body.data.activeAllocationPeriod.catererCapacities
+    const seededFull = capacities.find((e) => e.catererId === String(fullMess._id))
+    expect(seededFull.isFull).toBe(true)
+    expect(seededFull.remainingSeats).toBe(0)
+
+    const res = await api.post(`${BASE}/select`).send({ catererId: String(fullMess._id) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("This caterer is full. Please select another caterer.")
+  })
+
+  it("hides the open period from POST /select for a student not on the custom list", async () => {
+    // Distinct from the inactive-student case: this roll simply isn't listed,
+    // so the period is INVISIBLE (400 "no open period"), never a 403.
+    const outsider = await seed.student()
+    await createStudentProfile({ userId: outsider._id, rollNumber: "WIN004" })
+    const caterer = await createCaterer({ name: "Private Mess" })
+    await createDiningPeriod({
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["WIN001"],
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 0 }],
+    })
+
+    const api = await as(outsider)
+    const res = await api.post(`${BASE}/select`).send({ catererId: String(caterer._id) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("No dining allocation period is open right now")
+
+    const portal = await api.get(`${BASE}/portal`)
+    expect(portal.body.data.activeAllocationPeriod).toBeNull()
+    expect(portal.body.data.canSelect).toBe(false)
+  })
+
+  it("returns 404 on POST /select when the caller has no student profile", async () => {
+    const student = await seed.student()
+    const api = await as(student)
+    const res = await api
+      .post(`${BASE}/select`)
+      .send({ catererId: "000000000000000000000000" })
+    expect(res.status).toBe(404)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Student profile not found")
+  })
+})
+
 describe("GET /billing", () => {
   it("returns an empty billing list for a student without a profile", async () => {
     // SUSPECTED BUG: unlike every other student-dining route, billing does NOT

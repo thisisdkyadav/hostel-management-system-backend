@@ -305,3 +305,180 @@ describe("ordered workflow: save -> directory -> delete -> directory", () => {
     expect(after.body.data.signatories).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardened edges
+// ---------------------------------------------------------------------------
+
+describe("GET /signature (my signature) — hardened edges", () => {
+  it("signatures are owner-scoped: one user's save is invisible to another", async () => {
+    const a = await seed.student({ name: "Scope Owner A" })
+    const b = await seed.student({ name: "Scope Bystander B" })
+
+    await (await as(a)).put(BASE).send({ type: "text", text: "only mine" })
+
+    const other = await (await as(b)).get(BASE)
+    expect(other.status).toBe(200)
+    expect(other.body.data).toEqual({ signature: null })
+
+    const own = await (await as(a)).get(BASE)
+    expect(own.body.data.signature.text).toBe("only mine")
+  })
+
+  it("GET after DELETE returns the null shape with the standard envelope keys", async () => {
+    const u = await seed.student({ name: "Envelope Probe" })
+    const api = await as(u)
+    await api.put(BASE).send({ type: "text", text: "temp" })
+    await api.delete(BASE)
+    const res = await api.get(BASE)
+    expect(res.status).toBe(200)
+    expect(res.body).toMatchObject({ success: true, data: { signature: null } })
+    expect("message" in res.body).toBe(true)
+    expect("errors" in res.body).toBe(true)
+  })
+})
+
+describe("PUT /signature — hardened validation edges", () => {
+  let student
+
+  beforeAll(async () => {
+    student = await seed.student({ name: "Hard Sig Student" })
+  })
+
+  it("empty object body defaults to type image and demands an imageRef", async () => {
+    const api = await as(student)
+    const res = await api.put(BASE).send({})
+    expect(res.status).toBe(400)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Upload a signature image before saving")
+    expect(res.body.data).toBeNull()
+    expect(res.body.errors).toBeNull()
+  })
+
+  it("an unrecognized type value coerces to image (and then requires an imageRef)", async () => {
+    const api = await as(student)
+    const res = await api.put(BASE).send({ type: "scrawl", name: "Hard Sig Student", text: "real text" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Upload a signature image before saving")
+  })
+
+  it("a non-string type value (number) also coerces to image", async () => {
+    const api = await as(student)
+    const res = await api.put(BASE).send({ type: 123, name: "Hard Sig Student" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Upload a signature image before saving")
+  })
+
+  it("non-string imageRef values are stringified and accepted (lenient coercion, current behavior)", async () => {
+    const u = await seed.warden({ name: "Coercion Warden" })
+    const api = await as(u)
+    const res = await api.put(BASE).send({ name: "Coercion Warden", imageRef: 12345 })
+    expect(res.status).toBe(200)
+    const fetched = await api.get(BASE)
+    expect(fetched.body.data.signature.imageRef).toBe("12345")
+  })
+
+  it("a whitespace-only name falls back to the stored user's name", async () => {
+    const api = await as(student)
+    const res = await api.put(BASE).send({ type: "text", name: "   ", text: "sig" })
+    expect(res.status).toBe(200)
+    const fetched = await api.get(BASE)
+    expect(fetched.body.data.signature.name).toBe("Hard Sig Student")
+  })
+
+  it("accepts a very long signature text (no max length enforced)", async () => {
+    const u = await seed.warden({ name: "Long Text Warden" })
+    const api = await as(u)
+    const huge = "x".repeat(10000)
+    const res = await api.put(BASE).send({ type: "text", name: "Long Text Warden", text: huge })
+    expect(res.status).toBe(200)
+    const fetched = await api.get(BASE)
+    expect(fetched.body.data.signature.text).toHaveLength(10000)
+  })
+
+  it("double submit of the same payload succeeds twice and keeps one signature", async () => {
+    const u = await seed.associateWarden({ name: "Double Submit AW" })
+    const api = await as(u)
+    const payload = { type: "text", name: "Double Submit AW", text: "same scrawl" }
+    const first = await api.put(BASE).send(payload)
+    const second = await api.put(BASE).send(payload)
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    const fetched = await api.get(BASE)
+    expect(fetched.body.data.signature.text).toBe("same scrawl")
+  })
+})
+
+describe("DELETE /signature — hardened edges", () => {
+  it("delete does not disturb another user's signature", async () => {
+    const a = await seed.student({ name: "Del Iso A" })
+    const b = await seed.student({ name: "Del Iso B" })
+    await (await as(b)).put(BASE).send({ type: "text", text: "keep me" })
+    await (await as(a)).put(BASE).send({ type: "text", text: "erase me" })
+    await (await as(a)).delete(BASE)
+
+    const survivor = await (await as(b)).get(BASE)
+    expect(survivor.body.data.signature.text).toBe("keep me")
+  })
+})
+
+describe("GET /signature/directory — hardened edges", () => {
+  let admin
+  let subRoleSigner
+
+  beforeAll(async () => {
+    admin = await seed.admin({ name: "Dir Hard Admin" })
+    subRoleSigner = await seed.createUser({
+      role: "Gymkhana",
+      subRole: "President Gymkhana",
+      name: "Dir Hard Subrole Signer",
+    })
+    await (await as(subRoleSigner)).put(BASE).send({ type: "text", text: "president" })
+  })
+
+  it("403 for Super Admin too — the directory is strictly Admin-only (role gate)", async () => {
+    const sa = await seed.superAdmin({ name: "Dir Hard SA" })
+    const api = await as(sa)
+    const res = await api.get(`${BASE}/directory`)
+    expect(res.status).toBe(403)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Access denied. Required role: Admin")
+  })
+
+  it("403 for Maintenance Staff (second unauthorized role)", async () => {
+    const api = await as(await seed.maintenanceStaff())
+    const res = await api.get(`${BASE}/directory`)
+    expect(res.status).toBe(403)
+  })
+
+  it("surfaces subRole and uses it as the position fallback for staff signers", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/directory`).query({ search: "dir hard subrole" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.signatories).toHaveLength(1)
+    expect(res.body.data.signatories[0]).toMatchObject({
+      userId: String(subRoleSigner._id),
+      role: "Gymkhana",
+      subRole: "President Gymkhana",
+      position: "President Gymkhana",
+      type: "text",
+      hasImage: false,
+    })
+  })
+
+  it("search matches substrings case-insensitively", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/directory`).query({ search: "hard SUB" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.signatories.map((s) => s.name)).toEqual(["Dir Hard Subrole Signer"])
+  })
+
+  it("SUSPECTED BUG: regex metacharacters in search are unescaped and crash with a 500", async () => {
+    // listSignatories interpolates `search` straight into $regex without escaping,
+    // so "[" raises a Mongo regular-expression error handled as a 500.
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/directory`).query({ search: "[" })
+    expect(res.status).toBe(500)
+    expect(res.body.success).toBe(false)
+  })
+})

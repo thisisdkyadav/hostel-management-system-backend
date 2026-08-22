@@ -2,7 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
-import { createStudentProfile } from "../../helpers/seed/operations.js"
+import {
+  createStudentProfile,
+  createRoom,
+} from "../../helpers/seed/operations.js"
+import { createAllocation } from "../../helpers/seed/students.js" // links StudentProfile.currentRoomAllocation
+import { seedHostel, seedWardenProfile } from "../../helpers/seed/admin-sw.js"
 
 beforeAll(async () => {
   await setupTestDb()
@@ -299,5 +304,74 @@ describe("POST /family/bulk-update", () => {
     // nothing was written
     const getA = await adminApi.get(`${BASE}/${studentA.user._id}`)
     expect(getA.body).toHaveLength(1) // still "A Only Contact"
+  })
+
+  it("positive scope: a warden with an active hostel reaches only students allocated to that hostel", async () => {
+    // Hostel + rooms; one student allocated in-scope, one out-of-scope.
+    const { user: wardenUser } = await seedWardenProfile({})
+    const hostel = await seedHostel()
+    const room = await createRoom({ hostelId: hostel._id, capacity: 2 })
+
+    const inScope = await seedStudent()
+    const outOfScope = await seedStudent()
+    await createAllocation({
+      userId: inScope.user._id,
+      studentProfileId: inScope.profile._id,
+      hostelId: hostel._id,
+      roomId: room._id,
+    })
+    const otherHostel = await seedHostel()
+    const otherRoom = await createRoom({ hostelId: otherHostel._id, capacity: 2 })
+    await createAllocation({
+      userId: outOfScope.user._id,
+      studentProfileId: outOfScope.profile._id,
+      hostelId: otherHostel._id,
+      roomId: otherRoom._id,
+    })
+
+    // The fabricated session hardcodes hostel:null — override it so
+    // getHostelScope(req.user) binds the warden to `hostel`.
+    const api = await as(wardenUser, {
+      userData: { hostel: { _id: hostel._id, name: hostel.name, type: hostel.type } },
+    })
+
+    const res = await api.post(`${BASE}/bulk-update`).send({
+      familyData: {
+        members: [
+          { rollNumber: inScope.profile.rollNumber, name: "Scoped In", relationship: "Mother", phone: "1" },
+          { rollNumber: outOfScope.profile.rollNumber, name: "Scoped Out", relationship: "Mother", phone: "2" },
+        ],
+      },
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.totalUpdated).toBe(1)
+    expect(res.body.data.notFound).toEqual([outOfScope.profile.rollNumber.toUpperCase()])
+
+    // only the in-scope student got members written
+    const getIn = await adminApi.get(`${BASE}/${inScope.user._id}`)
+    expect(getIn.body.map((m) => m.name)).toEqual(["Scoped In"])
+    const getOut = await adminApi.get(`${BASE}/${outOfScope.user._id}`)
+    expect(getOut.body).toHaveLength(0)
+  })
+
+  it("Hostel Supervisor role may manage family members too", async () => {
+    const supervisor = await seed.hostelSupervisor()
+    const api = await as(supervisor)
+    const fresh = await seedStudent()
+
+    const created = await api.post(`${BASE}/${fresh.user._id}`).send({
+      name: "HS Contact", relationship: "Uncle", phone: "8881112223",
+    })
+    expect(created.status).toBe(201)
+
+    const get = await api.get(`${BASE}/${fresh.user._id}`)
+    expect(get.body).toHaveLength(1)
+    expect(get.body[0].name).toBe("HS Contact")
+  })
+
+  it("400 for a malformed userId on GET (CastError)", async () => {
+    const res = await adminApi.get(`${BASE}/not-an-objectid`)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/invalid id format/i)
   })
 })

@@ -167,3 +167,83 @@ describe("GET /api/v1/online-users/:userId", () => {
     expect(res.body.message).toBe("User is not currently online not found")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: pagination/filter/param edges
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/online-users — edge inputs", () => {
+  it("403 for more non-admin roles (Warden, Maintenance Staff)", async () => {
+    for (const user of [warden, await seed.maintenanceStaff()]) {
+      const api = await as(user)
+      const res = await api.get(BASE)
+      expect(res.status).toBe(403)
+      const resStats = await api.get(`${BASE}/stats`)
+      expect(resStats.status).toBe(403)
+    }
+  })
+
+  it("200 empty page for page=0 (slice clamps negative skip)", async () => {
+    const api = await as(admin)
+    const res = await api.get(BASE).query({ page: 0, limit: 50 })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+    expect(res.body.pagination.page).toBe(0)
+  })
+
+  it("200 empty page for page=-1", async () => {
+    const api = await as(admin)
+    const res = await api.get(BASE).query({ page: -1, limit: 50 })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+  })
+
+  it("200 empty page for non-numeric page (parseInt NaN -> slice(NaN) -> [])", async () => {
+    const api = await as(admin)
+    const res = await api.get(BASE).query({ page: "abc", limit: 50 })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+  })
+
+  it("200 honors limit=1000 and returns every online user in one page", async () => {
+    const api = await as(admin)
+    const res = await api.get(BASE).query({ page: 1, limit: 1000 })
+    expect(res.status).toBe(200)
+    expect(res.body.pagination.limit).toBe(1000)
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2)
+    expect(res.body.pagination.totalPages).toBe(1)
+  })
+
+  it("200 zero matches for an invalid role filter value", async () => {
+    const api = await as(admin)
+    const res = await api.get(BASE).query({ role: "SupremeLeader" })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+    expect(res.body.pagination.total).toBe(0)
+    expect(res.body.pagination.totalPages).toBe(0)
+  })
+
+  it("200 zero matches for a hostelId filter with no online users", async () => {
+    const api = await as(admin)
+    const ghostHostel = await createHostel({ name: "Online Ghost Hostel" })
+    const res = await api.get(BASE).query({ hostelId: String(ghostHostel._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toHaveLength(0)
+  })
+})
+
+describe("GET /api/v1/online-users/:userId — param edges", () => {
+  it("404 for a malformed userId (treated as simply-not-online)", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/not-an-object-id`)
+    expect(res.status).toBe(404)
+    expect(res.body.success).toBe(false)
+  })
+
+  it("404 for a well-formed but unknown userId", async () => {
+    const { default: mongoose } = await import("mongoose")
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/${new mongoose.Types.ObjectId()}`)
+    expect(res.status).toBe(404)
+    expect(res.body.message).toBe("User is not currently online not found")
+  })
+})

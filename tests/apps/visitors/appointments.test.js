@@ -360,6 +360,160 @@ describe("appointments — admin review workflow", () => {
   })
 })
 
+// ---- hardening edges (added) ----------------------------------------------
+
+/** Local-midnight YYYY-MM-DD, so parseDateOnly's date-only branch lines up with
+ * the service's local-time minimumPreferredDate(). */
+const localDateOnly = (offsetDays) => {
+  const d = new Date()
+  d.setDate(d.getDate() + offsetDays)
+  const p = (n) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+describe("appointments — submit boundary validation", () => {
+  it("preferredDate exactly day-after-tomorrow is accepted; tomorrow is refused", async () => {
+    const admin = await appointmentAdmin()
+    const api = await anon()
+
+    // one day short of the minimum lead time
+    let res = await api.post("/api/v1/appointments").send({ ...validPayload(admin._id), preferredDate: localDateOnly(1) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/day-after-tomorrow/i)
+
+    // the exact boundary passes the >= comparison
+    res = await api.post("/api/v1/appointments").send({ ...validPayload(admin._id), preferredDate: localDateOnly(2) })
+    expect(res.status).toBe(201)
+    expect(new Date(res.body.appointment.preferredDate).getDate()).toBe(
+      (() => {
+        const d = new Date()
+        d.setDate(d.getDate() + 2)
+        return d.getDate()
+      })()
+    )
+  })
+
+  it("mobile number digit-count boundaries: 9 refused, 10 ok, 15 ok, 16 refused; non-digits are stripped before counting", async () => {
+    const admin = await appointmentAdmin()
+    const api = await anon()
+    const base = validPayload(admin._id)
+
+    const cases = [
+      ["123456789", false], // 9 digits
+      ["1234567890", true], // 10 digits — lower bound inclusive
+      ["123456789012345", true], // 15 digits — upper bound inclusive
+      ["1234567890123456", false], // 16 digits
+      ["+91 98765 43210", true], // formatting stripped -> 12 digits
+    ]
+    for (const [mobile, shouldPass] of cases) {
+      const res = await api.post("/api/v1/appointments").send({ ...base, mobileNumber: mobile })
+      if (shouldPass) expect(res.status).toBe(201)
+      else {
+        expect(res.status).toBe(400)
+        expect(res.body.message).toMatch(/mobile/i)
+      }
+    }
+  })
+
+  it("script-like payloads are stored verbatim (no sanitisation at this layer)", async () => {
+    const admin = await appointmentAdmin()
+    const api = await anon()
+
+    const res = await api.post("/api/v1/appointments").send({
+      ...validPayload(admin._id),
+      visitorName: "<script>alert('xss')</script>",
+      reason: "<img src=x onerror=alert(1)>",
+      idNumber: "' OR 1=1 --",
+    })
+    expect(res.status).toBe(201)
+    // stored and echoed exactly as submitted (only trimmed)
+    expect(res.body.appointment.visitorName).toBe("<script>alert('xss')</script>")
+    expect(res.body.appointment.reason).toBe("<img src=x onerror=alert(1)>")
+    expect(res.body.appointment.idNumber).toBe("' OR 1=1 --")
+  })
+})
+
+describe("appointments — admin list pagination & search robustness", () => {
+  async function pendingForAdmin(subRole) {
+    const admin = await appointmentAdmin(subRole)
+    const res = await (await anon()).post("/api/v1/appointments").send(validPayload(admin._id))
+    expect(res.status).toBe(201)
+    return admin
+  }
+
+  it("clamps limit=1000 down to 100 and page=-1 back to page 1", async () => {
+    const admin = await pendingForAdmin("Officer SA")
+    const api = await as(admin)
+
+    const res = await api.get("/api/v1/appointments/admin?page=-1&limit=1000")
+    expect(res.status).toBe(200)
+    expect(res.body.pagination.page).toBe(1)
+    expect(res.body.pagination.limit).toBe(100)
+    expect(Number(res.body.pagination.total)).toBeGreaterThanOrEqual(1)
+  })
+
+  it("search input is compiled as a raw RegExp — regex metacharacters crash the query // SUSPECTED BUG", async () => {
+    const admin = await pendingForAdmin("Dean SA")
+    const api = await as(admin)
+
+    // getAdminAppointments builds `new RegExp(query.search.trim(), "i")` from raw
+    // user input. A lone "(" throws a SyntaxError inside the service, which the
+    // global handler surfaces as a 500 instead of treating search as literal text.
+    const res = await api.get("/api/v1/appointments/admin?search=" + encodeURIComponent("("))
+    expect(res.status).toBe(500) // SUSPECTED BUG: unescaped user input in RegExp -> unhandled 500
+
+    // harmless metacharacters that happen to compile behave as pattern syntax
+    const dot = await api.get("/api/v1/appointments/admin?search=.")
+    expect(dot.status).toBe(200)
+    expect(dot.body.items.length).toBeGreaterThanOrEqual(0)
+  })
+})
+
+describe("appointments — cross-scope review & rejected-request gate entry", () => {
+  async function pendingAppointmentFor(admin) {
+    const res = await (await anon()).post("/api/v1/appointments").send(validPayload(admin._id))
+    expect(res.status).toBe(201)
+    return res.body.appointment.id
+  }
+
+  it("a second appointment-admin cannot GET or REVIEW another official's pending request", async () => {
+    const owner = await appointmentAdmin("Officer SA")
+    const id = await pendingAppointmentFor(owner)
+
+    const otherApi = await as(await appointmentAdmin("Dean SA"))
+
+    const view = await otherApi.get(`/api/v1/appointments/admin/${id}`)
+    expect(view.status).toBe(403)
+    expect(view.body.message).toMatch(/assigned to you/i)
+
+    const review = await otherApi
+      .patch(`/api/v1/appointments/admin/${id}/review`)
+      .send({ action: "approve", approvedDate: futureDate(5), approvedTime: "10:00 AM" })
+    expect(review.status).toBe(403)
+    expect(review.body.message).toMatch(/assigned to you/i)
+
+    // the request is untouched by the forbidden attempt
+    const stillPending = await (await as(owner)).get(`/api/v1/appointments/admin/${id}`)
+    expect(stillPending.body.appointment.status).toBe("Pending")
+  })
+
+  it("gate entry is refused on a rejected appointment (same guard as pending)", async () => {
+    const owner = await appointmentAdmin("Associate Dean SA")
+    const id = await pendingAppointmentFor(owner)
+
+    const reject = await (await as(owner))
+      .patch(`/api/v1/appointments/admin/${id}/review`)
+      .send({ action: "reject", description: "Official unavailable" })
+    expect(reject.status).toBe(200)
+    expect(reject.body.appointment.status).toBe("Rejected")
+
+    const gateApi = await as(await seed.createUser({ role: "Hostel Gate" }))
+    const res = await gateApi.patch(`/api/v1/appointments/gate/${id}/entry`).send({ note: "walk-in" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/only approved appointments/i)
+  })
+})
+
 describe("appointments — hostel gate entry", () => {
   it("gate list shows only approved appointments; today filter by default", async () => {
     const admin = await appointmentAdmin()

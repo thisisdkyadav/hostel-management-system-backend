@@ -260,3 +260,35 @@ describe("sheet fixtures", () => {
     })
   })
 })
+
+describe("sheet — empty hostel sheet shape", () => {
+  it("room-only hostel with no rooms returns an empty data array with full column defs", async () => {
+    const hostel = await createHostel({ name: "Empty Room-only", type: "room-only", gender: "Boys" })
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/hostel/${hostel._id}`)
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.hostel).toMatchObject({ id: String(hostel._id), name: hostel.name, type: "room-only" })
+    expect(res.body.data).toEqual([])
+    expect(res.body.totalRows).toBe(0)
+
+    // column definitions are static, not data-derived
+    const accessors = res.body.columns.map((c) => c.accessorKey)
+    expect(accessors).not.toContain("unitNumber")
+    expect(accessors).toContain("roomNumber")
+    expect(accessors).toContain("bedNumber")
+    expect(accessors).toContain("studentName")
+  })
+
+  it("unit-based hostel with no units/rooms still exposes the unit columns", async () => {
+    const hostel = await createHostel({ name: "Empty Unit-based", type: "unit-based", gender: "Girls" })
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/hostel/${hostel._id}`)
+    expect(res.status).toBe(200)
+    expect(res.body.data).toEqual([])
+    expect(res.body.totalRows).toBe(0)
+
+    const accessors = res.body.columns.map((c) => c.accessorKey)
+    expect(accessors.slice(0, 2)).toEqual(["unitNumber", "unitFloor"])
+  })
+})

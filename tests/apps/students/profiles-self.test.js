@@ -302,4 +302,76 @@ describe("POST /:userId/id-card", () => {
     const callerCard = await api.get(`${BASE}/${otherStudent._id}/id-card`)
     expect(callerCard.body.front).not.toBe("https://storage.example/mine-front.jpg")
   })
+
+  it("SUSPECTED BUG: a side omitted from the upload is stored as undefined, not \"\"", async () => {
+    const soloStudent = await seed.student()
+    await createStudentProfile({ userId: soloStudent._id, rollNumber: "IDP003" })
+    const api = await as(soloStudent)
+
+    // SUSPECTED BUG: uploadStudentIdCard assigns idCard = { front, back }
+    // verbatim, so an omitted side lands as an undefined key instead of the
+    // schema default "". Fresh profiles serialize both sides as "", but any
+    // partial upload makes the missing side vanish from the payload.
+    const res = await api.post(`${BASE}/${soloStudent._id}/id-card`).send({
+      front: "https://storage.example/solo-front.jpg",
+      // back intentionally omitted
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.message).toBe("Student ID card uploaded successfully")
+
+    const card = await api.get(`${BASE}/${soloStudent._id}/id-card`)
+    expect(card.status).toBe(200)
+    expect(card.body.front).toBe("https://storage.example/solo-front.jpg")
+    expect(card.body.back).toBeUndefined()
+
+    // And the reverse: back-only upload leaves front as an absent key.
+    const backOnly = await seed.student()
+    await createStudentProfile({ userId: backOnly._id, rollNumber: "IDP004" })
+    const backApi = await as(backOnly)
+    await backApi.post(`${BASE}/${backOnly._id}/id-card`).send({
+      back: "https://storage.example/solo-back.jpg",
+    })
+    const backCard = await backApi.get(`${BASE}/${backOnly._id}/id-card`)
+    expect(backCard.status).toBe(200)
+    expect(backCard.body.front).toBeUndefined()
+    expect(backCard.body.back).toBe("https://storage.example/solo-back.jpg")
+  })
+
+  it("accepts a completely empty upload body (both sides reset to empty strings)", async () => {
+    const emptyStudent = await seed.student()
+    await createStudentProfile({ userId: emptyStudent._id, rollNumber: "IDP005" })
+    const api = await as(emptyStudent)
+
+    const res = await api.post(`${BASE}/${emptyStudent._id}/id-card`).send({})
+    expect(res.status).toBe(200)
+
+    const card = await api.get(`${BASE}/${emptyStudent._id}/id-card`)
+    expect(card.status).toBe(200)
+    expect(card.body).toEqual({ front: "", back: "" })
+  })
+})
+
+describe("GET /dashboard — no-profile and cache edges", () => {
+  let counter = 0
+  const uniq = () => `${Date.now().toString(36)}${(counter++).toString(36)}`
+
+  it("a 404 dashboard result is NOT cached — the profile appears once created", async () => {
+    const student = await seed.student()
+    const api = await as(student)
+
+    const before = await api.get(`${BASE}/dashboard`)
+    expect(before.status).toBe(404)
+    expect(before.body.message).toBe("Student profile not found")
+
+    const roll = `DC${uniq()}`.toUpperCase()
+    await createStudentProfile({ userId: student._id, rollNumber: roll })
+
+    const after = await api.get(`${BASE}/dashboard`)
+    expect(after.status).toBe(200)
+    expect(after.body.success).toBe(true)
+    expect(after.body.data.profile.rollNumber).toBe(roll)
+    // No allocation seeded -> room info stays null rather than erroring.
+    expect(after.body.data.roomInfo).toBeNull()
+    expect(after.body.data.stats.complaints.total).toBe(0)
+  })
 })

@@ -1218,3 +1218,350 @@ describe("dining office staff", () => {
     expect(again.body.message).toBe("Dining office login not found")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening additions — period date validation, archive/assign flows,
+// bulk dedupe, reconcile idempotency, billing bulk mixed rows.
+// ---------------------------------------------------------------------------
+
+describe("dining period date validation and overlap rules", () => {
+  let caterer
+
+  beforeAll(async () => {
+    caterer = await createCaterer({ name: "DateVal Mess" })
+  })
+
+  it("400 when startDate is after endDate", async () => {
+    const res = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(10), endDate: utcDay(1) }))
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Start date must be before or equal to end date")
+  })
+
+  it("400 when the self-registration window starts after it ends", async () => {
+    const res = await adminApi.post(`${BASE}/dining-periods`).send({
+      ...manualPeriodPayload({ caterers: [caterer] }),
+      registrationEnabled: true,
+      allocationStartAt: utcDay(5),
+      allocationEndAt: utcDay(2),
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Allocation start time must be before or equal to allocation end time")
+  })
+
+  it("400 on unparseable dates", async () => {
+    const res = await adminApi.post(`${BASE}/dining-periods`).send(
+      manualPeriodPayload({ caterers: [caterer], startDate: "not-a-date", endDate: utcDay(5) }),
+    )
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Start date and end date are required")
+  })
+
+  it("equal start/end (single-day period) is accepted at the boundary", async () => {
+    const res = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(21), endDate: utcDay(21) }))
+    expect(res.status).toBe(201)
+
+    const list = await adminApi.get(`${BASE}/dining-periods`)
+    const row = list.body.find((p) => String(p.id) === String(res.body.data.id))
+    expect(dayKey(row.startDate)).toBe(dayKey(row.endDate))
+  })
+
+  // SUSPECTED BUG (missing constraint): nothing prevents two active periods
+  // from overlapping in time while sharing the same caterer, so a student
+  // could be double-charged for the same days across both periods.
+  it("overlapping periods sharing a caterer are both created — no overlap enforcement (documents current behavior)", async () => {
+    const shared = await createCaterer({ name: "Overlap Mess" })
+    const first = await adminApi.post(`${BASE}/dining-periods`).send(
+      manualPeriodPayload({ caterers: [shared], startDate: utcDay(30), endDate: utcDay(40) }),
+    )
+    expect(first.status).toBe(201)
+
+    const second = await adminApi.post(`${BASE}/dining-periods`).send(
+      manualPeriodPayload({ caterers: [shared], startDate: utcDay(35), endDate: utcDay(45) }),
+    )
+    expect(second.status).toBe(201)
+    expect(String(second.body.data.id)).not.toBe(String(first.body.data.id))
+  })
+})
+
+describe("caterer archive-then-assign flow", () => {
+  let periodId
+  let caterer
+
+  beforeAll(async () => {
+    caterer = await createCaterer({ name: "Archive Flow Mess" })
+    const created = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(-1), endDate: utcDay(50) }))
+    expect(created.status).toBe(201)
+    periodId = created.body.data.id
+
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "ARCH001" })
+  })
+
+  it("assigning to an already-archived caterer inside a live period still succeeds", async () => {
+    const archived = await adminApi.put(`${BASE}/caterers/${caterer._id}/archive`).send({ status: true })
+    expect(archived.status).toBe(200)
+    expect(archived.body.data.isArchived).toBe(true)
+
+    // SUSPECTED BUG (guard gap): assignStudent only checks that the caterer is
+    // part of the period, never that the caterer is still active. Archiving a
+    // caterer mid-period does not stop new assignments to it.
+    const assigned = await adminApi
+      .post(`${BASE}/dining-periods/${periodId}/allocations`)
+      .send({ rollNumber: "ARCH001", catererId: String(caterer._id) })
+    expect(assigned.status).toBe(200)
+    expect(assigned.body.data.status).toBe("assigned")
+  })
+
+  it("unarchiving restores the caterer for NEW periods", async () => {
+    const unarchive = await adminApi.put(`${BASE}/caterers/${caterer._id}/archive`).send({ status: false })
+    expect(unarchive.status).toBe(200)
+    expect(unarchive.body.data.isArchived).toBe(false)
+
+    const recreated = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(60), endDate: utcDay(70) }))
+    expect(recreated.status).toBe(201)
+  })
+})
+
+describe("bulk allocation duplicate-row handling", () => {
+  let periodId
+  let caterer
+
+  beforeAll(async () => {
+    caterer = await createCaterer({ name: "Bulk Dup Mess" })
+    const created = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(-1), endDate: utcDay(55) }))
+    expect(created.status).toBe(201)
+    periodId = created.body.data.id
+
+    for (const roll of ["BDUP001", "BDUP002"]) {
+      const s = await seed.student()
+      await createStudentProfile({ userId: s._id, rollNumber: roll })
+    }
+  })
+
+  it("case/whitespace variants of the same roll number collapse into one assignment", async () => {
+    const res = await adminApi
+      .post(`${BASE}/dining-periods/${periodId}/allocations/bulk`)
+      .send({ catererId: String(caterer._id), rollNumbers: ["BDUP001", "bdup001", " BDUP001 "] })
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.summary).toMatchObject({ assigned: 1, unchanged: 0, moved: 0, failed: 0 })
+    expect(res.body.data.failures).toEqual([])
+    expect(res.body.message).toContain("Assigned 1 student")
+
+    const view = await adminApi.get(`${BASE}/dining-periods/${periodId}/allocations`)
+    const entry = view.body.data.caterers.find((c) => c.catererId === String(caterer._id))
+    expect(entry.students.filter((row) => row.rollNumber === "BDUP001")).toHaveLength(1)
+    expect(entry.actualCount).toBe(1)
+  })
+
+  it("a duplicated unknown roll number is reported exactly once as failed", async () => {
+    const res = await adminApi
+      .post(`${BASE}/dining-periods/${periodId}/allocations/bulk`)
+      .send({ catererId: String(caterer._id), rollNumbers: ["BDUP002", "GHOSTDUP", "ghostdup"] })
+    expect(res.status).toBe(200)
+    expect(res.body.data.summary).toMatchObject({ assigned: 1, failed: 1 })
+    expect(res.body.data.failures).toHaveLength(1)
+    expect(res.body.data.failures[0]).toMatchObject({
+      rollNumber: "GHOSTDUP",
+      reason: "No student found with this roll number",
+    })
+  })
+})
+
+describe("reconcile idempotency on consistent data", () => {
+  let periodId
+  let caterer
+
+  beforeAll(async () => {
+    caterer = await createCaterer({ name: "Reconcile Clean Mess" })
+    const created = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(-1), endDate: utcDay(60) }))
+    expect(created.status).toBe(201)
+    periodId = created.body.data.id
+
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "RECON001" })
+    // assign through the API so counters are consistent by construction
+    const assigned = await adminApi
+      .post(`${BASE}/dining-periods/${periodId}/allocations`)
+      .send({ rollNumber: "RECON001", catererId: String(caterer._id) })
+    expect(assigned.status).toBe(200)
+  })
+
+  it("reconcile on drift-free data changes nothing and stays idempotent", async () => {
+    const before = await adminApi.get(`${BASE}/dining-periods/${periodId}/allocations`)
+    expect(before.body.data.hasDrift).toBe(false)
+
+    const res = await adminApi.post(`${BASE}/dining-periods/${periodId}/allocations/reconcile`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.data.changed).toBe(0)
+    expect(res.body.message).toBe("Seat counts already correct")
+
+    const after = await adminApi.get(`${BASE}/dining-periods/${periodId}/allocations`)
+    expect(after.body.data.hasDrift).toBe(false)
+    expect(after.body.data.totalAssigned).toBe(before.body.data.totalAssigned)
+    for (const entry of after.body.data.caterers) {
+      expect(entry.countDrift).toBe(false)
+      expect(entry.allocatedCount).toBe(entry.actualCount)
+    }
+  })
+
+  it("reconcile returns 404 for an unknown period", async () => {
+    const res = await adminApi
+      .post(`${BASE}/dining-periods/00000000000000000000000f/allocations/reconcile`)
+      .send({})
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/Dining period not found/)
+  })
+})
+
+describe("billing accounts bulk with mixed valid/invalid rows", () => {
+  let billingPeriodId
+  let studentUserId
+
+  beforeAll(async () => {
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "BILMIX01" })
+    studentUserId = String(student._id)
+
+    const caterer = await createCaterer({ name: "Billing Mix Mess" })
+    const period = await adminApi
+      .post(`${BASE}/dining-periods`)
+      .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(-1), endDate: utcDay(65) }))
+    expect(period.status).toBe(201)
+    const diningPeriodId = period.body.data.id
+
+    const created = await adminApi.post(`${BASE}/dining-billing-periods`).send({
+      name: `Mixed Rows Cycle ${Date.now()}`,
+      diningPeriodIds: [String(diningPeriodId)],
+    })
+    expect(created.status).toBe(201)
+    billingPeriodId = created.body.data.id
+  })
+
+  const bulk = (mode, entries) =>
+    adminApi.post(`${BASE}/dining-billing-periods/${billingPeriodId}/accounts/bulk`).send({ mode, entries })
+
+  it("skips blank rolls, NaN amounts and negatives while applying valid rows", async () => {
+    const res = await bulk("add", [
+      { rollNumber: "", amount: 100 }, // missing roll -> '(blank)'
+      { rollNumber: "BILMIX01", amount: "not-a-number" }, // NaN
+      { rollNumber: "BILMIX01", amount: -50 }, // negative
+      { rollNumber: " bilmix01 ", amount: 250 }, // normalized + applied
+    ])
+    expect(res.status).toBe(200)
+    expect(res.body.data.updated).toBe(1)
+    expect(res.body.data.total).toBe(4)
+    expect(res.body.data.skipped.map((s) => `${s.rollNumber}: ${s.reason}`)).toEqual([
+      "(blank): Missing roll number",
+      "BILMIX01: Invalid amount",
+      "BILMIX01: Invalid amount",
+    ])
+
+    const accounts = (
+      await adminApi.get(`${BASE}/dining-billing-periods/${billingPeriodId}/accounts`)
+    ).body.data.accounts
+    const mine = accounts.find((a) => String(a.studentUserId) === studentUserId)
+    expect(mine.allocatedAmount).toBe(250)
+    expect(mine.adjustmentCount).toBe(1)
+  })
+
+  it("duplicate rows are each applied (add accumulates twice)", async () => {
+    const res = await bulk("add", [
+      { rollNumber: "BILMIX01", amount: 10 },
+      { rollNumber: "BILMIX01", amount: 15 },
+    ])
+    expect(res.status).toBe(200)
+    expect(res.body.data.updated).toBe(2)
+
+    const accounts = (
+      await adminApi.get(`${BASE}/dining-billing-periods/${billingPeriodId}/accounts`)
+    ).body.data.accounts
+    const mine = accounts.find((a) => String(a.studentUserId) === studentUserId)
+    expect(mine.allocatedAmount).toBe(275) // 250 + 10 + 15
+    expect(mine.adjustmentCount).toBe(3)
+  })
+
+  // SUSPECTED BUG (no floor): deducting more than the allocated pot is allowed,
+  // driving allocatedAmount negative; balance/clearance then report 'dues'
+  // against money that was never there rather than refusing the deduction.
+  it("deduct below zero drives the account negative (documents current behavior)", async () => {
+    const res = await bulk("deduct", [{ rollNumber: "BILMIX01", amount: 10000 }])
+    expect(res.status).toBe(200)
+    expect(res.body.data.updated).toBe(1)
+
+    const detail = await adminApi.get(`${BASE}/dining-billing-periods/${billingPeriodId}/accounts`)
+    const mine = detail.body.data.accounts.find((a) => String(a.studentUserId) === studentUserId)
+    expect(mine.allocatedAmount).toBeLessThan(0)
+    expect(mine.clearance).toBe("dues")
+  })
+})
+
+describe("rebate review — non-CWO admin subrole", () => {
+  let rebateId
+  let subrolledAdminApi
+
+  beforeAll(async () => {
+    // Admin with an operations subRole that is NOT Chief Warden / CWO.
+    const subrolledAdmin = await seed.admin({ subRole: "HCU" })
+    subrolledAdminApi = await as(subrolledAdmin)
+
+    const student = await seed.student()
+    await createStudentProfile({ userId: student._id, rollNumber: "SUBR001" })
+    const caterer = await createCaterer({ name: "SubRole Rebate Mess" })
+    const profile = await (
+      await import("../../../src/models/index.js")
+    ).StudentProfile.findOne({ userId: student._id })
+    const period = await createDiningPeriod({
+      eligibilityMode: "all-active",
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 0 }],
+      startDate: utcDay(-2),
+      endDate: utcDay(20),
+    })
+    const { DiningRebate } = await import("../../../src/models/index.js")
+    rebateId = String(
+      (
+        await DiningRebate.create({
+          requestGroupId: `subrole-rebate-${Date.now()}`,
+          periodId: period._id,
+          catererId: caterer._id,
+          studentUserId: student._id,
+          studentProfileId: profile._id,
+          rollNumber: "SUBR001",
+          startDate: utcDay(5),
+          endDate: utcDay(6),
+          dateKeys: [dayKey(utcDay(5)), dayKey(utcDay(6))],
+          dayCount: 2,
+          type: "long-term",
+          status: "pending",
+          reason: "SubRole gate probe",
+        })
+      )._id,
+    )
+  })
+
+  it("an Admin without a CWO/Chief Warden subrole can approve rebates (route checks role only)", async () => {
+    const res = await subrolledAdminApi.put(`${BASE}/dining-rebates/${rebateId}/approve`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.message).toBe("Rebate approved successfully")
+    expect(res.body.data.rebate.status).toBe("approved")
+
+    // visible through the standard admin list endpoint
+    const list = await adminApi.get(`${BASE}/dining-rebates`).query({ status: "approved" })
+    expect(list.body.data.rebates.some((r) => String(r.id) === rebateId)).toBe(true)
+  })
+})

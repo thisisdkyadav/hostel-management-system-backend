@@ -672,3 +672,183 @@ describe("hostel gates", () => {
   })
 })
 
+// ---------------------------------------------------------------------------
+// Hardening additions — creation edge cases across the staff groups.
+// ---------------------------------------------------------------------------
+describe("staff creation hardening — unknown fields, email case, phone format", () => {
+  let adminApi
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  it("warden create silently drops unknown/extra fields; PUT with only unknown keys is still 400", async () => {
+    const email = emailFor("warden")
+    // `role`/`subRole` are NOT part of the warden create contract — a client
+    // sending them must not be able to influence the created user's role.
+    const res = await adminApi.post(BASE + "/warden").send({
+      name: "Extra Fields Warden",
+      email,
+      password: "secret123",
+      role: "Admin",
+      subRole: "HCU",
+      bogusField: { nested: true },
+    })
+    expect(res.status).toBe(201)
+
+    const entry = byEmail((await adminApi.get(`${BASE}/wardens`)).body, email)
+    expect(entry).toBeDefined()
+    expect(entry.name).toBe("Extra Fields Warden")
+
+    // The update path confirms strict-schema behavior from the API side:
+    // an unknown-only payload is treated as "no update data" rather than
+    // being accepted or crashing.
+    const put = await adminApi.put(BASE + `/warden/${entry.id}`).send({ bogusField: 1 })
+    expect(put.status).toBe(400)
+    expect(put.body.message).toMatch(/No update data provided/i)
+  })
+
+  it("duplicate emails are caught case-insensitively (warden)", async () => {
+    const email = `Mixed.Case-Warden-${unique()}@HMS.Test`
+    expect(
+      (await adminApi.post(BASE + "/warden").send({ name: "Case One", email, password: "secret123" })).status,
+    ).toBe(201)
+
+    const lower = await adminApi.post(BASE + "/warden").send({
+      name: "Case Two",
+      email: email.toLowerCase(),
+      password: "secret123",
+    })
+    expect(lower.status).toBe(400)
+    expect(lower.body.message).toMatch(/already exists/i)
+  })
+
+  it("duplicate emails are caught case-insensitively (maintenance + gymkhana)", async () => {
+    const maintEmail = `Maint.Dup-${unique()}@HMS.Test`
+    expect(
+      (
+        await adminApi.post(`${BASE}/maintenance`).send({
+          name: "Maint Dup",
+          email: maintEmail,
+          password: "secret123",
+          category: "Plumbing",
+        })
+      ).status,
+    ).toBe(201)
+    const maintDup = await adminApi.post(`${BASE}/maintenance`).send({
+      name: "Maint Dup Two",
+      email: maintEmail.toUpperCase(),
+      password: "secret123",
+      category: "Plumbing",
+    })
+    expect(maintDup.status).toBe(400)
+
+    const gymPayload = {
+      name: `Gym Dup ${unique()}`,
+      email: `gym-dup-${unique()}@hms.test`,
+      password: "secret123",
+      subRole: "GS Gymkhana",
+    }
+    expect((await adminApi.post(`${BASE}/gymkhana`).send(gymPayload)).status).toBe(201)
+    const gymDup = await adminApi
+      .post(`${BASE}/gymkhana`)
+      .send({ ...gymPayload, email: gymPayload.email.toUpperCase() })
+    expect(gymDup.status).toBe(400)
+    expect(gymDup.body.message).toMatch(/already exists/i)
+  })
+
+  it("phone numbers are stored verbatim with no format validation (documents current behavior)", async () => {
+    const email = emailFor("associate-warden")
+    const phone = "+++not-a-phone##"
+    const res = await adminApi.post(BASE + "/associate-warden").send({
+      name: "Weird Phone AW",
+      email,
+      password: "secret123",
+      phone,
+    })
+    expect(res.status).toBe(201)
+
+    const entry = byEmail((await adminApi.get(`${BASE}/associate-wardens`)).body, email)
+    expect(entry.phone).toBe(phone)
+  })
+
+  // SUSPECTED BUG: neither createWarden nor the service validates that the ids
+  // in hostelIds reference real hostels. A well-formed but nonexistent ObjectId
+  // produces status "assigned", activeHostelId pointing at a ghost hostel, and
+  // the warden is listed as assigned to hostels that do not exist.
+  it("warden-family hostelIds containing unknown hostel ids are accepted as 'assigned' (documents current behavior)", async () => {
+    const ghostA = objectId()
+    const ghostB = objectId()
+    const email = emailFor("warden")
+    const res = await adminApi.post(BASE + "/warden").send({
+      name: "Ghost Hostel Warden",
+      email,
+      password: "secret123",
+      hostelIds: [ghostA, ghostB],
+    })
+    expect(res.status).toBe(201)
+
+    const entry = byEmail((await adminApi.get(`${BASE}/wardens`)).body, email)
+    expect(entry.status).toBe("assigned")
+    expect(entry.hostelIds.map(String)).toEqual([ghostA, ghostB])
+    expect(String(entry.activeHostelId)).toBe(ghostA)
+  })
+
+  it("gymkhana multi-category payloads dedupe case variants and resolve object-form entries", async () => {
+    const p = {
+      name: `Gym MultiCat ${unique()}`,
+      email: emailFor("gymkhana"),
+      password: "secret123",
+      subRole: "Club",
+      categories: ["Sports", "sports", "SPORTS", { key: "cultural" }, { label: "Technical" }, "Cultural"],
+    }
+    const created = await adminApi.post(`${BASE}/gymkhana`).send(p)
+    expect(created.status).toBe(201)
+
+    const entry = byEmail((await adminApi.get(`${BASE}/gymkhana`)).body, p.email)
+    // first-appearance order after dedupe against the normalized key set
+    expect(entry.categories).toEqual(["sports", "cultural", "technical"])
+    expect([...entry.categoryLabels].sort()).toEqual(["Cultural", "Sports", "Technical"])
+  })
+
+  it("gymkhana rejects a payload mixing valid and invalid categories", async () => {
+    const res = await adminApi.post(`${BASE}/gymkhana`).send({
+      name: `Gym MixedCat ${unique()}`,
+      email: emailFor("gymkhana"),
+      password: "secret123",
+      subRole: "Committee",
+      categories: ["Sports", "Not Real Category", "Cultural"],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/Invalid Gymkhana categories: Not Real Category/)
+  })
+
+  it("security staff: delete-then-recreate with the same email succeeds", async () => {
+    const hostel = await createHostel()
+    const email = emailFor("security")
+    const first = await adminApi.post(`${BASE}/security`).send({
+      name: "Recycled Guard",
+      email,
+      password: "secret123",
+      hostelId: String(hostel._id),
+    })
+    expect(first.status).toBe(201)
+
+    const del = await adminApi.delete(`${BASE}/security/${first.body.security._id}`)
+    expect(del.status).toBe(200)
+
+    const second = await adminApi.post(`${BASE}/security`).send({
+      name: "Recycled Guard II",
+      email,
+      password: "secret123",
+      hostelId: String(hostel._id),
+    })
+    expect(second.status).toBe(201)
+    // a genuinely new record was created, not a resurrect of the old one
+    expect(String(second.body.security._id)).not.toBe(String(first.body.security._id))
+
+    const list = (await adminApi.get(`${BASE}/security`)).body
+    expect(list.filter((e) => e.email.toLowerCase() === email.toLowerCase())).toHaveLength(1)
+  })
+})
+

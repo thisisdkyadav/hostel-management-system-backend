@@ -170,6 +170,21 @@ describe("POST /email/send — SMTP-disabled no-op behavior", () => {
     adminApi = await as(admin)
   })
 
+  it("a Super Admin passes the role guard and hits the same validation contract", async () => {
+    const superAdmin = await seed.superAdmin()
+    const saApi = await as(superAdmin)
+
+    // flat payload -> same 422 as the Admin actor
+    const flat = await saApi.post(`${BASE}/send`).send(FLAT_BODY)
+    expect(flat.status).toBe(422)
+    expect(flat.body.errors[0].field).toBe("body")
+
+    // nested payload passes validation and degrades at the disabled transport
+    const nested = await saApi.post(`${BASE}/send`).send(NESTED_BODY)
+    expect(nested.status).toBe(500)
+    expect(nested.body.message).toMatch(/not configured/i)
+  })
+
   it("nested single-recipient payload passes validation, fails at the disabled transport with 500", async () => {
     const res = await adminApi.post(`${BASE}/send`).send(NESTED_BODY)
     expect(res.status).toBe(500)

@@ -275,3 +275,158 @@ describe("clubs portal (/me)", () => {
     expect(res.body.data.club.email).toBe("chess-society@hms.test")
   })
 })
+
+describe("clubs hardening: field-level validation, credential flows, rename side effects", () => {
+  let adminApi
+  let superAdminApi
+  let studentApi
+  let clubUser
+  let club
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    superAdminApi = await as(await seed.superAdmin())
+    studentApi = await as(await seed.student())
+
+    const created = await adminApi.post(BASE).send({
+      name: "Debate Club",
+      email: "debate@hms.test",
+      gymkhanaCategoryKey: "academic",
+    })
+    expect(created.status).toBe(201)
+    club = created.body.data.club
+    clubUser = await saSeed.userById(club.userId)
+  })
+
+  // ---------- create with missing/invalid fields one at a time ----------
+  it("POST / rejects a missing email with a validation error", async () => {
+    const res = await adminApi.post(BASE).send({
+      name: "Emailless Club",
+      gymkhanaCategoryKey: "sports",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it("POST / rejects a missing GS category with a validation error", async () => {
+    const res = await adminApi.post(BASE).send({
+      name: "Categoriless Club",
+      email: "categoriless@hms.test",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it("POST / rejects a too-short name with a validation error", async () => {
+    const res = await adminApi.post(BASE).send({
+      name: "A",
+      email: "short-name@hms.test",
+      gymkhanaCategoryKey: "sports",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it("POST / rejects a malformed email with a validation error", async () => {
+    const res = await adminApi.post(BASE).send({
+      name: "Malformed Email Club",
+      email: "not-an-email",
+      gymkhanaCategoryKey: "sports",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it("POST / rejects an empty GS category string with a validation error (enum lower bound)", async () => {
+    const res = await adminApi.post(BASE).send({
+      name: "Empty Category Club",
+      email: "empty-category@hms.test",
+      gymkhanaCategoryKey: "   ",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it("POST / is allowed for Super Admin (unmapped-role fall-through)", async () => {
+    const res = await superAdminApi.post(BASE).send({
+      name: "Super Club",
+      email: "super-club@hms.test",
+      gymkhanaCategoryKey: "technical",
+    })
+    expect(res.status).toBe(201)
+  })
+
+  // ---------- login-as-club credential flows ----------
+  it("the linked club login cannot list clubs (admin-only route)", async () => {
+    const res = await as(clubUser).then((api) => api.get(BASE))
+    expect(res.status).toBe(403)
+  })
+
+  it("the linked club login cannot create clubs", async () => {
+    const api = await as(clubUser)
+    const res = await api.post(BASE).send({
+      name: "Rogue Club",
+      email: "rogue@hms.test",
+      gymkhanaCategoryKey: "sports",
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it("the linked club login cannot update its own club document", async () => {
+    const api = await as(clubUser)
+    const res = await api.put(`${BASE}/${club.id}`).send({ name: "Self Promoted Club" })
+    expect(res.status).toBe(403)
+  })
+
+  it("PUT /:id rejects unauthenticated requests with 401", async () => {
+    const api = await anon()
+    const res = await api.put(`${BASE}/${club.id}`).send({ name: "Nope" })
+    expect(res.status).toBe(401)
+  })
+
+  it("PUT /:id rejects students with 403", async () => {
+    const res = await studentApi.put(`${BASE}/${club.id}`).send({ name: "Nope" })
+    expect(res.status).toBe(403)
+  })
+
+  // ---------- rename sync side effects ----------
+  it("renaming to the same value is a conflict-free no-op and keeps the club usable", async () => {
+    const res = await adminApi
+      .put(`${BASE}/${club.id}`)
+      .send({ name: "Debate Club", email: "debate@hms.test" })
+    expect(res.status).toBe(200)
+    expect(res.body.message).toBe("Club updated successfully")
+    expect(res.body.data.club.name).toBe("Debate Club")
+
+    // The linked login still resolves.
+    const me = await as(clubUser).then((api) => api.get(`${BASE}/me`))
+    expect(me.status).toBe(200)
+    expect(me.body.data.club.id).toBe(String(club.id))
+  })
+
+  it("renaming syncs the linked login user's name for future sessions", async () => {
+    const res = await adminApi
+      .put(`${BASE}/${club.id}`)
+      .send({ name: "Debate Society" })
+    expect(res.status).toBe(200)
+
+    // Fresh session fabricated from the re-fetched user doc carries the new name.
+    const refreshed = await saSeed.userById(club.userId)
+    expect(refreshed.name).toBe("Debate Society")
+    const me = await as(refreshed).then((api) => api.get(`${BASE}/me`))
+    expect(me.body.data.club.name).toBe("Debate Society")
+  })
+
+  it("PUT /:id rejects an unknown category with the service-level 400", async () => {
+    const res = await adminApi
+      .put(`${BASE}/${club.id}`)
+      .send({ gymkhanaCategoryKey: "underwater-basket-weaving" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/valid GS category/i)
+  })
+
+  it("PUT /:id returns 409 when renaming to a name that differs only by case/whitespace", async () => {
+    const list = await adminApi.get(BASE)
+    const other = list.body.data.clubs.find((c) => c.id !== String(club.id))
+    const res = await adminApi
+      .put(`${BASE}/${club.id}`)
+      .send({ name: `  ${other.name.toUpperCase()}  ` })
+    expect(res.status).toBe(409)
+    expect(res.body.message).toMatch(/name already exists/i)
+  })
+})

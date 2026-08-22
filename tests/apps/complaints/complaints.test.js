@@ -959,3 +959,753 @@ describe("ordered workflow: create -> progress -> resolve -> feedback", () => {
     expect(stats.body.data.resolved).toBeGreaterThanOrEqual(1)
   })
 })
+
+// ============================================================================
+// Hardening: appended edge-case suites (see audit notes inline)
+// ============================================================================
+
+describe("POST /complaint — validation & attachments edges", () => {
+  let wired
+
+  beforeAll(async () => {
+    wired = await complaintsFixtures.studentWithRoom(seed)
+  })
+
+  it("422 when title is missing", async () => {
+    const api = await as(wired.user)
+    const res = await api.post(BASE).send({ description: "no title here" })
+    expect(res.status).toBe(422)
+    expect(res.body.success).toBe(false)
+    expect(res.body.message).toBe("Validation failed")
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "title" })])
+    )
+  })
+
+  it("422 when description is missing", async () => {
+    const api = await as(wired.user)
+    const res = await api.post(BASE).send({ title: "No description" })
+    expect(res.status).toBe(422)
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "description" })])
+    )
+  })
+
+  it("422 for an empty-string title", async () => {
+    const api = await as(wired.user)
+    const res = await api.post(BASE).send({ title: "", description: "d" })
+    expect(res.status).toBe(422)
+  })
+
+  it("422 for an empty-string description", async () => {
+    const api = await as(wired.user)
+    const res = await api.post(BASE).send({ title: "t", description: "" })
+    expect(res.status).toBe(422)
+  })
+
+  it("422 for a category outside the model enum", async () => {
+    const api = await as(wired.user)
+    const res = await api
+      .post(BASE)
+      .send({ title: "t", description: "d", category: "Gardening" })
+    expect(res.status).toBe(422)
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "category" })])
+    )
+  })
+
+  it("accepts a 10000-character description", async () => {
+    const api = await as(wired.user)
+    const long = "x".repeat(10000)
+    const res = await api.post(BASE).send({ title: "Long", description: long })
+    expect(res.status).toBe(200)
+    expect(res.body.data.description).toHaveLength(10000)
+  })
+
+  it("wraps a scalar attachments value into an array", async () => {
+    // The schema is [String]; Mongoose casts a scalar into a one-element array.
+    const api = await as(wired.user)
+    const res = await api
+      .post(BASE)
+      .send({ title: "Scalar attach", description: "d", attachments: "media://photo/solo.jpg" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.attachments).toEqual(["media://photo/solo.jpg"])
+  })
+
+  it("accepts an empty attachments array and null entries pass through untouched", async () => {
+    const api = await as(wired.user)
+    const res = await api
+      .post(BASE)
+      .send({ title: "Empty attach", description: "d", attachments: [] })
+    expect(res.status).toBe(200)
+    expect(res.body.data.attachments).toEqual([])
+  })
+
+  it("422 for staff creating without any userId (userId is required)", async () => {
+    const admin = await seed.admin()
+    const api = await as(admin)
+    const res = await api.post(BASE).send({ title: "No owner", description: "d" })
+    expect(res.status).toBe(422)
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "userId" })])
+    )
+  })
+
+  it("422 for staff filing with a malformed userId (cast failure surfaces as ValidationError)", async () => {
+    const admin = await seed.admin()
+    const api = await as(admin)
+    const res = await api.post(BASE).send({
+      userId: "not-an-objectid",
+      title: "Bad id",
+      description: "d",
+    })
+    expect(res.status).toBe(422)
+    expect(res.body.message).toBe("Validation failed")
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "userId" })])
+    )
+  })
+})
+
+describe("GET /complaint/all — pagination & filter edges", () => {
+  let wired
+  let complaintId
+
+  beforeAll(async () => {
+    wired = await complaintsFixtures.studentWithRoom(seed)
+    const created = await complaintsFixtures.createComplaint({
+      userId: wired.user._id,
+      title: "Pagination seed",
+      hostelId: wired.hostel._id,
+    })
+    complaintId = String(created._id)
+  })
+
+  it("honors limit=1000", async () => {
+    const api = await as(wired.user)
+    const res = await api.get(`${BASE}/all`).query({ limit: 1000 })
+    expect(res.status).toBe(200)
+    expect(res.body.data.pagination.limit).toBe(1000)
+  })
+
+  // SUSPECTED BUG: page=0 produces skip=-10, which crashes the Mongo query
+  // with an unhandled 500 instead of being clamped to page 1.
+  it("500s on page=0 (negative skip)", async () => {
+    const api = await as(wired.user)
+    const res = await api.get(`${BASE}/all`).query({ page: "0" })
+    expect(res.status).toBe(500)
+  })
+
+  // SUSPECTED BUG: page=-1 also produces a negative skip -> unhandled 500.
+  it("500s on page=-1", async () => {
+    const api = await as(wired.user)
+    const res = await api.get(`${BASE}/all`).query({ page: "-1" })
+    expect(res.status).toBe(500)
+  })
+
+  // Current behavior: NaN skip falls back to the first page of results, but
+  // the NaN page number serializes to null in the pagination envelope.
+  it("treats a non-numeric page like page 1 but reports pagination.page=null", async () => {
+    const api = await as(wired.user)
+    const res = await api.get(`${BASE}/all`).query({ page: "abc" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.id)).toContain(complaintId)
+    expect(res.body.data.pagination.page).toBeNull()
+    expect(res.body.data.pagination.total).toBe(1)
+  })
+
+  // SUSPECTED BUG: Number("abc") -> NaN reaches the query and the resulting
+  // CastError is reported as a generic 400 "Invalid ID format", mislabeling a
+  // bad filter value as an id problem.
+  it("400 (misleading 'Invalid ID format') for a non-numeric feedbackRating filter", async () => {
+    const api = await as(wired.user)
+    const res = await api.get(`${BASE}/all`).query({ feedbackRating: "abc" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("returns the seeded complaint for a valid rating filter after feedback exists", async () => {
+    const api = await as(wired.user)
+    await api.post(`${BASE}/${complaintId}/feedback`).send({ feedbackRating: 3 })
+    const res = await api.get(`${BASE}/all`).query({ feedbackRating: "3" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.id)).toContain(complaintId)
+  })
+
+  // SUSPECTED BUG: an unparseable date becomes Invalid Date and the resulting
+  // CastError is reported as a generic 400 "Invalid ID format" — misleading
+  // message for a bad *date filter*, and the 500 I feared never happens.
+  it("400 (misleading 'Invalid ID format') for a garbage startDate", async () => {
+    const api = await as(wired.user)
+    const res = await api.get(`${BASE}/all`).query({ startDate: "not-a-date" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("ignores the hostelId filter for students (own scope wins)", async () => {
+    const api = await as(wired.user)
+    const foreignHostel = await complaintsFixtures.createHostel()
+    const res = await api.get(`${BASE}/all`).query({ hostelId: String(foreignHostel._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.id)).toContain(complaintId)
+  })
+})
+
+describe("hostel-bound staff via session hostel override (no explicit constraint)", () => {
+  // getComplaintScopeContext derives scopedHostelIds from session user.hostel
+  // even when constraint.complaints.scope.hostelIds is not configured, so a
+  // warden/maintenance staff logged against one hostel must not touch another's.
+  let hostelA
+  let hostelB
+  let boundWarden
+  let boundMaintenance
+  let boundAssociate
+  let complaintA
+  let complaintB
+
+  beforeAll(async () => {
+    hostelA = await complaintsFixtures.createHostel({ name: "Bound Hostel A" })
+    hostelB = await complaintsFixtures.createHostel({ name: "Bound Hostel B" })
+
+    complaintA = await complaintsFixtures.createComplaint({
+      userId: (await seed.student())._id,
+      title: "Bound A",
+      hostelId: hostelA._id,
+    })
+    complaintB = await complaintsFixtures.createComplaint({
+      userId: (await seed.student())._id,
+      title: "Bound B",
+      hostelId: hostelB._id,
+    })
+
+    const override = {
+      hostel: { _id: String(hostelA._id), name: hostelA.name },
+    }
+    // Session-level hostel override: simulates staff logged into hostel A.
+    boundWarden = await seed.warden()
+    boundMaintenance = await seed.maintenanceStaff()
+    boundAssociate = await seed.associateWarden()
+  })
+
+  const apiAs = (user) =>
+    as(user, { userData: { hostel: { _id: String(hostelA._id), name: hostelA.name } } })
+
+  it("warden sees only own-hostel complaints even when asking for another hostel", async () => {
+    const api = await apiAs(boundWarden)
+    const res = await api.get(`${BASE}/all`).query({ hostelId: String(hostelB._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.title)).toEqual(["Bound A"])
+  })
+
+  it("associate warden bound to hostel A also only sees A", async () => {
+    const api = await apiAs(boundAssociate)
+    const res = await api.get(`${BASE}/all`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.title)).toEqual(["Bound A"])
+  })
+
+  it("maintenance staff can list through the guard but stays hostel-scoped", async () => {
+    const api = await apiAs(boundMaintenance)
+    const res = await api.get(`${BASE}/all`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.title)).toEqual(["Bound A"])
+  })
+
+  it("403 for a bound warden updating a foreign-hostel complaint status", async () => {
+    const api = await apiAs(boundWarden)
+    const res = await api.put(`${BASE}/${complaintB._id}/status`).send({ status: "In Progress" })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("You are not authorized to update this complaint")
+  })
+
+  it("403 for bound maintenance staff using the legacy update-status route abroad", async () => {
+    const api = await apiAs(boundMaintenance)
+    const res = await api
+      .put(`${BASE}/update-status/${complaintB._id}`)
+      .send({ status: "In Progress" })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("You are not authorized to update this complaint")
+  })
+
+  it("403 for a bound warden setting resolution notes abroad", async () => {
+    const api = await apiAs(boundWarden)
+    const res = await api
+      .put(`${BASE}/${complaintB._id}/resolution-notes`)
+      .send({ resolutionNotes: "sneaky" })
+    expect(res.status).toBe(403)
+  })
+
+  it("403 for a bound associate warden changing category abroad", async () => {
+    const api = await apiAs(boundAssociate)
+    const res = await api.put(`${BASE}/${complaintB._id}/category`).send({ category: "Civil" })
+    expect(res.status).toBe(403)
+  })
+
+  it("stats are scoped to the bound hostel", async () => {
+    const api = await apiAs(boundWarden)
+    const res = await api.get(`${BASE}/stats`)
+    expect(res.status).toBe(200)
+    expect(res.body.data).toEqual({ total: 1, pending: 1, inProgress: 0, resolved: 0, forwardedToIDO: 0 })
+  })
+
+  it("bound staff can still operate on their own hostel's complaint", async () => {
+    const api = await apiAs(boundWarden)
+    const res = await api.put(`${BASE}/${complaintA._id}/status`).send({ status: "In Progress" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("In Progress")
+
+    const back = await api.put(`${BASE}/${complaintA._id}/status`).send({ status: "Pending" })
+    expect(back.status).toBe(200)
+  })
+})
+
+describe("GET /complaint/student/complaints/:userId — role & id edges", () => {
+  let wired
+  let maintenance
+  let security
+
+  beforeAll(async () => {
+    wired = await complaintsFixtures.studentWithRoom(seed)
+    maintenance = await seed.maintenanceStaff()
+    security = await seed.security()
+    await complaintsFixtures.createComplaint({
+      userId: wired.user._id,
+      title: "Edge target",
+      hostelId: wired.hostel._id,
+    })
+  })
+
+  it('400 "Invalid ID format" for a malformed userId', async () => {
+    const api = await as(await seed.admin())
+    const res = await api.get(`${BASE}/student/complaints/not-an-objectid`)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("403 for Maintenance Staff (not in the route guard)", async () => {
+    const api = await as(maintenance)
+    const res = await api.get(`${BASE}/student/complaints/${wired.user._id}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("403 for Security", async () => {
+    const api = await as(security)
+    const res = await api.get(`${BASE}/student/complaints/${wired.user._id}`)
+    expect(res.status).toBe(403)
+  })
+
+  it("200 for Associate Warden", async () => {
+    const api = await as(await seed.associateWarden())
+    const res = await api.get(`${BASE}/student/complaints/${wired.user._id}`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.pagination.total).toBe(1)
+  })
+})
+
+describe("PUT /complaint/update-status/:id — legacy edges", () => {
+  let maintenance
+  let student
+  let complaint
+
+  beforeAll(async () => {
+    maintenance = await seed.maintenanceStaff()
+    student = await seed.student()
+    complaint = await complaintsFixtures.createComplaint({ userId: student._id, title: "Legacy edges" })
+  })
+
+  it('400 "Invalid ID format" for a malformed id', async () => {
+    const api = await as(maintenance)
+    const res = await api
+      .put(`${BASE}/update-status/not-an-objectid`)
+      .send({ status: "In Progress" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("403 for Security (outside the guard)", async () => {
+    const api = await as(await seed.security())
+    const res = await api.put(`${BASE}/update-status/${complaint._id}`).send({ status: "Pending" })
+    expect(res.status).toBe(403)
+  })
+
+  // SUSPECTED BUG: an empty body assigns `undefined` to the status field,
+  // which $unsets it on save; on the next read Mongoose re-applies the model
+  // default, so a live "In Progress"/"Resolved" complaint silently RESETS to
+  // "Pending" with a 200 response instead of a validation error.
+  it("resets the status to the model default when body omits status", async () => {
+    const api = await as(maintenance)
+    await api.put(`${BASE}/update-status/${complaint._id}`).send({ status: "In Progress" })
+
+    const res = await api.put(`${BASE}/update-status/${complaint._id}`).send({})
+    expect(res.status).toBe(200)
+
+    const listApi = await as(student)
+    const got = await listApi.get(`${BASE}/all`)
+    const item = got.body.data.items.find((c) => c.id === String(complaint._id))
+    expect(item.status).toBe("Pending") // silently reset from In Progress
+  })
+
+  it("422 for a malformed assignedTo ObjectId (cast failure surfaces as ValidationError)", async () => {
+    const api = await as(maintenance)
+    const res = await api
+      .put(`${BASE}/update-status/${complaint._id}`)
+      .send({ status: "In Progress", assignedTo: "garbage-id" })
+    expect(res.status).toBe(422)
+    expect(res.body.message).toBe("Validation failed")
+    expect(res.body.errors).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "assignedTo" })])
+    )
+  })
+
+  it("double-resolving is idempotent (second call still 200 + Resolved)", async () => {
+    const api = await as(maintenance)
+    const first = await api
+      .put(`${BASE}/update-status/${complaint._id}`)
+      .send({ status: "Resolved", resolutionNotes: "once" })
+    expect(first.status).toBe(200)
+    expect(first.body.data.status).toBe("Resolved")
+
+    const second = await api
+      .put(`${BASE}/update-status/${complaint._id}`)
+      .send({ status: "Resolved", resolutionNotes: "twice" })
+    expect(second.status).toBe(200)
+    expect(second.body.data.status).toBe("Resolved")
+  })
+})
+
+describe("PUT /complaint/:complaintId/status — transition edges", () => {
+  let warden
+  let student
+  let complaint
+
+  beforeAll(async () => {
+    warden = await seed.warden()
+    student = await seed.student()
+    complaint = await complaintsFixtures.createComplaint({ userId: student._id, title: "Transitions" })
+  })
+
+  it('400 "Invalid ID format" for a malformed id', async () => {
+    const api = await as(warden)
+    const res = await api.put(`${BASE}/garbage/status`).send({ status: "In Progress" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("Admin may drive the new status route too", async () => {
+    const api = await as(await seed.admin())
+    const res = await api.put(`${BASE}/${complaint._id}/status`).send({ status: "Forwarded to IDO" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Forwarded to IDO")
+  })
+
+  it("allows resolving straight from Pending (no transition guards exist)", async () => {
+    const api = await as(warden)
+    const fresh = await complaintsFixtures.createComplaint({ userId: student._id, title: "Jump resolve" })
+    const res = await api.put(`${BASE}/${fresh._id}/status`).send({ status: "Resolved" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Resolved")
+    expect(String(res.body.data.resolvedBy)).toBe(String(warden._id))
+  })
+
+  it("reopening a resolved complaint clears resolver + resolution date", async () => {
+    const api = await as(warden)
+    const reopenable = await complaintsFixtures.createComplaint({
+      userId: student._id,
+      title: "Reopen me",
+      status: "Resolved",
+      resolvedBy: warden._id,
+      resolutionDate: new Date(),
+    })
+    const res = await api.put(`${BASE}/${reopenable._id}/status`).send({ status: "In Progress" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("In Progress")
+    expect(res.body.data.resolvedBy).toBeNull()
+    expect(res.body.data.resolutionDate).toBeNull()
+  })
+
+  // SUSPECTED BUG: same reset-to-default hole as the legacy route — an empty
+  // body $unsets the status, so the complaint silently falls back to "Pending"
+  // (and resolvedBy/resolutionDate are nulled) instead of failing validation.
+  it("resets the status to the model default when the body has no status field", async () => {
+    const api = await as(warden)
+    const victim = await complaintsFixtures.createComplaint({
+      userId: student._id,
+      title: "Status wipe",
+      status: "In Progress",
+    })
+    const res = await api.put(`${BASE}/${victim._id}/status`).send({})
+    expect(res.status).toBe(200)
+
+    const listApi = await as(student)
+    const got = await listApi.get(`${BASE}/all`)
+    const item = got.body.data.items.find((c) => c.id === String(victim._id))
+    expect(item.status).toBe("Pending") // silently reset from In Progress
+  })
+})
+
+describe("PUT /complaint/:complaintId/resolution-notes & category — validation edges", () => {
+  let admin
+  let student
+  let complaint
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    student = await seed.student()
+    complaint = await complaintsFixtures.createComplaint({ userId: student._id, title: "Note/category edges" })
+  })
+
+  it('400 "Invalid ID format" for malformed ids on resolution-notes', async () => {
+    const api = await as(admin)
+    const res = await api
+      .put(`${BASE}/garbage/resolution-notes`)
+      .send({ resolutionNotes: "n" })
+    expect(res.status).toBe(400)
+  })
+
+  it('400 "Invalid ID format" for malformed ids on category', async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/garbage/category`).send({ category: "Civil" })
+    expect(res.status).toBe(400)
+  })
+
+  it('400 "Invalid ID format" for malformed ids on feedback', async () => {
+    const api = await as(student)
+    const res = await api.post(`${BASE}/garbage/feedback`).send({ feedback: "f" })
+    expect(res.status).toBe(400)
+  })
+
+  it("persists an empty-string resolution note", async () => {
+    const api = await as(admin)
+    const res = await api
+      .put(`${BASE}/${complaint._id}/resolution-notes`)
+      .send({ resolutionNotes: "" })
+    expect(res.status).toBe(200)
+
+    const listApi = await as(student)
+    const got = await listApi.get(`${BASE}/all`)
+    const item = got.body.data.items.find((c) => c.id === String(complaint._id))
+    expect(item.resolutionNotes).toBe("")
+  })
+
+  it("category update rejects a missing category with 400 (before even looking up the id)", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${complaint._id}/category`).send({})
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid complaint category")
+  })
+
+  it("category update is case-sensitive (lowercase rejected)", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${complaint._id}/category`).send({ category: "plumbing" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid complaint category")
+  })
+})
+
+describe("POST /complaint/:complaintId/feedback — validation gaps", () => {
+  let student
+  let pendingComplaint
+
+  beforeAll(async () => {
+    student = await seed.student()
+    pendingComplaint = await complaintsFixtures.createComplaint({
+      userId: student._id,
+      title: "Feedback on pending",
+      status: "Pending",
+    })
+  })
+
+  it("lets the owner leave feedback while the complaint is still Pending (no status gate)", async () => {
+    const api = await as(student)
+    const res = await api.post(`${BASE}/${pendingComplaint._id}/feedback`).send({
+      feedback: "Premature feedback",
+      feedbackRating: 2,
+      satisfactionStatus: "Unsatisfied",
+    })
+    expect(res.status).toBe(200)
+
+    const got = await api.get(`${BASE}/all`)
+    const item = got.body.data.items.find((c) => c.id === String(pendingComplaint._id))
+    expect(item.feedback).toBe("Premature feedback")
+  })
+
+  // SUSPECTED BUG: findByIdAndUpdate is called WITHOUT runValidators, so the
+  // model enum on feedbackRating (1..5) and satisfactionStatus is never
+  // enforced on this route — out-of-range values are persisted silently.
+  it("persists an out-of-range feedbackRating (enum bypassed)", async () => {
+    const api = await as(student)
+    const res = await api.post(`${BASE}/${pendingComplaint._id}/feedback`).send({ feedbackRating: 7 })
+    expect(res.status).toBe(200)
+
+    const got = await api.get(`${BASE}/all`).query({ feedbackRating: 7 })
+    expect(got.body.data.items.map((c) => c.id)).toContain(String(pendingComplaint._id))
+
+    // restore to a legal rating so the stored doc stays coherent
+    await api.post(`${BASE}/${pendingComplaint._id}/feedback`).send({ feedbackRating: 5 })
+  })
+
+  it("persists an unknown satisfactionStatus (enum bypassed)", async () => {
+    const api = await as(student)
+    const res = await api
+      .post(`${BASE}/${pendingComplaint._id}/feedback`)
+      .send({ satisfactionStatus: "Meh" })
+    expect(res.status).toBe(200)
+
+    const got = await api.get(`${BASE}/all`)
+    const item = got.body.data.items.find((c) => c.id === String(pendingComplaint._id))
+    expect(item.satisfactionStatus).toBe("Meh")
+
+    await api.post(`${BASE}/${pendingComplaint._id}/feedback`).send({ satisfactionStatus: "Satisfied" })
+  })
+})
+
+describe("GET /complaint/stats — extra edges", () => {
+  let hostelX
+  let admin
+  let localStudent
+
+  beforeAll(async () => {
+    hostelX = await complaintsFixtures.createHostel({ name: "Stats Hostel X" })
+    admin = await seed.admin()
+    localStudent = await seed.student()
+    await complaintsFixtures.createComplaint({
+      userId: localStudent._id,
+      status: "In Progress",
+      hostelId: hostelX._id,
+    })
+    await complaintsFixtures.createComplaint({ userId: localStudent._id, status: "Rejected" })
+  })
+
+  it("maintenance staff passes the guard", async () => {
+    const api = await as(await seed.maintenanceStaff())
+    const res = await api.get(`${BASE}/stats`)
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+  })
+
+  it("admin can narrow stats by hostelId", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/stats`).query({ hostelId: String(hostelX._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.data).toEqual({ total: 1, pending: 0, inProgress: 1, resolved: 0, forwardedToIDO: 0 })
+  })
+
+  it("students cannot use hostelId to widen their scope", async () => {
+    const api = await as(localStudent)
+    const res = await api.get(`${BASE}/stats`).query({ hostelId: String(hostelX._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.data.total).toBe(2) // both of their own complaints, nothing else
+    expect(res.body.data.inProgress).toBe(1)
+  })
+})
+
+describe("explicitly constrained requester querying a foreign hostel", () => {
+  it("ignores the foreign ?hostelId for wardens and still enforces the constraint", async () => {
+    // buildComplaintsQuery only applies the raw hostelId filter for Admin /
+    // Maintenance Staff; a constrained Warden's ?hostelId is dropped and the
+    // constraint's $in takes over — so they see their OWN scope, not an error
+    // and not the foreign hostel.
+    const hostelMine = await complaintsFixtures.createHostel({ name: "Constrained Mine" })
+    const hostelOther = await complaintsFixtures.createHostel({ name: "Constrained Other" })
+    await complaintsFixtures.createComplaint({
+      userId: (await seed.student())._id,
+      title: "Constrained visible",
+      hostelId: hostelMine._id,
+    })
+    await complaintsFixtures.createComplaint({
+      userId: (await seed.student())._id,
+      title: "Constrained hidden",
+      hostelId: hostelOther._id,
+    })
+
+    const constrainedWarden = await seed.warden({
+      authz: {
+        override: {
+          constraints: [
+            { key: "constraint.complaints.scope.hostelIds", value: [String(hostelMine._id)] },
+          ],
+        },
+      },
+    })
+
+    const api = await as(constrainedWarden)
+    const res = await api.get(`${BASE}/all`).query({ hostelId: String(hostelOther._id) })
+    expect(res.status).toBe(200)
+    expect(res.body.data.items.map((c) => c.title)).toEqual(["Constrained visible"])
+    expect(res.body.data.pagination.total).toBe(1)
+  })
+})
+
+describe("feedback tokens — expiry/format extras", () => {
+  let student
+
+  beforeAll(async () => {
+    student = await seed.student({ name: "Token Extras" })
+  })
+
+  const makeResolvedComplaint = async (title) =>
+    complaintsFixtures.createComplaint({
+      userId: student._id,
+      title,
+      status: "Resolved",
+    })
+
+  it("400 POST for an expired action-link token", async () => {
+    const complaint = await makeResolvedComplaint("Expired action link")
+    const token = await complaintsFixtures.createFeedbackToken({
+      complaintId: complaint._id,
+      expiresAt: new Date(Date.now() - 1000),
+    })
+    const api = await anon()
+    const res = await api.post(`${BASE}/feedback/${token}`).send({ feedback: "late" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("This feedback link has expired")
+  })
+
+  // SUSPECTED BUG: GET /feedback/:token checks expiry only for action-link
+  // tokens; a legacy FeedbackToken past its expiresAt still resolves fine.
+  it("still serves the public view for an EXPIRED legacy token", async () => {
+    const complaint = await makeResolvedComplaint("Expired legacy view")
+    const token = await complaintsFixtures.createLegacyFeedbackToken({
+      complaintId: complaint._id,
+      expiresAt: new Date(Date.now() - 1000),
+    })
+    const api = await anon()
+    const res = await api.get(`${BASE}/feedback/${token}`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.id).toBe(String(complaint._id))
+  })
+
+  it('404 "Complaint not found" when the token points at a deleted/nonexistent complaint', async () => {
+    const mongoose = await import("mongoose")
+    const token = await complaintsFixtures.createFeedbackToken({
+      complaintId: new mongoose.default.Types.ObjectId(),
+    })
+    const api = await anon()
+    const res = await api.get(`${BASE}/feedback/${token}`)
+    expect(res.status).toBe(404)
+    expect(res.body.message).toBe("Complaint not found")
+  })
+
+  it("rejects replay after consumption across BOTH formats independently", async () => {
+    const complaint = await makeResolvedComplaint("Double token replay")
+    const actionToken = await complaintsFixtures.createFeedbackToken({
+      complaintId: complaint._id,
+    })
+    const legacyToken = await complaintsFixtures.createLegacyFeedbackToken({
+      complaintId: complaint._id,
+    })
+
+    const api = await anon()
+    const first = await api.post(`${BASE}/feedback/${actionToken}`).send({ feedback: "via action link" })
+    expect(first.status).toBe(200)
+
+    // legacy token for the SAME complaint is a separate credential and still works
+    const viaLegacy = await api.post(`${BASE}/feedback/${legacyToken}`).send({ feedback: "via legacy" })
+    expect(viaLegacy.status).toBe(200)
+
+    // both are now burned
+    expect((await api.post(`${BASE}/feedback/${actionToken}`).send({ feedback: "replay" })).status).toBe(400)
+    expect((await api.post(`${BASE}/feedback/${legacyToken}`).send({ feedback: "replay" })).status).toBe(400)
+  })
+})

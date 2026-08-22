@@ -477,3 +477,461 @@ describe("ordered workflow: search -> fetch -> password lifecycle", () => {
     expect(rmRole.body.count).toBeGreaterThanOrEqual(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardened edges
+// ---------------------------------------------------------------------------
+
+describe("GET /users/search — hardened edges", () => {
+  let admin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+  })
+
+  it("403 via Layer-3 route-key denial when an Admin's override denies route.admin.students", async () => {
+    // Role gate passes (Admin is in the guard list) but the route-key check fails.
+    const stripped = await seed.createUser({
+      role: "Admin",
+      authz: { override: { denyRoutes: ["route.admin.students"] } },
+    })
+    const api = await as(stripped)
+    const res = await api.get(`${BASE}/search`).query({ query: "alice" })
+    expect(res.status).toBe(403)
+    expect(res.body.success).toBe(false)
+    // Layer-3 message is distinct from the Layer-2 role-gate message.
+    expect(res.body.message).toBe("You do not have access to this route")
+  })
+
+  it("200 for Associate Warden and Hostel Supervisor (mapped roles)", async () => {
+    const awApi = await as(await seed.associateWarden())
+    const awRes = await awApi.get(`${BASE}/search`).query({ query: "a" })
+    expect(awRes.status).toBe(200)
+
+    const hsApi = await as(await seed.hostelSupervisor())
+    const hsRes = await hsApi.get(`${BASE}/search`).query({ query: "a" })
+    expect(hsRes.status).toBe(200)
+  })
+
+  it("caps results at 5 even when more users match", async () => {
+    for (let i = 1; i <= 6; i++) {
+      await seed.student({ name: `LimitProbe Number${i}` })
+    }
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/search`).query({ query: "LimitProbe" })
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(5)
+  })
+
+  it("'.' regex metacharacters are passed through unescaped and match broadly", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/search`).query({ query: "LimitPr.be" })
+    expect(res.status).toBe(200)
+    // "." acts as a wildcard — it still finds LimitProbe users.
+    expect(res.body.length).toBeGreaterThan(0)
+    expect(res.body.every((u) => /limitpr.be/i.test(`${u.name} ${u.email}`))).toBe(true)
+  })
+
+  it("SUSPECTED BUG: an invalid regex fragment in query blows up as a 500 instead of a 400", async () => {
+    // users.service searchUsers interpolates `query` straight into $regex without
+    // escaping, so "(" raises a Mongo regular-expression error that falls through
+    // to the global error handler. Documenting current behavior.
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/search`).query({ query: "(" })
+    expect(res.status).toBe(500)
+    expect(res.body.success).toBe(false)
+  })
+
+  it("role filter combined with a non-matching prefix returns an empty array", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/search`).query({ query: "LimitProbe", role: "Warden" })
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual([])
+  })
+
+  it("Super Admin passes both the role gate and the route-key check", async () => {
+    const api = await as(await seed.superAdmin())
+    const res = await api.get(`${BASE}/search`).query({ query: "LimitProbe" })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe("GET /users/by-role — hardened edges", () => {
+  let admin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+  })
+
+  it("400 when role param is blank", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/by-role`).query({ role: "" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Role parameter is required")
+  })
+
+  it("returns [] for a syntactically-invalid role value (no server-side enum check)", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/by-role`).query({ role: "NotARole" })
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual([])
+  })
+
+  it("403 via Layer-3 route-key denial for a Warden whose override denies route.warden.students", async () => {
+    const stripped = await seed.createUser({
+      role: "Warden",
+      authz: { override: { denyRoutes: ["route.warden.students"] } },
+    })
+    const api = await as(stripped)
+    const res = await api.get(`${BASE}/by-role`).query({ role: "Student" })
+    expect(res.status).toBe(403)
+    // Route-key denial message, not "Access denied. Required role: ..."
+    expect(res.body.message).toBe("You do not have access to this route")
+  })
+})
+
+describe("POST /users/bulk-password-update — hardened edges", () => {
+  let admin
+  let superAdmin
+  let peerAdmin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    superAdmin = await seed.superAdmin()
+    peerAdmin = await seed.admin({ email: "bulk-peer-admin@hms.test" })
+  })
+
+  it("Layer-2 vs Layer-3: Student hits the role gate, stripped Admin hits the route key", async () => {
+    const studentApi = await as(await seed.student())
+    const studentRes = await studentApi.post(`${BASE}/bulk-password-update`).send({ passwordUpdates: [] })
+    expect(studentRes.status).toBe(403)
+    expect(studentRes.body.message).toMatch(/Access denied\. Required role:/)
+
+    const stripped = await seed.createUser({
+      role: "Admin",
+      authz: { override: { denyRoutes: ["route.admin.students"] } },
+    })
+    const strippedApi = await as(stripped)
+    const strippedRes = await strippedApi.post(`${BASE}/bulk-password-update`).send({ passwordUpdates: [] })
+    expect(strippedRes.status).toBe(403)
+    expect(strippedRes.body.message).toBe("You do not have access to this route")
+  })
+
+  it("200 with empty results for an empty array", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-password-update`).send({ passwordUpdates: [] })
+    expect(res.status).toBe(200)
+    expect(res.body.results.successful).toEqual([])
+    expect(res.body.results.failed).toEqual([])
+  })
+
+  it(`400 above MAX_BULK_RECORDS (10001 entries)`, async () => {
+    const api = await as(admin)
+    const flood = Array.from({ length: 10001 }, (_, i) => ({ email: `flood-${i}@hms.test` }))
+    const res = await api.post(`${BASE}/bulk-password-update`).send({ passwordUpdates: flood })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Maximum 10000 records are allowed per request")
+  })
+
+  it("403 when any resolved target has equal privileges (Admin -> Admin); nothing is applied", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-password-update`).send({
+      passwordUpdates: [{ email: "bulk-peer-admin@hms.test", password: "Nope1234!" }],
+    })
+    expect(res.status).toBe(403)
+    // legacy controller: error bodies carry only { message }, no success flag
+    expect(res.body.message).toContain("equal or higher privileges")
+    expect(res.body.message).toContain("bulk-peer-admin@hms.test")
+  })
+
+  it("403 when a target outranks the actor (Admin -> Super Admin)", async () => {
+    const sa = await seed.superAdmin({ email: "bulk-high-sa@hms.test" })
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-password-update`).send({
+      passwordUpdates: [{ email: sa.email, password: "Nope1234!" }],
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it("Super Admin may update an Admin's password", async () => {
+    const api = await as(superAdmin)
+    const res = await api.post(`${BASE}/bulk-password-update`).send({
+      passwordUpdates: [{ email: "bulk-peer-admin@hms.test", password: "FromAbove1!" }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.results.failed).toHaveLength(0)
+    expect(res.body.results.successful).toEqual([{ email: "bulk-peer-admin@hms.test" }])
+  })
+
+  it("an entry without an email lands in failed with 'User not found'", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-password-update`).send({
+      passwordUpdates: [{ password: "orphanPass1" }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.results.successful).toEqual([])
+    expect(res.body.results.failed).toHaveLength(1)
+    expect(res.body.results.failed[0].reason).toBe("User not found")
+  })
+
+  it("null password clears the stored password like an empty string", async () => {
+    const target = await seed.student({ email: "bulk-null-pw@hms.test" })
+    const api = await as(admin)
+    const set = await api.post(`${BASE}/bulk-password-update`).send({
+      passwordUpdates: [{ email: target.email, password: null }],
+    })
+    expect(set.status).toBe(200)
+    expect(set.body.results.successful).toEqual([{ email: target.email }])
+  })
+
+  it("double submit is idempotent — both requests succeed", async () => {
+    const target = await seed.student({ email: "bulk-double@hms.test" })
+    const api = await as(admin)
+    const payload = { passwordUpdates: [{ email: target.email, password: "TwicePass1" }] }
+    const first = await api.post(`${BASE}/bulk-password-update`).send(payload)
+    const second = await api.post(`${BASE}/bulk-password-update`).send(payload)
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(second.body.results.successful).toEqual([{ email: target.email }])
+  })
+})
+
+describe("POST /users/bulk-remove-passwords — hardened edges", () => {
+  let admin
+  let superAdmin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    superAdmin = await seed.superAdmin()
+    await seed.admin({ email: "rm-bulk-peer@hms.test" })
+    await seed.student({ email: "rm-bulk-student@hms.test", password: "has-a-pass" })
+  })
+
+  it("403 via Layer-3 route-key denial for a stripped Admin", async () => {
+    const stripped = await seed.createUser({
+      role: "Admin",
+      authz: { override: { denyRoutes: ["route.admin.students"] } },
+    })
+    const api = await as(stripped)
+    const res = await api.post(`${BASE}/bulk-remove-passwords`).send({ emails: ["x@y.z"] })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("You do not have access to this route")
+  })
+
+  it("403 when one email resolves to an equal-rank account; lower-rank emails untouched", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-remove-passwords`).send({
+      emails: ["rm-bulk-student@hms.test", "rm-bulk-peer@hms.test"],
+    })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toContain("equal or higher privileges")
+    expect(res.body.message).toContain("rm-bulk-peer@hms.test")
+  })
+
+  it("Super Admin removes an Admin's password through the bulk path", async () => {
+    const api = await as(superAdmin)
+    const res = await api.post(`${BASE}/bulk-remove-passwords`).send({ emails: ["rm-bulk-peer@hms.test"] })
+    expect(res.status).toBe(200)
+    expect(res.body.results.successful).toEqual([{ email: "rm-bulk-peer@hms.test" }])
+  })
+
+  it("non-string array entries fail per-record without breaking the request", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-remove-passwords`).send({ emails: [null, 12345] })
+    expect(res.status).toBe(200)
+    expect(res.body.results.successful).toEqual([])
+    expect(res.body.results.failed).toHaveLength(2)
+    for (const entry of res.body.results.failed) {
+      expect(entry.reason).toBe("User not found")
+    }
+  })
+
+  it("duplicate emails in one request succeed twice (double submit documented)", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/bulk-remove-passwords`).send({
+      emails: ["rm-bulk-student@hms.test", "rm-bulk-student@hms.test"],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.results.failed).toHaveLength(0)
+    expect(res.body.results.successful).toEqual([
+      { email: "rm-bulk-student@hms.test" },
+      { email: "rm-bulk-student@hms.test" },
+    ])
+  })
+})
+
+describe("POST /users/remove-passwords-by-role — hardened edges", () => {
+  let admin
+  let superAdmin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    superAdmin = await seed.superAdmin()
+    await seed.security({ name: "Hardened Guard A" })
+  })
+
+  it("403 via Layer-3 route-key denial for a stripped Super Admin", async () => {
+    const stripped = await seed.createUser({
+      role: "Super Admin",
+      authz: { override: { denyRoutes: ["route.superAdmin.admins"] } },
+    })
+    const api = await as(stripped)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Security" })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("You do not have access to this route")
+  })
+
+  it("403 for equal-rank targets (Admin -> Admin) checked before existence", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Admin" })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("Cannot remove passwords for accounts with equal or higher privileges")
+  })
+
+  it("403 for higher-rank targets (Admin -> Super Admin) checked before existence", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Super Admin" })
+    expect(res.status).toBe(403)
+  })
+
+  it("400 when role is an empty string", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Role is required")
+  })
+
+  it("404 for a valid lower-rank role nobody holds", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Hostel Gate" })
+    expect(res.status).toBe(404)
+    expect(res.body.message).toBe("No users found with the specified role not found")
+  })
+
+  it("non-string role value (number) has no hierarchy rank -> 403", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: 42 })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("Cannot remove passwords for accounts with equal or higher privileges")
+  })
+
+  it("double removal by role stays successful and reports the same count", async () => {
+    const api = await as(admin)
+    const first = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Security" })
+    const second = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Security" })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(second.body.count).toBe(first.body.count)
+    expect(second.body.count).toBeGreaterThanOrEqual(1)
+  })
+
+  it("Super Admin can wipe passwords role-wide below them (Warden)", async () => {
+    await seed.warden({ name: "SA Wipe Target Warden" })
+    const api = await as(superAdmin)
+    const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Warden" })
+    expect(res.status).toBe(200)
+    expect(res.body.count).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe("POST /users/:id/remove-password — hardened edges", () => {
+  let admin
+  let superAdmin
+  let peerAdmin
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    superAdmin = await seed.superAdmin()
+    peerAdmin = await seed.admin({ email: "single-peer@hms.test" })
+  })
+
+  it("Warden is denied at the role gate (message names required roles)", async () => {
+    const warden = await seed.warden()
+    const api = await as(warden)
+    const res = await api.post(`${BASE}/${peerAdmin._id}/remove-password`)
+    expect(res.status).toBe(403)
+    expect(res.body.message).toMatch(/Access denied\. Required role: Super Admin or Admin/)
+  })
+
+  it("403 when the target has equal rank (Admin -> Admin), with label in the message", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/${peerAdmin._id}/remove-password`)
+    expect(res.status).toBe(403)
+    // legacy controller: error bodies carry only { message }, no success flag
+    expect(res.body.message).toContain("equal or higher privileges")
+    expect(res.body.message).toContain("single-peer@hms.test")
+  })
+
+  it("Super Admin removes an Admin's password", async () => {
+    const api = await as(superAdmin)
+    const res = await api.post(`${BASE}/${peerAdmin._id}/remove-password`)
+    expect(res.status).toBe(200)
+    expect(res.body.user.email).toBe("single-peer@hms.test")
+  })
+
+  it("double delete is idempotent — removing twice still answers 200", async () => {
+    const target = await seed.student({ email: "single-double@hms.test" })
+    const api = await as(admin)
+    const first = await api.post(`${BASE}/${target._id}/remove-password`)
+    const second = await api.post(`${BASE}/${target._id}/remove-password`)
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(second.body.user._id).toBe(String(target._id))
+  })
+
+  it("numeric-looking garbage id is a CastError -> 400", async () => {
+    const api = await as(admin)
+    const res = await api.post(`${BASE}/12345/remove-password`)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("403 via Layer-3 route-key denial for a stripped Super Admin", async () => {
+    const stripped = await seed.createUser({
+      role: "Super Admin",
+      authz: { override: { denyRoutes: ["route.superAdmin.admins"] } },
+    })
+    const api = await as(stripped)
+    const res = await api.post(`${BASE}/${peerAdmin._id}/remove-password`)
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("You do not have access to this route")
+  })
+})
+
+describe("GET /users/:id — hardened edges", () => {
+  let admin
+  let warden
+
+  beforeAll(async () => {
+    admin = await seed.admin()
+    warden = await seed.warden()
+  })
+
+  it("staff can fetch their own record", async () => {
+    const api = await as(warden)
+    const res = await api.get(`${BASE}/${warden._id}`)
+    expect(res.status).toBe(200)
+    expect(res.body.role).toBe("Warden")
+  })
+
+  it("403 via Layer-3 route-key denial for a stripped Associate Warden", async () => {
+    const stripped = await seed.createUser({
+      role: "Associate Warden",
+      authz: { override: { denyRoutes: ["route.associateWarden.students"] } },
+    })
+    const api = await as(stripped)
+    const res = await api.get(`${BASE}/${admin._id}`)
+    expect(res.status).toBe(403)
+    expect(res.body.message).toBe("You do not have access to this route")
+  })
+
+  it("does not leak the password field even for staff viewers", async () => {
+    await seed.student({ email: "leak-probe@hms.test", password: "secret123" })
+    const api = await as(warden)
+    const target = await seed.student({ email: "leak-probe-2@hms.test", password: "secret456" })
+    const res = await api.get(`${BASE}/${target._id}`)
+    expect(res.status).toBe(200)
+    expect(JSON.stringify(res.body)).not.toContain("secret456")
+    expect(res.body.password).toBeUndefined()
+  })
+})

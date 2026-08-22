@@ -389,4 +389,110 @@ describe("Admin-actor scoping (plain Admin manages HCU accounts only)", () => {
     const del = await hcuApi.delete(`${BASE}/admins/${nonHcu._id}`)
     expect(del.status).toBe(403)
   })
+
+  it("an Admin updating an HCU account keeps it HCU-scoped even when subRole is omitted", async () => {
+    const hcuTarget = await seed.admin({ subRole: SUBROLES.HCU })
+    const res = await hcuApi.put(`${BASE}/admins/${hcuTarget._id}`).send({
+      name: "HCU Renamed",
+      phone: "7778889990",
+    })
+    expect(res.status).toBe(200)
+    // Admin-side updates always persist subRole=HCU
+    expect(res.body.response.subRole).toBe(SUBROLES.HCU)
+    expect(res.body.response.name).toBe("HCU Renamed")
+  })
+
+  it("403 when an Admin tries to re-scope an HCU account to another subRole", async () => {
+    const hcuTarget = await seed.admin({ subRole: SUBROLES.HCU })
+    const res = await hcuApi
+      .put(`${BASE}/admins/${hcuTarget._id}`)
+      .send({ subRole: SUBROLES.DEAN_SA })
+    expect(res.status).toBe(403)
+    expect(res.body.message).toMatch(/HCU/i)
+  })
+})
+
+describe("Dashboard counter consistency across create/delete cycles", () => {
+  it("counters return to their baseline after creating and deleting an admin and an api client", async () => {
+    const superAdmin = await seed.superAdmin()
+    const api = await as(superAdmin)
+
+    const base = await api.get(`${BASE}/dashboard`)
+    expect(base.status).toBe(200)
+
+    // create one of each
+    const admin = await seed.admin({ subRole: SUBROLES.HCU })
+    const clientName = `cycle-client-${crypto.randomBytes(4).toString("hex")}`
+    const created = await api.post(`${BASE}/api-clients`).send({ name: clientName })
+    expect(created.status).toBe(201)
+
+    const peak = await api.get(`${BASE}/dashboard`)
+    expect(peak.body.totalAdmins).toBe(base.body.totalAdmins + 1)
+    expect(peak.body.totalApiKeys).toBe(base.body.totalApiKeys + 1)
+    expect(peak.body.activeApiKeys).toBe(base.body.activeApiKeys + 1)
+
+    // deactivate the client: total stays, active drops before delete
+    const deact = await api.put(`${BASE}/api-clients/${created.body.clientId}`).send({ isActive: false })
+    expect(deact.status).toBe(200)
+    const mid = await api.get(`${BASE}/dashboard`)
+    expect(mid.body.totalApiKeys).toBe(peak.body.totalApiKeys)
+    expect(mid.body.activeApiKeys).toBe(peak.body.activeApiKeys - 1)
+
+    // delete both -> back to baseline
+    const delClient = await api.delete(`${BASE}/api-clients/${created.body.clientId}`)
+    expect(delClient.status).toBe(200)
+    const delAdmin = await api.delete(`${BASE}/admins/${admin._id}`)
+    expect(delAdmin.status).toBe(200)
+
+    const end = await api.get(`${BASE}/dashboard`)
+    expect(end.body.totalAdmins).toBe(base.body.totalAdmins)
+    expect(end.body.totalApiKeys).toBe(base.body.totalApiKeys)
+    expect(end.body.activeApiKeys).toBe(base.body.activeApiKeys)
+  })
+})
+
+describe("Admin email conflict edges on update", () => {
+  let api
+
+  beforeAll(async () => {
+    const superAdmin = await seed.superAdmin()
+    api = await as(superAdmin)
+  })
+
+  it("updating an admin to their own current email succeeds (self is excluded from the dup check)", async () => {
+    const target = await seed.admin({ subRole: SUBROLES.OFFICER_SA })
+    const res = await api.put(`${BASE}/admins/${target._id}`).send({
+      name: "Same Email Self",
+      email: target.email,
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.response.email).toBe(target.email.toLowerCase())
+
+    const list = await api.get(`${BASE}/admins`)
+    const row = list.body.find((u) => String(u._id) === String(target._id))
+    expect(row.name).toBe("Same Email Self")
+  })
+
+  it("400 when the new email matches another user case-insensitively", async () => {
+    const target = await seed.admin({ subRole: SUBROLES.OFFICER_SA })
+    const other = await seed.admin({ subRole: SUBROLES.OFFICER_SA })
+
+    const res = await api.put(`${BASE}/admins/${target._id}`).send({
+      email: other.email.toUpperCase(),
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/already exists/i)
+
+    // nothing changed on the target
+    const list = await api.get(`${BASE}/admins`)
+    const row = list.body.find((u) => String(u._id) === String(target._id))
+    expect(row.email).toBe(target.email.toLowerCase())
+  })
+
+  it("404 when updating a user id that exists but is not an Admin role", async () => {
+    const student = await seed.student()
+    const res = await api.put(`${BASE}/admins/${student._id}`).send({ name: "Not An Admin" })
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/Admin not found/i)
+  })
 })

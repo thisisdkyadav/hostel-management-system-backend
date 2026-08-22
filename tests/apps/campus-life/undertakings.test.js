@@ -302,3 +302,157 @@ describe("undertakings — assignments & acceptance workflow", () => {
     expect(pendingRes.body.pendingUndertakings).toHaveLength(0)
   })
 })
+
+describe("undertakings — create validation one field at a time", () => {
+  let adminApi
+
+  const validBody = {
+    title: "Validation probe undertaking",
+    description: "Probe description",
+    content: "Probe content",
+    deadline: new Date(Date.now() + 24 * 3600 * 1000),
+  }
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  it("500 when each required field is missing individually", async () => {
+    // SUSPECTED BUG: every missing-required-field case below surfaces as a
+    // 500 instead of a 4xx validation error (same root cause documented in
+    // the admin CRUD suite above).
+    for (const field of ["title", "description", "content", "deadline"]) {
+      const body = { ...validBody }
+      delete body[field]
+      const res = await adminApi.post(ADMIN_BASE).send(body)
+      expect(res.status).toBe(500)
+      const listed = await adminApi.get(ADMIN_BASE)
+      expect(listed.body.undertakings.map((u) => u.title)).not.toContain(validBody.title)
+    }
+  })
+
+  it("500 for an unparseable deadline value", async () => {
+    // SUSPECTED BUG: CastError on deadline -> 500, no partial record created.
+    const res = await adminApi
+      .post(ADMIN_BASE)
+      .send({ ...validBody, title: "Bad deadline probe", deadline: "not-a-date" })
+    expect(res.status).toBe(500)
+    const listed = await adminApi.get(ADMIN_BASE)
+    expect(listed.body.undertakings.map((u) => u.title)).not.toContain("Bad deadline probe")
+  })
+})
+
+describe("undertakings — bulk add edges", () => {
+  let adminApi, hsApi, bulkUndertakingId
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    hsApi = await as(await seed.hostelSupervisor())
+    await campusSeed.studentWithProfile({ profile: { rollNumber: "UND010" } })
+    await campusSeed.studentWithProfile({ profile: { rollNumber: "UND011" } })
+
+    const created = await adminApi.post(ADMIN_BASE).send({
+      title: "Bulk edge undertaking",
+      description: "Bulk edges",
+      content: "Bulk content",
+      deadline: new Date(Date.now() + 7 * 24 * 3600 * 1000),
+    })
+    bulkUndertakingId = String(created.body.undertaking.id)
+  })
+
+  it("403 for Hostel Supervisor (write route)", async () => {
+    const res = await hsApi
+      .post(`${ADMIN_BASE}/${bulkUndertakingId}/students/by-roll-numbers`)
+      .send({ rollNumbers: ["UND010"] })
+    expect(res.status).toBe(403)
+  })
+
+  it("duplicate entries within one request collapse into a single assignment", async () => {
+    const res = await adminApi
+      .post(`${ADMIN_BASE}/${bulkUndertakingId}/students/by-roll-numbers`)
+      .send({ rollNumbers: ["UND010", "und010", "UND010"] })
+    expect(res.status).toBe(200)
+    // The profiles query dedupes via $in, so exactly one assignment row exists.
+    expect(res.body.addedCount).toBe(1)
+    expect(res.body.addedStudents).toHaveLength(1)
+
+    const studentsRes = await adminApi.get(`${ADMIN_BASE}/${bulkUndertakingId}/students`)
+    const rolls = studentsRes.body.students.map((s) => s.rollNumber)
+    expect(rolls.filter((r) => r === "UND010")).toHaveLength(1)
+  })
+
+  it("mixed found/not-found roll numbers silently skip the misses", async () => {
+    // SUSPECTED BUG: unknown roll numbers produce neither an error nor any
+    // report of skipped students — the response only lists what matched.
+    const res = await adminApi
+      .post(`${ADMIN_BASE}/${bulkUndertakingId}/students/by-roll-numbers`)
+      .send({ rollNumbers: ["UND011", "GHOST999"] })
+    expect(res.status).toBe(200)
+    expect(res.body.addedCount).toBe(1)
+    expect(res.body.addedStudents.map((s) => s.rollNumber)).toEqual(["UND011"])
+    expect(JSON.stringify(res.body)).not.toContain("GHOST999")
+  })
+
+  it("400 when exceeding MAX_BULK_RECORDS", async () => {
+    const res = await adminApi
+      .post(`${ADMIN_BASE}/${bulkUndertakingId}/students/by-roll-numbers`)
+      .send({ rollNumbers: Array.from({ length: 10001 }, (_, i) => `X${i}`) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/Maximum \d+ records are allowed per request/)
+  })
+})
+
+describe("undertakings — misc routes & idempotency", () => {
+  let adminApi
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  it("status route 404s for an unknown undertaking", async () => {
+    const res = await adminApi.get(`${ADMIN_BASE}/000000000000000000000000/status`)
+    expect(res.status).toBe(404)
+    expect(res.body.message).toBe("Undertaking not found")
+  })
+
+  it("list endpoint ignores unsupported query filters such as status", async () => {
+    // Documented current behavior: getAllUndertakings takes no filters, so
+    // ?status=<anything> (even invalid enum junk) changes nothing.
+    const plain = await adminApi.get(ADMIN_BASE)
+    const filtered = await adminApi.get(`${ADMIN_BASE}?status=nonsense-value`)
+    expect(filtered.status).toBe(200)
+    expect(filtered.body.undertakings.length).toBeGreaterThanOrEqual(plain.body.undertakings.length)
+  })
+
+  it("re-accepting overwrites acceptedAt (no conflict raised)", async () => {
+    const { user } = await campusSeed.studentWithProfile({ profile: { rollNumber: "UND012" } })
+    const created = await adminApi.post(ADMIN_BASE).send({
+      title: "Reaccept undertaking",
+      description: "d",
+      content: "c",
+      deadline: new Date(Date.now() + 7 * 24 * 3600 * 1000),
+    })
+    const id = String(created.body.undertaking.id)
+    await adminApi
+      .post(`${ADMIN_BASE}/${id}/students/by-roll-numbers`)
+      .send({ rollNumbers: ["UND012"] })
+
+    const api = await as(user)
+    const first = await api
+      .post(`/api/v1/undertaking/student/undertakings/${id}/accept`)
+      .send({ accepted: true })
+    expect(first.status).toBe(200)
+    const firstAcceptedAt = new Date(first.body.acceptedAt).getTime()
+
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const second = await api
+      .post(`/api/v1/undertaking/student/undertakings/${id}/accept`)
+      .send({ accepted: true })
+    expect(second.status).toBe(200)
+    // Current behavior: acceptedAt is simply rewritten on re-accept.
+    expect(new Date(second.body.acceptedAt).getTime()).toBeGreaterThanOrEqual(firstAcceptedAt)
+
+    const statusRes = await adminApi.get(`${ADMIN_BASE}/${id}/status`)
+    expect(statusRes.body.stats).toEqual({ totalStudents: 1, accepted: 1, pending: 0, notViewed: 0 })
+  })
+})

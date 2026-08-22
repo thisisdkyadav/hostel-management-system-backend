@@ -238,3 +238,155 @@ describe("dining meal verification — manual verify state machine", () => {
     expect(res.body.data).toBeDefined()
   })
 })
+
+describe("dining meal verification — hardening edges", () => {
+  /** Today's dateKey, matching the service's normalizeDay (UTC day bucket). */
+  const todayKey = () => {
+    const now = new Date()
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+      .toISOString()
+      .slice(0, 10)
+  }
+
+  it("scanning a student with an approved rebate records 'on-rebate' and hides them from available-students", async () => {
+    const { user, caterer } = await catererLogin("Rebate Scan Foods")
+    const period = await activePeriod([caterer._id])
+    const { student, profile } = await allocatedStudent(period, caterer)
+
+    // approved rebate covering today for this caterer's period
+    const { DiningRebate } = await import("../../../src/models/index.js")
+    await DiningRebate.create({
+      requestGroupId: `rg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      periodId: period._id,
+      catererId: caterer._id,
+      studentUserId: student._id,
+      studentProfileId: profile._id,
+      rollNumber: profile.rollNumber,
+      startDate: new Date(),
+      endDate: new Date(),
+      dateKeys: [todayKey()],
+      dayCount: 1,
+      type: "short-term",
+      status: "approved",
+    })
+
+    const api = await as(user)
+    const res = await api.post("/api/v1/dining-meal-verification/manual").send({ rollNumber: profile.rollNumber })
+    expect(res.status).toBe(201)
+    expect(res.body.data.verification.status).toBe("on-rebate")
+    expect(res.body.message).toMatch(/approved rebate/i)
+    expect(res.body.data.verification.rollNumber).toBe(profile.rollNumber)
+
+    // the rebated student is filtered out of the available list
+    const avail = await api.get("/api/v1/dining-meal-verification/available-students")
+    expect(avail.status).toBe(200)
+    expect(avail.body.data.total).toBe(0)
+    expect(avail.body.data.students).toEqual([])
+    expect(avail.body.data.verifiedCount).toBe(0)
+    expect(avail.body.data.rebateCount).toBe(1)
+
+    // no verified record was created by the rebate scan
+    const feed = await api.get("/api/v1/dining-meal-verification/feed?status=verified")
+    expect(feed.body.data.entries).toHaveLength(0)
+  })
+
+  it("manual verify honors a scannedAt override: outside a narrow slot, inside it, and beyond the period", async () => {
+    const { user, caterer } = await catererLogin("Narrow Window Foods")
+
+    // unique far-future day so ONLY this period covers it (no interference from
+    // other tests' periods around today), with one narrow 30-minute slot
+    const day = new Date(Date.now() + 30 * 86400000)
+    const dayStart = new Date(day); dayStart.setHours(0, 0, 0, 0)
+    const dayEnd = new Date(day); dayEnd.setHours(23, 59, 59, 999)
+    const { default: DiningPeriod } = await import("../../../src/models/index.js").then((m) => ({
+      default: m.DiningPeriod,
+    }))
+    const narrow = await DiningPeriod.create({
+      startDate: dayStart,
+      endDate: dayEnd,
+      catererIds: [caterer._id],
+      mealSlots: [{ name: "Dawn Slot", startTime: "04:00", endTime: "04:30" }],
+    })
+    const { profile } = await allocatedStudent(narrow, caterer)
+    const api = await as(user)
+
+    // noon on that day: period active but no slot covers 12:00 -> outside-meal-time
+    const atNoon = new Date(day); atNoon.setHours(12, 0, 0, 0)
+    let res = await api.post("/api/v1/dining-meal-verification/manual").send({
+      rollNumber: profile.rollNumber,
+      scannedAt: atNoon.toISOString(),
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.data.verification.status).toBe("outside-meal-time")
+    expect(res.body.message).toMatch(/outside configured meal timings/i)
+    expect(res.body.data.verification.mealSlotName).toBe("")
+
+    // inside the narrow window -> verified under the Dawn Slot
+    const inSlot = new Date(day); inSlot.setHours(4, 15, 0, 0)
+    res = await api.post("/api/v1/dining-meal-verification/manual").send({
+      rollNumber: profile.rollNumber,
+      scannedAt: inSlot.toISOString(),
+    })
+    expect(res.body.data.verification.status).toBe("verified")
+    expect(res.body.data.verification.mealSlotKey).toBe("dawn-slot")
+    expect(new Date(res.body.data.verification.scannedAt).getHours()).toBe(4)
+
+    // five days later no period covers the scan -> no-active-period
+    const later = new Date(day); later.setDate(later.getDate() + 5); later.setHours(12, 0, 0, 0)
+    res = await api.post("/api/v1/dining-meal-verification/manual").send({
+      rollNumber: profile.rollNumber,
+      scannedAt: later.toISOString(),
+    })
+    expect(res.body.data.verification.status).toBe("no-active-period")
+    expect(res.body.message).toMatch(/no active dining period/i)
+  })
+
+  it("feed pagination beyond the last page returns an empty entries array", async () => {
+    const { user, caterer } = await catererLogin("Feed Page Foods")
+    const period = await activePeriod([caterer._id])
+    // three distinct students -> three verifiable scans today
+    for (let i = 0; i < 3; i++) {
+      const { profile } = await allocatedStudent(period, caterer)
+      const res = await as(user).then((a) =>
+        a.post("/api/v1/dining-meal-verification/manual").send({ rollNumber: profile.rollNumber })
+      )
+      expect(res.body.data.verification.status).toBe("verified")
+    }
+    const api = await as(user)
+
+    const first = await api.get("/api/v1/dining-meal-verification/feed?page=1&limit=2")
+    expect(first.status).toBe(200)
+    expect(first.body.data.entries.length).toBeLessThanOrEqual(2)
+    expect(first.body.data.pagination.totalPages).toBeGreaterThanOrEqual(2)
+
+    const beyond = await api.get(
+      `/api/v1/dining-meal-verification/feed?page=${first.body.data.pagination.totalPages + 3}&limit=2`
+    )
+    expect(beyond.status).toBe(200)
+    expect(beyond.body.data.entries).toEqual([])
+    expect(beyond.body.data.pagination.page).toBe(first.body.data.pagination.totalPages + 3)
+    expect(beyond.body.data.pagination.totalPages).toBe(first.body.data.pagination.totalPages)
+
+    // limit is clamped to 100 and page floors at 1 instead of erroring
+    const clamped = await api.get("/api/v1/dining-meal-verification/feed?page=-4&limit=5000")
+    expect(clamped.status).toBe(200)
+    expect(clamped.body.data.pagination.page).toBe(1)
+    expect(clamped.body.data.pagination.limit).toBe(100)
+  })
+
+  it("available-students for a caterer not in the period answers an empty roster (documented behavior)", async () => {
+    // outsider has a Caterer login but was never added to any period
+    const { user } = await catererLogin("Outsider Roster Foods")
+    const api = await as(user)
+
+    const res = await api.get("/api/v1/dining-meal-verification/available-students")
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    // SUSPECTED BUG (design gap): membership in the active period is not checked
+    // here — unlike /context's isCatererInPeriod flag — so the endpoint reports
+    // an empty roster rather than signalling "you are not serving this period".
+    expect(res.body.data.students).toEqual([])
+    expect(res.body.data.total).toBe(0)
+    expect(res.body.data.pendingCount).toBe(0)
+  })
+})

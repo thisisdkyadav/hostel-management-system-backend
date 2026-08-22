@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import crypto from "node:crypto"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
@@ -419,5 +420,212 @@ describe("attendance roster + marking workflow", () => {
     })
     expect(scanRes.status).toBe(400)
     expect(scanRes.body.message).toMatch(/closed/i)
+  })
+})
+
+describe("attendance hardening: QR boundaries, roster conflicts, validation edges", () => {
+  let adminApi
+  let scannerApi
+  let wardenApi
+  let occurrence
+  let keyedStudent // has an aesKey -> QR-scannable
+  let offRosterStudent // never added to the roster
+
+  beforeAll(async () => {
+    const admin = await seed.admin()
+    adminApi = await as(admin)
+    const assigned = await saSeed.gymkhana("Committee")
+    scannerApi = await as(assigned)
+    wardenApi = await as(await seed.warden())
+
+    const created = await adminApi.post(BASE).send({
+      title: "Hardening Occurrence",
+      assignedUsers: [String(assigned._id)],
+      startAt: new Date().toISOString(),
+    })
+    expect(created.status).toBe(201)
+    occurrence = created.body.data.occurrence
+
+    keyedStudent = await saSeed.studentWithProfile({
+      rollNumber: "HD23Q001",
+      aesKey: saSeed.aesKey(),
+    })
+    offRosterStudent = await saSeed.studentWithProfile({ rollNumber: "HD23X009" })
+
+    // Roster deliberately mixes a known roll with unknown ones; the roster is
+    // stored verbatim (normalized + deduped) without validating against
+    // student profiles.
+    const roster = await adminApi.post(`${BASE}/${occurrence._id}/roster`).send({
+      rollNumbers: ["hd23q001", "GHOSTROLL1", "ghostroll1"],
+    })
+    expect(roster.status).toBe(200)
+    expect(roster.body.data.rosterCount).toBe(2) // GHOSTROLL1 deduped case-insensitively
+  })
+
+  // ---------- per-route universal edges ----------
+  it("GET / rejects a warden with 403 (second wrong-role variant)", async () => {
+    const res = await wardenApi.get(BASE)
+    expect(res.status).toBe(403)
+  })
+
+  it("POST / rejects an invalid startAt with a validation error", async () => {
+    const res = await adminApi.post(BASE).send({ title: "Bad Date", startAt: "not-a-date" })
+    expect(res.status).toBe(422)
+  })
+
+  it("PATCH /:id rejects unauthenticated requests with 401", async () => {
+    const api = await anon()
+    const res = await api.patch(`${BASE}/${occurrence._id}`).send({ title: "Nope" })
+    expect(res.status).toBe(401)
+  })
+
+  it("DELETE /:id rejects unauthenticated requests with 401", async () => {
+    const api = await anon()
+    const res = await api.delete(`${BASE}/${occurrence._id}`)
+    expect(res.status).toBe(401)
+  })
+
+  it("POST /:id/scan rejects each missing field one at a time with validation errors", async () => {
+    const noEmail = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      encryptedData: saSeed.qrPayload(keyedStudent.user.aesKey),
+    })
+    expect(noEmail.status).toBe(422)
+
+    const noEncrypted = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+    })
+    expect(noEncrypted.status).toBe(422)
+  })
+
+  it("POST /:id/scan rejects an invalid source value with a validation error", async () => {
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+      encryptedData: saSeed.qrPayload(keyedStudent.user.aesKey),
+      source: "psychic",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  it("POST /:id/mark rejects a missing roll number with a validation error", async () => {
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/mark`).send({})
+    expect(res.status).toBe(422)
+  })
+
+  it("POST /:id/mark rejects an invalid source value with a validation error", async () => {
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/mark`).send({
+      rollNumber: "HD23Q001",
+      source: "telepathy",
+    })
+    expect(res.status).toBe(422)
+  })
+
+  // ---------- QR payload boundaries ----------
+  it("POST /:id/scan treats a QR that expires exactly now as expired", async () => {
+    const boundary = saSeed.qrPayload(keyedStudent.user.aesKey, Date.now())
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+      encryptedData: boundary,
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("QR code expired")
+  })
+
+  it("POST /:id/scan returns 400 when the payload was encrypted with a different aesKey", async () => {
+    const wrongKeyPayload = saSeed.qrPayload(saSeed.aesKey())
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+      encryptedData: wrongKeyPayload,
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid QR code")
+  })
+
+  it("POST /:id/scan returns 400 for a malformed payload without the iv:ciphertext separator", async () => {
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+      encryptedData: "totally-not-a-qr-payload",
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid QR code")
+  })
+
+  it("POST /:id/scan returns 400 for an invalid-IV-length payload (malformed base64 halves)", async () => {
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+      encryptedData: "!!!:???",
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid QR code")
+  })
+
+  it("POST /:id/scan accepts a decryptable payload whose plaintext is not numeric expiry", async () => {
+    // SUSPECTED BUG: resolveStudentByQr only checks `Date.now() > Number(expiry)`.
+    // For a correctly-encrypted non-numeric plaintext Number(...) is NaN and
+    // every comparison with NaN is false, so the QR passes the expiry gate and
+    // marks attendance. This test documents that current behavior.
+    const key = Buffer.from(String(keyedStudent.user.aesKey), "hex")
+    const iv = crypto.randomBytes(16)
+    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv)
+    const encrypted = Buffer.concat([cipher.update("never-a-timestamp", "utf8"), cipher.final()])
+    const payload = `${iv.toString("base64")}:${encrypted.toString("base64")}`
+
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/scan`).send({
+      email: keyedStudent.user.email,
+      encryptedData: payload,
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.result).toBe("marked")
+  })
+
+  // ---------- duplicate scan race semantics ----------
+  it("concurrent scans of the same QR produce exactly one marked + one duplicate", async () => {
+    const racer = await saSeed.studentWithProfile({
+      rollNumber: "HD23Q777",
+      aesKey: saSeed.aesKey(),
+    })
+    const body = {
+      email: racer.user.email,
+      encryptedData: saSeed.qrPayload(racer.user.aesKey),
+    }
+    const [first, second] = await Promise.all([
+      scannerApi.post(`${BASE}/${occurrence._id}/scan`).send(body),
+      scannerApi.post(`${BASE}/${occurrence._id}/scan`).send(body),
+    ])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect([first.body.data.result, second.body.data.result].sort()).toEqual([
+      "duplicate",
+      "marked",
+    ])
+
+    // Exactly one record persists for the student.
+    const detail = await adminApi.get(`${BASE}/${occurrence._id}`)
+    const matching = detail.body.data.records.filter((r) => r.rollNumber === "HD23Q777")
+    expect(matching.length).toBe(1)
+  })
+
+  // ---------- reconciliation with conflicting local records ----------
+  it("marks an out-of-roster student via roll number with inRoster=false", async () => {
+    const res = await scannerApi.post(`${BASE}/${occurrence._id}/mark`).send({
+      rollNumber: offRosterStudent.profile.rollNumber.toLowerCase(),
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.result).toBe("marked")
+    expect(res.body.data.inRoster).toBe(false)
+  })
+
+  it("reconciliation reports unknown roster rolls as absent and out-of-roster records as extra", async () => {
+    const detail = await adminApi.get(`${BASE}/${occurrence._id}`)
+    const r = detail.body.data.reconciliation
+    expect(r.hasRoster).toBe(true)
+    // HD23Q001 marked above; GHOSTROLL1 has no student behind it.
+    expect(r.rosterCount).toBe(2)
+    expect(r.presentInRosterCount).toBe(1)
+    expect(r.absentRollNumbers).toEqual(["GHOSTROLL1"])
+    // Out-of-roster scans show up as extra records: the concurrent-race
+    // student and the manual roll-number marking.
+    expect(r.extraRollNumbers).toEqual(["HD23Q777", "HD23X009"])
+    const offRosterRecord = detail.body.data.records.find((rec) => rec.rollNumber === "HD23X009")
+    expect(offRosterRecord.inRoster).toBe(false)
   })
 })

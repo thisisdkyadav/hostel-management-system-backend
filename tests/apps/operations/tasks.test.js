@@ -325,6 +325,148 @@ describe("DELETE /api/v1/tasks/:id (Admin/Super Admin only)", () => {
   })
 })
 
+describe("tasks — assignment edge cases", () => {
+  it("create rejects a mixed list of existing and nonexistent assignees", async () => {
+    const api = await as(admin)
+    const res = await api
+      .post(BASE)
+      .send({ ...validTask(), assignedUsers: [String(assignee._id), new mongoose.Types.ObjectId().toString()] })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("One or more assigned users do not exist")
+
+    // nothing was created by the failed request
+    const list = await api.get(`${BASE}/all`).query({ limit: 100 })
+    expect(list.body.tasks.some((t) => t.title === validTask().title)).toBe(false)
+  })
+
+  it("update with partially unknown assignees is refused and leaves the task unchanged", async () => {
+    const api = await as(admin)
+    const created = await api.post(BASE).send({ ...validTask(), assignedUsers: [String(assignee._id)] })
+    const task = created.body.task
+
+    const res = await api.put(`${BASE}/${task._id}`).send({
+      title: "Should not apply",
+      assignedUsers: [new mongoose.Types.ObjectId().toString()],
+    })
+    expect(res.status).toBe(400)
+
+    // verify persistence through the list API (no model access)
+    const list = await api.get(`${BASE}/all`).query({ limit: 100 })
+    const fresh = list.body.tasks.find((t) => t._id === String(task._id))
+    expect(fresh.title).not.toBe("Should not apply")
+    expect(fresh.assignedUsers.map((u) => String(u._id))).toEqual([String(assignee._id)])
+  })
+})
+
+describe("tasks — status transitions on already-completed tasks", () => {
+  let task
+
+  beforeAll(async () => {
+    const api = await as(admin)
+    const res = await api.post(BASE).send({ ...validTask(), assignedUsers: [String(assignee._id)] })
+    task = res.body.task
+    const done = await api.put(`${BASE}/${task._id}/status`).send({ status: "Completed" })
+    expect(done.status).toBe(200)
+  })
+
+  it("assigned user is still blocked from Created/Assigned even when Completed", async () => {
+    const api = await as(assignee)
+    for (const status of ["Created", "Assigned"]) {
+      const res = await api.put(`${BASE}/${task._id}/status`).send({ status })
+      expect(res.status).toBe(403)
+    }
+  })
+
+  it("duplicate 'Completed' updates are accepted idempotently (no transition guard)", async () => {
+    const api = await as(assignee)
+    for (let i = 0; i < 2; i++) {
+      const res = await api.put(`${BASE}/${task._id}/status`).send({ status: "Completed" })
+      expect(res.status).toBe(200)
+      expect(res.body.task.status).toBe("Completed")
+    }
+  })
+
+  it("SUSPECTED BUG: admin can move a Completed task backwards — no state machine forbids reopening or skipping states", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${task._id}/status`).send({ status: "In Progress" })
+    // Documenting actual behavior: the service only validates the value, never
+    // the transition, so a finished task can be silently reopened.
+    expect(res.status).toBe(200)
+    expect(res.body.task.status).toBe("In Progress")
+  })
+
+  it("setting 'Created' on an assigned task is silently coerced back to 'Assigned' by the model hook", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${task._id}/status`).send({ status: "Created" })
+    expect(res.status).toBe(200)
+    // Task pre("save") hook flips Created -> Assigned whenever assignees exist
+    expect(res.body.task.status).toBe("Assigned")
+  })
+
+  it("admin re-completes the rewound task for later suites", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${task._id}/status`).send({ status: "Completed" })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe("tasks — my-tasks filter/pagination combinations", () => {
+  beforeAll(async () => {
+    const api = await as(admin)
+    // two tasks for the assignee with distinct categories
+    await api.post(BASE).send({
+      ...validTask(),
+      title: "Mine A",
+      category: "Administrative",
+      assignedUsers: [String(assignee._id)],
+    })
+    await api.post(BASE).send({
+      ...validTask(),
+      title: "Mine B",
+      category: "Administrative",
+      assignedUsers: [String(assignee._id)],
+    })
+  })
+
+  it("invalid status combined with a valid page returns an empty list, not an error", async () => {
+    const api = await as(assignee)
+    const res = await api.get(`${BASE}/my-tasks`).query({ status: "Bogus", page: 1 })
+    expect(res.status).toBe(200)
+    expect(res.body.tasks).toEqual([])
+    expect(res.body.pagination.total).toBe(0)
+  })
+
+  it("valid status combined with an invalid page is still a 400", async () => {
+    const api = await as(assignee)
+    for (const q of [{ status: "Assigned", page: -2 }, { category: "Inspection", limit: "NaN" }]) {
+      const res = await api.get(`${BASE}/my-tasks`).query(q)
+      expect(res.status).toBe(400)
+      expect(res.body.message).toBe("Invalid pagination parameters")
+    }
+  })
+
+  it("status + category filters compose", async () => {
+    const api = await as(assignee)
+    const res = await api.get(`${BASE}/my-tasks`).query({ status: "Assigned", category: "Administrative" })
+    expect(res.status).toBe(200)
+    expect(res.body.tasks.length).toBeGreaterThanOrEqual(2)
+    expect(res.body.tasks.every((t) => t.status === "Assigned" && t.category === "Administrative")).toBe(true)
+  })
+
+  it("page beyond the last page yields empty tasks with pagination intact", async () => {
+    const api = await as(assignee)
+    const first = await api.get(`${BASE}/my-tasks`).query({ category: "Administrative", page: 1, limit: 1 })
+    expect(first.body.pagination.totalPages).toBeGreaterThanOrEqual(2)
+
+    const beyond = await api
+      .get(`${BASE}/my-tasks`)
+      .query({ category: "Administrative", page: first.body.pagination.totalPages + 5, limit: 1 })
+    expect(beyond.status).toBe(200)
+    expect(beyond.body.tasks).toEqual([])
+    expect(beyond.body.pagination.currentPage).toBe(first.body.pagination.totalPages + 5)
+  })
+})
+
 describe("full task lifecycle through the API", () => {
   it("create -> assign -> assignee progresses -> admin edits -> delete", async () => {
     const adminApi = await as(admin)

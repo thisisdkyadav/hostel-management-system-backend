@@ -23,7 +23,12 @@ import {
   createHostel,
   createStudentProfile,
   createTask,
+  createUnit,
+  createRoom,
 } from "../../helpers/seed/operations.js"
+// this variant also links StudentProfile.currentRoomAllocation, which the
+// hostel-scope filter needs to see the student
+import { createAllocation } from "../../helpers/seed/students.js"
 
 const BASE = "/api/v1/admin"
 
@@ -673,5 +678,235 @@ describe("GET /admin/task-stats", () => {
     expect(res.body.priorityCounts).toEqual({ High: 1, Medium: 1, Low: 1 })
     // overdue = dueDate < now AND status != Completed
     expect(res.body.overdueTasks).toBe(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening additions
+// ---------------------------------------------------------------------------
+
+describe("insurance provider name uniqueness", () => {
+  // SUSPECTED BUG (missing constraint): InsuranceProvider.name has a plain
+  // (non-unique) index and the service never checks duplicates, so identical
+  // names — even exact matches — are silently accepted. Any UI keyed on the
+  // provider NAME will be ambiguous afterwards.
+  it("duplicate names are accepted, even case-identical ones (documents current behavior)", async () => {
+    const sharedName = `Dup Name Provider ${Math.random().toString(36).slice(2, 8)}`
+
+    const first = await createProviderViaApi({ name: sharedName })
+    const second = await createProviderViaApi({ name: sharedName.toLowerCase() })
+
+    expect(String(second._id)).not.toBe(String(first._id))
+
+    const list = await adminApi.get(`${BASE}/insurance-providers`)
+    const matches = list.body.insuranceProviders.filter(
+      (p) => p.name.toLowerCase() === sharedName.toLowerCase(),
+    )
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe("insurance claims — update after delete", () => {
+  let claimUser2
+
+  beforeAll(async () => {
+    claimUser2 = await seed.student()
+  })
+
+  // Same failure family as the unknown-id PUT already documented above:
+  // updateClaimById returns null post-delete but nothing checks it.
+  it("updating an already-deleted claim reports success with a null claim (documents current behavior)", async () => {
+    const provider = await createProviderViaApi()
+    const created = await adminApi.post(`${BASE}/insurance-claims`).send({
+      userId: claimUser2._id,
+      insuranceProvider: provider._id,
+      amount: 500,
+      hospitalName: "Delete Then Update Hospital",
+      description: "probe",
+    })
+    const claimId = created.body.insuranceClaim._id
+
+    const del = await adminApi.delete(`${BASE}/insurance-claims/${claimId}`)
+    expect(del.status).toBe(200)
+
+    const res = await adminApi.put(`${BASE}/insurance-claims/${claimId}`).send({ amount: 999 })
+    expect(res.status).toBe(200)
+    // observed envelope: controller sends result.data -> { insuranceClaim } —
+    // the service's "Insurance claim updated" message is stripped
+    expect(res.body.insuranceClaim).toBeNull()
+
+    // and the deleted claim stays gone from the owner's list
+    const list = await adminApi.get(`${BASE}/insurance-claims/${claimUser2._id}`)
+    expect(list.body.insuranceClaims).toEqual([])
+  })
+})
+
+describe("student health PUT double-write", () => {
+  it("two consecutive PUTs overwrite each other and GET reflects only the last write", async () => {
+    const user = await seed.student()
+    const providerA = await createProviderViaApi()
+    const providerB = await createProviderViaApi()
+
+    // ensure the record exists via the lazy-create GET so both writes hit the
+    // update branch (not create-on-write)
+    await adminApi.get(`${BASE}/student/health/${user._id}`)
+
+    const putA = await adminApi.put(`${BASE}/student/health/${user._id}`).send({
+      bloodGroup: "O+",
+      insurance: { insuranceProvider: providerA._id, insuranceNumber: "DW-0001" },
+    })
+    expect(putA.status).toBe(200)
+
+    const putB = await adminApi.put(`${BASE}/student/health/${user._id}`).send({
+      bloodGroup: "AB+",
+      insurance: { insuranceProvider: providerB._id, insuranceNumber: "DW-0002" },
+    })
+    expect(putB.status).toBe(200)
+    expect(putB.body.health.bloodGroup).toBe("AB+")
+
+    const get = await adminApi.get(`${BASE}/student/health/${user._id}`)
+    expect(get.body.health.bloodGroup).toBe("AB+")
+    expect(get.body.health.insurance.insuranceNumber).toBe("DW-0002")
+    expect(String(get.body.health.insurance.insuranceProvider._id)).toBe(String(providerB._id))
+  })
+})
+
+describe("GET /admin/task-stats — zero/delta semantics", () => {
+  it("returns empty count objects when nothing has changed the aggregates' shape", async () => {
+    // Shape probe (counts may include tasks seeded by earlier describes in this
+    // file): every aggregate key must exist even if a bucket is empty.
+    const res = await adminApi.get(`${BASE}/task-stats`)
+    expect(res.status).toBe(200)
+    expect(typeof res.body.statusCounts).toBe("object")
+    expect(typeof res.body.categoryCounts).toBe("object")
+    expect(typeof res.body.priorityCounts).toBe("object")
+    expect(typeof res.body.overdueTasks).toBe("number")
+  })
+
+  it("a completed-but-overdue task does not raise overdueTasks (delta check)", async () => {
+    const before = await adminApi.get(`${BASE}/task-stats`)
+    const completedBefore = before.body.statusCounts.Completed ?? 0
+    const overdueBefore = before.body.overdueTasks
+
+    const past = new Date(Date.now() - 3 * 86400000)
+    await createTask({ createdBy: admin._id, status: "Completed", category: "Housekeeping", priority: "Low", dueDate: past })
+
+    const after = await adminApi.get(`${BASE}/task-stats`)
+    expect(after.body.statusCounts.Completed).toBe(completedBefore + 1)
+    // overdue counts only non-completed past-due tasks
+    expect(after.body.overdueTasks).toBe(overdueBefore)
+  })
+})
+
+describe("POST /admin/student/health/bulk-update", () => {
+  let rollH1
+  let rollH2
+  let userH1
+  let userH2
+
+  beforeAll(async () => {
+    userH1 = await seed.student()
+    userH2 = await seed.student()
+    rollH1 = (await createStudentProfile({ userId: userH1._id })).rollNumber
+    rollH2 = (await createStudentProfile({ userId: userH2._id })).rollNumber
+  })
+
+  const url = `${BASE}/student/health/bulk-update`
+  const payloadFor = (rows) => ({ studentsData: rows })
+
+  it("401 for unauthenticated requests", async () => {
+    await assert401("post", url, payloadFor([{ rollNumber: rollH1, bloodGroup: "A+" }]))
+  })
+
+  it("403 for students and wardens", async () => {
+    await assert403("post", url, payloadFor([{ rollNumber: rollH1, bloodGroup: "A+" }]))
+
+    const wardenApi = await as(await seed.warden())
+    const res = await wardenApi.post(url).send(payloadFor([{ rollNumber: rollH1, bloodGroup: "A+" }]))
+    expect(res.status).toBe(403)
+  })
+
+  it("400 when studentsData is missing or empty", async () => {
+    const missing = await adminApi.post(url).send({})
+    expect(missing.status).toBe(400)
+    expect(missing.body.message).toMatch(/students data array is required/i)
+
+    const empty = await adminApi.post(url).send(payloadFor([]))
+    expect(empty.status).toBe(400)
+  })
+
+  it("404 when no roll numbers match any profile", async () => {
+    const res = await adminApi.post(url).send(payloadFor([{ rollNumber: "NOPE777", bloodGroup: "O-" }]))
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/no students found/i)
+    // NOTE: error body carries only { message } — no success flag.
+  })
+
+  it("updates matched students and lists unmatched rolls (mixed rows)", async () => {
+    const res = await adminApi.post(url).send(
+      payloadFor([
+        { rollNumber: rollH1.toLowerCase(), bloodGroup: "B+" }, // case-insensitive match
+        { rollNumber: rollH2, bloodGroup: "" },
+        { rollNumber: "GHOSTHB", bloodGroup: "A+" },
+      ]),
+    )
+    expect(res.status).toBe(200)
+    // observed envelope: controller sends result.data directly — the service's
+    // "Bulk health update completed" message is stripped, body is
+    // { results, successDetails }
+    expect(res.body.results.totalProcessed).toBe(3)
+    expect(res.body.results.successfulUpdates).toBe(2)
+    expect(res.body.results.notFoundCount).toBe(1)
+    expect(res.body.results.notFound).toEqual(["GHOSTHB"])
+
+    const healthH1 = await adminApi.get(`${BASE}/student/health/${userH1._id}`)
+    expect(healthH1.body.health.bloodGroup).toBe("B+")
+
+    // blank bloodGroup still creates/keeps the record, stored as ''
+    const healthH2 = await adminApi.get(`${BASE}/student/health/${userH2._id}`)
+    expect(healthH2.body.health.bloodGroup).toBe("")
+  })
+
+  it("Hostel Supervisors pass the route gate but fail CLOSED without an active hostel", async () => {
+    // The bulk tool is registered above the Admin-only gate specifically so
+    // Hostel Supervisors can use it. But the scope helper fails closed: a
+    // hostel-bound session whose userData.hostel is null matches no students,
+    // surfacing as the service's 404 rather than a scope error.
+    const supervisor = await seed.hostelSupervisor()
+    const supervisorApi = await as(supervisor) // session hostel: null
+
+    const res = await supervisorApi.post(url).send(payloadFor([{ rollNumber: rollH1, bloodGroup: "A-" }]))
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/no students found/i)
+  })
+
+  it("is reachable by a scoped Hostel Supervisor for students in their active hostel", async () => {
+    const hostel = await createHostel({ name: "Bulk Health HS Hostel" })
+    const unit = await createUnit({ hostelId: hostel._id })
+    const room = await createRoom({ hostelId: hostel._id, unitId: unit._id })
+
+    const student = await seed.student()
+    const profile = await createStudentProfile({ userId: student._id })
+    await createAllocation({
+      userId: student._id,
+      studentProfileId: profile._id,
+      hostelId: hostel._id,
+      roomId: room._id,
+    })
+
+    const supervisor = await seed.hostelSupervisor()
+    const supervisorApi = await as(supervisor, {
+      userData: { hostel: { _id: String(hostel._id), name: hostel.name, type: hostel.type } },
+    })
+
+    const res = await supervisorApi
+      .post(url)
+      .send(payloadFor([{ rollNumber: profile.rollNumber, bloodGroup: "AB-" }]))
+    expect(res.status).toBe(200)
+    expect(res.body.results.successfulUpdates).toBe(1)
+    expect(res.body.results.notFound).toEqual([])
+
+    const health = await adminApi.get(`${BASE}/student/health/${student._id}`)
+    expect(health.body.health.bloodGroup).toBe("AB-")
   })
 })

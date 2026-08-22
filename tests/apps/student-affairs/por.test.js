@@ -661,4 +661,278 @@ describe("student-affairs /por", () => {
       expect(badId.status).toBe(422)
     })
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: SUBMISSION VALIDATION EDGE CASES (one field at a time)
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: submission validation edges", () => {
+    it("422 for a malformed (non-objectid) porCategoryId", async () => {
+      const api = await as(student)
+      const res = await api.post(BASE).send({ ...requestPayload(), porCategoryId: "not-an-id" })
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("porCategoryId")
+    })
+
+    it("422 when undertakingAccepted is absent entirely", async () => {
+      const api = await as(student)
+      const { undertakingAccepted, ...noUndertaking } = requestPayload()
+      const res = await api.post(BASE).send({ ...noUndertaking, porCategoryId: categoryId })
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("undertakingAccepted")
+    })
+
+    it("422 for positionDetails shorter than 5 chars", async () => {
+      const api = await as(student)
+      const res = await api.post(BASE).send({
+        ...requestPayload(),
+        porCategoryId: categoryId,
+        positionDetails: "tiny",
+      })
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("positionDetails")
+    })
+
+    it("201 accepts a disciplinary declaration with sufficient details", async () => {
+      const res = await createRequest(student, {
+        hasDisciplinaryAction: true,
+        disciplinaryActionDetails: "Served a one-week conduct probation in 2024.",
+      })
+      expect(res.status).toBe(201)
+      expect(res.body.data.request.status).toBe("pending_gymkhana")
+      expect(res.body.data.request.hasDisciplinaryAction).toBe(true)
+
+      // Prove persistence via a follow-up listing scoped to the student
+      const listRes = await (await as(saAdmin)).get(`${BASE}/student/${String(student._id)}`)
+      expect(
+        listRes.body.data.requests.some((r) => r.id === res.body.data.request.id)
+      ).toBe(true)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: WRONG-REVIEWER ATTEMPTS AT EVERY STAGE
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: wrong-reviewer attempts at every stage", () => {
+    let requestId
+
+    beforeAll(async () => {
+      const res = await createRequest()
+      requestId = res.body.data.request.id
+    })
+
+    it("step-2 reviewer cannot act while the request sits at step 1", async () => {
+      const api = await as(rev2)
+      const approveAttempt = await api.post(`${BASE}/${requestId}/approve`).send({})
+      expect(approveAttempt.status).toBe(403)
+      expect(approveAttempt.body.message).toMatch(
+        /Only the assigned Gymkhana reviewers can act on this POR request/
+      )
+
+      const rejectAttempt = await api.post(`${BASE}/${requestId}/reject`).send({
+        reason: "Step two reviewer jumping the queue",
+      })
+      expect(rejectAttempt.status).toBe(403)
+
+      const revisionAttempt = await api
+        .post(`${BASE}/${requestId}/revision`)
+        .send({ comments: "Out of order revision demand" })
+      expect(revisionAttempt.status).toBe(403)
+    })
+
+    it("an unrelated student is stopped by the route role gate (not service scope)", async () => {
+      const api = await as(otherStudent)
+      const res = await api.post(`${BASE}/${requestId}/approve`).send({})
+      expect(res.status).toBe(403)
+      // The approve route only admits Gymkhana/Admin roles, so students are
+      // rejected by RBAC before any ownership check runs.
+      expect(res.body.message).toMatch(/Required role: Gymkhana or Admin/)
+    })
+
+    it("the step-1 reviewer is locked out once the request moves to step 2", async () => {
+      const moved = await (await as(rev1)).post(`${BASE}/${requestId}/approve`).send({})
+      expect(moved.status).toBe(200)
+      expect(moved.body.data.request.currentApprovalStage).toBe("President Gymkhana")
+
+      const api = await as(rev1)
+      const repeatApprove = await api.post(`${BASE}/${requestId}/approve`).send({})
+      expect(repeatApprove.status).toBe(403)
+      expect(repeatApprove.body.message).toMatch(/Only the assigned Gymkhana reviewers/)
+
+      const repeatRevision = await api
+        .post(`${BASE}/${requestId}/revision`)
+        .send({ comments: "Trying to revision after recommending" })
+      expect(repeatRevision.status).toBe(403)
+    })
+
+    it("post-SA admins with valid roles are blocked at the Student Affairs stage", async () => {
+      const toSa = await (await as(rev2)).post(`${BASE}/${requestId}/approve`).send({})
+      expect(toSa.status).toBe(200)
+      expect(toSa.body.data.request.status).toBe("pending_student_affairs")
+
+      const apiOfficer = await as(officerSa)
+      const attempt = await apiOfficer.post(`${BASE}/${requestId}/approve`).send({})
+      expect(attempt.status).toBe(403)
+      expect(attempt.body.message).toMatch(/Only Office - Student Affairs can review this POR request/)
+    })
+
+    it("at pending_officer only Officer SA may act — SA office and later stages included", async () => {
+      const forward = await (await as(saAdmin))
+        .post(`${BASE}/${requestId}/approve`)
+        .send({ nextApprovers: [{ stage: "Officer SA", userId: String(officerSa._id) }] })
+      expect(forward.status).toBe(200)
+      expect(forward.body.data.request.status).toBe("pending_officer")
+
+      // The forwarding SA admin itself is now out of order
+      const saApprove = await (await as(saAdmin)).post(`${BASE}/${requestId}/approve`).send({})
+      expect(saApprove.status).toBe(403)
+      expect(saApprove.body.message).toMatch(/Only Officer SA can review this POR request/)
+
+      const saReject = await (await as(saAdmin))
+        .post(`${BASE}/${requestId}/reject`)
+        .send({ reason: "SA office cannot reject at the officer stage" })
+      expect(saReject.status).toBe(403)
+
+      const assocAttempt = await (await as(assocDeanSa))
+        .post(`${BASE}/${requestId}/revision`)
+        .send({ comments: "Associate Dean acting before their stage" })
+      expect(assocAttempt.status).toBe(403)
+      expect(assocAttempt.body.message).toMatch(/Only Officer SA can review this POR request/)
+
+      const deanAttempt = await (await as(deanSa))
+        .post(`${BASE}/${requestId}/reject`)
+        .send({ reason: "Dean rejecting at the officer stage" })
+      expect(deanAttempt.status).toBe(403)
+    })
+
+    it("finalized requests refuse further actions with the fallback message", async () => {
+      const final = await (await as(officerSa)).post(`${BASE}/${requestId}/approve`).send({})
+      expect(final.status).toBe(200)
+      expect(final.body.data.request.status).toBe("approved")
+
+      const apiDean = await as(deanSa)
+      const doubleApprove = await apiDean.post(`${BASE}/${requestId}/approve`).send({})
+      expect(doubleApprove.status).toBe(403)
+      expect(doubleApprove.body.message).toMatch(/POR request is not pending approval/)
+
+      const lateReject = await apiDean
+        .post(`${BASE}/${requestId}/reject`)
+        .send({ reason: "Rejecting an already approved POR must fail" })
+      expect(lateReject.status).toBe(403)
+      expect(lateReject.body.message).toMatch(/POR request is not pending approval/)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: REJECTED REQUESTS ARE TERMINAL FOR APPROVERS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: rejected requests are terminal", () => {
+    let rejectedId
+
+    beforeAll(async () => {
+      const res = await createRequest()
+      rejectedId = res.body.data.request.id
+      const rejected = await (await as(rev1))
+        .post(`${BASE}/${rejectedId}/reject`)
+        .send({ reason: "Verification documents did not match club records" })
+      expect(rejected.status).toBe(200)
+      expect(rejected.body.data.request.status).toBe("rejected")
+    })
+
+    it("approvers cannot approve, reject or request revision on a rejected request", async () => {
+      const apiRev1 = await as(rev1)
+      const reApprove = await apiRev1.post(`${BASE}/${rejectedId}/approve`).send({})
+      expect(reApprove.status).toBe(403)
+      expect(reApprove.body.message).toMatch(/POR request is not pending approval/)
+
+      const reReject = await apiRev1
+        .post(`${BASE}/${rejectedId}/reject`)
+        .send({ reason: "Second rejection of a rejected request" })
+      expect(reReject.status).toBe(403)
+
+      const apiSa = await as(saAdmin)
+      const directApprove = await apiSa.post(`${BASE}/${rejectedId}/approve`).send({
+        directApprove: true,
+      })
+      expect(directApprove.status).toBe(403)
+      expect(directApprove.body.message).toMatch(/POR request is not pending approval/)
+
+      const revision = await apiSa
+        .post(`${BASE}/${rejectedId}/revision`)
+        .send({ comments: "Trying to reopen a rejected request" })
+      expect(revision.status).toBe(403)
+    })
+
+    it("the rejection stays recorded after all failed attempts", async () => {
+      const apiStudent = await as(student)
+      const history = await apiStudent.get(`${BASE}/${rejectedId}/history`)
+      expect(history.status).toBe(200)
+      expect(history.body.data.history.map((h) => h.action)).toContain("rejected")
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: CERTIFICATE SCOPE + STORAGE-INDEPENDENT GENERATION
+  //
+  // The certificate endpoint resolves template/logo/signature media refs but
+  // never touches the student's supportingDocumentUrl — an unreachable host in
+  // that field does not block generation.
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: certificate scope & unreachable storage refs", () => {
+    let certRequestId
+
+    beforeAll(async () => {
+      const res = await createRequest(student, {
+        supportingDocumentUrl: "https://storage.unreachable.invalid/por-proof.pdf",
+      })
+      certRequestId = res.body.data.request.id
+      expect(res.body.data.request.supportingDocumentUrl).toBe(
+        "https://storage.unreachable.invalid/por-proof.pdf"
+      )
+      await (await as(rev1)).post(`${BASE}/${certRequestId}/approve`).send({})
+      await (await as(rev2)).post(`${BASE}/${certRequestId}/approve`).send({})
+      await (await as(saAdmin))
+        .post(`${BASE}/${certRequestId}/approve`)
+        .send({ directApprove: true })
+    })
+
+    it("another student cannot generate someone else's certificate", async () => {
+      const api = await as(otherStudent)
+      const res = await api.get(`${BASE}/${certRequestId}/certificate`)
+      expect(res.status).toBe(403)
+      expect(res.body.message).toMatch(/You cannot generate a certificate for this POR request/)
+    })
+
+    it("owner gets full certificate data despite the unreachable document ref", async () => {
+      const api = await as(student)
+      const res = await api.get(`${BASE}/${certRequestId}/certificate`)
+      expect(res.status).toBe(200)
+      expect(res.body.success).toBe(true)
+      expect(String(res.body.data.request.id)).toBe(String(certRequestId))
+      expect(res.body.data.request.positionTitle).toBe("Cultural Secretary")
+      // Full payload shape: template + resolved variables + signatures
+      expect(res.body.data.template).toBeTruthy()
+      expect(typeof res.body.data.template.body).toBe("string")
+      expect(Array.isArray(res.body.data.signatures)).toBe(true)
+      expect(res.body.data.data.name).toBeTruthy()
+      expect(res.body.data.data.rollNumber).toBeTruthy()
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: WORKSPACE SCOPING BETWEEN STUDENTS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: student workspace scoping", () => {
+    it("a student's workspace lists only their own requests", async () => {
+      const apiOther = await as(otherStudent)
+      const otherView = await apiOther.get(`${BASE}/workspace`)
+      expect(otherView.status).toBe(200)
+      expect(otherView.body.data.viewer.mode).toBe("student")
+      // Every listed request belongs to the viewing student, not to `student`
+      expect(
+        otherView.body.data.requests.every(
+          (r) => !r.student || String(r.student.userId) === String(otherStudent._id)
+        )
+      ).toBe(true)
+    })
+  })
 })

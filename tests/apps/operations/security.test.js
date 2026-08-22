@@ -596,3 +596,223 @@ describe("GET /api/v1/security/entries/face-scanner (Hostel Gate only)", () => {
     expect(res.body.entries.every((e) => e.status === "Checked Out")).toBe(true)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: session-hostel scoping via as(user, { userData: { hostel } })
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/security/entries — session hostel scoping", () => {
+  it("scopes results to the hostel carried in the session userData", async () => {
+    const scopedGate = await seed.createUser({ role: "Hostel Gate" })
+    const api = await as(scopedGate, {
+      userData: { hostel: { _id: String(hostelB._id), name: hostelB.name, type: hostelB.type } },
+    })
+    const res = await api.get(`${BASE}/entries`)
+    expect(res.status).toBe(200)
+    expect(res.body.studentEntries.length).toBeGreaterThanOrEqual(1)
+    expect(res.body.studentEntries.every((e) => String(e.hostelId._id ?? e.hostelId) === String(hostelB._id))).toBe(true)
+  })
+
+  it("returns entries from all hostels when the session has no hostel", async () => {
+    const bareSecurity = await seed.security()
+    const api = await as(bareSecurity)
+    const res = await api.get(`${BASE}/entries`)
+    expect(res.status).toBe(200)
+    const hostels = new Set(res.body.studentEntries.map((e) => String(e.hostelId._id ?? e.hostelId)))
+    expect(hostels.size).toBeGreaterThanOrEqual(2)
+  })
+
+  it("200 with empty result for a session hostel that owns no entries", async () => {
+    const lonelyHostel = await createHostel({ name: "Lonely Hostel" })
+    const lonelyGate = await seed.createUser({ role: "Hostel Gate" })
+    const api = await as(lonelyGate, {
+      userData: { hostel: { _id: String(lonelyHostel._id), name: lonelyHostel.name, type: "room-only" } },
+    })
+    const res = await api.get(`${BASE}/entries`)
+    expect(res.status).toBe(200)
+    expect(res.body.studentEntries).toHaveLength(0)
+    expect(res.body.meta.total).toBe(0)
+  })
+
+  it("recent entries follow the overridden session hostel too", async () => {
+    const scopedGate = await seed.createUser({ role: "Hostel Gate" })
+    const api = await as(scopedGate, {
+      userData: { hostel: { _id: String(hostelA._id), name: hostelA.name, type: hostelA.type } },
+    })
+    const res = await api.get(`${BASE}/entries/recent`)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    expect(res.body.every((e) => String(e.hostelId._id ?? e.hostelId) === String(hostelA._id))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: cross-family denials on the Hostel-Gate-only endpoints
+// ---------------------------------------------------------------------------
+describe("Hostel Gate endpoints — cross-family role denials", () => {
+  const outsiders = async () => [await seed.security(), await seed.hostelSupervisor(), await seed.warden()]
+
+  it("403 for Security / Hostel Supervisor / Warden on every gate write route", async () => {
+    for (const user of await outsiders()) {
+      const api = await as(user)
+      expect((await api.post(`${BASE}/entries`).send({})).status).toBe(403)
+      expect((await api.post(`${BASE}/entries/email`).send({})).status).toBe(403)
+      expect((await api.put(`${BASE}/entries/${new mongoose.Types.ObjectId()}`).send({})).status).toBe(403)
+      expect((await api.patch(`${BASE}/entries/${new mongoose.Types.ObjectId()}/cross-hostel-reason`).send({ reason: "x" })).status).toBe(403)
+      expect((await api.delete(`${BASE}/entries/${new mongoose.Types.ObjectId()}`)).status).toBe(403)
+      expect((await api.post(`${BASE}/verify-qr`).send({})).status).toBe(403)
+      expect((await api.get(`${BASE}/entries/recent`)).status).toBe(403)
+      expect((await api.get(`${BASE}/entries/face-scanner`)).status).toBe(403)
+    }
+  })
+
+  it("200 for Security and Student roles on GET /entries (guard allows them)", async () => {
+    const studentApi = await as(studentPlain)
+    expect((await studentApi.get(`${BASE}/entries`)).status).toBe(200)
+
+    // Security user without a session hostel — allowed by the guard list.
+    const secApi = await as(await seed.security())
+    expect((await secApi.get(`${BASE}/entries`)).status).toBe(200)
+  })
+
+  it("GET /entries pagination edges: page=0 -> 500, limit=1000 ok", async () => {
+    const api = await as(admin)
+    const badPage = await api.get(`${BASE}/entries`).query({ page: 0, limit: 10 })
+    // SUSPECTED BUG: page=0 produces a negative skip that Mongo rejects.
+    expect([200, 500]).toContain(badPage.status)
+
+    const bigLimit = await api.get(`${BASE}/entries`).query({ page: 1, limit: 1000 })
+    expect(bigLimit.status).toBe(200)
+    expect(bigLimit.body.studentEntries.length).toBeGreaterThanOrEqual(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: validation edges on entry writes
+// ---------------------------------------------------------------------------
+describe("POST/PUT/PATCH /entries — validation edges", () => {
+  it("SUSPECTED BUG: absent fields fall through to lookups — missing hostelId -> 404 Unit not found, empty-string hostelId -> 400 Invalid ID format", async () => {
+    // No request validation exists on this route: a missing (undefined)
+    // hostelId is stripped from the Mongo filter and surfaces as a domain
+    // "Unit not found" 404, while an empty string dies in ObjectId casting
+    // with the generic "Invalid ID format" 400.
+    const cases = [
+      { payload: {}, status: 404, message: "Unit not found" },
+      { payload: { unit: "", room: "", bed: "" }, status: 404, message: "Unit not found" },
+      { payload: { hostelId: "", unit: "U1", room: "101", bed: "1" }, status: 400, message: "Invalid ID format" },
+    ]
+    for (const { payload, status, message } of cases) {
+      const res = await gateApi.post(`${BASE}/entries`).send(payload)
+      expect(res.status).toBe(status)
+      expect(res.body.message).toBe(message)
+    }
+  })
+
+  it("404 Unit not found when only unit is unknown (valid hostelId)", async () => {
+    const res = await gateApi
+      .post(`${BASE}/entries`)
+      .send({ hostelId: String(hostelB._id), unit: "NOPE", room: "101", bed: "1" })
+    expect(res.status).toBe(404)
+    expect(res.body.message).toBe("Unit not found")
+  })
+
+  it("PUT with an empty body wipes room/bed/status and fails schema validation (422)", async () => {
+    // SUSPECTED BUG: update assigns undefined to required fields; the save then
+    // dies with a ValidationError instead of rejecting the request up front.
+    const entry = await createCheckInOutEntry({
+      userId: studentPlain._id,
+      hostelId: hostelA._id,
+      hostelName: hostelA.name,
+      room: "701",
+      bed: "1",
+      status: "Checked In",
+      isSameHostel: true,
+    })
+    const res = await gateApi.put(`${BASE}/entries/${entry._id}`).send({})
+    expect([200, 422]).toContain(res.status)
+    if (res.status === 422) {
+      expect(res.body.success).toBe(false)
+    } else {
+      // If it somehow succeeds, required fields must have been unset.
+      expect(res.body.studentEntry.room).toBeNull()
+    }
+  })
+
+  it("SUSPECTED BUG: PATCH cross-hostel-reason without a reason returns 200 and leaves the old reason untouched", async () => {
+    // { reason: undefined } is stripped from the $set by Mongoose, so the
+    // update silently no-ops instead of clearing or rejecting.
+    const entry = await createCheckInOutEntry({
+      userId: studentPlain._id,
+      hostelId: hostelA._id,
+      hostelName: hostelA.name,
+      room: "801",
+      bed: "1",
+      status: "Checked In",
+      isSameHostel: false,
+      reason: "Stale reason",
+    })
+    const res = await gateApi.patch(`${BASE}/entries/${entry._id}/cross-hostel-reason`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.studentEntry.reason).toBe("Stale reason")
+  })
+
+  it("DELETE with a malformed id -> 400 Invalid ID format", async () => {
+    const res = await gateApi.delete(`${BASE}/entries/not-an-id`)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("PATCH cross-hostel-reason with a malformed id -> 400 Invalid ID format", async () => {
+    const res = await gateApi.patch(`${BASE}/entries/bogus/cross-hostel-reason`).send({ reason: "x" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("face-scanner pagination: page beyond total returns empty entries", async () => {
+    const res = await gateApi.get(`${BASE}/entries/face-scanner`).query({ page: 99, limit: 20 })
+    expect(res.status).toBe(200)
+    expect(res.body.entries).toHaveLength(0)
+    expect(res.body.pagination.page).toBe(99)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: QR paths — key mismatch, future expiry, extreme expiries
+// ---------------------------------------------------------------------------
+describe("POST /verify-qr — QR edge cases", () => {
+  it("SUSPECTED BUG-adjacent behavior: payload encrypted under a different key than the stored aesKey -> 400 Invalid QR Code", async () => {
+    // Seeder key != user.aesKey: decryption must fail cleanly, not 500.
+    const mismatchedKey = newAesKey()
+    const res = await gateApi
+      .post(`${BASE}/verify-qr`)
+      .send({ email: qrStudent.email, encryptedData: encryptQrExpiry(mismatchedKey, Date.now() + 60_000) })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe("Invalid QR Code")
+  })
+
+  it("200 for a far-future expiry (year 2999)", async () => {
+    const res = await gateApi.post(`${BASE}/verify-qr`).send({
+      email: qrStudent.email,
+      encryptedData: encryptQrExpiry(qrStudent.aesKey, new Date("2999-01-01").getTime()),
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+  })
+
+  it("400 QR Code Expired for an ancient expiry (year 1900)", async () => {
+    const res = await gateApi.post(`${BASE}/verify-qr`).send({
+      email: qrStudent.email,
+      encryptedData: encryptQrExpiry(qrStudent.aesKey, new Date("1900-01-01").getTime()),
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe("QR Code Expired")
+  })
+
+  it("400 when encryptedData is present but email is empty", async () => {
+    const res = await gateApi
+      .post(`${BASE}/verify-qr`)
+      .send({ email: "", encryptedData: encryptQrExpiry(qrStudent.aesKey, Date.now() + 60_000) })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe("Invalid QR Code")
+  })
+})

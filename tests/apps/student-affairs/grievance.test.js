@@ -301,4 +301,235 @@ describe("student-affairs /grievances", () => {
       expect(res.body.message).toMatch(/not implemented yet/)
     })
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: one-field-at-a-time validation shapes for POST /
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: create validation one field at a time", () => {
+    const validPayload = {
+      title: "Hostel water shortage",
+      description: "There has been no water supply in block C for two days.",
+      category: "hostel",
+    }
+
+    it("422 when only the title is missing", async () => {
+      const api = await as(studentUser)
+      const { title, ...noTitle } = validPayload
+      const res = await api.post(BASE).send(noTitle)
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("title")
+    })
+
+    it("422 when only the description is missing", async () => {
+      const api = await as(studentUser)
+      const { description, ...noDescription } = validPayload
+      const res = await api.post(BASE).send(noDescription)
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("description")
+    })
+
+    it("422 when the description is shorter than 10 chars", async () => {
+      const api = await as(studentUser)
+      const res = await api.post(BASE).send({ ...validPayload, description: "too short" })
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("description")
+    })
+
+    it("422 for each invalid priority / category enum value", async () => {
+      const api = await as(studentUser)
+      for (const field of ["priority", "category"]) {
+        const res = await api.post(BASE).send({ ...validPayload, [field]: "asap-universe" })
+        expect(res.status).toBe(422)
+        expect(res.body.errors[0].field).toBe(field)
+      }
+    })
+
+    it("422 for more than 5 attachments and for invalid attachment URLs", async () => {
+      const api = await as(studentUser)
+
+      const sixAttachments = Array.from({ length: 6 }, (_, i) => ({
+        filename: `f${i}.pdf`,
+        url: `https://files.hms.test/f${i}.pdf`,
+      }))
+      const tooMany = await api.post(BASE).send({ ...validPayload, attachments: sixAttachments })
+      expect(tooMany.status).toBe(422)
+      expect(JSON.stringify(tooMany.body.errors)).toMatch(/Maximum 5 attachments/)
+
+      const badUrl = await api.post(BASE).send({
+        ...validPayload,
+        attachments: [{ filename: "x.pdf", url: "ftp://files.hms.test/x.pdf" }],
+      })
+      expect(badUrl.status).toBe(422)
+      expect(JSON.stringify(badUrl.body.errors)).toMatch(/Invalid attachment URL/)
+    })
+
+    it("400 reaches the stub with media:// attachment refs accepted", async () => {
+      const api = await as(studentUser)
+      const res = await api.post(BASE).send({
+        ...validPayload,
+        attachments: [{ filename: "proof.pdf", url: "media://abc123" }],
+      })
+      // Validation passed -> the stub answers; nothing was persisted either way
+      expect(res.status).toBe(400)
+      expect(res.body.message).toMatch(/not implemented yet/)
+    })
+
+    it("unknown body fields are stripped silently rather than rejected", async () => {
+      const api = await as(studentUser)
+      const res = await api.post(BASE).send({ ...validPayload, hijackedField: "boom" })
+      expect(res.status).toBe(400) // reached the stub
+      expect(JSON.stringify(res.body)).not.toMatch(/hijackedField/)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: list query edge cases + exact stats contract
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: list filters & stats shape", () => {
+    it("422 for an invalid priority filter and over-long search", async () => {
+      const api = await as(admin)
+
+      const badPriority = await api.get(BASE).query({ priority: "whenever" })
+      expect(badPriority.status).toBe(422)
+      expect(badPriority.body.errors[0].field).toBe("priority")
+
+      const longSearch = await api.get(BASE).query({ search: "y".repeat(101) })
+      expect(longSearch.status).toBe(422)
+      expect(longSearch.body.errors[0].field).toBe("search")
+    })
+
+    // SUSPECTED BUG: getGrievancesSchema embeds the shared paginationSchema,
+    // whose page/limit keys are nested under a literal `query` key that never
+    // matches real HTTP query strings. With stripUnknown:true every pagination
+    // param (?page=0, ?limit=9999) is silently discarded instead of validated.
+    it("pagination params are silently stripped, not validated", async () => {
+      const api = await as(admin)
+      const res = await api.get(BASE).query({ page: 0, limit: 5000 })
+      expect(res.status).toBe(200)
+      expect(res.body.grievances).toEqual([])
+      expect(res.body.pagination).toEqual({})
+    })
+
+    it("GET /stats exposes the exact zeroed stub contract via sendRawResponse", async () => {
+      const api = await as(admin)
+      const res = await api.get(`${BASE}/stats`)
+      expect(res.status).toBe(200)
+      // Bare service data: no success/message envelope wrapper at all
+      expect(res.body).toEqual({
+        total: 0,
+        byStatus: {},
+        byCategory: {},
+        avgResolutionDays: 0,
+      })
+    })
+
+    it("every valid status enum value passes the gate and reaches the stub", async () => {
+      const api = await as(admin)
+      for (const status of [
+        "pending",
+        "under_review",
+        "in_progress",
+        "resolved",
+        "closed",
+        "rejected",
+        "escalated",
+      ]) {
+        const res = await api.patch(`${BASE}/${VALID_ID}/status`).send({ status })
+        expect([res.status, res.body.message]).toEqual([404, expect.stringMatching(/not implemented yet/)])
+      }
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: routes WITHOUT role gates + remaining validation branches
+  //
+  // The router attaches authorize() only to POST /, /stats, PATCH status/
+  // assign/resolve and comments. GET /:id, DELETE /:id have NO role gate:
+  // any authenticated caller reaches the stub.
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: ungated reads/deletes & boundary payloads", () => {
+    it("Warden can reach GET /:id and DELETE /:id stubs (no role gate on these routes)", async () => {
+      const api = await as(wardenUser)
+      const read = await api.get(`${BASE}/${VALID_ID}`)
+      expect(read.status).toBe(404)
+      expect(read.body.message).toMatch(/not implemented yet/)
+
+      const del = await api.delete(`${BASE}/${VALID_ID}`)
+      expect(del.status).toBe(404)
+      expect(del.body.message).toMatch(/not implemented yet/)
+    })
+
+    it("numeric-looking ids fail objectId validation with the id field named", async () => {
+      const api = await as(admin)
+      const res = await api.get(`${BASE}/12345`)
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("id")
+
+      const del = await api.delete(`${BASE}/12345`)
+      expect(del.status).toBe(422)
+    })
+
+    it("status notes beyond 1000 chars are rejected even with a valid status", async () => {
+      const api = await as(admin)
+      const res = await api
+        .patch(`${BASE}/${VALID_ID}/status`)
+        .send({ status: "pending", notes: "n".repeat(1001) })
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("notes")
+    })
+
+    it("assign notes beyond 500 chars are rejected", async () => {
+      const api = await as(admin)
+      const res = await api
+        .patch(`${BASE}/${VALID_ID}/assign`)
+        .send({ assigneeId: VALID_ID, notes: "n".repeat(501) })
+      expect(res.status).toBe(422)
+      expect(res.body.errors[0].field).toBe("notes")
+    })
+
+    it("resolution boundary: exactly 10 chars passes, 2001 chars fails", async () => {
+      const api = await as(admin)
+      const boundary = await api
+        .patch(`${BASE}/${VALID_ID}/resolve`)
+        .send({ resolution: "0123456789" })
+      expect(boundary.status).toBe(404)
+      expect(boundary.body.message).toMatch(/not implemented yet/)
+
+      const tooLong = await api
+        .patch(`${BASE}/${VALID_ID}/resolve`)
+        .send({ resolution: "r".repeat(2001) })
+      expect(tooLong.status).toBe(422)
+      expect(tooLong.body.errors[0].field).toBe("resolution")
+    })
+
+    it("comment boundary: whitespace-only content fails after trim; >2000 fails", async () => {
+      const api = await as(admin)
+      const blank = await api.post(`${BASE}/${VALID_ID}/comments`).send({ content: "   " })
+      expect(blank.status).toBe(422)
+      expect(blank.body.errors[0].field).toBe("content")
+
+      const tooLong = await api
+        .post(`${BASE}/${VALID_ID}/comments`)
+        .send({ content: "c".repeat(2001) })
+      expect(tooLong.status).toBe(422)
+    })
+
+    it("Super Admin counts as a grievance handler for comments; internal flag reaches the stub unvalidated", async () => {
+      const api = await as(superAdminUser)
+      const ok = await api
+        .post(`${BASE}/${VALID_ID}/comments`)
+        .send({ content: "Internal note from SA office", isInternal: true })
+      expect(ok.status).toBe(404)
+      expect(ok.body.message).toMatch(/not implemented yet/)
+
+      // NOTE: because persistence is stubbed out, no branch enforces that only
+      // handlers may set isInternal=true — a Student request with the flag also
+      // passes straight through to the stub.
+      const apiStudent = await as(studentUser)
+      const studentInternal = await apiStudent
+        .post(`${BASE}/${VALID_ID}/comments`)
+        .send({ content: "Student trying the internal flag", isInternal: true })
+      expect(studentInternal.status).toBe(404)
+    })
+  })
 })

@@ -194,3 +194,30 @@ describe("GET /api/v1/stats/lostandfound", () => {
     expect(res.body).toEqual({ total: 3, active: 2, claimed: 1 })
   })
 })
+
+describe("stats — empty scopes report zeros", () => {
+  it("a hostel with no rooms, visitors, or events yields all-zero counters", async () => {
+    const emptyHostel = await createHostel({ name: "Stats Empty Hostel", type: "room-only" })
+    const api = await as(student)
+
+    const rooms = await api.get(`${BASE}/room/${emptyHostel._id}`)
+    expect(rooms.status).toBe(200)
+    expect(rooms.body).toEqual({ totalRooms: 0, availableRooms: 0, occupiedRooms: 0 })
+
+    const visitors = await api.get(`${BASE}/visitor/${emptyHostel._id}`)
+    expect(visitors.status).toBe(200)
+    expect(visitors.body).toEqual({ total: 0, checkedIn: 0, checkedOut: 0, todays: 0 })
+
+    const events = await api.get(`${BASE}/event/${emptyHostel._id}`)
+    expect(events.status).toBe(200)
+    expect(events.body).toEqual({ total: 0, upcoming: 0, past: 0 })
+  })
+
+  it("a well-formed but unknown hostel id yields zeros instead of a 404", async () => {
+    const { Types } = await import("mongoose")
+    const api = await as(student)
+    const res = await api.get(`${BASE}/room/${new Types.ObjectId().toString()}`)
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ totalRooms: 0, availableRooms: 0, occupiedRooms: 0 })
+  })
+})

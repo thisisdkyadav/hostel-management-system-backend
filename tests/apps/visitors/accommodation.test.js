@@ -981,3 +981,375 @@ describe("accommodation — invoice (legacy deferred settlement path)", () => {
     expect(Number(res.headers["content-length"])).toBeGreaterThan(500)
   })
 })
+
+// ---- hardening edges (added) ----------------------------------------------
+
+describe("accommodation — workflow transition violations", () => {
+  /** submit -> capacity approve (request sits at Pending FA Recommendation). */
+  async function pendingFa(student) {
+    const request = await submitFor(student)
+    await (await as(await cwo()))
+      .post(`/api/v1/accommodation/requests/${request._id}/capacity-decision`)
+      .send({ action: "approve" })
+    return request
+  }
+
+  it("chief-warden decision is refused while the request still awaits the faculty advisor (before bypass)", async () => {
+    const request = await pendingFa(await iitiStudent())
+    const res = await (await as(await chiefWarden()))
+      .post(`/api/v1/accommodation/requests/${request._id}/decision`)
+      .send({ action: "approve" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/not awaiting chief warden approval/i)
+  })
+
+  it("defer-payment after the initial payment is verified but with no additional bill open", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: `DV-${Date.now() % 100000}`, capacity: 2 })
+    await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        hostelId: hostel._id,
+        guestCharges: [{ guestIndex: 0, price: 400, gstPercentage: 0 }],
+      })
+    )
+    const api = await as(student)
+    await api.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+      utr: "123456789012",
+      paidAt: new Date().toISOString(),
+      screenshotFileRef: "media://payments/dv.png",
+    })
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+
+    // Payment Verified + settled initial bill + nothing additional open
+    const res = await api.post(`/api/v1/accommodation/requests/${request._id}/defer-payment`)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/no additional payment is open to defer/i)
+  })
+
+  it("schedule changes are refused on terminal statuses (cancelled, rejected)", async () => {
+    const student = await iitiStudent()
+
+    const cancelled = await submitFor(student)
+    await as(student).then((a) => a.post(`/api/v1/accommodation/requests/${cancelled._id}/cancel`))
+    let res = await as(student).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${cancelled._id}/schedule-change`).send({
+        type: "extend",
+        toDate: dateOnly(day(20)),
+        reason: "too late anyway",
+      })
+    )
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/only be changed after the request is approved/i)
+
+    const rejectOwner = await iitiStudent()
+    const rejected = await submitFor(rejectOwner)
+    await (await as(await cwo()))
+      .post(`/api/v1/accommodation/requests/${rejected._id}/capacity-decision`)
+      .send({ action: "reject", reason: "No capacity" })
+    res = await as(rejectOwner).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${rejected._id}/schedule-change`).send({
+        type: "extend",
+        toDate: dateOnly(day(20)),
+        reason: "nope",
+      })
+    )
+    expect(res.status).toBe(400)
+
+    // resubmitting a rejected (non-returned) request is also refused
+    const resub = await as(rejectOwner).then((a) => a.post(`/api/v1/accommodation/requests/${rejected._id}/resubmit`).send({}))
+    expect(resub.status).toBe(400)
+    expect(resub.body.message).toMatch(/only returned requests/i)
+  })
+
+  it("student cancel is refused once payment has been requested", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: `CP-${Date.now() % 100000}`, capacity: 2 })
+    await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        hostelId: hostel._id,
+        guestCharges: [{ guestIndex: 0, price: 400, gstPercentage: 0 }],
+      })
+    )
+
+    const res = await as(student).then((a) => a.post(`/api/v1/accommodation/requests/${request._id}/cancel`))
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/no longer be cancelled/i)
+  })
+
+  it("assign-rooms is refused while payment is deferred", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    const room = await createRoom({ hostelId: hostel._id, roomNumber: `DF-${Date.now() % 100000}`, capacity: 2 })
+    const cwoApi = await as(await cwo())
+    await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [{ guestIndex: 0, price: 300, gstPercentage: 0 }],
+    })
+    await as(student).then((a) => a.post(`/api/v1/accommodation/requests/${request._id}/defer-payment`))
+
+    const supervisorApi = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+    const res = await supervisorApi.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [{ roomId: room._id, guestIndexes: [0] }],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/only after payment is verified/i)
+  })
+
+  it("checkout twice is refused; admin-cancel on an invoiced booking reports it already invoiced", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    const room = await createRoom({ hostelId: hostel._id, roomNumber: `DC-${Date.now() % 100000}`, capacity: 2 })
+    await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        hostelId: hostel._id,
+        guestCharges: [{ guestIndex: 0, price: 300, gstPercentage: 0 }],
+      })
+    )
+    await as(student).then((a) => a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+      utr: "123456789012",
+      paidAt: new Date().toISOString(),
+      screenshotFileRef: "media://payments/dc.png",
+    }))
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+    const gateApi = await as(await seed.createUser({ role: "Hostel Gate" }))
+    await as(await seed.createUser({ role: "Hostel Supervisor" })).then((s) =>
+      s.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+        rooms: [{ roomId: room._id, guestIndexes: [0] }],
+      })
+    )
+    await gateApi.post(`/api/v1/accommodation/requests/${request._id}/checkin`)
+    const firstOut = await gateApi.post(`/api/v1/accommodation/requests/${request._id}/checkout`)
+    expect(firstOut.status).toBe(200)
+
+    const again = await gateApi.post(`/api/v1/accommodation/requests/${request._id}/checkout`)
+    expect(again.status).toBe(400)
+    expect(again.body.message).toMatch(/must be checked in before checking out/i)
+
+    // terminal INVOICED status refuses admin-cancel with a specific message
+    const { AccommodationRequest } = await import("../../../src/models/index.js")
+    const invoiced = await AccommodationRequest.create({
+      typeKey: "parents-siblings",
+      requesterUserId: student._id,
+      applicantName: student.name,
+      applicantEmail: student.email,
+      applicantPhone: "9999999999",
+      facultyAdvisorEmail: "fa.advisor@iiti.ac.in",
+      guests: [
+        { name: "Invoiced Guest", gender: "Male", age: 60, relation: "Grandfather", aadharNumber: "121212121212" },
+      ],
+      roomPreference: "Single",
+      stay: { fromDate: day(-5), toDate: day(-2) },
+      persons: 1,
+      nights: 3,
+      status: "Invoiced",
+      payment: { amount: 900, mode: "now", status: "Verified" },
+    })
+    const cancelRes = await (await as(await cwo()))
+      .post(`/api/v1/accommodation/requests/${invoiced._id}/admin-cancel`)
+      .send({ reason: "mistake" })
+    expect(cancelRes.status).toBe(400)
+    expect(cancelRes.body.message).toMatch(/already invoiced/i)
+  })
+})
+
+describe("accommodation — payment-request & proof boundaries", () => {
+  async function cwApprovedWithHostel(student) {
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: `PB-${Date.now() % 100000}`, capacity: 2 })
+    return { request, hostel }
+  }
+
+  it("guestCharges array length must match guests exactly (short and long both refused)", async () => {
+    const { request, hostel } = await cwApprovedWithHostel(await iitiStudent())
+    const api = await as(await cwo())
+
+    let res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/every guest/i)
+
+    res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [
+        { guestIndex: 0, price: 500, gstPercentage: 0 },
+        { guestIndex: 1, price: 500, gstPercentage: 0 }, // one guest too many
+      ],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/every guest/i)
+  })
+
+  it("UTR must be exactly 12 digits: 11 and 13 digit values are refused; paidAt exactly now passes", async () => {
+    const student = await iitiStudent()
+    const { request, hostel } = await cwApprovedWithHostel(student)
+    await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        hostelId: hostel._id,
+        guestCharges: [{ guestIndex: 0, price: 100, gstPercentage: 0 }],
+      })
+    )
+
+    const api = await as(student)
+    for (const utr of ["12345678901", "1234567890123"]) {
+      const res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+        utr,
+        paidAt: new Date().toISOString(),
+        screenshotFileRef: "media://payments/u.png",
+      })
+      expect(res.status).toBe(400)
+      expect(res.body.message).toMatch(/12-digit/i)
+    }
+
+    // paidAt exactly now passes the not-in-future check
+    const ok = await api.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+      utr: "123456789012",
+      paidAt: new Date().toISOString(),
+      screenshotFileRef: "media://payments/u.png",
+    })
+    expect(ok.status).toBe(200)
+  })
+})
+
+describe("accommodation — expired FA recommendation token branch", () => {
+  async function expiredFaToken(requestId) {
+    const { createActionLinkToken, ACTION_LINK_TOKEN_TYPE } = await import(
+      "../../../src/services/action-links/action-link-token.service.js"
+    )
+    const { rawToken } = await createActionLinkToken({
+      type: ACTION_LINK_TOKEN_TYPE.ACCOMMODATION_FA_RECOMMENDATION,
+      subjectModel: "AccommodationRequest",
+      subjectId: requestId,
+      recipientEmail: "fa.advisor@iiti.ac.in",
+      payload: {},
+      expiresAt: new Date(Date.now() - 60 * 1000), // already expired
+    })
+    return rawToken
+  }
+
+  it("an expired token answers 400 'expired' on GET and POST (distinct from invalid-token 404)", async () => {
+    const student = await iitiStudent()
+    const request = await submitFor(student)
+    await (await as(await cwo()))
+      .post(`/api/v1/accommodation/requests/${request._id}/capacity-decision`)
+      .send({ action: "approve" })
+
+    const token = await expiredFaToken(request._id)
+    const api = await anon()
+
+    const view = await api.get(`/api/v1/accommodation/recommendation/${token}`)
+    expect(view.status).toBe(400)
+    expect(view.body.message).toMatch(/expired/i)
+
+    const rec = await api.post(`/api/v1/accommodation/recommendation/${token}`).send({ decision: "recommend" })
+    expect(rec.status).toBe(400)
+    expect(rec.body.message).toMatch(/expired/i)
+
+    // the underlying request never moved
+    const detail = await as(student).then((a) => a.get(`/api/v1/accommodation/requests/${request._id}`))
+    expect(detail.status).toBe(200)
+    expect(detail.body.data.status).toBe("Pending FA Recommendation")
+  })
+})
+
+describe("accommodation — invoice disposition variants & list pagination clamp", () => {
+  async function seedInvoicedLegacy(student, hostel) {
+    const { AccommodationRequest } = await import("../../../src/models/index.js")
+    return AccommodationRequest.create({
+      typeKey: "parents-siblings",
+      requesterUserId: student._id,
+      applicantName: student.name,
+      applicantEmail: student.email,
+      applicantPhone: "9999999999",
+      facultyAdvisorEmail: "fa.advisor@iiti.ac.in",
+      guests: [
+        { name: "Disp Guest", gender: "Female", age: 39, relation: "Aunt", aadharNumber: "343434343434" },
+      ],
+      roomPreference: "Single",
+      stay: { fromDate: day(-3), toDate: day(-1) },
+      persons: 1,
+      nights: 2,
+      status: "Rooms Assigned",
+      payment: { amount: 700, mode: "later", status: "Deferred" },
+      allotment: { hostelId: hostel._id, allottedBy: null, allottedAt: new Date() },
+    })
+  }
+
+  it("disposition falls back to inline unless exactly 'attachment' is requested", async () => {
+    const student = await iitiStudent()
+    const hostel = await createHostel()
+    const request = await seedInvoicedLegacy(student, hostel)
+    const api = await as(student)
+
+    await api.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+      utr: "565656565656",
+      paidAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+      screenshotFileRef: "media://payments/disp.png",
+    })
+    const verified = await (await as(await accountant()))
+      .post(`/api/v1/accommodation/requests/${request._id}/payment-verify`)
+      .send({ action: "verify" })
+    expect(verified.status).toBe(200)
+
+    for (const qs of ["", "?disposition=inline", "?disposition=bogus"]) {
+      const res = await api.get(`/api/v1/accommodation/requests/${request._id}/invoice${qs}`)
+      expect(res.status).toBe(200)
+      expect(res.headers["content-disposition"]).toMatch(/^inline;/)
+      expect(res.headers["content-type"]).toMatch(/application\/pdf/)
+    }
+  })
+
+  it("list pagination clamps limit=1000 to 100 and page=-1 back to 1", async () => {
+    const adminApi = await as(await seed.admin())
+    const res = await adminApi.get("/api/v1/accommodation/requests?page=-1&limit=1000")
+    expect(res.status).toBe(200)
+    expect(res.body.data.pagination.page).toBe(1)
+    expect(res.body.data.pagination.limit).toBe(100)
+  })
+})
+
+describe("accommodation — assignment duplicate-guest guard", () => {
+  it("the same guest index in two rooms is refused even when another bed is free", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    const roomA = await createRoom({ hostelId: hostel._id, roomNumber: `DG-${Date.now() % 100000}a`, capacity: 2 })
+    await createRoom({ hostelId: hostel._id, roomNumber: `DG-${Date.now() % 100000}b`, capacity: 2 })
+    await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        hostelId: hostel._id,
+        guestCharges: [{ guestIndex: 0, price: 300, gstPercentage: 0 }],
+      })
+    )
+    await as(student).then((a) => a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+      utr: "123456789012",
+      paidAt: new Date().toISOString(),
+      screenshotFileRef: "media://payments/dg.png",
+    }))
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+
+    const supervisorApi = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+    const res = await supervisorApi.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [
+        { roomId: roomA._id, guestIndexes: [0] },
+        { roomId: roomA._id, guestIndexes: [0] },
+      ],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/more than one room/i)
+  })
+})

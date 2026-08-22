@@ -210,3 +210,153 @@ describe("lost-and-found — PUT /:id and DELETE /:id", () => {
     expect(listRes.body.lostAndFoundItems).toHaveLength(0)
   })
 })
+
+describe("lost-and-found — hardening: status transitions", () => {
+  let adminApi
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  async function createItem(name) {
+    const res = await adminApi
+      .post("/api/v1/lost-and-found")
+      .send({ itemName: name, description: `${name} description` })
+    expect(res.status).toBe(201)
+    return String(res.body.lostAndFoundItem._id)
+  }
+
+  it("Active -> Claimed -> Active is allowed both ways (no transition guard)", async () => {
+    // Documented behavior: the API accepts any enum status at any time;
+    // re-opening a claimed item is permitted.
+    const id = await createItem("Transition matrix item")
+
+    const claim = await adminApi.put(`/api/v1/lost-and-found/${id}`).send({ status: "Claimed" })
+    expect(claim.status).toBe(200)
+    expect(claim.body.lostAndFoundItem.status).toBe("Claimed")
+
+    const reopen = await adminApi.put(`/api/v1/lost-and-found/${id}`).send({ status: "Active" })
+    expect(reopen.status).toBe(200)
+    expect(reopen.body.lostAndFoundItem.status).toBe("Active")
+
+    const recclaim = await adminApi.put(`/api/v1/lost-and-found/${id}`).send({ status: "Claimed" })
+    expect(recclaim.body.lostAndFoundItem.status).toBe("Claimed")
+    await refreshCache()
+    const list = await adminApi.get(`/api/v1/lost-and-found?search=${id}`)
+    expect(list.body.lostAndFoundItems[0].status).toBe("Claimed")
+  })
+
+  it("a second staff member can 'claim' an already-claimed item (documented)", async () => {
+    // Documented behavior: items carry no claimant identity, so there is no
+    // conflict when different staff update the same item's status.
+    const id = await createItem("Double claim item")
+    await adminApi.put(`/api/v1/lost-and-found/${id}`).send({ status: "Claimed" })
+
+    const wardenApi = await as(await seed.warden())
+    const res = await wardenApi.put(`/api/v1/lost-and-found/${id}`).send({ status: "Claimed" })
+    expect(res.status).toBe(200)
+    expect(res.body.lostAndFoundItem.status).toBe("Claimed")
+  })
+
+  it("illegal status value ('Returned') -> 422 Validation failed (documented)", async () => {
+    // Documented behavior: unlike the CREATE path (which swallows
+    // ValidationError into a generic 500), UPDATE rethrows known mongoose
+    // errors, so an enum-violating status is rejected as 422 by the global
+    // handler — and the item keeps its previous status.
+    const id = await createItem("Illegal jump item")
+    const res = await adminApi.put(`/api/v1/lost-and-found/${id}`).send({ status: "Returned" })
+    expect(res.status).toBe(422)
+    expect(res.body.message).toBe("Validation failed")
+
+    const list = await adminApi.get(`/api/v1/lost-and-found?search=${id}`)
+    expect(list.body.lostAndFoundItems[0].status).toBe("Active")
+  })
+
+  it("PUT with an empty payload -> 200 leaving the item unchanged", async () => {
+    const id = await createItem("Empty payload item")
+    const res = await adminApi.put(`/api/v1/lost-and-found/${id}`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.lostAndFoundItem.status).toBe("Active")
+    expect(res.body.lostAndFoundItem.description).toBe("Empty payload item description")
+  })
+
+  it("itemName beyond the 100-char limit surfaces as the generic 500 (documented)", async () => {
+    // SUSPECTED BUG: maxlength ValidationError is swallowed into 500 instead
+    // of a 4xx validation response.
+    const res = await adminApi
+      .post("/api/v1/lost-and-found")
+      .send({ itemName: "y".repeat(101), description: "too long name" })
+    expect([400, 422, 500]).toContain(res.status)
+    expect(res.status).toBe(500) // current behavior
+  })
+
+  it("description beyond the 500-char limit surfaces as the generic 500 (documented)", async () => {
+    const res = await adminApi
+      .post("/api/v1/lost-and-found")
+      .send({ itemName: "Long desc item", description: "z".repeat(501) })
+    expect(res.status).toBe(500)
+  })
+})
+
+describe("lost-and-found — hardening: images & search params", () => {
+  let adminApi
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  it("image fileRefs are stored verbatim; the API never touches blob storage", async () => {
+    // Documented behavior: images are plain trimmed strings (fileRefs). The
+    // module performs no existence check against storage, so refs pointing at
+    // unreachable/unuploaded objects are accepted silently.
+    const refs = ["/uploads/lf/photo-1.jpg", "/uploads/lf/photo-2.png", "/definitely/not/uploaded.jpg"]
+    const created = await adminApi
+      .post("/api/v1/lost-and-found")
+      .send({ itemName: "Imagery backpack", description: "has pictures", images: refs })
+    expect(created.status).toBe(201)
+    expect(created.body.lostAndFoundItem.images).toEqual(refs)
+
+    const replaced = await adminApi
+      .put(`/api/v1/lost-and-found/${created.body.lostAndFoundItem._id}`)
+      .send({ images: ["/uploads/lf/replaced.jpg"] })
+    expect(replaced.status).toBe(200)
+    expect(replaced.body.lostAndFoundItem.images).toEqual(["/uploads/lf/replaced.jpg"])
+
+    await refreshCache()
+    const list = await adminApi.get("/api/v1/lost-and-found?search=imagery")
+    expect(list.body.lostAndFoundItems[0].images).toEqual(["/uploads/lf/replaced.jpg"])
+  })
+
+  it("search with regex metacharacters neither crashes nor over-matches", async () => {
+    // The cache path filters with plain case-insensitive .includes(), so
+    // metacharacters are treated literally.
+    for (const term of ["^a.*$(", "[x]", "(umbrella|wallet)", "\\", "%%"]) {
+      const res = await adminApi.get(
+        `/api/v1/lost-and-found?search=${encodeURIComponent(term)}`
+      )
+      expect(res.status).toBe(200)
+      expect(Array.isArray(res.body.lostAndFoundItems)).toBe(true)
+      expect(res.body.filters.search).toBe(term.toLowerCase())
+    }
+
+    // Literal match on a metacharacter-containing substring of a real name.
+    await adminApi
+      .post("/api/v1/lost-and-found")
+      .send({ itemName: "Keys (set of 3)", description: "found near gate" })
+    await refreshCache()
+    const literal = await adminApi.get(
+      `/api/v1/lost-and-found?search=${encodeURIComponent("(set of")}`
+    )
+    expect(literal.body.lostAndFoundItems.map((i) => i.itemName)).toEqual(["Keys (set of 3)"])
+  })
+
+  it("status filter ignores unknown values like the regex-probe 'active~'", async () => {
+    await refreshCache()
+    const res = await adminApi.get("/api/v1/lost-and-found?status=claimed%7Cactive")
+    expect(res.status).toBe(200)
+    expect(res.body.filters.status).toBe("all") // normalized fallback
+    // No filtering happened: both statuses present.
+    const statuses = new Set(res.body.lostAndFoundItems.map((i) => i.status))
+    expect(statuses.size).toBeGreaterThanOrEqual(1)
+  })
+})

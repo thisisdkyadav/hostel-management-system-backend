@@ -43,3 +43,49 @@ describe("dining office — dashboard", () => {
     expect(res.body.data).toBeDefined()
   })
 })
+
+describe("dining office — hardening edges", () => {
+  it("dashboard aggregates every non-archived caterer into the breakdown with zeroed capacity", async () => {
+    // one real Caterer login so the breakdown has an entry
+    const { default: Caterer } = await import("../../../src/models/index.js").then((m) => ({
+      default: m.Caterer,
+    }))
+    const name = `Office View Foods ${Date.now().toString(36)}`
+    const catererUser = await seed.createUser({ role: "Dining", subRole: "Caterer", name: `${name} Manager` })
+    await Caterer.create({
+      name,
+      email: `office-view-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}@hms.test`,
+      userId: catererUser._id,
+    })
+
+    const api = await as(await seed.createUser({ role: "Dining", subRole: "Office" }))
+    const res = await api.get("/api/v1/dining-office/dashboard")
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+
+    const data = res.body.data
+    expect(data.caterers.total).toBeGreaterThanOrEqual(1)
+    const entry = data.caterers.breakdown.find((c) => c.name === name)
+    expect(entry).toBeTruthy()
+    // no capacity rows configured for this period -> zeroed utilization
+    expect(entry.maxStudentCount).toBe(0)
+    expect(entry.allocatedCount).toBe(0)
+    expect(entry.utilization).toBe(0)
+
+    // today's counters exist even when there is no allocation data
+    for (const key of ["allocated", "verified", "onRebate", "pending"]) {
+      expect(Number(data.today[key])).toBeGreaterThanOrEqual(0)
+    }
+    expect(data.rebates).toHaveProperty("pending")
+    expect(data.rebates).toHaveProperty("approvedToday")
+    expect(data.rebates).toHaveProperty("upcoming")
+    expect(Number(data.billing.periodCount)).toBeGreaterThanOrEqual(0)
+
+    // generatedAt is a fresh ISO timestamp
+    expect(Number.isNaN(Date.parse(data.generatedAt))).toBe(false)
+
+    // the Dining/Caterer role itself still cannot read the office dashboard
+    const catererApi = await as(catererUser)
+    expect((await catererApi.get("/api/v1/dining-office/dashboard")).status).toBe(403)
+  })
+})

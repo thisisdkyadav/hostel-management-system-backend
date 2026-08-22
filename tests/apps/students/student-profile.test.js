@@ -365,3 +365,102 @@ describe("GET /health", () => {
     expect(res.body.data.insurance.insuranceNumber).toBe("INS-123456")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: PUT / validation one field at a time
+// ---------------------------------------------------------------------------
+
+describe("PUT / one-field-at-a-time update semantics", () => {
+  let student
+  let studentApi
+
+  beforeAll(async () => {
+    // NOTE: the widened editable-fields config from the describe above is
+    // still live here; it is restored in afterAll below.
+    student = await seed.student({ name: "One Field", phone: "" })
+    await createStudentProfile({
+      userId: student._id,
+      rollNumber: "SPO001",
+      gender: "Male",
+      address: "",
+    })
+    await createHealthRecord({ userId: student._id })
+    studentApi = await as(student)
+  })
+
+  afterAll(async () => {
+    // Put the shipped default back so nothing downstream inherits the widen.
+    await setConfig("studentEditableFields", ["profileImage", "dateOfBirth"])
+  })
+
+  it("updates gender alone", async () => {
+    const res = await studentApi.put(BASE).send({ gender: "Other" })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.gender).toBe("Other")
+    expect(followUp.body.data.name).toBe("One Field") // untouched
+  })
+
+  it("updates phone alone", async () => {
+    const res = await studentApi.put(BASE).send({ phone: "9123456780" })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.phone).toBe("9123456780")
+  })
+
+  it("updates secondaryEmail alone (schema lowercases it)", async () => {
+    const res = await studentApi.put(BASE).send({ secondaryEmail: "OneField@Example.COM" })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.secondaryEmail).toBe("onefield@example.com")
+  })
+
+  it("updates address alone", async () => {
+    const res = await studentApi.put(BASE).send({ address: "Only Address Lane" })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.address).toBe("Only Address Lane")
+  })
+
+  it("updates the emergency-contact block alone", async () => {
+    const res = await studentApi.put(BASE).send({
+      emergencyContact: {
+        guardian: "Solo Guardian",
+        guardianPhone: "9333333333",
+        guardianEmail: "solo-guardian@example.com",
+      },
+    })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.guardian).toBe("Solo Guardian")
+    expect(followUp.body.data.guardianPhone).toBe("9333333333")
+    expect(followUp.body.data.guardianEmail).toBe("solo-guardian@example.com")
+  })
+
+  it("rejects a single protected field (rollNumber) with 400", async () => {
+    const res = await studentApi.put(BASE).send({ rollNumber: "HACKED1" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toContain("No valid updates provided")
+
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.rollNumber).toBe("SPO001")
+  })
+
+  it("silently drops an invalid value while applying the valid field in the same call", async () => {
+    // Bogus gender fails its whitelist check but must not poison the address
+    // update riding along in the same payload.
+    const res = await studentApi.put(BASE).send({ gender: "Bogus", address: "Mixed Call Road" })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.address).toBe("Mixed Call Road")
+    expect(followUp.body.data.gender).toBe("Other") // unchanged from the prior test
+  })
+
+  it("ignores null-valued fields instead of clearing them", async () => {
+    const res = await studentApi.put(BASE).send({ address: null, gender: "Female" })
+    expect(res.status).toBe(200)
+    const followUp = await studentApi.get(BASE)
+    expect(followUp.body.data.address).toBe("Mixed Call Road") // null did NOT wipe it
+    expect(followUp.body.data.gender).toBe("Female")
+  })
+})

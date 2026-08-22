@@ -1201,4 +1201,494 @@ describe("student-affairs /events", () => {
       expect(res.body.approversByStage["Dean SA"].length).toBeGreaterThan(0)
     })
   })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: BUDGET CAP ENFORCEMENT
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: budget caps", () => {
+    let cappedCalendarId
+
+    it("400 when an event's category total exceeds its budget cap at create", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/calendar`).send({
+        academicYear: "2041-42",
+        budgetCaps: { technical: 1000 },
+        events: [calEvent("Over Cap Event", { estimatedBudget: 5000 })],
+      })
+      expect(res.status).toBe(400)
+      // sendRawResponse failure -> bare { message }
+      expect(res.body.message).toMatch(/exceeds the configured cap/)
+      expect(res.body.message).toMatch(/Technical/)
+    })
+
+    it("400 when configured category caps exceed the overall budget", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/calendar`).send({
+        academicYear: "2041-42",
+        overallBudget: 500,
+        budgetCaps: { technical: 400, cultural: 300 },
+        events: [
+          calEvent("Small Technical", { estimatedBudget: 100 }),
+          calEvent("Small Cultural", { category: "cultural", estimatedBudget: 50 }),
+        ],
+      })
+      expect(res.status).toBe(400)
+      expect(res.body.message).toMatch(/exceed the calendar overall budget cap/)
+    })
+
+    it("201 creates a calendar whose events sit under their caps (fixture)", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/calendar`).send({
+        academicYear: "2042-43",
+        budgetCaps: { technical: 9000, cultural: 8000 },
+        events: [
+          calEvent("Capped Technical", { estimatedBudget: 4000 }),
+          calEvent("Capped Cultural", { category: "cultural", estimatedBudget: 3000 }),
+        ],
+      })
+      expect(res.status).toBe(201)
+      cappedCalendarId = res.body.calendar._id
+
+      const verify = await api.get(`${BASE}/calendar/${cappedCalendarId}`)
+      expect(verify.status).toBe(200)
+      expect(verify.body.calendar.budgetCaps.technical).toBe(9000)
+    })
+
+    it("400 when GS edit pushes a category over its stored cap", async () => {
+      const api = await as(admin)
+      const current = await api.get(`${BASE}/calendar/${cappedCalendarId}`)
+      const events = current.body.calendar.events.map((e) => ({ ...e }))
+      events[0].estimatedBudget = 9500 // technical total would exceed the 9000 cap
+
+      const apiGs = await as(gs)
+      const res = await apiGs.put(`${BASE}/calendar/${cappedCalendarId}`).send({ events })
+      expect(res.status).toBe(400)
+      expect(res.body.message).toMatch(/exceeds the configured cap/)
+
+      // The calendar must be untouched after the rejected edit
+      const verify = await (await as(admin)).get(`${BASE}/calendar/${cappedCalendarId}`)
+      const unchanged = verify.body.calendar.events.find((e) => e.title === "Capped Technical")
+      expect(unchanged.estimatedBudget).toBe(4000)
+    })
+
+    it("400 when admin settings lower a cap below existing event totals", async () => {
+      const api = await as(admin)
+      const res = await api
+        .patch(`${BASE}/calendar/${cappedCalendarId}/settings`)
+        .send({ budgetCaps: { technical: 100 } })
+      expect(res.status).toBe(400)
+      expect(res.body.message).toMatch(/Cannot update calendar settings\. /)
+      expect(res.body.message).toMatch(/exceeds the configured cap/)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: APPROVAL-CHAIN OUT-OF-ORDER ATTEMPTS AT EVERY STAGE
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: out-of-order approval attempts", () => {
+    let calId
+
+    beforeAll(async () => {
+      const api = await as(admin)
+      const created = await api
+        .post(`${BASE}/calendar`)
+        .send({
+          academicYear: "2043-44",
+          events: [calEvent("Chain Order Fest"), calEvent("Chain Order Gala", { category: "cultural" })],
+        })
+      calId = created.body.calendar._id
+
+      // Non-overlapping dates so submit goes straight through
+      const current = await api.get(`${BASE}/calendar/${calId}`)
+      const events = current.body.calendar.events.map((e, i) => ({
+        ...e,
+        startDate: daysFromNow(60 + i * 5),
+        endDate: daysFromNow(61 + i * 5),
+      }))
+      await as(gs) // warm no-op
+      const apiGs = await as(gs)
+      await apiGs.put(`${BASE}/calendar/${calId}`).send({ events })
+      await (await as(president)).post(`${BASE}/calendar/${calId}/submit`).send({})
+    })
+
+    it("Dean SA cannot approve or reject at the Student Affairs stage", async () => {
+      const api = await as(deanSa)
+      const earlyApprove = await api.post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(earlyApprove.status).toBe(403)
+      expect(earlyApprove.body.message).toMatch(/Only Student Affairs can approve at this stage/)
+
+      const earlyReject = await api.post(`${BASE}/calendar/${calId}/reject`).send({
+        reason: "Dean should not be able to reject at the first stage",
+      })
+      expect(earlyReject.status).toBe(403)
+      expect(earlyReject.body.message).toMatch(/Only Student Affairs can reject at this stage/)
+    })
+
+    it("Associate Dean SA and Officer SA also cannot act at the Student Affairs stage", async () => {
+      const apiAd = await as(assocDeanSa)
+      const adAttempt = await apiAd.post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(adAttempt.status).toBe(403)
+
+      const apiOfficer = await as(officerSa)
+      const officerAttempt = await apiOfficer.post(`${BASE}/calendar/${calId}/reject`).send({
+        reason: "Officer is not the first reviewer for calendars",
+      })
+      expect(officerAttempt.status).toBe(403)
+    })
+
+    it("SA forwards via stages-only chain -> Officer; wrong-stage admins are blocked there", async () => {
+      const apiSa = await as(saAdmin)
+      const forward = await apiSa
+        .post(`${BASE}/calendar/${calId}/approve`)
+        .send({ nextApprovalStages: ["Officer SA", "Associate Dean SA", "Dean SA"] })
+      expect(forward.status).toBe(200)
+      expect(forward.body.calendar.status).toBe("pending_officer")
+
+      // SA itself is now out of order
+      const saAgain = await (await as(saAdmin)).post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(saAgain.status).toBe(403)
+      expect(saAgain.body.message).toMatch(/Only Officer SA can approve at this stage/)
+
+      // Later-stage admins are out of order too
+      const deanEarly = await (await as(deanSa)).post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(deanEarly.status).toBe(403)
+      expect(deanEarly.body.message).toMatch(/Only Officer SA can approve at this stage/)
+
+      const assocRejectEarly = await (await as(assocDeanSa))
+        .post(`${BASE}/calendar/${calId}/reject`)
+        .send({ reason: "Wrong stage reject attempt from Associate Dean" })
+      expect(assocRejectEarly.status).toBe(403)
+      expect(assocRejectEarly.body.message).toMatch(/Only Officer SA can reject at this stage/)
+    })
+
+    it("each later stage rejects both premature actors and repeat actors", async () => {
+      // Officer approves -> pending_associate_dean
+      const step2 = await (await as(officerSa)).post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(step2.status).toBe(200)
+      expect(step2.body.calendar.status).toBe("pending_associate_dean")
+
+      // Officer tries to act twice
+      const officerRepeat = await (await as(officerSa))
+        .post(`${BASE}/calendar/${calId}/approve`)
+        .send({})
+      expect(officerRepeat.status).toBe(403)
+      expect(officerRepeat.body.message).toMatch(/Only Associate Dean SA can approve at this stage/)
+
+      // Assoc Dean approves -> pending_dean
+      const step3 = await (await as(assocDeanSa)).post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(step3.status).toBe(200)
+      expect(step3.body.calendar.status).toBe("pending_dean")
+
+      const assocRepeat = await (await as(assocDeanSa))
+        .post(`${BASE}/calendar/${calId}/approve`)
+        .send({})
+      expect(assocRepeat.status).toBe(403)
+      expect(assocRepeat.body.message).toMatch(/Only Dean SA can approve at this stage/)
+
+      // Dean approves -> approved
+      const final = await (await as(deanSa)).post(`${BASE}/calendar/${calId}/approve`).send({})
+      expect(final.status).toBe(200)
+      expect(final.body.calendar.status).toBe("approved")
+
+      // Double decision idempotency: approve/reject on a finalized calendar
+      const doubleApprove = await (await as(deanSa))
+        .post(`${BASE}/calendar/${calId}/approve`)
+        .send({})
+      expect(doubleApprove.status).toBe(400)
+      expect(doubleApprove.body.message).toMatch(/not pending approval/)
+
+      const rejectFinalized = await (await as(saAdmin))
+        .post(`${BASE}/calendar/${calId}/reject`)
+        .send({ reason: "Rejection after final approval must not be possible" })
+      expect(rejectFinalized.status).toBe(400)
+      expect(rejectFinalized.body.message).toMatch(/not pending approval/)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: AMENDMENTS ON NON-PENDING CALENDARS & CAP VIOLATIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: amendments on rejected/draft calendars & caps", () => {
+    it("404 for an edit amendment against an unknown eventId", async () => {
+      const api = await as(gs)
+      const res = await api.post(`${BASE}/amendments`).send({
+        type: "edit",
+        eventId: "000000000000000000000000",
+        proposedChanges: calEvent("Ghost Edit"),
+        reason: "This amendment targets an event that does not exist",
+      })
+      expect(res.status).toBe(404)
+      expect(res.body.message).toMatch(/Event to edit/)
+    })
+
+    it("amendments can be raised and applied against a REJECTED calendar", async () => {
+      // Build -> submit -> reject a fresh calendar
+      const apiAdmin = await as(admin)
+      const created = await apiAdmin
+        .post(`${BASE}/calendar`)
+        .send({ academicYear: "2044-45", events: [calEvent("Rejected Calendar Event")] })
+      const rejCalId = created.body.calendar._id
+      const rejEventId = created.body.calendar.events[0]._id
+
+      await (await as(president)).post(`${BASE}/calendar/${rejCalId}/submit`).send({})
+      const rejected = await (await as(saAdmin))
+        .post(`${BASE}/calendar/${rejCalId}/reject`)
+        .send({ reason: "Initial submission needs a schedule revision" })
+      expect(rejected.status).toBe(200)
+      expect(rejected.body.calendar.status).toBe("rejected")
+
+      // NOTE: amendment creation/approval never checks calendar status — even a
+      // rejected (and locked) calendar's events can be mutated via amendments.
+      const apiGs = await as(gs)
+      const amendment = await apiGs.post(`${BASE}/amendments`).send({
+        type: "edit",
+        eventId: rejEventId,
+        proposedChanges: calEvent("Rejected Calendar Event Revamped"),
+        reason: "Fixing the event on the rejected calendar per SA feedback",
+      })
+      expect(amendment.status).toBe(201)
+      const amendmentId = amendment.body.amendment._id
+
+      const approved = await apiAdmin
+        .post(`${BASE}/amendments/${amendmentId}/approve`)
+        .send({ reviewComments: "Applied despite rejected status" })
+      expect(approved.status).toBe(200)
+      expect(approved.body.amendment.status).toBe("approved")
+
+      const eventRes = await apiAdmin.get(`${BASE}/${rejEventId}`)
+      expect(eventRes.body.event.title).toBe("Rejected Calendar Event Revamped")
+    })
+
+    it("amendment approval is blocked when the proposal exceeds the calendar's budget cap", async () => {
+      const apiAdmin = await as(admin)
+      const created = await apiAdmin.post(`${BASE}/calendar`).send({
+        academicYear: "2045-46",
+        budgetCaps: { technical: 5000 },
+        events: [calEvent("Cap Amendment Event", { estimatedBudget: 3000 })],
+      })
+      const capEventId = created.body.calendar.events[0]._id
+
+      const apiGs = await as(gs)
+      const amendment = await apiGs.post(`${BASE}/amendments`).send({
+        type: "edit",
+        eventId: capEventId,
+        proposedChanges: calEvent("Cap Amendment Event", { estimatedBudget: 8000 }),
+        reason: "Vendor quote came in higher than the original estimate",
+      })
+      expect(amendment.status).toBe(201)
+
+      const denied = await apiAdmin
+        .post(`${BASE}/amendments/${amendment.body.amendment._id}/approve`)
+        .send({ reviewComments: "Trying to blow past the cap" })
+      expect(denied.status).toBe(400)
+      expect(denied.body.message).toMatch(/exceeds the configured cap/)
+
+      // The event keeps its original budget after the failed approval
+      const eventRes = await apiAdmin.get(`${BASE}/${capEventId}`)
+      expect(eventRes.body.event.estimatedBudget).toBe(3000)
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: PROPOSAL DOCUMENT fileRefs WITH UNREACHABLE STORAGE
+  //
+  // The API treats proposalDocumentUrl / chiefGuestDocumentUrl as opaque strings:
+  // nothing validates reachability at submit time and GET returns them verbatim.
+  // These tests pin that behavior (storage IS unreachable in this suite).
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: proposal fileRefs with unreachable storage", () => {
+    it("submission persists unreachable document refs verbatim and GET echoes them back", async () => {
+      const apiAdmin = await as(admin)
+      const year = await apiAdmin.post(`${BASE}/calendar`).send({
+        academicYear: "2046-47",
+        allowProposalBeforeApproval: true,
+        events: [calEvent("Unreachable Ref Fest")],
+      })
+      const refEventId = year.body.calendar.events[0]._id
+
+      const UNREACHABLE = "https://storage.unreachable.invalid/proposals/dead-ref.pdf"
+      const apiGs = await as(gs)
+      const submitted = await apiGs
+        .post(`${BASE}/events/${refEventId}/proposal`)
+        .send({
+          ...proposalPayload(),
+          proposalDocumentUrl: UNREACHABLE,
+          chiefGuestDocumentUrl: "media://deadbeef-dead-dead-dead-deadbeefdead",
+        })
+      expect(submitted.status).toBe(201)
+      expect(submitted.body.proposal.proposalDocumentUrl).toBe(UNREACHABLE)
+
+      const fetched = await apiAdmin.get(`${BASE}/events/${refEventId}/proposal`)
+      expect(fetched.status).toBe(200)
+      expect(fetched.body.proposal.proposalDocumentUrl).toBe(UNREACHABLE)
+      expect(fetched.body.proposal.chiefGuestDocumentUrl).toBe(
+        "media://deadbeef-dead-dead-dead-deadbeefdead"
+      )
+    })
+  })
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // HARDENING: MEGA-OCCURRENCE CRUD EDGES + MEGA DOUBLE DECISIONS
+  // ═══════════════════════════════════════════════════════════════════════════
+  describe("hardening: mega occurrence edges & double decisions", () => {
+    let seriesId
+    let occurrenceId
+
+    it("403 non-admin cannot add occurrences to a series", async () => {
+      const setup = await (await as(admin))
+        .post(`${BASE}/mega-series`)
+        .send({ name: "Hardening Mega Series" })
+      seriesId = setup.body.series._id
+
+      const apiGs = await as(gs)
+      const res = await apiGs.post(`${BASE}/mega-series/${seriesId}/occurrences`).send({
+        startDate: daysFromNow(120),
+        endDate: daysFromNow(121),
+      })
+      expect(res.status).toBe(403)
+      // The RBAC permission gate fires before the service: Gymkhana users lack
+      // "route.gymkhana.megaEvents", so the message is the generic access-denied one.
+      expect(res.body.message).toMatch(/Access denied/)
+
+      const apiPresident = await as(president)
+      expect(
+        (
+          await apiPresident.post(`${BASE}/mega-series/${seriesId}/occurrences`).send({
+            startDate: daysFromNow(120),
+            endDate: daysFromNow(121),
+          })
+        ).status
+      ).toBe(403)
+    })
+
+    it("422 malformed seriesId and missing dates; 404 unknown series", async () => {
+      const api = await as(admin)
+      const badId = await api.post(`${BASE}/mega-series/not-an-id/occurrences`).send({
+        startDate: daysFromNow(120),
+        endDate: daysFromNow(121),
+      })
+      expect(badId.status).toBe(422)
+
+      const missingDates = await api
+        .post(`${BASE}/mega-series/${seriesId}/occurrences`)
+        .send({})
+      expect(missingDates.status).toBe(422)
+
+      const ghost = await api.post(`${BASE}/mega-series/000000000000000000000000/occurrences`).send({
+        startDate: daysFromNow(120),
+        endDate: daysFromNow(121),
+      })
+      expect(ghost.status).toBe(404)
+      expect(ghost.body.message).toMatch(/Mega event series/)
+    })
+
+    it("201 allows end date equal to start date (single-day boundary)", async () => {
+      const api = await as(admin)
+      const res = await api.post(`${BASE}/mega-series/${seriesId}/occurrences`).send({
+        startDate: daysFromNow(130),
+        endDate: daysFromNow(130),
+      })
+      expect(res.status).toBe(201)
+      occurrenceId = res.body.occurrence._id
+    })
+
+    it("422 listing a series with a malformed id", async () => {
+      const api = await as(admin)
+      const res = await api.get(`${BASE}/mega-series/not-an-id`)
+      expect(res.status).toBe(422)
+    })
+
+    it("404 proposal/expense lookups for an occurrence that does not exist", async () => {
+      const api = await as(admin)
+      const ghost = "000000000000000000000000"
+
+      const noProposal = await api.get(`${BASE}/mega-occurrences/${ghost}/proposal`)
+      expect(noProposal.status).toBe(404)
+      expect(noProposal.body.message).toMatch(/Mega event occurrence/)
+
+      const noExpense = await api.get(`${BASE}/mega-occurrences/${ghost}/expenses`)
+      expect(noExpense.status).toBe(404)
+      expect(noExpense.body.message).toMatch(/Mega event occurrence/)
+    })
+
+    it("wrong-stage rejection at pending_student_affairs is forbidden", async () => {
+      // President submits the mega proposal (starts at Student Affairs)
+      const submitted = await (await as(president))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/proposal`)
+        .send(proposalPayload())
+      expect(submitted.status).toBe(201)
+
+      const apiOfficer = await as(officerSa)
+      const earlyReject = await apiOfficer
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/proposal/reject`)
+        .send({ reason: "Officer cannot reject at the SA stage" })
+      expect(earlyReject.status).toBe(403)
+      expect(earlyReject.body.message).toMatch(/Only Student Affairs can reject/)
+
+      const earlyRevision = await apiOfficer
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/proposal/revision`)
+        .send({ comments: "Out of order revision attempt" })
+      expect(earlyRevision.status).toBe(403)
+      expect(earlyRevision.body.message).toMatch(/Only Student Affairs can request revision/)
+    })
+
+    it("mega expense double decisions are idempotent after final approval", async () => {
+      // Approve the pending proposal: SA forwards stages-only -> Officer approves
+      const saForward = await (await as(saAdmin))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/proposal/approve`)
+        .send({ nextApprovalStages: ["Officer SA"] })
+      expect(saForward.status).toBe(200)
+      const officerApprove = await (await as(officerSa))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/proposal/approve`)
+        .send({})
+      expect(officerApprove.status).toBe(200)
+      expect(officerApprove.body.proposal.status).toBe("approved")
+
+      // Approving the approved proposal again is rejected
+      const doubleProposalApprove = await (await as(officerSa))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/proposal/approve`)
+        .send({})
+      expect(doubleProposalApprove.status).toBe(400)
+      expect(doubleProposalApprove.body.message).toMatch(/already approved/)
+
+      // GS submits the expense (requires the approved proposal)
+      const expense = await (await as(gs))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/expenses`)
+        .send(expensePayload())
+      expect(expense.status).toBe(201)
+
+      // SA forwards to Dean directly; wrong-stage reject along the way is blocked
+      const forward = await (await as(saAdmin))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/expenses/approve`)
+        .send({ nextApprovalStages: ["Dean SA"] })
+      expect(forward.status).toBe(200)
+      expect(forward.body.expense.approvalStatus).toBe("pending_dean")
+
+      const wrongStageReject = await (await as(officerSa))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/expenses/reject`)
+        .send({ reason: "Officer cannot reject while Dean holds the bill" })
+      expect(wrongStageReject.status).toBe(403)
+      expect(wrongStageReject.body.message).toMatch(/Only Dean SA can reject at this stage/)
+
+      // Dean approves finally...
+      const final = await (await as(deanSa))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/expenses/approve`)
+        .send({})
+      expect(final.status).toBe(200)
+      expect(final.body.expense.approvalStatus).toBe("approved")
+
+      // ...and neither decision can be repeated
+      const doubleApprove = await (await as(deanSa))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/expenses/approve`)
+        .send({})
+      expect(doubleApprove.status).toBe(400)
+      expect(doubleApprove.body.message).toMatch(/Expense is already approved/)
+
+      const rejectFinalized = await (await as(deanSa))
+        .post(`${BASE}/mega-occurrences/${occurrenceId}/expenses/reject`)
+        .send({ reason: "Too late — the bill was already approved" })
+      expect(rejectFinalized.status).toBe(400)
+      expect(rejectFinalized.body.message).toMatch(/Expense is already finalized/)
+    })
+  })
 })

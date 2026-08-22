@@ -253,3 +253,95 @@ describe("certificates — DELETE /:certificateId", () => {
     expect(getRes.body.certificates.find((c) => String(c._id) === String(id))).toBeUndefined()
   })
 })
+
+describe("certificates — hardening edge cases", () => {
+  let adminApi, studentUser
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    ;({ user: studentUser } = await campusSeed.studentWithProfile())
+  })
+
+  it("student is 403 on every certificate route (all are staff-only)", async () => {
+    const api = await as(await seed.student())
+    expect((await api.get(`/api/v1/certificate/${studentUser._id}`)).status).toBe(403)
+    expect(
+      (
+        await api
+          .put("/api/v1/certificate/update/000000000000000000000000")
+          .send({ remarks: "escalation" })
+      ).status
+    ).toBe(403)
+    expect((await api.delete("/api/v1/certificate/000000000000000000000000")).status).toBe(403)
+  })
+
+  it("GET /:studentId with malformed id -> 400 Invalid ID format", async () => {
+    // CastError from find({ userId: "garbage" }) is rethrown by
+    // rethrowKnownMongooseErrors and mapped by the global handler.
+    const res = await adminApi.get("/api/v1/certificate/garbage")
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("GET by a valid but unknown student id -> 200 with an empty list", async () => {
+    const res = await adminApi.get("/api/v1/certificate/000000000000000000000000")
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.certificates).toEqual([])
+  })
+
+  it("PUT update with an empty payload -> 200 leaving the document unchanged", async () => {
+    const created = await adminApi.post("/api/v1/certificate/add").send({
+      studentId: String(studentUser._id),
+      certificateType: "Bonafide",
+      certificateUrl: "/empty-payload.pdf",
+      remarks: "before",
+    })
+    const id = created.body.certificate._id
+
+    const res = await adminApi.put(`/api/v1/certificate/update/${id}`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.certificate.certificateType).toBe("Bonafide")
+    expect(res.body.certificate.remarks).toBe("before")
+
+    const getRes = await adminApi.get(`/api/v1/certificate/${studentUser._id}`)
+    const doc = getRes.body.certificates.find((c) => String(c._id) === String(id))
+    expect(doc.remarks).toBe("before")
+  })
+
+  it("DELETE twice -> 200 then 404 (delete is NOT idempotent)", async () => {
+    const created = await adminApi.post("/api/v1/certificate/add").send({
+      studentId: String(studentUser._id),
+      certificateType: "NOC",
+      certificateUrl: "/twice.pdf",
+    })
+    const id = created.body.certificate._id
+
+    const first = await adminApi.delete(`/api/v1/certificate/${id}`)
+    expect(first.status).toBe(200)
+
+    const second = await adminApi.delete(`/api/v1/certificate/${id}`)
+    expect(second.status).toBe(404)
+    expect(second.body.message).toBe("Certificate not found")
+  })
+
+  it("DELETE with malformed id -> 400 Invalid ID format", async () => {
+    const res = await adminApi.delete("/api/v1/certificate/garbage")
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+  })
+
+  it("POST add with an unparseable issueDate surfaces as the generic 500 (documented)", async () => {
+    // SUSPECTED BUG: a CastError on issueDate is swallowed by the service's
+    // blanket catch and returned as 500 "Failed to create Certificate"
+    // instead of a 4xx validation error.
+    const res = await adminApi.post("/api/v1/certificate/add").send({
+      studentId: String(studentUser._id),
+      certificateType: "Bonafide",
+      certificateUrl: "/bad-date.pdf",
+      issueDate: "not-a-date",
+    })
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to create Certificate")
+  })
+})

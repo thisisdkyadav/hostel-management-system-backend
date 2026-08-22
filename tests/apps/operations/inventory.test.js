@@ -338,3 +338,157 @@ describe("student inventory", () => {
     void adminApi
   })
 })
+
+describe("inventory — hardening edges", () => {
+  async function stockedRow(totalCount, allocatedCount) {
+    const api = await as(await admin())
+    const hostel = await createHostel()
+    const type = await itemType(`Stock ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, totalCount)
+    await api.post("/api/v1/inventory/hostel").send({
+      hostelId: hostel._id,
+      itemTypeId: type._id,
+      allocatedCount,
+    })
+    const list = await api.get(`/api/v1/inventory/hostel?hostelId=${hostel._id}`)
+    const row = list.body.data.find((i) => String(i.itemTypeId._id ?? i.itemTypeId) === String(type._id))
+    return { api, hostel, type, row, rowId: row._id ?? row.id }
+  }
+
+  it("rapid double-issue cannot oversell: exactly one of two racing issues succeeds", async () => {
+    const { api, type, rowId } = await stockedRow(4, 4)
+    const mkStudent = async () => {
+      const student = await seed.student()
+      return createStudentProfile({ userId: student._id }).then((profile) => ({ student, profile }))
+    }
+    const a = await mkStudent()
+    const b = await mkStudent()
+
+    const issue = (who) =>
+      api.post("/api/v1/inventory/student").send({
+        studentProfileId: who.profile._id,
+        hostelInventoryId: rowId,
+        itemTypeId: type._id,
+        count: 3,
+      })
+
+    // fire both at once against the last 4 units (each wants 3)
+    const [ra, rb] = await Promise.all([issue(a), issue(b)])
+    const statuses = [ra.status, rb.status].sort()
+    // the guarded atomic reserve lets at most one issue through
+    expect(statuses).toEqual([201, 400])
+    expect((ra.status === 400 ? ra : rb).body.message).toMatch(/not enough items available/i)
+
+    // exactly one issue record exists across both students (API-level check)
+    const listA = await api.get(`/api/v1/inventory/student/${a.profile._id}`)
+    const listB = await api.get(`/api/v1/inventory/student/${b.profile._id}`)
+    expect(listA.body.length + listB.body.length).toBe(1)
+  })
+
+  it("sequential double-issue exceeding availability refuses with a precise message", async () => {
+    const { api, type, rowId } = await stockedRow(5, 5)
+    const student = await seed.student()
+    const profileA = await createStudentProfile({ userId: student._id })
+    const student2 = await seed.student()
+    const profileB = await createStudentProfile({ userId: student2._id })
+
+    let res = await api.post("/api/v1/inventory/student").send({
+      studentProfileId: profileA._id, hostelInventoryId: rowId, itemTypeId: type._id, count: 4,
+    })
+    expect(res.status).toBe(201)
+
+    // second rapid issue demands more than the remaining 1
+    res = await api.post("/api/v1/inventory/student").send({
+      studentProfileId: profileB._id, hostelInventoryId: rowId, itemTypeId: type._id, count: 2,
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Not enough items available. Only 1 items available.")
+
+    // persisted state is consistent via the API: the refused student has nothing
+    const perStudent = await api.get(`/api/v1/inventory/student/${profileB._id}`)
+    expect(perStudent.body).toHaveLength(0)
+  })
+
+  it("SUSPECTED BUG: PATCH /types/:id/count allows setting totalCount below already-allocated units", async () => {
+    const { api, type } = await stockedRow(10, 6)
+    const student = await seed.student()
+
+    // find the hostel inventory row for this type to confirm allocation exists
+    const list = await api.get("/api/v1/inventory/hostel")
+    const row = list.body.data.find((i) => String(i.itemTypeId._id ?? i.itemTypeId) === String(type._id))
+    expect(Number(row.allocatedCount)).toBeGreaterThanOrEqual(6)
+
+    // shrink the global pool far below what is already allocated -> accepted
+    const res = await api.patch(`/api/v1/inventory/types/${type._id}/count`).send({ totalCount: 2 })
+    // The service never reconciles totalCount against allocations, so inventory
+    // math (available vs allocated) becomes negative-capacity nonsense.
+    expect(res.status).toBe(200)
+    expect(res.body.totalCount).toBe(2)
+
+    // a later hostel re-allocation attempt is refused by the pool check, but the
+    // corrupted state persists
+    const other = await createHostel()
+    const over = await api.post("/api/v1/inventory/hostel").send({
+      hostelId: other._id,
+      itemTypeId: type._id,
+      allocatedCount: 3,
+    })
+    expect(over.status).toBe(400)
+    void student
+  })
+
+  it("summaries are empty arrays for a hostel scope with no records and populated after issuing", async () => {
+    const emptyHostel = await createHostel()
+    const api = await as(await admin())
+
+    let res = await api.get(`/api/v1/inventory/student/summary/student?hostelId=${emptyHostel._id}`)
+    expect(res.status).toBe(200)
+    expect(Array.isArray(res.body)).toBe(true)
+    expect(res.body).toHaveLength(0)
+
+    res = await api.get(`/api/v1/inventory/student/summary/item?hostelId=${emptyHostel._id}`)
+    expect(res.status).toBe(200)
+    expect(res.body).toHaveLength(0)
+
+    // populate: type -> hostel allocation -> student issue
+    const type = await itemType(`Summary ${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, 8)
+    await api.post("/api/v1/inventory/hostel").send({
+      hostelId: emptyHostel._id, itemTypeId: type._id, allocatedCount: 5,
+    })
+    const list = await api.get(`/api/v1/inventory/hostel?hostelId=${emptyHostel._id}`)
+    const row = list.body.data.find((i) => String(i.itemTypeId._id ?? i.itemTypeId) === String(type._id))
+    const student = await seed.student()
+    const profile = await createStudentProfile({ userId: student._id })
+    const issued = await api.post("/api/v1/inventory/student").send({
+      studentProfileId: profile._id,
+      hostelInventoryId: row._id ?? row.id,
+      itemTypeId: type._id,
+      count: 2,
+    })
+    expect(issued.status).toBe(201)
+
+    const byStudent = await api.get(`/api/v1/inventory/student/summary/student?hostelId=${emptyHostel._id}`)
+    expect(byStudent.body).toHaveLength(1)
+    expect(byStudent.body[0]).toMatchObject({ rollNumber: profile.rollNumber, totalItems: 2 })
+
+    const byItem = await api.get(`/api/v1/inventory/student/summary/item?hostelId=${emptyHostel._id}`)
+    expect(byItem.body).toHaveLength(1)
+    expect(byItem.body[0]).toMatchObject({ itemName: type.name, totalAssigned: 2, studentCount: 1 })
+  })
+
+  it("SUSPECTED BUG: item-type name uniqueness is case-sensitive, so near-duplicates can be created", async () => {
+    const api = await as(await admin())
+    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`
+
+    const created = await itemType(`Water Can ${suffix}`, 10)
+
+    // same name in different case passes the exact-match duplicate check
+    let res = await api.post("/api/v1/inventory/types").send({ name: `water can ${suffix}`, totalCount: 5 })
+    expect(res.status).toBe(201)
+
+    // renaming an existing type to an existing name with different case also
+    // slips through both the guard and the (case-sensitive) unique index
+    res = await api.put(`/api/v1/inventory/types/${created._id}`).send({ name: `WATER CAN ${suffix}` })
+    expect(res.status).toBe(200)
+    expect(res.body.name).toBe(`WATER CAN ${suffix}`)
+  })
+})

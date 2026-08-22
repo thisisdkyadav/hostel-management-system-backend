@@ -246,3 +246,158 @@ describe("feedback — student update/delete + staff status/reply workflow", () 
     expect(listRes.body.feedbacks).toHaveLength(0)
   })
 })
+
+describe("feedback — hardening edge cases", () => {
+  let adminApi, wardenApi, hostel
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+    wardenApi = await as(await seed.warden())
+    hostel = await campusSeed.createHostel({ name: "Feedback Hardening Hostel" })
+  })
+
+  async function authorWithAllocation() {
+    const { user } = await campusSeed.studentWithProfile({
+      profile: { hostel, rollNumber: `FBH${Math.random().toString(36).slice(2, 8).toUpperCase()}` },
+    })
+    return { user, api: await as(user) }
+  }
+
+  it("the same student may submit multiple feedbacks (no uniqueness conflict)", async () => {
+    // Documented behavior: there is no one-feedback-per-student constraint;
+    // identical payloads both succeed.
+    const { user, api } = await authorWithAllocation()
+    const payload = { title: "Duplicate topic", description: "Same text twice" }
+    const first = await api.post("/api/v1/feedback/add").send(payload)
+    const second = await api.post("/api/v1/feedback/add").send(payload)
+    expect(first.status).toBe(201)
+    expect(second.status).toBe(201)
+    expect(String(first.body.feedback._id)).not.toBe(String(second.body.feedback._id))
+
+    const listRes = await as(user).then((a) => a.get("/api/v1/feedback"))
+    expect(listRes.body.feedbacks.filter((f) => f.title === "Duplicate topic")).toHaveLength(2)
+  })
+
+  it("missing title alone surfaces as the generic 500 (documented)", async () => {
+    // SUSPECTED BUG: required-field ValidationError is swallowed by the
+    // service's blanket catch -> 500 instead of a 4xx validation error.
+    const { api } = await authorWithAllocation()
+    const res = await api.post("/api/v1/feedback/add").send({ description: "no title" })
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to create Feedback")
+  })
+
+  it("missing description alone surfaces as the generic 500 (documented)", async () => {
+    const { api } = await authorWithAllocation()
+    const res = await api.post("/api/v1/feedback/add").send({ title: "no description" })
+    expect(res.status).toBe(500)
+  })
+
+  it("very long descriptions are accepted — no length limit exists (documented)", async () => {
+    const { api } = await authorWithAllocation()
+    const res = await api
+      .post("/api/v1/feedback/add")
+      .send({ title: "Long rant", description: "x".repeat(2000) })
+    expect(res.status).toBe(201)
+    expect(res.body.feedback.description).toHaveLength(2000)
+  })
+
+  it("malformed ids on id-bearing routes surface as 500, not 400 (documented)", async () => {
+    // SUSPECTED BUG: unlike certificates/events/lost-and-found (which map
+    // CastError to 400 "Invalid ID format" via rethrowKnownMongooseErrors),
+    // every feedback service catch converts CastError into a generic
+    // 500 "Failed to ..." response.
+    let res = await wardenApi.put("/api/v1/feedback/update-status/garbage").send({ status: "Seen" })
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to update Feedback")
+
+    res = await wardenApi.post("/api/v1/feedback/reply/garbage").send({ reply: "x" })
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to update Feedback")
+
+    res = await wardenApi.get("/api/v1/feedback/student/garbage")
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to fetch Feedbacks")
+
+    const studentApi = await as(await seed.student())
+    res = await studentApi.put("/api/v1/feedback/garbage").send({ title: "x" })
+    expect(res.status).toBe(500)
+
+    res = await studentApi.delete("/api/v1/feedback/garbage")
+    expect(res.status).toBe(500)
+    expect(res.body.message).toBe("Failed to delete Feedback")
+  })
+
+  it("PUT update-status with an empty body is a silent no-op 200 (documented)", async () => {
+    // SUSPECTED BUG: status is undefined and stripped by mongoose, so the call
+    // succeeds without changing anything instead of rejecting.
+    const { api } = await authorWithAllocation()
+    const created = await api.post("/api/v1/feedback/add").send({ title: "Noop status", description: "d" })
+    const id = String(created.body.feedback._id)
+
+    const res = await wardenApi.put(`/api/v1/feedback/update-status/${id}`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.feedback.status).toBe("Pending")
+  })
+
+  it("POST reply with an empty body marks Seen without setting a reply (documented)", async () => {
+    const { api } = await authorWithAllocation()
+    const created = await api.post("/api/v1/feedback/add").send({ title: "Empty reply", description: "d" })
+    const id = String(created.body.feedback._id)
+
+    const res = await wardenApi.post(`/api/v1/feedback/reply/${id}`).send({})
+    expect(res.status).toBe(200)
+    expect(res.body.feedback.status).toBe("Seen")
+    expect(res.body.feedback.reply).toBeNull()
+  })
+
+  it("any student can edit or delete ANOTHER student's feedback (documented IDOR)", async () => {
+    // SUSPECTED BUG: PUT/DELETE /:feedbackId are guarded as Student-only but
+    // never check ownership, so student B can tamper with student A's feedback.
+    const a = await authorWithAllocation()
+    const b = await authorWithAllocation()
+
+    const createdA = await a.api
+      .post("/api/v1/feedback/add")
+      .send({ title: "A's private gripe", description: "only A should touch this" })
+    const feedbackA = String(createdA.body.feedback._id)
+
+    const editByB = await b.api.put(`/api/v1/feedback/${feedbackA}`).send({
+      title: "Hijacked by B",
+      description: "B was here",
+    })
+    expect(editByB.status).toBe(200)
+    expect(editByB.body.feedback.title).toBe("Hijacked by B")
+
+    const deleteByB = await b.api.delete(`/api/v1/feedback/${feedbackA}`)
+    expect(deleteByB.status).toBe(200)
+
+    const listA = await a.api.get("/api/v1/feedback")
+    expect(listA.body.feedbacks).toHaveLength(0)
+  })
+
+  it("unrecognized ?status= values are ignored rather than rejected (documented)", async () => {
+    // normalizeFeedbackStatus maps anything but pending/seen to null -> the
+    // status filter silently disappears and ALL feedbacks come back.
+    const res = await adminApi.get("/api/v1/feedback?status=nonsense")
+    expect(res.status).toBe(200)
+    expect(res.body.feedbacks.length).toBeGreaterThan(0)
+  })
+
+  it("pagination clamps limit into [1..100] and rejects non-numeric pages gracefully", async () => {
+    const zeroLimit = await adminApi.get("/api/v1/feedback?page=1&limit=0")
+    expect(zeroLimit.body.pagination.limit).toBe(1)
+
+    const hugeLimit = await adminApi.get("/api/v1/feedback?page=1&limit=1000")
+    expect(hugeLimit.body.pagination.limit).toBe(100)
+
+    const badPage = await adminApi.get("/api/v1/feedback?page=abc")
+    expect(badPage.status).toBe(200)
+    expect(badPage.body.pagination.page).toBe(1)
+
+    const beyond = await adminApi.get("/api/v1/feedback?page=9999")
+    expect(beyond.status).toBe(200)
+    expect(beyond.body.feedbacks).toEqual([])
+    expect(beyond.body.pagination.totalPages).toBeGreaterThanOrEqual(0)
+  })
+})

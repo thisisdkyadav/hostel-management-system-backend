@@ -333,6 +333,144 @@ describe("visitor requests (student lifecycle)", () => {
   })
 })
 
+// ---- hardening edges (added) ----------------------------------------------
+
+describe("visitor requests — summary pagination edges", () => {
+  it("clamps limit=1000 to 100 and page=-1 back to 1; far pages come back empty with hasMore=false", async () => {
+    const student = await seed.student()
+    await seedRequest(student)
+
+    const api = await as(student)
+
+    const clamped = await api.get("/api/v1/visitor/requests/summary?page=-1&limit=1000")
+    expect(clamped.status).toBe(200)
+    expect(clamped.body.pagination).toMatchObject({ page: 1, limit: 100 })
+    expect(Number(clamped.body.pagination.total)).toBeGreaterThanOrEqual(1)
+
+    const beyond = await api.get("/api/v1/visitor/requests/summary?page=99999")
+    expect(beyond.status).toBe(200)
+    expect(beyond.body.data).toEqual([])
+    expect(beyond.body.pagination.hasMore).toBe(false)
+  })
+})
+
+describe("visitor profiles — linked-request guard after unlinking", () => {
+  it("a profile becomes editable again once its only linked (pending) request is deleted", async () => {
+    const student = await seed.student()
+    const api = await as(student)
+    const profile = await apiVisitorProfile(api)
+
+    // link a pending request through the model (post('save') pushes into profile.requests)
+    const { VisitorRequest } = await import("../../../src/models/index.js")
+    const req = await VisitorRequest.create({
+      userId: student._id,
+      visitors: [profile._id],
+      reason: "linked visit",
+      fromDate: day(2),
+      toDate: day(4),
+    })
+
+    const blocked = await api.put(`/api/v1/visitor/profiles/${profile._id}`).send({ phone: "7000000000" })
+    expect(blocked.status).toBe(500) // guard still active while the request exists
+
+    // delete the pending request via the API -> post('findOneAndDelete') $pull's
+    // its id back out of profile.requests, lifting the guard
+    const del = await api.delete(`/api/v1/visitor/requests/${req._id}`)
+    expect(del.status).toBe(200)
+
+    const upd = await api.put(`/api/v1/visitor/profiles/${profile._id}`).send({ phone: "7000000000" })
+    expect(upd.status).toBe(200)
+    expect(upd.body.visitorProfile.phone).toBe("7000000000")
+
+    void VisitorRequest
+  })
+})
+
+describe("visitor payment-info — amount handling", () => {
+  it("stores numeric amounts verbatim, casts digit strings, and accepts negative amounts // SUSPECTED BUG: no amount validation", async () => {
+    const owner = await seed.student()
+    const api = await as(owner)
+    const request = await seedRequest(owner)
+
+    // negative amount is stored unchanged — no lower-bound check exists
+    let res = await api.put(`/api/v1/visitor/requests/${request._id}/payment-info`).send({ amount: -50 })
+    expect(res.status).toBe(200)
+    expect(res.body.updatedRequest.paymentInfo.amount).toBe(-50) // SUSPECTED BUG: negative amounts accepted
+
+    // digit strings are cast by Mongoose to numbers
+    res = await api.put(`/api/v1/visitor/requests/${request._id}/payment-info`).send({ amount: "250" })
+    expect(res.status).toBe(200)
+    expect(res.body.updatedRequest.paymentInfo.amount).toBe(250)
+
+    // huge amounts round-trip untouched too
+    res = await api.put(`/api/v1/visitor/requests/${request._id}/payment-info`).send({ amount: Number.MAX_SAFE_INTEGER })
+    expect(res.status).toBe(200)
+    expect(res.body.updatedRequest.paymentInfo.amount).toBe(Number.MAX_SAFE_INTEGER)
+  })
+})
+
+describe("visitor staff operations — missing lifecycle guards", () => {
+  /** Supervisor client whose session carries the given hostel. */
+  async function supervisorFor(hostel) {
+    const supervisor = await seed.createUser({ role: "Hostel Supervisor" })
+    return as(supervisor, { userData: { hostel: { _id: hostel._id, name: hostel.name } } })
+  }
+
+  it("rooms can be allocated even to an already-rejected request // SUSPECTED BUG: allocation ignores request status", async () => {
+    const student = await seed.student()
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: "X-101", capacity: 2 })
+    const rejected = await seedRequest(student, { status: "Rejected" })
+
+    const api = await supervisorFor(hostel)
+    const res = await api.post(`/api/v1/visitor/requests/${rejected._id}/allocate`).send({
+      allocationData: [["X-101"]],
+    })
+    expect(res.status).toBe(200) // SUSPECTED BUG: no status guard before allocation
+    expect(res.body.updatedRequest.allocatedRooms.length).toBe(1)
+  })
+
+  it("allocating the same room twice in one payload stores it twice // SUSPECTED BUG: no duplicate-room guard", async () => {
+    const student = await seed.student()
+    const hostel = await createHostel()
+    const room = await createRoom({ hostelId: hostel._id, roomNumber: "X-201", capacity: 4 })
+    const request = await seedRequest(student)
+
+    const api = await supervisorFor(hostel)
+    const res = await api.post(`/api/v1/visitor/requests/${request._id}/allocate`).send({
+      allocationData: [["X-201"], ["X-201"]],
+    })
+    expect(res.status).toBe(200)
+    // both payload entries resolve to the same room id and are appended verbatim
+    expect(res.body.updatedRequest.allocatedRooms.map(String)).toEqual([String(room._id), String(room._id)]) // SUSPECTED BUG: duplicates accepted
+
+    const detail = await as(student).then((s) => s.get(`/api/v1/visitor/requests/${request._id}`))
+    expect(detail.body.data.allocatedRooms.length).toBe(2)
+  })
+
+  it("check-out succeeds without a prior check-in and check-in works on a rejected request // SUSPECTED BUG: no ordering/status guards", async () => {
+    const student = await seed.student()
+    const gateApi = await as(await seed.createUser({ role: "Hostel Gate" }))
+
+    // checkout on a pending, never-checked-in, unallocated request
+    const fresh = await seedRequest(student)
+    let res = await gateApi.post(`/api/v1/visitor/requests/${fresh._id}/checkout`).send({
+      checkOutTime: new Date().toISOString(),
+    })
+    expect(res.status).toBe(200) // SUSPECTED BUG: checkout does not require check-in (or any state)
+    expect(res.body.updatedRequest.checkOutTime).toBeTruthy()
+
+    // check-in even on a rejected request
+    const rejected = await seedRequest(student, { status: "Rejected" })
+    res = await gateApi.post(`/api/v1/visitor/requests/${rejected._id}/checkin`).send({
+      checkInTime: new Date().toISOString(),
+      notes: "walked in",
+    })
+    expect(res.status).toBe(200) // SUSPECTED BUG: no status guard on check-in
+    expect(res.body.updatedRequest.checkInTime).toBeTruthy()
+  })
+})
+
 describe("visitor requests — staff operations", () => {
   it("GET /requests/student/:userId lists that student's requests for staff", async () => {
     const student = await seed.student()

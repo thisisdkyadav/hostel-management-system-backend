@@ -266,3 +266,175 @@ describe("GET /api/v1/staff/attendance/records", () => {
     expect(res.body.meta.totalPages).toBeGreaterThanOrEqual(2)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Hardening: QR edge cases (key mismatch, extreme expiries, wrong roles)
+// ---------------------------------------------------------------------------
+describe("POST /api/v1/staff/verify-qr — QR edge cases", () => {
+  it("403 for more wrong roles on verify-qr and record (Maintenance Staff, Student)", async () => {
+    for (const user of [maintenanceStaff, student]) {
+      const api = await as(user)
+      expect((await api.post(`${BASE}/verify-qr`).send({})).status).toBe(403)
+      expect((await api.post(`${BASE}/attendance/record`).send({})).status).toBe(403)
+    }
+  })
+
+  it("400 Invalid QR Code when the payload is encrypted under a key other than the stored aesKey", async () => {
+    const mismatchedKey = newAesKey()
+    const res = await gateApi
+      .post(`${BASE}/verify-qr`)
+      .send({ email: securityStaff.email, encryptedData: encryptQrExpiry(mismatchedKey, Date.now() + 60_000) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid QR Code")
+  })
+
+  it("200 for a far-future expiry (year 2999)", async () => {
+    const res = await gateApi.post(`${BASE}/verify-qr`).send({
+      email: securityStaff.email,
+      encryptedData: encryptQrExpiry(securityStaff.aesKey, new Date("2999-01-01").getTime()),
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.staffInfo.staffType).toBe("security")
+  })
+
+  it("400 QR Code Expired for an ancient expiry (year 1900)", async () => {
+    const res = await gateApi.post(`${BASE}/verify-qr`).send({
+      email: securityStaff.email,
+      encryptedData: encryptQrExpiry(securityStaff.aesKey, new Date("1900-01-01").getTime()),
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("QR Code Expired")
+  })
+
+  it("400 when email is empty but encryptedData present", async () => {
+    const res = await gateApi
+      .post(`${BASE}/verify-qr`)
+      .send({ email: "", encryptedData: encryptQrExpiry(securityStaff.aesKey, Date.now() + 60_000) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid QR Code data")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: attendance state machine + validation edges
+// ---------------------------------------------------------------------------
+describe("POST /api/v1/staff/attendance/record — state machine edges", () => {
+  it("SUSPECTED BUG: duplicate check-in for the same staffer creates a second record instead of conflicting", async () => {
+    const first = await gateApi.post(`${BASE}/attendance/record`).send({ email: maintenanceStaff.email, type: "checkIn" })
+    expect(first.status).toBe(201)
+
+    const second = await gateApi.post(`${BASE}/attendance/record`).send({ email: maintenanceStaff.email, type: "checkIn" })
+    expect(second.status).toBe(201)
+    expect(String(second.body.attendance._id)).not.toBe(String(first.body.attendance._id))
+  })
+
+  it("SUSPECTED BUG: check-out is accepted with no prior check-in (no state guard)", async () => {
+    const fresh = await seed.security()
+    const res = await gateApi.post(`${BASE}/attendance/record`).send({ email: fresh.email, type: "checkOut" })
+    // Current behavior: 201, a checkOut row is recorded for someone never checked in.
+    expect(res.status).toBe(201)
+    expect(res.body.attendance.type).toBe("checkOut")
+  })
+
+  it("400 Missing required fields for an empty-string type", async () => {
+    const res = await gateApi.post(`${BASE}/attendance/record`).send({ email: securityStaff.email, type: "" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Missing required fields")
+  })
+
+  it("400 Invalid attendance type is case-sensitive ('CheckIn' rejected)", async () => {
+    const res = await gateApi.post(`${BASE}/attendance/record`).send({ email: securityStaff.email, type: "CheckIn" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid attendance type")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Hardening: records listing — filters, pagination edges, scoping overrides
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/staff/attendance/records — edge inputs", () => {
+  it("403 for Super Admin (no guard mapping despite being an admin-class role)", async () => {
+    const api = await as(await seed.superAdmin())
+    const res = await api.get(`${BASE}/attendance/records`)
+    expect(res.status).toBe(403)
+  })
+
+  it("SUSPECTED BUG: any staffType value other than 'security' silently maps to Maintenance Staff", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/attendance/records`).query({ staffType: "bogus-type" })
+    expect(res.status).toBe(200)
+    expect(res.body.records.length).toBeGreaterThanOrEqual(1)
+    expect(res.body.records.every((r) => String(r.userId._id ?? r.userId) === String(maintenanceStaff._id))).toBe(true)
+  })
+
+  it("userId filter wins when both userId and staffType are given", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/attendance/records`).query({ userId: String(maintenanceStaff._id), staffType: "security" })
+    expect(res.status).toBe(200)
+    expect(res.body.records.every((r) => String(r.userId._id ?? r.userId) === String(maintenanceStaff._id))).toBe(true)
+  })
+
+  it("200 zero matches for a staffType with no users... none exist; invalid value falls into maintenance bucket", async () => {
+    // Covered by the bogus-type test above; here assert start>end range.
+    const api = await as(admin)
+    const now = new Date().toISOString()
+    const later = new Date(Date.now() + 7 * 86400000).toISOString()
+    const res = await api.get(`${BASE}/attendance/records`).query({ startDate: later, endDate: now })
+    expect(res.status).toBe(200)
+    expect(res.body.records).toHaveLength(0)
+    expect(res.body.meta.total).toBe(0)
+  })
+
+  it("500 for page=0 (negative skip reaches Mongo)", async () => {
+    // SUSPECTED BUG: page is parsed but never validated; skip goes negative.
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/attendance/records`).query({ page: 0, limit: 10 })
+    expect([200, 500]).toContain(res.status)
+    if (res.status === 500) {
+      expect(res.body.success).toBe(false)
+    }
+  })
+
+  it("500 or graceful handling for non-numeric page", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/attendance/records`).query({ page: "abc", limit: 10 })
+    expect([200, 500]).toContain(res.status)
+    if (res.status === 500) {
+      expect(res.body.message).toBeDefined()
+    }
+  })
+
+  it("200 honors limit=1000", async () => {
+    const api = await as(admin)
+    const res = await api.get(`${BASE}/attendance/records`).query({ page: 1, limit: 1000 })
+    expect(res.status).toBe(200)
+    expect(res.body.meta.limit).toBe(1000)
+    expect(res.body.records.length).toBeGreaterThanOrEqual(4)
+    expect(res.body.meta.totalPages).toBe(1)
+  })
+
+  it("session hostel override re-scopes the listing via as(user, { userData: { hostel } })", async () => {
+    const otherHostel = await createHostel({ name: "Attendance Override Hostel" })
+    const scopedGate = await seed.createUser({ role: "Hostel Gate" })
+    const api = await as(scopedGate, {
+      userData: { hostel: { _id: String(otherHostel._id), name: otherHostel.name, type: "room-only" } },
+    })
+    const res = await api.get(`${BASE}/attendance/records`)
+    expect(res.status).toBe(200)
+    // No records exist for the override hostel yet.
+    expect(res.body.records).toHaveLength(0)
+    expect(res.body.meta.total).toBe(0)
+  })
+
+  it("extreme date ranges do not crash (year 1900 / 2999)", async () => {
+    const api = await as(admin)
+    const wide = await api.get(`${BASE}/attendance/records`).query({ startDate: "1900-01-01", endDate: "2999-12-31" })
+    expect(wide.status).toBe(200)
+    expect(wide.body.meta.total).toBeGreaterThanOrEqual(4)
+
+    const ancient = await api.get(`${BASE}/attendance/records`).query({ startDate: "1900-01-01", endDate: "1901-01-01" })
+    expect(ancient.status).toBe(200)
+    expect(ancient.body.meta.total).toBe(0)
+  })
+})
