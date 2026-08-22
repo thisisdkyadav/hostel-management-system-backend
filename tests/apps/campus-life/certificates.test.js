@@ -199,11 +199,12 @@ describe("certificates — PUT /update/:certificateId", () => {
     expect(res.body.message).toBe("Certificate not found")
   })
 
-  it("500 for a malformed id (documented current behavior)", async () => {
-    // SUSPECTED BUG: CastError is swallowed by the service try/catch and
-    // surfaces as 500 instead of the global handler's 400 "Invalid ID format".
+  it("400 Invalid ID format for a malformed id", async () => {
+    // CastError now propagates to the global handler instead of being
+    // swallowed into a generic 500.
     const res = await adminApi.put("/api/v1/certificate/update/garbage").send({ remarks: "x" })
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
   })
 
   it("200 happy path — updates fields and persists", async () => {

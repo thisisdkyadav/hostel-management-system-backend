@@ -120,7 +120,7 @@ describe("GET /api/v1/security (current security profile)", () => {
     const api = await as(studentPlain)
     const res = await api.get(BASE)
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Security not found not found") // notFound() appends " not found"
+    expect(res.body.message).toBe("Security not found")
   })
 
   it("200 returns the caller's security profile with hostel info", async () => {
@@ -228,7 +228,7 @@ describe("POST /api/v1/security/entries (Hostel Gate only)", () => {
       .post(`${BASE}/entries`)
       .send({ hostelId: String(hostelB._id), unit: "NOPE", room: "101", bed: "1", status: "Checked In" })
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Unit not found not found")
+    expect(res.body.message).toBe("Unit not found")
   })
 
   it("404 when the room does not exist in the unit", async () => {
@@ -236,7 +236,7 @@ describe("POST /api/v1/security/entries (Hostel Gate only)", () => {
       .post(`${BASE}/entries`)
       .send({ hostelId: String(hostelB._id), unit: "U1", room: "999", bed: "1", status: "Checked In" })
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Room not found not found")
+    expect(res.body.message).toBe("Room not found")
   })
 
   it("404 when no allocation exists for the requested bed", async () => {
@@ -244,7 +244,7 @@ describe("POST /api/v1/security/entries (Hostel Gate only)", () => {
       .post(`${BASE}/entries`)
       .send({ hostelId: String(hostelB._id), unit: "U1", room: "101", bed: "9", status: "Checked In" })
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Room allocation not found not found")
+    expect(res.body.message).toBe("Room allocation not found")
   })
 
   it("201 even when the session user has no hostel (hostel name resolves from the target hostel)", async () => {
@@ -309,7 +309,7 @@ describe("POST /api/v1/security/entries/email (Hostel Gate only)", () => {
   it("404 when no user has the email", async () => {
     const res = await gateApi.post(`${BASE}/entries/email`).send({ email: "ghost@hms.test", status: "Checked In" })
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("User not found not found")
+    expect(res.body.message).toBe("User not found")
   })
 
   it("404 when the user has no room allocation (clean not-found, no crash)", async () => {
@@ -371,7 +371,7 @@ describe("PUT /api/v1/security/entries/:entryId (Hostel Gate only)", () => {
   it("404 for an unknown but well-formed id", async () => {
     const res = await gateApi.put(`${BASE}/entries/${new mongoose.Types.ObjectId()}`).send({ status: "Checked Out" })
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Entry not found not found")
+    expect(res.body.message).toBe("Entry not found")
   })
 
   it("200 updates room/bed/status/timestamp of the entry", async () => {
@@ -424,7 +424,7 @@ describe("PATCH /api/v1/security/entries/:entryId/cross-hostel-reason (Hostel Ga
       .patch(`${BASE}/entries/${new mongoose.Types.ObjectId()}/cross-hostel-reason`)
       .send({ reason: "x" })
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Entry not found not found")
+    expect(res.body.message).toBe("Entry not found")
   })
 
   it("200 records the cross-hostel reason", async () => {
@@ -472,7 +472,7 @@ describe("DELETE /api/v1/security/entries/:entryId (Hostel Gate only)", () => {
 
     const again = await gateApi.delete(`${BASE}/entries/${entry._id}`)
     expect(again.status).toBe(404)
-    expect(again.body.message).toBe("Entry not found not found")
+    expect(again.body.message).toBe("Entry not found")
 
     // Gone from the listing too
     const list = await as(admin)
@@ -513,11 +513,13 @@ describe("POST /api/v1/security/verify-qr (Hostel Gate only)", () => {
     expect(res.body.error).toBe("Invalid QR Code")
   })
 
-  it("500 with undecryptable data // SUSPECTED BUG: decryptData throws inside the service without try/catch, so corrupt QR payloads produce a 500 instead of the intended 400 'Invalid QR Code'", async () => {
+  it("400 'Invalid QR Code' with undecryptable data (decrypt failures no longer 500)", async () => {
     const res = await gateApi
       .post(`${BASE}/verify-qr`)
       .send({ email: qrStudent.email, encryptedData: "garbage-no-colon" })
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(400)
+    // this controller emits failures as { error: message }
+    expect(res.body.error).toBe('Invalid QR Code')
   })
 
   it("400 when the QR payload is expired", async () => {
@@ -532,7 +534,7 @@ describe("POST /api/v1/security/verify-qr (Hostel Gate only)", () => {
     const payload = await validPayload(staffWithQr)
     const res = await gateApi.post(`${BASE}/verify-qr`).send(payload)
     expect(res.status).toBe(404)
-    expect(res.body.error).toBe("Student not found not found")
+    expect(res.body.error).toBe("Student not found")
   })
 
   it("200 verifies a valid QR and flags same-hostel status + last entry", async () => {

@@ -212,10 +212,10 @@ describe("disco — legacy action CRUD", () => {
     expect(missing.status).toBe(404)
     expect(missing.body.message).toBe("DisCo action not found")
 
-    // SUSPECTED BUG: a malformed id is swallowed by the service try/catch and
-    // surfaces as 500 instead of the global handler's 400 "Invalid ID format".
+    // malformed ids propagate as the global handler's 400 "Invalid ID format"
     const garbage = await adminApi.put("/api/v1/disCo/update/garbage").send({ remarks: "x" })
-    expect(garbage.status).toBe(500)
+    expect(garbage.status).toBe(400)
+    expect(garbage.body.message).toBe("Invalid ID format")
   })
 
   it("PATCH reminder done endpoint marks completion once", async () => {

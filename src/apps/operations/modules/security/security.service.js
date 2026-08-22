@@ -301,7 +301,13 @@ class SecurityService {
       return badRequest('Invalid QR Code');
     }
 
-    const expiry = await decryptData(encryptedData, user.aesKey);
+    let expiry = null;
+    try {
+      expiry = await decryptData(encryptedData, user.aesKey);
+    } catch (decryptError) {
+      // undecryptable payload -> the intended 400, not a 500
+      console.error('QR decryption failed:', decryptError.message);
+    }
     if (!expiry) {
       return badRequest('Invalid QR Code');
     }

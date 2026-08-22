@@ -5,7 +5,7 @@
  * @module services/lostAndFound.service
  */
 
-import { success, error, notFound, conflict } from '../../../../services/base/index.js';
+import { success, error, notFound, conflict, rethrowKnownMongooseErrors } from '../../../../services/base/index.js';
 import { lostAndFoundOwner } from '../../../../services/lost-found/lostAndFoundOwner.service.js';
 import {
   COMMON_CACHE_CONFIG,
@@ -144,6 +144,7 @@ class LostAndFoundService {
     try {
       lostAndFoundItem = await lostAndFoundOwner.updateItemById(id, data);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
     if (!lostAndFoundItem) {
@@ -172,6 +173,7 @@ class LostAndFoundService {
     try {
       deleted = await lostAndFoundOwner.deleteItemById(id);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
     if (!deleted) {

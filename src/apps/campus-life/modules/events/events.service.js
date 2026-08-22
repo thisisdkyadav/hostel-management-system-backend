@@ -6,7 +6,7 @@
  */
 
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
-import { success, error, notFound, conflict } from '../../../../services/base/index.js';
+import { success, error, notFound, conflict, rethrowKnownMongooseErrors } from '../../../../services/base/index.js';
 import { eventOwner } from '../../../../services/event/eventOwner.service.js';
 import { eventQueries } from '../../../../services/event/eventQueries.service.js';
 import {
@@ -320,6 +320,7 @@ class EventService {
         gender
       });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
 
@@ -341,6 +342,7 @@ class EventService {
     try {
       deleted = await eventOwner.deleteEvent(id);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
 

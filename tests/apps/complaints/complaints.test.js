@@ -53,9 +53,7 @@ describe("POST /complaint (create)", () => {
     })
     expect(res.status).toBe(404)
     expect(res.body.success).toBe(false)
-    // SUSPECTED BUG: notFound(entity) appends " not found", and the service
-    // passes a full sentence as the entity -> doubled message.
-    expect(res.body.message).toBe("Room allocation not found not found")
+    expect(res.body.message).toBe("Room allocation not found")
   })
 
   it("resolves the allocation from the authenticated student when body omits userId", async () => {
@@ -344,8 +342,7 @@ describe("PUT /complaint/update-status/:id (legacy, Maintenance Staff only)", ()
       .put(`${BASE}/update-status/000000000000000000000000`)
       .send({ status: "In Progress" })
     expect(res.status).toBe(404)
-    // SUSPECTED BUG: notFound(entity) appends " not found" -> doubled message.
-    expect(res.body.message).toBe("Complaint not found not found")
+    expect(res.body.message).toBe("Complaint not found")
   })
 
   it("422 for a status outside the enum", async () => {
@@ -773,7 +770,6 @@ describe("PUBLIC GET /complaint/feedback/:token", () => {
     const api = await anon()
     const res = await api.get(`${BASE}/feedback/not-a-real-token`)
     expect(res.status).toBe(404)
-    // SUSPECTED BUG: notFound(entity) appends " not found" -> doubled message.
     expect(res.body.message).toBe("Invalid feedback link not found")
   })
 
@@ -839,7 +835,6 @@ describe("PUBLIC POST /complaint/feedback/:token", () => {
     const api = await anon()
     const res = await api.post(`${BASE}/feedback/not-a-real-token`).send({ feedback: "hi" })
     expect(res.status).toBe(404)
-    // SUSPECTED BUG: notFound(entity) appends " not found" -> doubled message.
     expect(res.body.message).toBe("Invalid feedback link not found")
   })
 

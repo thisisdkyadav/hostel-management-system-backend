@@ -456,7 +456,7 @@ describe("GET /profile/details/:userId + GET /id/:userId", () => {
   it("returns 404 for an unknown student", async () => {
     const res = await adminApi.get(`${BASE}/profile/details/000000000000000000000000`)
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Student profile not found not found")
+    expect(res.body.message).toBe("Student profile not found")
   })
 
   it("returns the full profile for Admin", async () => {
@@ -912,7 +912,7 @@ describe("GET /room-allocations/student/:rollNumber", () => {
     const res = await adminApi.get(`${BASE}/room-allocations/student/GHOST000`)
     expect(res.status).toBe(404)
     // notFound() appends its own "not found" to the entity phrase.
-    expect(res.body.message).toBe("Student profile not found not found")
+    expect(res.body.message).toBe("Student profile not found")
   })
 
   it("shows the current allocation for an housed student", async () => {
@@ -958,7 +958,7 @@ describe("PUT /hostels/:hostelId/room-allocations", () => {
       .put(`${BASE}/hostels/000000000000000000000000/room-allocations`)
       .send([{ room: "A102", bedNumber: 1, rollNumber: "ADM002" }])
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Hostel not found not found")
+    expect(res.body.message).toBe("Hostel not found")
   })
 
   it("forbids supervisors writing to a foreign hostel with 403", async () => {

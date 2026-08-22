@@ -318,8 +318,8 @@ describe("POST /users/remove-passwords-by-role", () => {
     const api = await as(admin)
     const res = await api.post(`${BASE}/remove-passwords-by-role`).send({ role: "Security" })
     expect(res.status).toBe(404)
-    // SUSPECTED BUG: the service passes a full sentence into notFound(entity),
-    // which appends " not found" — producing the awkward doubled message below.
+    // the service passes a sentence that does not end in "not found", so
+    // notFound() still appends its suffix.
     expect(res.body.message).toBe("No users found with the specified role not found")
   })
 

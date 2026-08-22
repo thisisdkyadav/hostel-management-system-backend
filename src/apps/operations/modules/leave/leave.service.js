@@ -5,7 +5,7 @@
  * @module services/leave
  */
 
-import { success, notFound, error } from '../../../../services/base/index.js';
+import { success, notFound, error, rethrowKnownMongooseErrors } from '../../../../services/base/index.js';
 import { leaveOwner } from '../../../../services/leave/leaveOwner.service.js';
 import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js';
 
@@ -23,6 +23,7 @@ class LeaveService {
       const leave = await leaveOwner.createLeave({ userId, reason, startDate, endDate });
       return success({ message: 'Leave created successfully', leave }, 201);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error('Error creating leave', 500, err.message);
     }
   }
@@ -36,6 +37,7 @@ class LeaveService {
       const leaves = await leaveQueries.findByUser(userId);
       return success({ leaves });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error('Error getting leaves', 500, err.message);
     }
   }
@@ -71,6 +73,7 @@ class LeaveService {
         limit: limitNum,
       });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error('Error getting leaves', 500, err.message);
     }
   }
@@ -95,6 +98,7 @@ class LeaveService {
       }
       return success({ message: 'Leave approved successfully', leave });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error('Error approving leave', 500, err.message);
     }
   }
@@ -119,6 +123,7 @@ class LeaveService {
       }
       return success({ message: 'Leave rejected successfully', leave });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error('Error rejecting leave', 500, err.message);
     }
   }
@@ -141,6 +146,7 @@ class LeaveService {
       }
       return success({ message: 'Leave joined successfully', leave });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error('Error joining leave', 500, err.message);
     }
   }

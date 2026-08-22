@@ -34,7 +34,13 @@ class StaffAttendanceService {
         return badRequest('Invalid staff type');
       }
 
-      const expiry = await decryptData(encryptedData, user.aesKey);
+      let expiry = null;
+      try {
+        expiry = await decryptData(encryptedData, user.aesKey);
+      } catch (decryptError) {
+        // undecryptable payload -> the intended 400, not a 500
+        console.error('QR decryption failed:', decryptError.message);
+      }
       if (!expiry) {
         return badRequest('Invalid QR Code');
       }
@@ -97,6 +103,10 @@ class StaffAttendanceService {
 
       if (user.role !== 'Security' && user.role !== 'Maintenance Staff') {
         return badRequest('Invalid staff type');
+      }
+
+      if (!reqUser?.hostel?._id) {
+        return badRequest('Your account is not assigned to a hostel');
       }
 
       const attendance = await staffAttendanceOwner.createAttendance({

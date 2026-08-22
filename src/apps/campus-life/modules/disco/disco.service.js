@@ -16,6 +16,7 @@ import {
   error,
   conflict,
   paginated,
+  rethrowKnownMongooseErrors,
 } from "../../../../services/base/index.js";
 import { discoOwner } from "../../../../services/disco/discoOwner.service.js";
 import { discoQueries } from "../../../../services/disco/discoQueries.service.js";
@@ -658,6 +659,7 @@ class DisCoService {
     try {
       actions = await discoQueries.findActionsByStudent(studentId);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
 
@@ -734,6 +736,7 @@ class DisCoService {
     try {
       updated = await discoOwner.updateActionById(disCoId, updates);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
 
@@ -799,6 +802,7 @@ class DisCoService {
     try {
       deleted = await discoOwner.deleteActionById(disCoId);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
 

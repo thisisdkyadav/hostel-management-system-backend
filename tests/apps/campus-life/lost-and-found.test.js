@@ -180,10 +180,13 @@ describe("lost-and-found — PUT /:id and DELETE /:id", () => {
     expect((await adminApi.delete("/api/v1/lost-and-found/000000000000000000000000")).status).toBe(404)
   })
 
-  it("500 for malformed id (documented current behavior)", async () => {
-    // SUSPECTED BUG: CastError swallowed by the service try/catch → 500
-    // instead of the global handler's 400 "Invalid ID format".
-    expect((await adminApi.put("/api/v1/lost-and-found/garbage").send({})).status).toBe(500)
+  it("400 Invalid ID format for malformed id", async () => {
+    let res = await adminApi.put("/api/v1/lost-and-found/garbage").send({})
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
+
+    res = await adminApi.delete("/api/v1/lost-and-found/garbage")
+    expect(res.status).toBe(400)
   })
 
   it("200 update persists (status transition Active -> Claimed)", async () => {

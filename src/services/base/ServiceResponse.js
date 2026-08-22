@@ -61,7 +61,11 @@ export class ServiceResponse {
    * Not Found response (404)
    */
   static notFound(entity = 'Resource') {
-    return { success: false, statusCode: 404, message: `${entity} not found` };
+    // Idempotent: some call sites already pass full sentences like
+    // "Room allocation not found" — never emit "…not found not found".
+    const text = String(entity)
+    const message = /not found\s*$/i.test(text) ? text : `${text} not found`
+    return { success: false, statusCode: 404, message }
   }
 
   /**

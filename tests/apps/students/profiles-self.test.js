@@ -65,7 +65,7 @@ describe("GET /dashboard", () => {
     const res = await api.get(`${BASE}/dashboard`)
     expect(res.status).toBe(404)
     expect(res.body.success).toBe(false)
-    expect(res.body.message).toBe("Student profile not found not found")
+    expect(res.body.message).toBe("Student profile not found")
   })
 
   it("aggregates profile, room, roommates, complaints, insurance and events", async () => {
@@ -178,7 +178,7 @@ describe("GET /profile", () => {
     const res = await api.get(`${BASE}/profile`)
     expect(res.status).toBe(404)
     expect(res.body.success).toBe(false)
-    expect(res.body.message).toBe("Student profile not found not found")
+    expect(res.body.message).toBe("Student profile not found")
   })
 
   it("returns the full populated profile", async () => {
@@ -245,7 +245,7 @@ describe("GET /:userId/id-card", () => {
     const api = await as(admin)
     const res = await api.get(`${BASE}/000000000000000000000000/id-card`)
     expect(res.status).toBe(404)
-    expect(res.body.message).toBe("Student profile not found not found")
+    expect(res.body.message).toBe("Student profile not found")
   })
 })
 

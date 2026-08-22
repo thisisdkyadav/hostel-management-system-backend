@@ -37,12 +37,12 @@ describe("POST /api/v1/leave (create leave)", () => {
     expect(res.status).toBe(403)
   })
 
-  it("500 when required fields are missing // SUSPECTED BUG: should be a 400/422 validation error, but the service swallows the Mongoose ValidationError and maps every creation failure to 500", async () => {
+  it("422 with field errors when required fields are missing (ValidationError reaches the global handler)", async () => {
     const admin = await seed.admin()
     const api = await as(admin)
     const res = await api.post(BASE).send({})
-    expect(res.status).toBe(500)
-    expect(res.body.message).toBe("Error creating leave")
+    expect(res.status).toBe(422)
+    expect(res.body.success).toBe(false)
   })
 
   it("201 creates a Pending leave for Admin and returns { leave }", async () => {
@@ -206,11 +206,11 @@ describe("PUT /api/v1/leave/:id/approve (admin only)", () => {
     expect(res.body.success).toBe(false)
   })
 
-  it("500 for a malformed id // SUSPECTED BUG: the service try/catch converts the Mongoose CastError into a generic 500 instead of a 400 invalid-id response", async () => {
+  it("400 Invalid ID format for a malformed id", async () => {
     const api = await as(admin)
     const res = await api.put(`${BASE}/not-an-id/approve`).send({ approvalInfo: "ok" })
-    expect(res.status).toBe(500)
-    expect(res.body.message).toBe("Error approving leave")
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe("Invalid ID format")
   })
 
   it("200 approves the leave and records approver + approval date", async () => {

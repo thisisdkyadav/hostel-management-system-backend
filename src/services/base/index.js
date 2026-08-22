@@ -67,3 +67,6 @@ export {
 
 // Logger
 export { logger } from './Logger.js';
+
+// Mongoose error passthrough for blanket catches
+export { rethrowKnownMongooseErrors } from './mongoErrors.js';

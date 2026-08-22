@@ -6,7 +6,7 @@
  */
 
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
-import { success, notFound, error, conflict } from '../../../../services/base/index.js';
+import { success, notFound, error, conflict, rethrowKnownMongooseErrors } from '../../../../services/base/index.js';
 import { certificateOwner } from '../../../../services/certificate/certificateOwner.service.js';
 import { certificateQueries } from '../../../../services/certificate/certificateQueries.service.js';
 
@@ -61,6 +61,7 @@ class CertificateService {
         certificates,
       });
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to fetch ${ENTITY}s`, 500, err.message);
     }
   }
@@ -75,6 +76,7 @@ class CertificateService {
     try {
       certificate = await certificateOwner.updateCertificate(certificateId, data);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to update ${ENTITY}`, 500, err.message);
     }
 
@@ -93,6 +95,7 @@ class CertificateService {
     try {
       deleted = await certificateOwner.deleteCertificate(certificateId);
     } catch (err) {
+      rethrowKnownMongooseErrors(err);
       return error(`Failed to delete ${ENTITY}`, 500, err.message);
     }
 

@@ -80,12 +80,12 @@ describe("POST /api/v1/staff/verify-qr (Hostel Gate only)", () => {
     expect(res.body.message).toBe("Invalid staff type")
   })
 
-  it("500 with undecryptable data // SUSPECTED BUG: decryption failures are caught by the blanket try/catch and reported as a generic 500 instead of a 400 'Invalid QR Code'", async () => {
+  it("400 'Invalid QR Code' with undecryptable data (decrypt failures no longer 500)", async () => {
     const res = await gateApi
       .post(`${BASE}/verify-qr`)
       .send({ email: securityStaff.email, encryptedData: "garbage-no-colon" })
-    expect(res.status).toBe(500)
-    expect(res.body.message).toBe("Internal server error")
+    expect(res.status).toBe(400)
+    expect(res.body.message).toBe('Invalid QR Code')
   })
 
   it("400 when the QR payload is expired", async () => {
@@ -168,13 +168,14 @@ describe("POST /api/v1/staff/attendance/record (Hostel Gate only)", () => {
     expect(res.body.message).toBe("Invalid staff type")
   })
 
-  it("500 when the gate session has no hostel // SUSPECTED BUG: reqUser.hostel._id is dereferenced unguarded, so a gate user without a hostel in session crashes with 500 instead of a clean 400", async () => {
+  it("400 when the gate session has no hostel (clean validation, no crash)", async () => {
     const bareGate = await seed.createUser({ role: "Hostel Gate" })
     const api = await as(bareGate)
     const res = await api
       .post(`${BASE}/attendance/record`)
       .send({ email: securityStaff.email, type: "checkIn" })
-    expect(res.status).toBe(500)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/not assigned to a hostel/i)
   })
 
   it("201 records a check-in then a check-out for the same staffer", async () => {
