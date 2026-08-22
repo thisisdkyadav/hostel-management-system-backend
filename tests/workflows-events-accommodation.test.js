@@ -424,6 +424,9 @@ describe("workflow 2 — accommodation full lifecycle incl. extension additional
     ctx.hostel = await createHostel()
     ctx.roomA = await createRoom({ hostelId: ctx.hostel._id, roomNumber: `WF2-${Date.now() % 100000}a`, capacity: 2 })
     ctx.roomB = await createRoom({ hostelId: ctx.hostel._id, roomNumber: `WF2-${Date.now() % 100000}b`, capacity: 2 })
+    // One SPARE empty room: see the zero-spare extension test below — without
+    // it the extension capacity check refuses a party that already holds rooms.
+    await createRoom({ hostelId: ctx.hostel._id, roomNumber: `WF2-${Date.now() % 100000}c`, capacity: 2 })
 
     const res = await as(await cwo()).then((c) =>
       c.post(`${ACC_BASE}/${ctx.requestId}/payment-request`).send({
@@ -520,7 +523,6 @@ describe("workflow 2 — accommodation full lifecycle incl. extension additional
         note: "Seven extra guest-nights",
       })
     )
-    console.log("DECISION-DEBUG", res.status, JSON.stringify(res.body))
     expect(res.status).toBe(200)
     // The initial bill was already VERIFIED, so the extra charge must NOT be
     // folded into it — it opens a second payment row instead.
@@ -597,5 +599,110 @@ describe("workflow 2 — accommodation full lifecycle incl. extension additional
     expect(invoice.headers["content-type"]).toMatch(/application\/pdf/)
     expect(invoice.headers["content-disposition"]).toMatch(/^attachment;/)
     expect(Number(invoice.headers["content-length"])).toBeGreaterThan(500)
+  })
+})
+
+// ═════════════════════════════════════════════════════════════════════════════
+// WORKFLOW 2 seam — extending a checked-in party that holds every room it needs
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe("workflow 2 seam — extension capacity vs. rooms the party already holds", () => {
+  it("documents that extension is refused when the booking holds ALL empty rooms in its hostel", async () => {
+    // SUSPECTED BUG (accommodation availability seam): once rooms are assigned
+    // they flip to "Guest" and leave the empty-Active pool, but the extension
+    // approval re-runs getHostelGuestAvailability WITHOUT crediting the booking's
+    // own held rooms back (excludeRequestId only drops its overlap *claim* on
+    // rooms other parties might book). A checked-in party whose assigned rooms
+    // are the hostel's entire guest inventory therefore can never extend — even
+    // though extending keeps exactly the rooms it already occupies.
+    const student = await seed.createUser({
+      role: "Student",
+      email: `wf2-seam-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}@iiti.ac.in`,
+    })
+
+    const body = (over = {}) => ({
+      typeKey: "parents-siblings",
+      guests: [
+        { name: "Ramu Yadav", gender: "Male", age: 52, relation: "Father", aadharNumber: "111122223333" },
+        { name: "Sita Yadav", gender: "Female", age: 48, relation: "Mother", aadharNumber: "444455556666" },
+      ],
+      roomPreference: "Double",
+      stay: { fromDate: dateOnly(day(7)), toDate: dateOnly(day(9)) },
+      facultyAdvisorEmail: "fa.advisor@iiti.ac.in",
+      permanentAddress: "12 Civil Lines",
+      ...over,
+    })
+
+    let res = await as(student).then((a) => a.post(ACC_BASE).send(body()))
+    expect(res.status).toBe(201)
+    const requestId = res.body.data._id
+
+    const cwoApi = await as(await seed.createUser({ role: "Admin", subRole: "Chief Warden Office" }))
+    res = await cwoApi.post(`${ACC_BASE}/${requestId}/capacity-decision`).send({ action: "approve" })
+    expect(res.status).toBe(200)
+    res = await cwoApi.post(`${ACC_BASE}/${requestId}/bypass-fa`)
+    expect(res.status).toBe(200)
+    res = await as(await seed.createUser({ role: "Admin", subRole: "Chief Warden" }))
+      .then((c) => c.post(`${ACC_BASE}/${requestId}/decision`).send({ action: "approve" }))
+    expect(res.status).toBe(200)
+
+    // Hostel with EXACTLY two rooms — both will be handed to this party of 2.
+    const hostel = await createHostel()
+    const roomA = await createRoom({ hostelId: hostel._id, roomNumber: `SEAM-${Date.now() % 100000}a`, capacity: 2 })
+    const roomB = await createRoom({ hostelId: hostel._id, roomNumber: `SEAM-${Date.now() % 100000}b`, capacity: 2 })
+    res = await cwoApi.post(`${ACC_BASE}/${requestId}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [
+        { guestIndex: 0, price: 500, gstPercentage: 0 },
+        { guestIndex: 1, price: 500, gstPercentage: 0 },
+      ],
+    })
+    expect(res.status).toBe(200)
+
+    const proof = () => ({
+      utr: "123456789012",
+      paidAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+      screenshotFileRef: "media://payments/seam.png",
+    })
+    const studentApi = await as(student)
+    res = await studentApi.post(`${ACC_BASE}/${requestId}/payment`).send(proof())
+    expect(res.status).toBe(200)
+    res = await as(await seed.createUser({ role: "Admin", subRole: "Accountant" }))
+      .then((a) => a.post(`${ACC_BASE}/${requestId}/payment-verify`).send({ action: "verify" }))
+    expect(res.status).toBe(200)
+
+    res = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+      .then((s) =>
+        s.post(`${ACC_BASE}/${requestId}/assign-rooms`).send({
+          rooms: [
+            { roomId: roomA._id, guestIndexes: [0] },
+            { roomId: roomB._id, guestIndexes: [1] },
+          ],
+        })
+      )
+    expect(res.status).toBe(200)
+    res = await as(await seed.createUser({ role: "Hostel Gate" }))
+      .then((g) => g.post(`${ACC_BASE}/${requestId}/checkin`))
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Checked In")
+
+    // The party asks to keep ITS OWN rooms a few days longer…
+    res = await studentApi.post(`${ACC_BASE}/${requestId}/schedule-change`).send({
+      type: "extend",
+      toDate: dateOnly(day(16)),
+      reason: "Return flights cancelled",
+    })
+    expect(res.status).toBe(200)
+    const changeId = (await studentApi.get(`${ACC_BASE}/${requestId}`)).body.data.scheduleChanges.at(-1)._id
+
+    // …but CWO approval is refused with an impossible-sounding capacity error:
+    // "need 2, 0 free" while the party already physically holds 2 rooms.
+    res = await cwoApi.post(`${ACC_BASE}/${requestId}/schedule-change/${changeId}/decision`).send({
+      action: "approve",
+      extraAmount: 250,
+      note: "Extra nights",
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/Not enough guest rooms free/)
   })
 })
