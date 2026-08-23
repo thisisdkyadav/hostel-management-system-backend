@@ -20,6 +20,10 @@ const DISPATCH_INTERVAL_MS = 60 * 1000
 const EMAIL_RETRY_ATTEMPTS = 3
 const EMAIL_RETRY_DELAY_MS = 3000
 const MAX_EMAIL_DISPATCH_RECIPIENTS = 10000
+// The per-recipient status array can hold up to 10k entries; rewriting it on
+// every email is O(n²) across a dispatch. Counts still persist per recipient,
+// the full array only flushes at this interval (and at start/end).
+const RECIPIENT_STATUS_FLUSH_INTERVAL = 25
 const activeDispatches = new Set()
 const queuedDispatches = new Set()
 const dispatchQueue = []
@@ -52,47 +56,65 @@ const emitVotingDispatchUpdate = (election) => {
   emitToRole(ROLES.SUPER_ADMIN, "election:voting-live:dispatch", payload)
 }
 
-const persistDispatchState = async (election, nextDispatchState = {}) => {
-  election.votingEmailDispatch = {
-    dispatchKey: nextDispatchState.dispatchKey || "",
-    status: nextDispatchState.status || "idle",
-    startedAt: nextDispatchState.startedAt || null,
-    completedAt: nextDispatchState.completedAt || null,
-    lastTriggeredAt: nextDispatchState.lastTriggeredAt || null,
-    totalRecipients: Number(nextDispatchState.totalRecipients || 0),
-    sentRecipients: Number(nextDispatchState.sentRecipients || 0),
-    failedRecipients: Number(nextDispatchState.failedRecipients || 0),
-    lastError: nextDispatchState.lastError || "",
-    recipientStatuses: Array.isArray(nextDispatchState.recipientStatuses)
-      ? nextDispatchState.recipientStatuses
-      : Array.isArray(election.votingEmailDispatch?.recipientStatuses)
-        ? election.votingEmailDispatch.recipientStatuses
-        : [],
-  }
+const buildVotingDispatchDoc = (election, nextDispatchState = {}) => ({
+  dispatchKey: nextDispatchState.dispatchKey || "",
+  status: nextDispatchState.status || "idle",
+  startedAt: nextDispatchState.startedAt || null,
+  completedAt: nextDispatchState.completedAt || null,
+  lastTriggeredAt: nextDispatchState.lastTriggeredAt || null,
+  totalRecipients: Number(nextDispatchState.totalRecipients || 0),
+  sentRecipients: Number(nextDispatchState.sentRecipients || 0),
+  failedRecipients: Number(nextDispatchState.failedRecipients || 0),
+  lastError: nextDispatchState.lastError || "",
+  recipientStatuses: Array.isArray(nextDispatchState.recipientStatuses)
+    ? nextDispatchState.recipientStatuses
+    : Array.isArray(election.votingEmailDispatch?.recipientStatuses)
+      ? election.votingEmailDispatch.recipientStatuses
+      : [],
+})
 
-  await electionOwner.persistElection(election)
+const buildTestDispatchDoc = (election, nextDispatchState = {}) => ({
+  dispatchKey: nextDispatchState.dispatchKey || "",
+  status: nextDispatchState.status || "idle",
+  startedAt: nextDispatchState.startedAt || null,
+  completedAt: nextDispatchState.completedAt || null,
+  lastTriggeredAt: nextDispatchState.lastTriggeredAt || null,
+  totalRecipients: Number(nextDispatchState.totalRecipients || 0),
+  sentRecipients: Number(nextDispatchState.sentRecipients || 0),
+  failedRecipients: Number(nextDispatchState.failedRecipients || 0),
+  lastError: nextDispatchState.lastError || "",
+  recipientStatuses: Array.isArray(nextDispatchState.recipientStatuses)
+    ? nextDispatchState.recipientStatuses
+    : Array.isArray(election.testEmailDispatch?.recipientStatuses)
+      ? election.testEmailDispatch.recipientStatuses
+      : [],
+})
+
+// Persist ONLY the dispatch subdocument via a targeted $set. A dispatch can
+// run for hours; saving the whole (stale) election doc here would silently
+// revert concurrent admin writes made during the run (result publication,
+// timeline edits, status changes).
+const persistDispatchState = async (election, nextDispatchState = {}) => {
+  const updated = await electionOwner.updateElectionById(
+    election._id,
+    { $set: { votingEmailDispatch: buildVotingDispatchDoc(election, nextDispatchState) } },
+    { new: true }
+  )
+  if (updated) {
+    election.votingEmailDispatch = updated.votingEmailDispatch
+  }
   emitVotingDispatchUpdate(election)
 }
 
 const persistTestDispatchState = async (election, nextDispatchState = {}) => {
-  election.testEmailDispatch = {
-    dispatchKey: nextDispatchState.dispatchKey || "",
-    status: nextDispatchState.status || "idle",
-    startedAt: nextDispatchState.startedAt || null,
-    completedAt: nextDispatchState.completedAt || null,
-    lastTriggeredAt: nextDispatchState.lastTriggeredAt || null,
-    totalRecipients: Number(nextDispatchState.totalRecipients || 0),
-    sentRecipients: Number(nextDispatchState.sentRecipients || 0),
-    failedRecipients: Number(nextDispatchState.failedRecipients || 0),
-    lastError: nextDispatchState.lastError || "",
-    recipientStatuses: Array.isArray(nextDispatchState.recipientStatuses)
-      ? nextDispatchState.recipientStatuses
-      : Array.isArray(election.testEmailDispatch?.recipientStatuses)
-        ? election.testEmailDispatch.recipientStatuses
-        : [],
+  const updated = await electionOwner.updateElectionById(
+    election._id,
+    { $set: { testEmailDispatch: buildTestDispatchDoc(election, nextDispatchState) } },
+    { new: true }
+  )
+  if (updated) {
+    election.testEmailDispatch = updated.testEmailDispatch
   }
-
-  await electionOwner.persistElection(election)
 }
 
 const normalizeStringArray = (values = []) =>
@@ -177,6 +199,43 @@ const isAutomaticDispatchDueNow = (election, now = new Date()) => {
   if (!autoSendStartAt) return false
 
   return now.getTime() >= autoSendStartAt.getTime() && now.getTime() < votingStartAt.getTime()
+}
+
+// A queued/running dispatch record whose lastTriggeredAt is old is ORPHANED:
+// the dispatch queue lives in this process's memory, so a crash/restart mid-
+// dispatch leaves the status stuck forever, blocking both scheduler and
+// manual re-sends. An active run persists state after every recipient, so it
+// always refreshes lastTriggeredAt and never looks stale.
+const DISPATCH_STALE_AFTER_MS = 10 * 60 * 1000
+
+const isDispatchRecordStale = (election) => {
+  const status = String(election?.votingEmailDispatch?.status || "")
+  if (!["queued", "running"].includes(status)) return false
+
+  const lastTriggeredAt = new Date(election?.votingEmailDispatch?.lastTriggeredAt || 0)
+  return (
+    Number.isNaN(lastTriggeredAt.getTime()) ||
+    Date.now() - lastTriggeredAt.getTime() > DISPATCH_STALE_AFTER_MS
+  )
+}
+
+// Safe automatic retry of a TOTAL dispatch failure: sentRecipients === 0 means
+// no voter ever received an email, so a retry cannot duplicate anything.
+// Partial failures still require an explicit admin resend (a blind retry would
+// re-email recipients who already got their link).
+const DISPATCH_FAILURE_RETRY_COOLDOWN_MS = 15 * 60 * 1000
+
+const isTotalFailureEligibleForAutoRetry = (election) => {
+  const dispatch = election?.votingEmailDispatch || {}
+  if (String(dispatch.status || "") !== "failed") return false
+  if (Number(dispatch.totalRecipients || 0) <= 0) return false
+  if (Number(dispatch.sentRecipients || 0) !== 0) return false
+
+  const lastTriggeredAt = new Date(dispatch.lastTriggeredAt || 0)
+  return (
+    !Number.isNaN(lastTriggeredAt.getTime()) &&
+    Date.now() - lastTriggeredAt.getTime() >= DISPATCH_FAILURE_RETRY_COOLDOWN_MS
+  )
 }
 
 const isManualDispatchAllowedNow = (election, now = new Date()) => {
@@ -710,6 +769,7 @@ const runQueuedVotingEmailDispatch = async ({
 
     let sentRecipients = 0
     let failedRecipients = 0
+    let processedRecipients = 0
     const errors = []
     let currentRecipientStatuses = Array.isArray(election.votingEmailDispatch?.recipientStatuses)
       ? election.votingEmailDispatch.recipientStatuses
@@ -732,6 +792,7 @@ const runQueuedVotingEmailDispatch = async ({
         failedRecipients += 1
         errors.push(recipientResult.error)
       }
+      processedRecipients += 1
 
       await persistDispatchState(election, {
         dispatchKey,
@@ -743,7 +804,9 @@ const runQueuedVotingEmailDispatch = async ({
         sentRecipients,
         failedRecipients,
         lastError: errors[0] || "",
-        recipientStatuses: currentRecipientStatuses,
+        ...(processedRecipients % RECIPIENT_STATUS_FLUSH_INTERVAL === 0
+          ? { recipientStatuses: currentRecipientStatuses }
+          : {}),
       })
     }
 
@@ -871,6 +934,7 @@ const runQueuedElectionTestEmailDispatch = async ({
 
     let sentRecipients = 0
     let failedRecipients = 0
+    let processedRecipients = 0
     const errors = []
     let currentRecipientStatuses = Array.isArray(election.testEmailDispatch?.recipientStatuses)
       ? election.testEmailDispatch.recipientStatuses
@@ -890,6 +954,7 @@ const runQueuedElectionTestEmailDispatch = async ({
         failedRecipients += 1
         errors.push(recipientResult.error)
       }
+      processedRecipients += 1
 
       await persistTestDispatchState(election, {
         dispatchKey: election.testEmailDispatch?.dispatchKey || new Date().toISOString(),
@@ -901,7 +966,9 @@ const runQueuedElectionTestEmailDispatch = async ({
         sentRecipients,
         failedRecipients,
         lastError: errors[0] || "",
-        recipientStatuses: currentRecipientStatuses,
+        ...(processedRecipients % RECIPIENT_STATUS_FLUSH_INTERVAL === 0
+          ? { recipientStatuses: currentRecipientStatuses }
+          : {}),
       })
     }
 
@@ -1050,6 +1117,8 @@ export const triggerElectionVotingEmailDispatchForElection = async (
 
     if (
       existingDispatchKey === dispatchKey &&
+      !isDispatchRecordStale(election) &&
+      !isTotalFailureEligibleForAutoRetry(election) &&
       (
         ["queued", "running"].includes(existingStatus) ||
         (reason !== "manual" && ["completed", "failed"].includes(existingStatus))

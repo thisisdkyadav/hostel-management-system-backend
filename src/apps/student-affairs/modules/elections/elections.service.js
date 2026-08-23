@@ -970,28 +970,41 @@ const buildPublishedResultMap = (election) =>
     ])
   )
 
-const sanitizeElectionResultsForStudent = (results = {}) => ({
-  ...results,
-  posts: (results?.posts || []).map((post) => {
-    const showVoteCountToStudents = post?.showVoteCountToStudents !== false
-    if (showVoteCountToStudents) {
+const sanitizeElectionResultsForStudent = (results = {}) => {
+  // Students only ever receive results once they are officially published.
+  // Live tallies and preview winners must never reach this payload — they
+  // would let students see who is winning mid-election via devtools.
+  if (!results?.isPublished) {
+    return {
+      isPublished: false,
+      publishedAt: results?.publishedAt || null,
+      posts: [],
+    }
+  }
+
+  return {
+    ...results,
+    posts: (results?.posts || []).map((post) => {
+      const showVoteCountToStudents = post?.showVoteCountToStudents !== false
+      if (showVoteCountToStudents) {
+        return {
+          ...post,
+          showVoteCountToStudents,
+        }
+      }
+
       return {
         ...post,
-        showVoteCountToStudents,
+        showVoteCountToStudents: false,
+        totalVotes: null,
+        candidates: (post?.candidates || []).map((candidate) => ({
+          ...candidate,
+          voteCount: null,
+        })),
       }
-    }
-
-    return {
-      ...post,
-      showVoteCountToStudents: false,
-      totalVotes: null,
-      candidates: (post?.candidates || []).map((candidate) => ({
-        ...candidate,
-        voteCount: null,
-      })),
-    }
-  }),
-})
+    }),
+  }
+}
 
 const buildElectionResults = async (election) => {
   const verifiedNominations = await electionQueries.findNominations(
@@ -2176,8 +2189,12 @@ class ElectionsService {
       const stage = getCurrentStage(election)
       const electionMode = getStudentPortalMode(stage, election)
       const hasElectionVote = myVotes.some((vote) => String(vote.electionId) === String(election._id))
-      const rawElectionResults = await buildElectionResults(election)
-      const electionResults = sanitizeElectionResultsForStudent(rawElectionResults)
+      // Skip the (expensive) result computation entirely until results are
+      // officially published — unpublished tallies must not be computed, let
+      // alone sent to students.
+      const electionResults = election?.resultPublication?.isPublished
+        ? sanitizeElectionResultsForStudent(await buildElectionResults(election))
+        : sanitizeElectionResultsForStudent(null)
       const resultsByPost = new Map(
         (electionResults.posts || []).map((item) => [String(item.postId), item])
       )
@@ -3049,6 +3066,23 @@ class ElectionsService {
     const publicationPosts = []
     for (const postResult of computedResults.posts) {
       const requested = requestedPosts.get(String(postResult.postId)) || {}
+
+      // Uncontested post: no verified candidates and no NOTA votes. There is
+      // nothing to select a winner from, so publish it as "no contest"
+      // instead of blocking the entire publication.
+      if ((postResult.candidates || []).length === 0) {
+        publicationPosts.push({
+          postId: new mongoose.Types.ObjectId(String(postResult.postId)),
+          winnerNominationId: null,
+          winnerNominationIds: [],
+          winnerIsNota: false,
+          winnerIsTie: false,
+          showVoteCountToStudents: requested?.showVoteCountToStudents !== false,
+          notes: String(requested.notes || "").trim(),
+        })
+        continue
+      }
+
       const requestedWinnerIds = Array.isArray(requested.winnerNominationIds)
         ? requested.winnerNominationIds.map((value) => String(value))
         : []
