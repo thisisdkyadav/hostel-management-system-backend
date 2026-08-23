@@ -97,6 +97,12 @@ class EmailService {
         host: env.smtp.host,
         port: env.smtp.port,
         secure: env.smtp.secure,
+        // nodemailer sets NO socket timeouts by default — a hung SMTP
+        // connection stalls the sender forever and blocks every queued
+        // email behind it (voting dispatch included).
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 30_000,
         auth: {
           user: account.user,
           pass: account.pass,
@@ -201,23 +207,37 @@ class EmailService {
       return { success: false, error: 'No SMTP accounts configured', accounts: [] };
     }
 
+    // Hard per-account cap. Even with socket timeouts configured, race the
+    // send so one wedged connection can never hang this diagnostic (or the
+    // HTTP request behind it).
+    const SEND_CAP_MS = 45_000;
+    const cappedSend = (task) =>
+      Promise.race([
+        task,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timed out after ${SEND_CAP_MS / 1000}s`)), SEND_CAP_MS)
+        ),
+      ]);
+
     const accounts = [];
     for (const entry of uniqueEntries) {
       const startedAt = Date.now();
       try {
         // Route through the shared rate-limited queue so this diagnostic
         // never stampsede real traffic.
-        const result = await this.queueEmailSend(
-          () =>
-            entry.transporter.sendMail({
-              from: env.smtp.sendAs || env.smtp.from,
-              replyTo: env.smtp.sendAs || env.smtp.from,
-              to,
-              subject,
-              html,
-              text: text || this.stripHtml(html),
-            }),
-          { deliveryMode: 'multi' }
+        const result = await cappedSend(
+          this.queueEmailSend(
+            () =>
+              entry.transporter.sendMail({
+                from: env.smtp.sendAs || env.smtp.from,
+                replyTo: env.smtp.sendAs || env.smtp.from,
+                to,
+                subject,
+                html,
+                text: text || this.stripHtml(html),
+              }),
+            { deliveryMode: 'multi' }
+          )
         );
         accounts.push({
           smtpUser: entry.user,
