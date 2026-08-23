@@ -61,14 +61,14 @@ export const sendEmailSchema = Joi.object({
 /**
  * Test all SMTP accounts validation
  * POST /api/email/test-all-accounts
+ *
+ * NOTE: validate() checks req.body DIRECTLY — schemas must declare fields at
+ * the top level. A { body: {...} } wrapper silently strips every field
+ * (stripUnknown) and the handler receives an empty payload.
  */
 export const testAllAccountsSchema = Joi.object({
-  body: Joi.object({
-    to: email
-      .required()
-      .messages({
-        'any.required': 'Recipient email is required',
-      }),
+  to: email.required().messages({
+    'any.required': 'Recipient email is required',
   }),
 });
 
