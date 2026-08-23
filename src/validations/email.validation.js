@@ -58,6 +58,21 @@ export const sendEmailSchema = Joi.object({
   }),
 });
 
+/**
+ * Test all SMTP accounts validation
+ * POST /api/email/test-all-accounts
+ */
+export const testAllAccountsSchema = Joi.object({
+  body: Joi.object({
+    to: email
+      .required()
+      .messages({
+        'any.required': 'Recipient email is required',
+      }),
+  }),
+});
+
 export default {
   sendEmailSchema,
+  testAllAccountsSchema,
 };

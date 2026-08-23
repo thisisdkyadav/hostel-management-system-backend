@@ -175,6 +175,73 @@ class EmailService {
   }
 
   /**
+   * Diagnostic: send one email per configured SMTP account, each explicitly
+   * through its own transporter, and report per-account results. Used by the
+   * admin "test SMTP accounts" tool to find credentials that fail silently
+   * under round-robin delivery.
+   * @param {Object} options
+   * @param {string} options.to - Recipient email (receives one copy per account)
+   * @param {string} options.subject
+   * @param {string} options.html
+   * @param {string} [options.text]
+   * @returns {Promise<{success: boolean, error?: string, accounts: Array<{smtpUser: string, success: boolean, messageId?: string, error?: string, durationMs: number}>}>}
+   */
+  async sendViaAllAccounts({ to, subject, html, text }) {
+    if (!this.isConfigured) {
+      return { success: false, error: 'Email service not configured', accounts: [] };
+    }
+
+    const entries = (this.multiTransporters || []).filter((entry) => entry?.user);
+    const uniqueEntries = entries.filter(
+      (entry, index, collection) =>
+        collection.findIndex((candidate) => candidate?.user === entry.user) === index
+    );
+
+    if (uniqueEntries.length === 0) {
+      return { success: false, error: 'No SMTP accounts configured', accounts: [] };
+    }
+
+    const accounts = [];
+    for (const entry of uniqueEntries) {
+      const startedAt = Date.now();
+      try {
+        // Route through the shared rate-limited queue so this diagnostic
+        // never stampsede real traffic.
+        const result = await this.queueEmailSend(
+          () =>
+            entry.transporter.sendMail({
+              from: env.smtp.sendAs || env.smtp.from,
+              replyTo: env.smtp.sendAs || env.smtp.from,
+              to,
+              subject,
+              html,
+              text: text || this.stripHtml(html),
+            }),
+          { deliveryMode: 'multi' }
+        );
+        accounts.push({
+          smtpUser: entry.user,
+          success: true,
+          messageId: result.messageId,
+          durationMs: Date.now() - startedAt,
+        });
+      } catch (error) {
+        accounts.push({
+          smtpUser: entry.user,
+          success: false,
+          error: error.message,
+          durationMs: Date.now() - startedAt,
+        });
+      }
+    }
+
+    return {
+      success: accounts.every((account) => account.success),
+      accounts,
+    };
+  }
+
+  /**
    * Send a single email
    * @param {Object} options - Email options
    * @param {string|string[]} options.to - Recipient email(s)

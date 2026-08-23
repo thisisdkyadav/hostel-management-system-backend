@@ -5,7 +5,7 @@
  * @module services/email.custom.service
  */
 
-import { emailService } from '../../../../services/email/index.js';
+import { emailService, customEmailTemplate } from '../../../../services/email/index.js';
 import { ServiceResponse } from '../../../../services/base/ServiceResponse.js';
 import logger from '../../../../services/base/Logger.js';
 
@@ -98,6 +98,56 @@ class EmailCustomService {
       logger.error('Error in sendCustomEmail', { error: error.message });
       return ServiceResponse.error(
         'Failed to send email. Please try again later.',
+        500,
+        error.message
+      );
+    }
+  }
+
+  /**
+   * Diagnostic: send one test email per configured SMTP account to a single
+   * receiver, reporting which accounts deliver and which fail.
+   * @param {Object} options
+   * @param {string} options.to - Receiver email (gets one copy per account)
+   * @param {Object} options.sentBy - Admin triggering the test
+   * @returns {Promise<ServiceResponse>}
+   */
+  async sendTestEmailToAllAccounts({ to, sentBy }) {
+    try {
+      logger.info('Sending SMTP account test emails', {
+        to,
+        sentBy: sentBy?.email || 'unknown',
+      });
+
+      const subject = 'SMTP Account Test · HMS';
+      const html = customEmailTemplate(
+        `<p>This is a diagnostic email sent to verify that every configured SMTP account can deliver mail.</p>
+         <p>You will receive one copy per working account. Any account that fails is reported back in the admin tool with its error.</p>`,
+        subject
+      );
+
+      const result = await emailService.sendViaAllAccounts({ to, subject, html });
+
+      if (!Array.isArray(result.accounts) || result.accounts.length === 0) {
+        return ServiceResponse.error(result.error || 'No SMTP accounts are configured', 500);
+      }
+
+      const succeeded = result.accounts.filter((account) => account.success).length;
+
+      return ServiceResponse.success(
+        {
+          totalAccounts: result.accounts.length,
+          workingAccounts: succeeded,
+          failedAccounts: result.accounts.length - succeeded,
+          accounts: result.accounts,
+        },
+        200,
+        `SMTP test complete: ${succeeded}/${result.accounts.length} account(s) delivered`
+      );
+    } catch (error) {
+      logger.error('Error in sendTestEmailToAllAccounts', { error: error.message });
+      return ServiceResponse.error(
+        'Failed to run the SMTP account test. Please try again later.',
         500,
         error.message
       );

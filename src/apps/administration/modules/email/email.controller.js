@@ -37,3 +37,19 @@ export const checkStatus = asyncHandler(async (req, res) => {
   const result = await emailCustomService.checkEmailServiceStatus();
   sendRawResponse(res, result);
 });
+
+/**
+ * Send a test email via every configured SMTP account
+ * POST /api/email/test-all-accounts
+ * @access Private (Admin, Super Admin)
+ */
+export const testAllAccounts = asyncHandler(async (req, res) => {
+  const { to } = req.body;
+
+  const result = await emailCustomService.sendTestEmailToAllAccounts({
+    to,
+    sentBy: req.user,
+  });
+
+  sendRawResponse(res, result);
+});
