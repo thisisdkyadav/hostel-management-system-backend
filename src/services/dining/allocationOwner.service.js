@@ -11,9 +11,11 @@
  * student self-select flow and (indirectly) the period edit — with no single
  * guard. Every seat change now goes through here:
  *
- *   - reserveSeat: atomic guarded increment (optimistic compare-and-set on the
- *     exact allocatedCount, retried) so it never exceeds maxStudentCount unless
- *     `force` is set (admin override).
+ *   - reserveSeat: atomic guarded increment so allocatedCount never exceeds
+ *     maxStudentCount unless `force` is set (admin override).
+ *     Live dining uses an exact-count compare-and-set (retried). The HTTP
+ *     simulator passes `atomicCapacityInc: true` for a single conditional $inc
+ *     (`allocatedCount < maxStudentCount`) with no retry loop.
  *   - releaseSeat: guarded decrement (never below 0).
  *   - assign / move / remove: DiningAllocation row + the matching seat change in
  *     ONE transaction, so the row and the counter can't diverge on a crash.
@@ -38,9 +40,85 @@ const MAX_RESERVE_ATTEMPTS = 5
 /**
  * Build an allocation owner bound to a Period + Allocation model pair.
  * Production uses the live dining models; the HTTP simulator binds the
- * sim_* collections so CAS/transaction behavior is identical off to the side.
+ * sim_* collections. Pass `atomicCapacityInc: true` (sim only) to reserve
+ * with a conditional $inc instead of the exact-count CAS loop.
  */
-export const createAllocationOwner = ({ DiningPeriod, DiningAllocation }) => {
+export const createAllocationOwner = ({ DiningPeriod, DiningAllocation, atomicCapacityInc = false }) => {
+
+const findCapacityEntry = (period, catererId) =>
+  (period?.catererCapacities || []).find((item) => String(item.catererId) === String(catererId))
+
+const missFromPeriod = (period, catererId) => {
+  if (!period) return { ok: false, reason: "period-not-found" }
+  const entry = findCapacityEntry(period, catererId)
+  if (!entry) return { ok: false, reason: "caterer-not-in-period" }
+  const allocatedCount = Number(entry.allocatedCount || 0)
+  const maxStudentCount = Number(entry.maxStudentCount || 0)
+  if (allocatedCount >= maxStudentCount) {
+    return { ok: false, reason: "full", allocatedCount, maxStudentCount }
+  }
+  return null
+}
+
+const forceReserveSeat = async ({ periodId, catererId, session }) => {
+  const catererObjectId = toObjectId(catererId)
+  const res = await DiningPeriod.updateOne(
+    { _id: periodId, "catererCapacities.catererId": catererObjectId },
+    { $inc: { "catererCapacities.$.allocatedCount": 1 } },
+    { session }
+  )
+  if (res.matchedCount === 0) return { ok: false, reason: "caterer-not-in-period" }
+  return { ok: true }
+}
+
+/**
+ * Single-write reserve: increment only when allocatedCount < maxStudentCount
+ * on that array element. No exact-count retry loop. Failure reads the period
+ * once to classify full vs missing caterer vs missing period.
+ */
+const reserveSeatAtomic = async ({ periodId, catererId, force = false, session }) => {
+  if (force) return forceReserveSeat({ periodId, catererId, session })
+
+  const catererObjectId = toObjectId(catererId)
+  const catererIdStr = String(catererObjectId)
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await DiningPeriod.updateOne(
+      {
+        _id: periodId,
+        catererCapacities: { $elemMatch: { catererId: catererObjectId } },
+        $expr: {
+          $gt: [
+            {
+              $size: {
+                $filter: {
+                  input: "$catererCapacities",
+                  as: "c",
+                  cond: {
+                    $and: [
+                      { $eq: [{ $toString: "$$c.catererId" }, catererIdStr] },
+                      { $lt: ["$$c.allocatedCount", "$$c.maxStudentCount"] },
+                    ],
+                  },
+                },
+              },
+            },
+            0,
+          ],
+        },
+      },
+      { $inc: { "catererCapacities.$.allocatedCount": 1 } },
+      { session }
+    )
+    if (Number(res.modifiedCount) === 1) return { ok: true }
+
+    const period = await DiningPeriod.findById(periodId).select("catererCapacities").session(session).lean()
+    const miss = missFromPeriod(period, catererId)
+    if (miss) return miss
+  }
+
+  return { ok: false, reason: "contention" }
+}
 
 /**
  * Reserve one seat on a caterer within a period.
@@ -48,31 +126,17 @@ export const createAllocationOwner = ({ DiningPeriod, DiningAllocation }) => {
  * caterer to belong to the period. Returns { ok } or { ok:false, reason }.
  * reasons: period-not-found | caterer-not-in-period | full | contention
  */
-const reserveSeat = async ({ periodId, catererId, force = false, session }) => {
+const reserveSeatCas = async ({ periodId, catererId, force = false, session }) => {
   const catererObjectId = toObjectId(catererId)
 
-  if (force) {
-    const res = await DiningPeriod.updateOne(
-      { _id: periodId, "catererCapacities.catererId": catererObjectId },
-      { $inc: { "catererCapacities.$.allocatedCount": 1 } },
-      { session }
-    )
-    if (res.matchedCount === 0) return { ok: false, reason: "caterer-not-in-period" }
-    return { ok: true }
-  }
+  if (force) return forceReserveSeat({ periodId, catererId, session })
 
   for (let attempt = 0; attempt < MAX_RESERVE_ATTEMPTS; attempt += 1) {
     const period = await DiningPeriod.findById(periodId).select("catererCapacities").session(session).lean()
-    if (!period) return { ok: false, reason: "period-not-found" }
+    const miss = missFromPeriod(period, catererId)
+    if (miss) return miss
 
-    const entry = (period.catererCapacities || []).find((item) => String(item.catererId) === String(catererId))
-    if (!entry) return { ok: false, reason: "caterer-not-in-period" }
-
-    const allocatedCount = Number(entry.allocatedCount || 0)
-    const maxStudentCount = Number(entry.maxStudentCount || 0)
-    if (allocatedCount >= maxStudentCount) {
-      return { ok: false, reason: "full", allocatedCount, maxStudentCount }
-    }
+    const allocatedCount = Number(findCapacityEntry(period, catererId).allocatedCount || 0)
 
     // Guard on the exact allocatedCount we read: if another writer moved it in
     // between, modifiedCount is 0 and we re-read and retry.
@@ -81,11 +145,13 @@ const reserveSeat = async ({ periodId, catererId, force = false, session }) => {
       { $inc: { "catererCapacities.$.allocatedCount": 1 } },
       { session }
     )
-    if (res.modifiedCount === 1) return { ok: true }
+    if (Number(res.modifiedCount) === 1) return { ok: true }
   }
 
   return { ok: false, reason: "contention" }
 }
+
+const reserveSeat = atomicCapacityInc ? reserveSeatAtomic : reserveSeatCas
 
 /** Release one seat on a caterer (guarded so allocatedCount never goes below 0). */
 const releaseSeat = async ({ periodId, catererId, session }) => {

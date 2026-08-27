@@ -10,6 +10,7 @@ import {
 export const simAllocationOwner = createAllocationOwner({
   DiningPeriod: SimDiningPeriod,
   DiningAllocation: SimDiningAllocation,
+  atomicCapacityInc: true,
 });
 
 export const simDiningOwner = {

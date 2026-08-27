@@ -157,7 +157,6 @@ const getStudentVisiblePeriod = async (profile) => {
       ],
     },
     {
-      populate: { path: 'catererIds', select: 'name email' },
       sort: { allocationEndAt: 1, startDate: 1 },
     },
   );
@@ -271,7 +270,6 @@ export const selectSimDiningCaterer = async (userId, catererId) => {
   }
 
   bump(result.status || 'assigned');
-  await getSimPortalState(userId);
   const message = result.status === 'unchanged' ? 'This caterer is already selected' : 'Caterer selected successfully';
   return success({ status: result.status }, 200, message);
 };
