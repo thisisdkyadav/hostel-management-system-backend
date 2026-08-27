@@ -12,10 +12,9 @@
  * guard. Every seat change now goes through here:
  *
  *   - reserveSeat: atomic guarded increment so allocatedCount never exceeds
- *     maxStudentCount unless `force` is set (admin override).
- *     Live dining uses an exact-count compare-and-set (retried). The HTTP
- *     simulator passes `atomicCapacityInc: true` for a single conditional $inc
- *     (`allocatedCount < maxStudentCount`) with no retry loop.
+ *     maxStudentCount unless `force` is set (admin override). Default is a
+ *     single conditional $inc (`allocatedCount < maxStudentCount`). Pass
+ *     `atomicCapacityInc: false` to use the older exact-count CAS loop.
  *   - releaseSeat: guarded decrement (never below 0).
  *   - assign / move / remove: DiningAllocation row + the matching seat change in
  *     ONE transaction, so the row and the counter can't diverge on a crash.
@@ -40,10 +39,9 @@ const MAX_RESERVE_ATTEMPTS = 5
 /**
  * Build an allocation owner bound to a Period + Allocation model pair.
  * Production uses the live dining models; the HTTP simulator binds the
- * sim_* collections. Pass `atomicCapacityInc: true` (sim only) to reserve
- * with a conditional $inc instead of the exact-count CAS loop.
+ * sim_* collections. Both pass `atomicCapacityInc: true` (the default).
  */
-export const createAllocationOwner = ({ DiningPeriod, DiningAllocation, atomicCapacityInc = false }) => {
+export const createAllocationOwner = ({ DiningPeriod, DiningAllocation, atomicCapacityInc = true }) => {
 
 const findCapacityEntry = (period, catererId) =>
   (period?.catererCapacities || []).find((item) => String(item.catererId) === String(catererId))

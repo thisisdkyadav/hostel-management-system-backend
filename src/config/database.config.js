@@ -10,7 +10,7 @@ export const databaseConfig = {
   options: {
     // Mongoose 8.x uses these by default, but explicit for clarity
     autoIndex: true,
-    maxPoolSize: 10,
+    maxPoolSize: 50,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
   },

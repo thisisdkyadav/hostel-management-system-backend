@@ -1,6 +1,6 @@
 /**
- * Simulator allocation owner: conditional $inc (atomicCapacityInc) on sim_*
- * collections. Live dining still uses the exact-count CAS path.
+ * Allocation owner: conditional $inc (atomicCapacityInc) on sim_* collections.
+ * Live dining uses the same reserve strategy.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import mongoose from "mongoose"

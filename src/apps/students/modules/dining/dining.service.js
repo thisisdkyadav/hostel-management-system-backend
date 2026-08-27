@@ -147,7 +147,6 @@ const getStudentVisiblePeriod = async (profile, session = null) => {
       ],
     },
     {
-      populate: { path: 'catererIds', select: 'name email' },
       sort: { allocationEndAt: 1, startDate: 1 },
       session: session || undefined,
     }
@@ -274,8 +273,22 @@ export const selectStudentDiningCaterer = async (userId, catererId) => {
   }
 
   const message = result.status === 'unchanged' ? 'This caterer is already selected' : 'Caterer selected successfully';
-  const refreshedPortalState = await getStudentDiningPortalState(userId);
-  return success(refreshedPortalState.data, 200, message);
+  const allocation = result.allocation || null;
+  return success({
+    status: result.status,
+    periodId: String(period._id),
+    catererId: String(allocation?.catererId || catererId),
+    previousCatererId: result.previousCatererId ? String(result.previousCatererId) : null,
+    canSelect: false,
+    allocation: allocation
+      ? {
+          id: allocation._id || allocation.id,
+          periodId: allocation.periodId,
+          catererId: allocation.catererId,
+          selectedAt: allocation.selectedAt,
+        }
+      : null,
+  }, 200, message);
 };
 
 export const requestStudentDiningRebate = async (userId, payload = {}) => (

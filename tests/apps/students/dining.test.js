@@ -170,18 +170,19 @@ describe("POST /select + portal state transitions", () => {
     expect(res.body.message).toBe("Caterer selected successfully")
 
     const state = res.body.data
+    expect(state.status).toBe("assigned")
     expect(state.canSelect).toBe(false)
-    expect(state.activeAllocationPeriod.selectedAllocation.catererId).toBe(String(catererB._id))
-    const capacityB = state.activeAllocationPeriod.catererCapacities.find(
-      (e) => e.catererId === String(catererB._id)
-    )
-    expect(capacityB.allocatedCount).toBe(1)
+    expect(String(state.catererId)).toBe(String(catererB._id))
 
-    // Persistence through a follow-up GET.
+    // Persistence through a follow-up GET (select no longer returns full portal).
     const portal = await studentApi.get(`${BASE}/portal`)
     expect(portal.status).toBe(200)
     expect(portal.body.data.canSelect).toBe(false)
     expect(portal.body.data.activeAllocationPeriod.selectedAllocation.catererId).toBe(String(catererB._id))
+    const capacityB = portal.body.data.activeAllocationPeriod.catererCapacities.find(
+      (e) => e.catererId === String(catererB._id)
+    )
+    expect(capacityB.allocatedCount).toBe(1)
   })
 
   it("is idempotent when selecting the same caterer again", async () => {
@@ -194,8 +195,11 @@ describe("POST /select + portal state transitions", () => {
     const res = await studentApi.post(`${BASE}/select`).send({ catererId: String(catererA._id) })
     expect(res.status).toBe(200)
     expect(res.body.message).toBe("Caterer selected successfully")
+    expect(res.body.data.status).toBe("moved")
+    expect(String(res.body.data.catererId)).toBe(String(catererA._id))
 
-    const capacities = res.body.data.activeAllocationPeriod.catererCapacities
+    const portal = await studentApi.get(`${BASE}/portal`)
+    const capacities = portal.body.data.activeAllocationPeriod.catererCapacities
     const capA = capacities.find((e) => e.catererId === String(catererA._id))
     const capB = capacities.find((e) => e.catererId === String(catererB._id))
     expect(capA.allocatedCount).toBe(1)
@@ -558,7 +562,8 @@ describe("dining window boundaries and eligibility edges", () => {
     const res = await api.post(`${BASE}/select`).send({ catererId: String(caterer._id) })
     expect(res.status).toBe(200)
     expect(res.body.message).toBe("Caterer selected successfully")
-    expect(res.body.data.activeAllocationPeriod.selectedAllocation.catererId).toBe(String(caterer._id))
+    expect(res.body.data.status).toBe("assigned")
+    expect(String(res.body.data.catererId)).toBe(String(caterer._id))
   })
 
   it("reports a caterer whose capacity is already fully seeded as full", async () => {
