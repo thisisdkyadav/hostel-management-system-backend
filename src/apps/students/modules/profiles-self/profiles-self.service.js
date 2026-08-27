@@ -79,7 +79,7 @@ class ProfilesSelfService {
   /**
    * Get student dashboard data
    */
-  async getStudentDashboard(userId) {
+  async getStudentDashboard(userId, { skipCacheWrite = false } = {}) {
     const cachedDashboard = await getStudentDashboardCache(userId);
     if (cachedDashboard) {
       return success(cachedDashboard);
@@ -251,7 +251,9 @@ class ProfilesSelfService {
         }));
     }
 
-    await setStudentDashboardCache(userId, dashboardData);
+    if (!skipCacheWrite) {
+      await setStudentDashboardCache(userId, dashboardData);
+    }
     return success(dashboardData);
   }
 

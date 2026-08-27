@@ -116,6 +116,14 @@ export const env = {
   // Frontend URL (for password reset links)
   FRONTEND_URL: process.env.FRONTEND_URL || "http://localhost:3000",
 
+  // HTTP load simulator (off unless SIMULATION_ENABLED=true)
+  simulation: {
+    enabled: process.env.SIMULATION_ENABLED === "true",
+    secret: process.env.SIMULATION_SECRET || "",
+    cookieName: process.env.SIMULATION_COOKIE_NAME || "sim.sid",
+    sessionPrefix: process.env.SIMULATION_SESSION_PREFIX || "sim:sess:",
+  },
+
 }
 
 // ============================================

@@ -28,6 +28,7 @@ import visitorsApp from '../apps/visitors/index.js';
 import operationsApp from '../apps/operations/index.js';
 import campusLifeApp from '../apps/campus-life/index.js';
 import { createRedisSessionStore } from '../services/session/redisSession.store.js';
+import simApp from '../apps/sim/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -103,7 +104,12 @@ export const initializeExpress = (app) => {
   // Session Middleware
   // ============================================
   const sessionMiddleware = createSessionMiddleware();
-  app.use(sessionMiddleware);
+  app.use((req, res, next) => {
+    // Sim routes use a dedicated sim.sid cookie + sim Redis prefix. Skip the
+    // live express-session store so a load run cannot mint connect.sid keys.
+    if (req.path.startsWith('/api/v1/sim')) return next();
+    return sessionMiddleware(req, res, next);
+  });
 
   // ============================================
   // Static Files
@@ -130,6 +136,12 @@ export const initializeExpress = (app) => {
 
   // Students domain app
   app.use('/api/v1/students', studentsApp);
+
+  if (env.simulation.enabled && String(env.simulation.secret).length >= 16) {
+    app.use('/api/v1/sim', simApp);
+  } else if (env.simulation.enabled) {
+    console.warn('SIMULATION_ENABLED is set but SIMULATION_SECRET is missing or shorter than 16 characters; sim routes not mounted');
+  }
   
   // Student Affairs System (modular app)
   app.use('/api/v1/student-affairs', studentAffairsApp);

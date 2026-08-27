@@ -36,6 +36,13 @@ const toObjectId = (value) =>
 const MAX_RESERVE_ATTEMPTS = 5
 
 /**
+ * Build an allocation owner bound to a Period + Allocation model pair.
+ * Production uses the live dining models; the HTTP simulator binds the
+ * sim_* collections so CAS/transaction behavior is identical off to the side.
+ */
+export const createAllocationOwner = ({ DiningPeriod, DiningAllocation }) => {
+
+/**
  * Reserve one seat on a caterer within a period.
  * `force` bypasses the capacity guard (admin override) but still requires the
  * caterer to belong to the period. Returns { ok } or { ok:false, reason }.
@@ -133,7 +140,7 @@ const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, ro
   return result || { ok: false, reason: "unknown" }
 }
 
-export const allocationOwner = {
+return {
   /**
    * Assign (or move) a student to a caterer for a period. Idempotent when the
    * student is already on that caterer. Race-safe: the allocation row and the
@@ -217,6 +224,9 @@ export const allocationOwner = {
     }
     return summary || { ok: false, reason: "unknown" }
   },
+  }
 }
+
+export const allocationOwner = createAllocationOwner({ DiningPeriod, DiningAllocation })
 
 export default allocationOwner
