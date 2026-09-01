@@ -75,6 +75,37 @@ export const complaintQueries = {
       .populate("unitId", "unitNumber")
   },
 
+  /**
+   * Per-resolver rating totals from rated, resolved complaints.
+   * `since` limits to ratings whose complaint was last updated in-window
+   * (feedback writes bump updatedAt). `excludeUserIds` drops those resolvers
+   * (admins). No rating-value floor — a 4★ average still counts as "lowest"
+   * if that is the floor in the window.
+   * Returns [{ _id: resolvedBy, avgRating, ratingCount }].
+   */
+  async aggregateResolverRatings({ since = null, excludeUserIds = [] } = {}) {
+    const resolvedBy = { $ne: null }
+    if (excludeUserIds.length > 0) resolvedBy.$nin = excludeUserIds
+
+    const match = {
+      status: "Resolved",
+      resolvedBy,
+      feedbackRating: { $exists: true, $ne: null },
+    }
+    if (since) match.updatedAt = { $gte: since }
+
+    return Complaint.aggregate([
+      { $match: match },
+      {
+        $group: {
+          _id: "$resolvedBy",
+          avgRating: { $avg: "$feedbackRating" },
+          ratingCount: { $sum: 1 },
+        },
+      },
+    ])
+  },
+
   /** All complaints raised by a user (unpopulated; caller tallies by status). */
   async findComplaintsByUser(userId) {
     return Complaint.find({ userId })

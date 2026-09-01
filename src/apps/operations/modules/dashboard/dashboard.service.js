@@ -10,7 +10,47 @@ import { eventQueries } from '../../../../services/event/eventQueries.service.js
 import { complaintQueries } from '../../../../services/complaint/complaintQueries.service.js';
 import { leaveQueries } from '../../../../services/leave/leaveQueries.service.js';
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
+import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { porRequestQueries } from '../../../../services/club/porRequestQueries.service.js';
+import { eventProposalQueries } from '../../../../services/gymkhana/eventProposalQueries.service.js';
+import { ROLES } from '../../../../core/constants/roles.constants.js';
 import mongoose from 'mongoose';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+const PAST_MONTH_MS = 30 * MS_PER_DAY
+const PAST_YEAR_MS = 365 * MS_PER_DAY
+const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN]
+const RESOLVER_LIST_LIMIT = 5
+
+const RATING_WINDOWS = {
+  '1M': PAST_MONTH_MS,
+  '1Y': PAST_YEAR_MS,
+  all: null,
+}
+
+// Pending / revision statuses only. Keep local so ops dashboard does not
+// import student-affairs constants. Add keys here when a new pipeline
+// item joins the in-process strip.
+const POR_IN_PROCESS_STATUSES = [
+  'pending_gymkhana',
+  'pending_club',
+  'pending_gs',
+  'pending_president',
+  'pending_student_affairs',
+  'pending_officer',
+  'pending_associate_dean',
+  'pending_dean',
+  'revision_requested',
+]
+
+const PROPOSAL_IN_PROCESS_STATUSES = [
+  'pending_president',
+  'pending_student_affairs',
+  'pending_officer',
+  'pending_associate_dean',
+  'pending_dean',
+  'revision_requested',
+]
 
 // Hosteller = not a day scholar. Matches Students page filter `isDayScholar=false`:
 // false, null, or field missing. Do NOT use `{ isDayScholar: false }` alone — that
@@ -230,16 +270,102 @@ class DashboardService {
   }
 
   /**
+   * Shape resolver aggregation rows and attach user names.
+   * Admins are dropped again here in case a role changed after the rating.
+   */
+  async hydrateResolverRows(rows) {
+    const ids = rows.map((row) => row._id).filter(Boolean)
+    if (ids.length === 0) return []
+
+    const users = await userQueries.findUsers(
+      { _id: { $in: ids }, role: { $nin: ADMIN_ROLES } },
+      { select: 'name email', lean: true }
+    )
+    const byId = new Map(users.map((user) => [String(user._id), user]))
+
+    return rows
+      .filter((row) => byId.has(String(row._id)))
+      .map((row) => {
+        const user = byId.get(String(row._id))
+        return {
+          id: String(row._id),
+          name: user?.name || user?.email || 'Unknown',
+          avgRating: Math.round((row.avgRating || 0) * 10) / 10,
+          ratingCount: row.ratingCount || 0,
+        }
+      })
+  }
+
+  rankResolverRows(rows) {
+    const bestRows = [...rows]
+      .sort((a, b) => (b.avgRating - a.avgRating) || (b.ratingCount - a.ratingCount))
+      .slice(0, RESOLVER_LIST_LIMIT)
+    const leastRows = [...rows]
+      .sort((a, b) => (a.avgRating - b.avgRating) || (b.ratingCount - a.ratingCount))
+      .slice(0, RESOLVER_LIST_LIMIT)
+    return { bestRows, leastRows }
+  }
+
+  /**
+   * Best / lowest rated non-admin resolvers for 1M, 1Y, and all-time.
+   * Lowest is the bottom of the window with no star-value cutoff.
+   */
+  async getResolverRankings() {
+    const admins = await userQueries.findUsers(
+      { role: { $in: ADMIN_ROLES } },
+      { select: '_id', lean: true }
+    )
+    const excludeUserIds = admins.map((user) => user._id)
+    const now = Date.now()
+
+    const entries = await Promise.all(
+      Object.entries(RATING_WINDOWS).map(async ([key, durationMs]) => {
+        const since = durationMs == null ? null : new Date(now - durationMs)
+        const rows = await complaintQueries.aggregateResolverRatings({ since, excludeUserIds })
+        const { bestRows, leastRows } = this.rankResolverRows(rows)
+        const [bestResolvers, leastRated] = await Promise.all([
+          this.hydrateResolverRows(bestRows),
+          this.hydrateResolverRows(leastRows),
+        ])
+        return [key, { bestResolvers, leastRated }]
+      })
+    )
+
+    return Object.fromEntries(entries)
+  }
+
+  /**
+   * Counts of items currently in an approval pipeline.
+   * Append another `{ key, label, count }` entry when a new type is added.
+   */
+  async getInProcessItems() {
+    const [por, proposals] = await Promise.all([
+      porRequestQueries.countRequests({ status: { $in: POR_IN_PROCESS_STATUSES } }),
+      eventProposalQueries.countProposals({
+        status: { $in: PROPOSAL_IN_PROCESS_STATUSES },
+        isDeleted: { $ne: true },
+      }),
+    ])
+
+    return [
+      { key: 'por', label: 'POR requests', count: por },
+      { key: 'proposals', label: 'Event proposals', count: proposals },
+    ]
+  }
+
+  /**
    * Get complete dashboard data for admin
    */
   async getDashboardData() {
-    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves] = await Promise.all([
+    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess] = await Promise.all([
       this.getStudentStats(),
       this.getHostelStats(),
       this.getEvents(),
       this.getComplaintStats(),
       this.getHostlerAndDayScholarCounts(),
-      this.getUsersOnLeave()
+      this.getUsersOnLeave(),
+      this.getResolverRankings(),
+      this.getInProcessItems(),
     ]);
 
     return success({
@@ -248,7 +374,9 @@ class DashboardService {
       events,
       complaints,
       hostlerAndDayScholarCounts,
-      leaves
+      leaves,
+      ratings: resolverRankings,
+      inProcess,
     });
   }
 

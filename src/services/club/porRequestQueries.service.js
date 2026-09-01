@@ -85,6 +85,11 @@ export const porRequestQueries = {
       .select("_id")
       .lean()
   },
+
+  /** Count requests matching a filter (dashboard in-process tallies). */
+  async countRequests(filter = {}) {
+    return PorRequest.countDocuments(filter)
+  },
 }
 
 export default porRequestQueries

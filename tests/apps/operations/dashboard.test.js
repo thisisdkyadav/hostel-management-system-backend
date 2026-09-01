@@ -9,6 +9,7 @@ import {
   createStudentProfile,
   createAllocation,
 } from "../../helpers/seed/operations.js"
+import { createComplaint } from "../../helpers/seed/complaints.js"
 
 beforeAll(async () => {
   await setupTestDb()
@@ -260,5 +261,139 @@ describe("dashboard — hardening edges", () => {
     const res = await api.get("/api/v1/dashboard/warden/hostel-statistics")
     expect(res.status).toBe(200)
     expect(Number(res.body.data.maintenanceIssues)).toBe(2)
+  })
+})
+
+describe("dashboard — resolver rankings and in-process", () => {
+  it("GET / ranks non-admin resolvers by window, keeps 4-star lowest, and counts in-process POR/proposals", async () => {
+    const student = await seed.student()
+    const best = await seed.maintenanceStaff({ name: "Dash Best Resolver" })
+    const mid = await seed.maintenanceStaff({ name: "Dash Mid Resolver" })
+    const recentWorst = await seed.maintenanceStaff({ name: "Dash Recent Worst" })
+    const monthOld = await seed.maintenanceStaff({ name: "Dash Month-Old Worst" })
+    const yearOld = await seed.maintenanceStaff({ name: "Dash Year-Old Worst" })
+    const adminResolver = await seed.admin({ name: "Dash Admin Resolver" })
+
+    const rated = (resolvedBy, feedbackRating) =>
+      createComplaint({
+        userId: student._id,
+        status: "Resolved",
+        resolvedBy: resolvedBy._id,
+        resolutionDate: new Date(),
+        feedbackRating,
+      })
+
+    await rated(best, 5)
+    await rated(best, 5)
+    await rated(mid, 4)
+    await rated(recentWorst, 1)
+    await rated(adminResolver, 5)
+
+    const { Complaint, PorRequest, GymkhanaEvent, EventProposal } = await import("../../../src/models/index.js")
+    const backdate = async (doc, daysAgo) => {
+      await Complaint.collection.updateOne(
+        { _id: doc._id },
+        { $set: { updatedAt: new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000) } }
+      )
+    }
+    await backdate(await rated(monthOld, 1), 45)
+    await backdate(await rated(yearOld, 1), 400)
+
+    await PorRequest.create({
+      submittedBy: student._id,
+      positionTitle: "Dashboard POR",
+      positionDetails: "In-process POR for the admin dashboard tally.",
+      tenure: "2025-2026",
+      status: "pending_officer",
+    })
+    await PorRequest.create({
+      submittedBy: student._id,
+      positionTitle: "Approved POR",
+      positionDetails: "Should not count as in process.",
+      tenure: "2025-2026",
+      status: "approved",
+    })
+
+    const event = await GymkhanaEvent.create({
+      title: "Dashboard Fest",
+      category: "Cultural",
+      scheduledStartDate: new Date(Date.now() + 90 * 86400000),
+      scheduledEndDate: new Date(Date.now() + 91 * 86400000),
+      estimatedBudget: 10000,
+      description: "Seed event for dashboard proposal counts",
+    })
+    await EventProposal.create({
+      eventId: event._id,
+      submittedBy: student._id,
+      status: "pending_student_affairs",
+      proposalText: "A live proposal",
+      totalExpenditure: 2500,
+    })
+    await EventProposal.create({
+      eventId: event._id,
+      submittedBy: student._id,
+      status: "draft",
+      proposalText: "Not submitted",
+      totalExpenditure: 100,
+    })
+    await EventProposal.create({
+      eventId: event._id,
+      submittedBy: student._id,
+      status: "pending_dean",
+      proposalText: "Soft-deleted should not count",
+      totalExpenditure: 100,
+      isDeleted: true,
+    })
+
+    const res = await as(await seed.admin()).then((a) => a.get("/api/v1/dashboard"))
+    expect(res.status).toBe(200)
+    const data = res.body.data
+
+    expect(data.ratings).toBeDefined()
+    expect(data.ratings["1M"]).toBeDefined()
+    expect(data.ratings["1Y"]).toBeDefined()
+    expect(data.ratings.all).toBeDefined()
+    expect(Array.isArray(data.inProcess)).toBe(true)
+
+    const month = data.ratings["1M"]
+    const year = data.ratings["1Y"]
+    const allTime = data.ratings.all
+
+    const idsOf = (rows) => rows.map((row) => row.id)
+    const adminId = String(adminResolver._id)
+    for (const window of [month, year, allTime]) {
+      expect(idsOf(window.bestResolvers)).not.toContain(adminId)
+      expect(idsOf(window.leastRated)).not.toContain(adminId)
+    }
+
+    expect(month.bestResolvers[0]).toMatchObject({
+      id: String(best._id),
+      name: "Dash Best Resolver",
+      avgRating: 5,
+      ratingCount: 2,
+    })
+    expect(idsOf(month.bestResolvers).indexOf(String(mid._id))).toBeGreaterThan(0)
+
+    // Lowest has no star-value floor: a 4.0 resolver still appears when they
+    // are among the bottom of the window.
+    expect(idsOf(month.leastRated)).toContain(String(mid._id))
+    expect(month.leastRated.find((row) => row.id === String(mid._id)).avgRating).toBe(4)
+    expect(month.leastRated[0]).toMatchObject({
+      id: String(recentWorst._id),
+      name: "Dash Recent Worst",
+      avgRating: 1,
+    })
+
+    expect(idsOf(month.leastRated)).not.toContain(String(monthOld._id))
+    expect(idsOf(month.leastRated)).not.toContain(String(yearOld._id))
+    expect(idsOf(year.leastRated)).toContain(String(monthOld._id))
+    expect(idsOf(year.leastRated)).not.toContain(String(yearOld._id))
+    expect(idsOf(allTime.leastRated)).toContain(String(yearOld._id))
+
+    const byKey = Object.fromEntries(data.inProcess.map((item) => [item.key, item]))
+    expect(byKey.por).toMatchObject({ label: "POR requests" })
+    expect(byKey.proposals).toMatchObject({ label: "Event proposals" })
+    expect(Number(byKey.por.count)).toBeGreaterThanOrEqual(1)
+    expect(Number(byKey.proposals.count)).toBeGreaterThanOrEqual(1)
   })
 })

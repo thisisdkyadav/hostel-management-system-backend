@@ -64,6 +64,15 @@ export const eventProposalQueries = {
       .populate("submittedBy", "name email")
       .sort({ createdAt: -1 })
   },
+
+  /**
+   * Count proposals matching a filter. countDocuments does not run the
+   * model's pre(/^find/) soft-delete guard — pass `isDeleted: { $ne: true }`
+   * when the caller wants live docs only.
+   */
+  async countProposals(filter = {}) {
+    return EventProposal.countDocuments(filter)
+  },
 }
 
 export default eventProposalQueries
