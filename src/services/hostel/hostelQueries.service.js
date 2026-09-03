@@ -32,11 +32,11 @@ export const hostelQueries = {
     return withSession(Hostel.findById(hostelId), session).lean()
   },
 
-  /** Hostels for the stats dashboard: {_id,name,type,gender,isArchived}. */
+  /** Hostels for the stats dashboard: {_id,name,type,gender,email,phone,extensionNumber,isArchived}. */
   async findHostelsForStats(archive) {
     return Hostel.find(
       { isArchived: archive === "true" },
-      { _id: 1, name: 1, type: 1, gender: 1, isArchived: 1 }
+      { _id: 1, name: 1, type: 1, gender: 1, email: 1, phone: 1, extensionNumber: 1, isArchived: 1 }
     )
   },
 

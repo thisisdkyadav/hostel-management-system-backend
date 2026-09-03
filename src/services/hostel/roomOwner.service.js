@@ -40,6 +40,41 @@ import { MANUAL_ROOM_STATUSES } from "../../models/hostel/Room.model.js"
 
 const STUDENT_STATUS_ACTIVE = "Active"
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_RE = /^\d{10}$/
+const EXTENSION_RE = /^\d{2,8}$/
+
+const trimOptional = (value) => {
+  if (value === undefined || value === null) return undefined
+  return String(value).trim()
+}
+
+/** Optional hostel contact fields. Empty values are stored as "". */
+const normalizeHostelContact = ({ email, phone, extensionNumber } = {}) => {
+  const contact = {}
+
+  if (email !== undefined) {
+    const value = trimOptional(email) || ""
+    if (value && !EMAIL_RE.test(value)) return { error: "Invalid email address" }
+    contact.email = value.toLowerCase()
+  }
+
+  if (phone !== undefined) {
+    const raw = trimOptional(phone) || ""
+    const digits = raw.replace(/\D/g, "")
+    if (raw && !PHONE_RE.test(digits)) return { error: "Phone number must be 10 digits" }
+    contact.phone = digits
+  }
+
+  if (extensionNumber !== undefined) {
+    const value = trimOptional(extensionNumber) || ""
+    if (value && !EXTENSION_RE.test(value)) return { error: "Extension number must be 2 to 8 digits" }
+    contact.extensionNumber = value
+  }
+
+  return { contact }
+}
+
 class AllocationError extends Error {
   constructor(message, statusCode = 400) {
     super(message)
@@ -507,11 +542,14 @@ export const roomOwner = {
    * at 0. Mirrors the legacy admin addHostel.
    */
   async createHostel(hostelData) {
-    return withTransaction(async (session) => {
-      const { name, gender, type, units, rooms } = hostelData
-      if (!name || !gender || !type) return badRequest("Missing required hostel information")
+    const { name, gender, type, units, rooms, email, phone, extensionNumber } = hostelData
+    if (!name || !gender || !type) return badRequest("Missing required hostel information")
 
-      const savedHostel = await new Hostel({ name, gender, type }).save({ session })
+    const { contact, error } = normalizeHostelContact({ email, phone, extensionNumber })
+    if (error) return badRequest(error)
+
+    return withTransaction(async (session) => {
+      const savedHostel = await new Hostel({ name, gender, type, ...contact }).save({ session })
       const hostelId = savedHostel._id
 
       const createdUnits = {}
@@ -560,9 +598,16 @@ export const roomOwner = {
     })
   },
 
-  /** Update editable hostel fields (name, gender). */
-  async updateHostel(hostelId, { name, gender }) {
-    const updatedHostel = await Hostel.findByIdAndUpdate(hostelId, { name, gender }, { new: true })
+  /** Update editable hostel fields (name, gender, optional contact). */
+  async updateHostel(hostelId, { name, gender, email, phone, extensionNumber }) {
+    const { contact, error } = normalizeHostelContact({ email, phone, extensionNumber })
+    if (error) return badRequest(error)
+
+    const updatedHostel = await Hostel.findByIdAndUpdate(
+      hostelId,
+      { name, gender, ...contact },
+      { new: true }
+    )
     if (!updatedHostel) return notFound("Hostel not found")
     return success(updatedHostel)
   },

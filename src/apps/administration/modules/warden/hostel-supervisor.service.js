@@ -14,6 +14,16 @@ import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { buildEffectiveAuthzForUser, extractUserAuthzOverride } from '../../../../core/authz/index.js';
 
 const ENTITY = 'Hostel Supervisor';
+const EXTENSION_RE = /^\d{2,8}$/;
+
+const normalizeExtensionNumber = (value) => {
+  if (value === undefined || value === null) return { value: undefined };
+  const trimmed = String(value).trim();
+  if (trimmed && !EXTENSION_RE.test(trimmed)) {
+    return { error: 'Extension number must be 2 to 8 digits' };
+  }
+  return { value: trimmed };
+};
 
 class HostelSupervisorService {
 
@@ -41,7 +51,7 @@ class HostelSupervisorService {
    * @param {Object} supervisorData - Supervisor data
    */
   async createHostelSupervisor(supervisorData) {
-    const { email, password, name, phone, hostelIds, joinDate, category } = supervisorData;
+    const { email, password, name, phone, hostelIds, joinDate, category, extensionNumber } = supervisorData;
 
     if (!email || !password || !name) {
       return badRequest('Email, password, and name are required');
@@ -50,6 +60,9 @@ class HostelSupervisorService {
     if (hostelIds && !Array.isArray(hostelIds)) {
       return badRequest('hostelIds must be an array');
     }
+
+    const extension = normalizeExtensionNumber(extensionNumber);
+    if (extension.error) return badRequest(extension.error);
 
     const existingUser = await userQueries.findUserByEmailCI(email);
     if (existingUser) {
@@ -77,7 +90,8 @@ class HostelSupervisorService {
       activeHostelId,
       status,
       joinDate: joinDate || Date.now(),
-      category: category || 'Hostel Supervisor'
+      category: category || 'Hostel Supervisor',
+      extensionNumber: extension.value ?? '',
     });
 
     return { success: true, statusCode: 201, message: 'Hostel Supervisor created successfully' };
@@ -95,6 +109,7 @@ class HostelSupervisorService {
       name: hs.userId.name,
       email: hs.userId.email,
       phone: hs.userId.phone,
+      extensionNumber: hs.extensionNumber || '',
       hostelIds: hs.hostelIds || [],
       activeHostelId: hs.activeHostelId || null,
       joinDate: hs.joinDate ? hs.joinDate.toISOString().split('T')[0] : null,
@@ -122,7 +137,7 @@ class HostelSupervisorService {
    * @param {Object} supervisorData - Update data
    */
   async updateHostelSupervisor(id, supervisorData) {
-    const { phone, profileImage, joinDate, hostelIds, category } = supervisorData;
+    const { phone, profileImage, joinDate, hostelIds, category, extensionNumber } = supervisorData;
 
     if (hostelIds && !Array.isArray(hostelIds)) {
       return badRequest('hostelIds must be an array');
@@ -157,6 +172,11 @@ class HostelSupervisorService {
     if (profileImage !== undefined) userUpdateData.profileImage = profileImage;
     if (phone !== undefined) userUpdateData.phone = phone;
     if (category !== undefined) updateData.category = category;
+    if (extensionNumber !== undefined) {
+      const extension = normalizeExtensionNumber(extensionNumber);
+      if (extension.error) return badRequest(extension.error);
+      updateData.extensionNumber = extension.value;
+    }
 
     if (Object.keys(userUpdateData).length > 0) {
       const hostelSupervisor = await staffRolesQueries.findByIdSelect('HostelSupervisor', id, 'userId');

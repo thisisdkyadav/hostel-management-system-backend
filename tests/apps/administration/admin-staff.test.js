@@ -257,6 +257,73 @@ staffRoleSuite({
   deletedMessage: "Hostel Supervisor deleted successfully",
 })
 
+describe("Hostel Supervisor contact fields", () => {
+  let adminApi
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  it("stores optional phone and extensionNumber on create and GET", async () => {
+    const payload = {
+      name: "Supervisor Contact",
+      email: emailFor("hs-contact"),
+      password: "secret123",
+      phone: "9876543210",
+      extensionNumber: "2345",
+    }
+    const created = await adminApi.post(`${BASE}/hostel-supervisor`).send(payload)
+    expect(created.status).toBe(201)
+
+    const entry = byEmail((await adminApi.get(`${BASE}/hostel-supervisors`)).body, payload.email)
+    expect(entry.phone).toBe("9876543210")
+    expect(entry.extensionNumber).toBe("2345")
+  })
+
+  it("updates and clears extensionNumber", async () => {
+    const email = emailFor("hs-ext")
+    await adminApi.post(`${BASE}/hostel-supervisor`).send({
+      name: "Supervisor Ext",
+      email,
+      password: "secret123",
+    })
+    const entry = byEmail((await adminApi.get(`${BASE}/hostel-supervisors`)).body, email)
+    expect(entry.extensionNumber).toBe("")
+
+    const updated = await adminApi.put(`${BASE}/hostel-supervisor/${entry.id}`).send({ extensionNumber: "110" })
+    expect(updated.status).toBe(200)
+    const after = (await adminApi.get(`${BASE}/hostel-supervisors`)).body.find((e) => e.id === entry.id)
+    expect(after.extensionNumber).toBe("110")
+
+    const cleared = await adminApi.put(`${BASE}/hostel-supervisor/${entry.id}`).send({ extensionNumber: "" })
+    expect(cleared.status).toBe(200)
+    const empty = (await adminApi.get(`${BASE}/hostel-supervisors`)).body.find((e) => e.id === entry.id)
+    expect(empty.extensionNumber).toBe("")
+  })
+
+  it("rejects invalid extensionNumber on create and update", async () => {
+    const email = emailFor("hs-bad-ext")
+    const created = await adminApi.post(`${BASE}/hostel-supervisor`).send({
+      name: "Supervisor Bad Ext",
+      email,
+      password: "secret123",
+      extensionNumber: "1",
+    })
+    expect(created.status).toBe(400)
+    expect(created.body.message).toBe("Extension number must be 2 to 8 digits")
+
+    await adminApi.post(`${BASE}/hostel-supervisor`).send({
+      name: "Supervisor Bad Ext",
+      email,
+      password: "secret123",
+    })
+    const entry = byEmail((await adminApi.get(`${BASE}/hostel-supervisors`)).body, email)
+    const updated = await adminApi.put(`${BASE}/hostel-supervisor/${entry.id}`).send({ extensionNumber: "abc" })
+    expect(updated.status).toBe(400)
+    expect(updated.body.message).toBe("Extension number must be 2 to 8 digits")
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Gymkhana users — role Gymkhana + a fixed subRole allowlist; profile holds
 // categories/position. Observed envelopes: POST -> { success, message };

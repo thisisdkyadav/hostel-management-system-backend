@@ -10,6 +10,7 @@ const hostelSupervisorSchema = new mongoose.Schema({
   hostelIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Hostel" }],
   activeHostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", default: null },
   category: { type: String, default: "Hostel Supervisor" },
+  extensionNumber: { type: String, trim: true, default: "" },
   status: {
     type: String,
     enum: ["assigned", "unassigned"],

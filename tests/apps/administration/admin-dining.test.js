@@ -188,6 +188,79 @@ describe("hostels", () => {
     expect(res.status).toBe(404)
     expect(res.body.message).toBe("Hostel not found")
   })
+
+  it("POST /hostel stores optional contact fields and GET returns them", async () => {
+    const res = await adminApi.post(`${BASE}/hostel`).send({
+      name: "Admin Contact Hostel",
+      gender: "Girls",
+      type: "room-only",
+      email: "contact.hostel@iiti.ac.in",
+      phone: "9876543210",
+      extensionNumber: "2345",
+      rooms: [{ roomNumber: "ACH-101", capacity: 2 }],
+    })
+    expect(res.status).toBe(201)
+    expect(res.body.success).toBe(true)
+
+    const list = await adminApi.get(`${BASE}/hostels`)
+    const hostel = list.body.find((h) => h.name === "Admin Contact Hostel")
+    expect(hostel).toBeTruthy()
+    expect(hostel.email).toBe("contact.hostel@iiti.ac.in")
+    expect(hostel.phone).toBe("9876543210")
+    expect(hostel.extensionNumber).toBe("2345")
+  })
+
+  it("PUT /hostel/:id updates optional contact fields and can clear them", async () => {
+    const updated = await adminApi.put(`${BASE}/hostel/${createdHostelId}`).send({
+      name: "Admin Dining Hostel Renamed",
+      gender: "Girls",
+      email: "office@iiti.ac.in",
+      phone: "9123456780",
+      extensionNumber: "110",
+    })
+    expect(updated.status).toBe(200)
+    expect(updated.body.email).toBe("office@iiti.ac.in")
+    expect(updated.body.phone).toBe("9123456780")
+    expect(updated.body.extensionNumber).toBe("110")
+
+    const cleared = await adminApi.put(`${BASE}/hostel/${createdHostelId}`).send({
+      name: "Admin Dining Hostel Renamed",
+      gender: "Girls",
+      email: "",
+      phone: "",
+      extensionNumber: "",
+    })
+    expect(cleared.status).toBe(200)
+    expect(cleared.body.email).toBe("")
+    expect(cleared.body.phone).toBe("")
+    expect(cleared.body.extensionNumber).toBe("")
+  })
+
+  it("PUT /hostel/:id rejects invalid optional contact values", async () => {
+    const invalidEmail = await adminApi.put(`${BASE}/hostel/${createdHostelId}`).send({
+      name: "Admin Dining Hostel Renamed",
+      gender: "Girls",
+      email: "not-an-email",
+    })
+    expect(invalidEmail.status).toBe(400)
+    expect(invalidEmail.body.message).toBe("Invalid email address")
+
+    const invalidPhone = await adminApi.put(`${BASE}/hostel/${createdHostelId}`).send({
+      name: "Admin Dining Hostel Renamed",
+      gender: "Girls",
+      phone: "123",
+    })
+    expect(invalidPhone.status).toBe(400)
+    expect(invalidPhone.body.message).toBe("Phone number must be 10 digits")
+
+    const invalidExt = await adminApi.put(`${BASE}/hostel/${createdHostelId}`).send({
+      name: "Admin Dining Hostel Renamed",
+      gender: "Girls",
+      extensionNumber: "1",
+    })
+    expect(invalidExt.status).toBe(400)
+    expect(invalidExt.body.message).toBe("Extension number must be 2 to 8 digits")
+  })
 })
 
 // ---------------------------------------------------------------------------
