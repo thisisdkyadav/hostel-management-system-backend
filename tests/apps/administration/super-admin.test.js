@@ -344,7 +344,7 @@ describe("Admin management (/super-admin/admins)", () => {
   })
 })
 
-describe("Admin-actor scoping (plain Admin manages HCU accounts only)", () => {
+describe("Admin-actor scoping (plain Admin manages HCU, CWO, Accountant, Chief Warden)", () => {
   let hcuActor, hcuApi
 
   beforeAll(async () => {
@@ -352,7 +352,7 @@ describe("Admin-actor scoping (plain Admin manages HCU accounts only)", () => {
     hcuApi = await as(hcuActor)
   })
 
-  it("403 when an Admin tries to create a non-HCU subRole account", async () => {
+  it("403 when an Admin tries to create a Student Affairs subRole account", async () => {
     const res = await hcuApi
       .post(`${BASE}/admins`)
       .send({ name: "SA Admin", email: "sa-scoped@hms.test", subRole: SUBROLES.STUDENT_AFFAIRS })
@@ -360,7 +360,7 @@ describe("Admin-actor scoping (plain Admin manages HCU accounts only)", () => {
     expect(res.body.message).toMatch(/HCU/i)
   })
 
-  it("creates an HCU account without explicit subRole and lists only HCU admins", async () => {
+  it("creates an HCU account without explicit subRole and lists HCU-managed subroles only", async () => {
     const nonHcu = await seed.admin({ subRole: SUBROLES.DEAN_SA })
     const res = await hcuApi
       .post(`${BASE}/admins`)
@@ -371,16 +371,37 @@ describe("Admin-actor scoping (plain Admin manages HCU accounts only)", () => {
     expect(list.status).toBe(200)
     const emails = list.body.map((u) => u.email)
     expect(emails).toContain("scoped-hcu@hms.test")
-    expect(emails.every(() => true)).toBe(true)
-    // non-HCU admins are filtered out for the Admin actor
     expect(emails).not.toContain(nonHcu.email)
     for (const row of list.body) {
-      expect(row.subRole).toBe(SUBROLES.HCU)
+      expect([
+        SUBROLES.HCU,
+        SUBROLES.CHIEF_WARDEN_OFFICE,
+        SUBROLES.ACCOUNTANT,
+        SUBROLES.CHIEF_WARDEN,
+      ]).toContain(row.subRole)
     }
   })
 
-  it("403 when an Admin updates/deletes a non-HCU admin", async () => {
-    const nonHcu = await seed.admin({ subRole: SUBROLES.CHIEF_WARDEN })
+  it("creates Chief Warden Office, Accountant, and Chief Warden accounts", async () => {
+    for (const subRole of [SUBROLES.CHIEF_WARDEN_OFFICE, SUBROLES.ACCOUNTANT, SUBROLES.CHIEF_WARDEN]) {
+      const email = `${subRole.replace(/\s+/g, "-").toLowerCase()}@hms.test`
+      const res = await hcuApi.post(`${BASE}/admins`).send({
+        name: subRole,
+        email,
+        subRole,
+      })
+      expect(res.status).toBe(201)
+    }
+
+    const list = await hcuApi.get(`${BASE}/admins`)
+    const byEmail = (email) => list.body.find((u) => u.email === email)
+    expect(byEmail("chief-warden-office@hms.test").subRole).toBe(SUBROLES.CHIEF_WARDEN_OFFICE)
+    expect(byEmail("accountant@hms.test").subRole).toBe(SUBROLES.ACCOUNTANT)
+    expect(byEmail("chief-warden@hms.test").subRole).toBe(SUBROLES.CHIEF_WARDEN)
+  })
+
+  it("403 when an Admin updates/deletes a Student Affairs admin", async () => {
+    const nonHcu = await seed.admin({ subRole: SUBROLES.STUDENT_AFFAIRS })
 
     const upd = await hcuApi.put(`${BASE}/admins/${nonHcu._id}`).send({ name: "Nope" })
     expect(upd.status).toBe(403)
@@ -390,19 +411,29 @@ describe("Admin-actor scoping (plain Admin manages HCU accounts only)", () => {
     expect(del.status).toBe(403)
   })
 
-  it("an Admin updating an HCU account keeps it HCU-scoped even when subRole is omitted", async () => {
+  it("an Admin updating an HCU account keeps its subRole when omitted", async () => {
     const hcuTarget = await seed.admin({ subRole: SUBROLES.HCU })
     const res = await hcuApi.put(`${BASE}/admins/${hcuTarget._id}`).send({
       name: "HCU Renamed",
       phone: "7778889990",
     })
     expect(res.status).toBe(200)
-    // Admin-side updates always persist subRole=HCU
     expect(res.body.response.subRole).toBe(SUBROLES.HCU)
     expect(res.body.response.name).toBe("HCU Renamed")
   })
 
-  it("403 when an Admin tries to re-scope an HCU account to another subRole", async () => {
+  it("an Admin can change an HCU account to Chief Warden and persist a profile image", async () => {
+    const hcuTarget = await seed.admin({ subRole: SUBROLES.HCU })
+    const res = await hcuApi.put(`${BASE}/admins/${hcuTarget._id}`).send({
+      subRole: SUBROLES.CHIEF_WARDEN,
+      profileImage: "media://hcu-profile",
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.response.subRole).toBe(SUBROLES.CHIEF_WARDEN)
+    expect(res.body.response.profileImage).toBe("media://hcu-profile")
+  })
+
+  it("403 when an Admin tries to re-scope an HCU account to Student Affairs", async () => {
     const hcuTarget = await seed.admin({ subRole: SUBROLES.HCU })
     const res = await hcuApi
       .put(`${BASE}/admins/${hcuTarget._id}`)

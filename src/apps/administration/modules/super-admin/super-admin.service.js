@@ -14,26 +14,36 @@ import bcrypt from 'bcrypt';
 import { success, badRequest, error, notFound, forbidden } from '../../../../services/base/index.js';
 import { scannerOwner } from '../../../../services/scanner/scannerOwner.service.js';
 import { scannerQueries } from '../../../../services/scanner/scannerQueries.service.js';
-import { ROLES, SUBROLES, ADMIN_SUBROLES } from '../../../../core/constants/roles.constants.js';
+import { ROLES, SUBROLES, ADMIN_SUBROLES, HCU_MANAGED_SUBROLES } from '../../../../core/constants/roles.constants.js';
 
 const normalizeText = (value) => (typeof value === 'string' ? value.trim() : '');
 const getDefaultCategoryForSubRole = (subRole) => (subRole === SUBROLES.HCU ? 'HCU' : 'Admin');
+const isHcuManagedSubRole = (subRole) => HCU_MANAGED_SUBROLES.includes(subRole);
+const ADMIN_MANAGE_FORBIDDEN =
+  'Admin can only manage HCU, Chief Warden Office, Accountant, and Chief Warden accounts';
 
 const resolveRequestedAdminSubRole = ({ requestedSubRole, actorRole }) => {
   const normalizedRequestedSubRole = normalizeText(requestedSubRole);
 
   if (actorRole === ROLES.ADMIN) {
-    if (normalizedRequestedSubRole && normalizedRequestedSubRole !== SUBROLES.HCU) {
+    if (!normalizedRequestedSubRole) {
+      return {
+        success: true,
+        value: SUBROLES.HCU,
+      };
+    }
+
+    if (!isHcuManagedSubRole(normalizedRequestedSubRole)) {
       return {
         success: false,
         status: 'forbidden',
-        message: 'Admin can only manage HCU sub-role accounts',
+        message: ADMIN_MANAGE_FORBIDDEN,
       };
     }
 
     return {
       success: true,
-      value: SUBROLES.HCU,
+      value: normalizedRequestedSubRole,
     };
   }
 
@@ -217,7 +227,7 @@ class SuperAdminService {
     try {
       const userQuery = { role: ROLES.ADMIN };
       if (actor?.role === ROLES.ADMIN) {
-        userQuery.subRole = SUBROLES.HCU;
+        userQuery.subRole = { $in: HCU_MANAGED_SUBROLES };
       }
 
       const users = await userQueries.findUsers(userQuery, {
@@ -271,8 +281,8 @@ class SuperAdminService {
         return notFound('Admin');
       }
 
-      if (actor?.role === ROLES.ADMIN && existingUser.subRole !== SUBROLES.HCU) {
-        return forbidden('Admin can only manage HCU sub-role accounts');
+      if (actor?.role === ROLES.ADMIN && !isHcuManagedSubRole(existingUser.subRole)) {
+        return forbidden(ADMIN_MANAGE_FORBIDDEN);
       }
 
       const existingAdminProfile = await staffRolesQueries.findByUserId('Admin', adminId, { select: 'category', lean: true });
@@ -333,9 +343,6 @@ class SuperAdminService {
         }
 
         userUpdate.subRole = resolvedSubRole.value;
-      } else if (actor?.role === ROLES.ADMIN) {
-        // Admin-side updates are always HCU scoped.
-        userUpdate.subRole = SUBROLES.HCU;
       }
 
       if (Object.keys(userUpdate).length > 0) {
@@ -396,8 +403,8 @@ class SuperAdminService {
         return notFound('Admin');
       }
 
-      if (actor?.role === ROLES.ADMIN && existingUser.subRole !== SUBROLES.HCU) {
-        return forbidden('Admin can only manage HCU sub-role accounts');
+      if (actor?.role === ROLES.ADMIN && !isHcuManagedSubRole(existingUser.subRole)) {
+        return forbidden(ADMIN_MANAGE_FORBIDDEN);
       }
 
       await userOwner.deleteUserById(adminId);

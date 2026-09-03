@@ -69,6 +69,14 @@ export const ADMIN_SUBROLES = [
   SUBROLES.ACCOUNTANT,
 ]
 
+/** Subroles an Admin (not Super Admin) may manage on the HCU users page. */
+export const HCU_MANAGED_SUBROLES = [
+  SUBROLES.HCU,
+  SUBROLES.CHIEF_WARDEN_OFFICE,
+  SUBROLES.ACCOUNTANT,
+  SUBROLES.CHIEF_WARDEN,
+]
+
 /**
  * Role hierarchy (higher index = more privileges)
  */
