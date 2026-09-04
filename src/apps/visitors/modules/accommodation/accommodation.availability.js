@@ -18,13 +18,6 @@ import { personsAllottedToHostel } from "./accommodation.allotment.js"
 
 const bedCount = (room) => room.originalCapacity || room.capacity || 0
 
-const roomSummary = (room) => ({
-  roomId: room._id,
-  roomNumber: room.roomNumber,
-  unitNumber: room.unitId?.unitNumber || null,
-  beds: bedCount(room),
-})
-
 /**
  * Hostel-level headroom (CW Office capacity + allotment view).
  *
@@ -64,7 +57,6 @@ export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRe
     availableRooms,
     // Beds a new party could actually occupy, capped by the rooms left for it.
     available: Math.max(0, Math.min(totalBeds - committedBeds, availableRooms * largestRoom)),
-    rooms: emptyRooms.map(roomSummary),
   }
 }
 
@@ -78,10 +70,11 @@ export const roomsNeededFor = (persons, largestRoom) => {
 // Availability across every hostel that currently has empty Active rooms.
 export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId } = {}) => {
   const hostelIds = await hostelQueries.distinctHostelIdsWithEmptyActiveRooms()
-  const hostels = await hostelQueries.findHostelsByIds(hostelIds, "name type gender")
+  const hostels = await hostelQueries.findHostelsByIds(hostelIds, "name type gender isArchived")
 
   const results = []
   for (const hostel of hostels) {
+    if (hostel.isArchived) continue
     const availability = await getHostelGuestAvailability({ hostelId: hostel._id, from, to, excludeRequestId })
     results.push({ hostelId: hostel._id, name: hostel.name, type: hostel.type, gender: hostel.gender, ...availability })
   }

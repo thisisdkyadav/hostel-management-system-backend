@@ -608,6 +608,21 @@ describe("accommodation — payment request & hostel allotment (CW Office)", () 
     expect(String(res.body.data.guestAllotments[1].hostelId)).toBe(String(hostelB._id))
   })
 
+  it("refuses to allot an archived hostel", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel({ isArchived: true })
+    await createRoom({ hostelId: hostel._id, roomNumber: `AR-${Date.now() % 100000}`, capacity: 2 })
+    const res = await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        hostelId: hostel._id,
+        guestCharges: [{ guestIndex: 0, price: 400, gstPercentage: 0 }],
+      })
+    )
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/archived hostel/i)
+  })
+
   it("deferPayment moves Payment Requested -> Payment Deferred and refuses otherwise", async () => {
     const student = await iitiStudent()
     const request = await advanceToCwApproved(student)
@@ -933,9 +948,28 @@ describe("accommodation — arrival tail (availability, rooms, check-in/out)", (
     expect(Array.isArray(res.body.data.hostels)).toBe(true)
     expect(res.body.data.pricing).toHaveProperty("priceOptions")
     expect(res.body.data.pricing).toHaveProperty("gstOptions")
-    if (res.body.data.hostels.length > 0) {
-      expect(res.body.data.hostels[0]).toHaveProperty("rooms")
+    for (const h of res.body.data.hostels) {
+      expect(h).not.toHaveProperty("rooms")
+      expect(h).toHaveProperty("availableRooms")
+      expect(h).toHaveProperty("available")
     }
+  })
+
+  it("allotment availability omits archived hostels even when they have empty rooms", async () => {
+    const student = await iitiStudent()
+    const request = await submitFor(student)
+    const live = await createHostel({ name: `Live-${Date.now()}` })
+    const archived = await createHostel({ name: `Archived-${Date.now()}`, isArchived: true })
+    await createRoom({ hostelId: live._id, roomNumber: `L-${Date.now() % 100000}`, capacity: 2 })
+    await createRoom({ hostelId: archived._id, roomNumber: `X-${Date.now() % 100000}`, capacity: 2 })
+
+    const res = await as(await cwo()).then((c) =>
+      c.get(`/api/v1/accommodation/requests/${request._id}/allotment-availability`)
+    )
+    expect(res.status).toBe(200)
+    const ids = (res.body.data.hostels || []).map((h) => String(h.hostelId))
+    expect(ids).toContain(String(live._id))
+    expect(ids).not.toContain(String(archived._id))
   })
 
   it("room availability requires an allotted hostel; assignment validates coverage and beds", async () => {

@@ -1175,7 +1175,9 @@ export const accommodationService = {
     const hostelDocs = await hostelQueries.findHostelsByIds(parsedAllotment.hostelIds)
     const hostelById = new Map(hostelDocs.map((h) => [String(h._id), h]))
     for (const hid of parsedAllotment.hostelIds) {
-      if (!hostelById.get(hid)) return notFound("Hostel not found")
+      const hostel = hostelById.get(hid)
+      if (!hostel) return notFound("Hostel not found")
+      if (hostel.isArchived) return badRequest("Cannot allot an archived hostel")
     }
 
     const config = await getAccommodationConfig()
