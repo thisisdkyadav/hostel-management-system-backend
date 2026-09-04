@@ -91,11 +91,12 @@ export const accommodationQueries = {
    * guest-room availability: the hostel is now chosen at payment-request time,
    * so a booking claims the empty pool from that moment until its rooms are
    * assigned (after which the rooms leave the Active-empty pool on their own).
-   * Returns lean {persons} projections.
+   * Returns lean projections; callers count only the guests allotted here
+   * (`guestAllotments` or legacy `allotment.hostelId`).
    */
   async findOverlappingAllotted({ hostelId, from, to, excludeRequestId } = {}) {
     const filter = {
-      "allotment.hostelId": hostelId,
+      $or: [{ "guestAllotments.hostelId": hostelId }, { "allotment.hostelId": hostelId }],
       status: {
         $in: [
           ACCOMMODATION_STATUS.PAYMENT_REQUESTED,
@@ -108,7 +109,9 @@ export const accommodationQueries = {
       ...overlapFilter(from, to),
     }
     if (excludeRequestId) filter._id = { $ne: excludeRequestId }
-    return AccommodationRequest.find(filter).select("persons").lean()
+    return AccommodationRequest.find(filter)
+      .select("persons guests guestAllotments allotment.hostelId")
+      .lean()
   },
 
   // ==================== AccommodationType ====================

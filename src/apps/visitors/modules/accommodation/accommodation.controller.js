@@ -132,7 +132,7 @@ export const getAllotmentAvailability = asyncHandler(async (req, res) => {
 })
 
 export const getRoomAvailability = asyncHandler(async (req, res) => {
-  sendStandardResponse(res, await accommodationService.getRoomAvailability(req.params.requestId))
+  sendStandardResponse(res, await accommodationService.getRoomAvailability(req.params.requestId, req.user))
 })
 
 export const assignRooms = asyncHandler(async (req, res) => {

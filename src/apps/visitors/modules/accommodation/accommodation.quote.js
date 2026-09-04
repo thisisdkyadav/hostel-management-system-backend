@@ -97,11 +97,18 @@ export const buildQuoteFromGuestCharges = ({ guests = [], nights = 0, guestCharg
 
   const lines = list.map((guest, i) => {
     const raw = byIndex.get(i) || {}
-    const price = round2(raw.price)
-    const gstPercentage = round2(raw.gstPercentage)
-    if (!(price > 0)) {
+    const rawPrice = raw.price
+    if (rawPrice === undefined || rawPrice === null || rawPrice === "") {
       return { error: `Price is required for guest ${i + 1} (${guest?.name || "unnamed"})` }
     }
+    const priceNum = Number(rawPrice)
+    // 0 is a valid waiver; negatives and non-numbers are not. Check before
+    // rounding so "abc" does not collapse to 0.
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return { error: `Price is invalid for guest ${i + 1} (${guest?.name || "unnamed"})` }
+    }
+    const price = round2(priceNum)
+    const gstPercentage = round2(raw.gstPercentage)
     if (!Number.isFinite(gstPercentage) || gstPercentage < 0) {
       return { error: `GST % is invalid for guest ${i + 1} (${guest?.name || "unnamed"})` }
     }

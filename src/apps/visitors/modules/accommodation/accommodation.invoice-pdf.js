@@ -362,7 +362,7 @@ const drawComputerGeneratedNote = (doc, y) => {
  * Flatten an AccommodationRequest into the sheet's fields.
  * `hostelName` is resolved by the caller (allotment stores only the id).
  */
-export const buildInvoiceModel = ({ request, hostelName = "", gstin = "", studentName = "" } = {}) => {
+export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestIndex = {}, gstin = "", studentName = "" } = {}) => {
   const quote = request?.quote || {}
   const stay = request?.stay || {}
   const guests = Array.isArray(request?.guests) ? request.guests : []
@@ -374,7 +374,7 @@ export const buildInvoiceModel = ({ request, hostelName = "", gstin = "", studen
     ? guestCharges.map((gc) => ({
         guests: "1",
         details: gc.guestName || guests[gc.guestIndex]?.name || "",
-        hostel: hostelName,
+        hostel: hostelNameByGuestIndex[gc.guestIndex] || hostelName,
         from: sheetDate(stay.fromDate),
         to: sheetDate(stay.toDate),
         days: nights,

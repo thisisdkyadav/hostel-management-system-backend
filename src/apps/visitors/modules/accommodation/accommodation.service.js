@@ -79,6 +79,19 @@ import {
   getGuestRoomAvailability,
   roomsNeededFor,
 } from "./accommodation.availability.js"
+import {
+  uniqueAllottedHostelIds,
+  guestIndexesForHostel,
+  guestIndexesForHostels,
+  personsAllottedToHostel,
+  assignedGuestIndexes,
+  supervisorRoomsPending,
+  countByHostelId,
+  formatHostelNames,
+  hostelFilterForSupervisor,
+} from "./accommodation.allotment.js"
+import { ROLES } from "../../../../core/constants/roles.constants.js"
+import { staffRolesQueries } from "../../../../services/user/staffRolesQueries.service.js"
 
 const FA_TOKEN_TYPE = ACTION_LINK_TOKEN_TYPE.ACCOMMODATION_FA_RECOMMENDATION
 const cwDeadline = () => new Date(Date.now() + CW_AUTO_APPROVE_HOURS * 60 * 60 * 1000)
@@ -192,13 +205,88 @@ const notifyStaff = (resolveRecipients, payload) => {
     .catch((error) => console.error("Accommodation staff notification failed:", error.message))
 }
 
-/** Tell the allotted hostel's supervisor a booking is ready for room assignment. */
+/** Tell each allotted hostel's supervisor a booking is ready for room assignment. */
 const notifySupervisorReadyForRooms = (request) => {
-  notifyStaff(() => supervisorsForHostel(request.allotment?.hostelId), {
-    heading: "A guest booking has been allotted to your hostel and needs rooms.",
-    action: "Assign rooms",
-    request,
-  })
+  for (const hostelId of uniqueAllottedHostelIds(request)) {
+    notifyStaff(() => supervisorsForHostel(hostelId), {
+      heading: "A guest booking has been allotted to your hostel and needs rooms.",
+      action: "Assign rooms",
+      request,
+    })
+  }
+}
+
+const supervisorHostelIds = async (user) => {
+  if (user?.role !== ROLES.HOSTEL_SUPERVISOR) return []
+  const ids = []
+  try {
+    const profile = await staffRolesQueries.findByUserId("HostelSupervisor", user._id, { lean: true })
+    for (const id of profile?.hostelIds || []) ids.push(String(id))
+    if (profile?.activeHostelId) ids.push(String(profile.activeHostelId))
+  } catch {
+    /* fall through to the session hostel */
+  }
+  if (user?.hostel?._id) ids.push(String(user.hostel._id))
+  return [...new Set(ids.filter(Boolean))]
+}
+
+const withHostelLocks = async (hostelIds, task) => {
+  const ids = [...new Set((hostelIds || []).map(String).filter(Boolean))].sort()
+  const run = (index) => {
+    if (index >= ids.length) return task()
+    return withLockRetry(`lock:accommodation:allot:${ids[index]}`, 30, () => run(index + 1))
+  }
+  return run(0)
+}
+
+/** body.guestAllotments (per visitor) or legacy body.hostelId (every visitor). */
+const parseGuestAllotmentBody = (body, guests) => {
+  const n = guests.length
+  let pairs
+  if (Array.isArray(body?.guestAllotments) && body.guestAllotments.length) {
+    pairs = body.guestAllotments
+  } else if (body?.hostelId) {
+    pairs = guests.map((_, i) => ({ guestIndex: i, hostelId: body.hostelId }))
+  } else {
+    return { error: "Select a hostel for every guest" }
+  }
+  if (pairs.length !== n) return { error: "Select a hostel for every guest" }
+
+  const seen = new Set()
+  const allotments = []
+  for (const row of pairs) {
+    const idx = Number(row?.guestIndex)
+    if (!Number.isInteger(idx) || idx < 0 || idx >= n || seen.has(idx)) {
+      return { error: "Select a hostel for every guest" }
+    }
+    if (!row?.hostelId) return { error: "Select a hostel for every guest" }
+    seen.add(idx)
+    allotments.push({ guestIndex: idx, hostelId: row.hostelId })
+  }
+  if (seen.size !== n) return { error: "Select a hostel for every guest" }
+
+  allotments.sort((a, b) => a.guestIndex - b.guestIndex)
+  const counts = countByHostelId(allotments)
+  return { allotments, counts, hostelIds: [...counts.keys()] }
+}
+
+const resolveHostelNames = async (request) => {
+  const ids = uniqueAllottedHostelIds(request)
+  if (!ids.length) return { names: [], byId: new Map(), byGuestIndex: new Map() }
+  const docs = await hostelQueries.findHostelsByIds(ids, "name")
+  const byId = new Map(docs.map((h) => [String(h._id), h.name || ""]))
+  const byGuestIndex = new Map()
+  const n = request.guests?.length || request.persons || 0
+  if (Array.isArray(request.guestAllotments) && request.guestAllotments.length) {
+    for (const a of request.guestAllotments) {
+      const name = byId.get(String(a.hostelId))
+      if (name) byGuestIndex.set(Number(a.guestIndex), name)
+    }
+  } else if (request.allotment?.hostelId) {
+    const name = byId.get(String(request.allotment.hostelId)) || ""
+    for (let i = 0; i < n; i++) byGuestIndex.set(i, name)
+  }
+  return { names: ids.map((id) => byId.get(id)).filter(Boolean), byId, byGuestIndex }
 }
 
 // Compact requester-student summary used in the FA email and the public
@@ -459,6 +547,11 @@ export const accommodationService = {
     if (user.role === "Student" || query.mine === "true") {
       filter.requesterUserId = user._id
     }
+    let supervisorHostels = []
+    if (user.role === ROLES.HOSTEL_SUPERVISOR) {
+      supervisorHostels = await supervisorHostelIds(user)
+      Object.assign(filter, hostelFilterForSupervisor(supervisorHostels))
+    }
     if (query.status) filter.status = query.status
     if (query.queue === "chiefWarden") filter.status = ACCOMMODATION_STATUS.PENDING_CW_APPROVAL
 
@@ -497,6 +590,13 @@ export const accommodationService = {
         }
       } catch {
         /* non-fatal — table falls back to applicantName */
+      }
+    }
+
+    if (user.role === ROLES.HOSTEL_SUPERVISOR) {
+      for (const item of items) {
+        item.supervisorGuestIndexes = guestIndexesForHostels(item, supervisorHostels)
+        item.supervisorRoomsPending = supervisorRoomsPending(item, supervisorHostels)
       }
     }
 
@@ -546,19 +646,48 @@ export const accommodationService = {
       }
     }
 
-    // Resolve the allotted hostel name so the student/staff can see where the
-    // guests are staying (allotment stores only the hostelId).
+    // Resolve allotted hostel names so the student/staff can see where each
+    // guest is staying (per-guest allotments; legacy single hostel still works).
     let allottedHostelName = ""
-    if (request.allotment?.hostelId) {
-      try {
-        const hostel = await hostelQueries.findHostelById(request.allotment.hostelId)
-        allottedHostelName = hostel?.name || ""
-      } catch {
-        allottedHostelName = ""
-      }
+    let allottedHostels = []
+    let hostelNameByGuestIndex = {}
+    try {
+      const resolved = await resolveHostelNames(request)
+      allottedHostelName = formatHostelNames(resolved.names)
+      allottedHostels = uniqueAllottedHostelIds(request).map((id) => ({
+        hostelId: id,
+        name: resolved.byId.get(id) || "",
+        guestIndexes: guestIndexesForHostel(request, id),
+      }))
+      hostelNameByGuestIndex = Object.fromEntries(resolved.byGuestIndex)
+      assignedRooms = assignedRooms.map((row) => ({
+        ...row,
+        hostelName: row.guestIndexes?.length
+          ? hostelNameByGuestIndex[row.guestIndexes[0]] || allottedHostelName
+          : allottedHostelName,
+      }))
+    } catch {
+      allottedHostelName = ""
     }
 
-    return success({ ...request, student, assignedRooms, allottedHostelName })
+    let supervisorGuestIndexes = null
+    let roomsPending = null
+    if (user.role === ROLES.HOSTEL_SUPERVISOR) {
+      const hostels = await supervisorHostelIds(user)
+      supervisorGuestIndexes = guestIndexesForHostels(request, hostels)
+      roomsPending = supervisorRoomsPending(request, hostels)
+    }
+
+    return success({
+      ...request,
+      student,
+      assignedRooms,
+      allottedHostelName,
+      allottedHostels,
+      hostelNameByGuestIndex,
+      supervisorGuestIndexes,
+      supervisorRoomsPending: roomsPending,
+    })
   },
 
   /**
@@ -591,13 +720,12 @@ export const accommodationService = {
     }
 
     const config = await getAccommodationConfig()
-    const hostel = request.allotment?.hostelId
-      ? await hostelQueries.findHostelById(request.allotment.hostelId)
-      : null
+    const resolvedHostels = await resolveHostelNames(request)
     const buffer = await renderInvoicePdf(
       buildInvoiceModel({
         request,
-        hostelName: hostel?.name || "",
+        hostelName: formatHostelNames(resolvedHostels.names),
+        hostelNameByGuestIndex: Object.fromEntries(resolvedHostels.byGuestIndex),
         gstin: config?.gstin || "",
         studentName: request.applicantName,
       })
@@ -1013,10 +1141,12 @@ export const accommodationService = {
 
   // ---- Payment & allotment (Chief Warden Office + Accountant) ----
 
-  // Chief Warden Office issues the payment request. This is also where the hostel
-  // is chosen — the only point in the flow where allotment happens — so the beds
-  // are committed the moment the student is asked to pay.
+  // Chief Warden Office issues the payment request. This is also where each
+  // guest is allotted a hostel — the only point in the flow where allotment
+  // happens — so the beds are committed the moment the student is asked to pay.
   // Amount comes from per-guest price + GST chosen here (presets from settings or manual).
+  // body.guestAllotments: [{ guestIndex, hostelId }] (preferred). body.hostelId
+  // still allots every guest to one hostel (legacy).
   async issuePaymentRequest(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
@@ -1024,13 +1154,11 @@ export const accommodationService = {
       return badRequest("This request is not approved and ready for a payment request")
     }
 
-    const hostelId = body?.hostelId
-    if (!hostelId) return badRequest("Select a hostel for the guests")
-    const hostel = await hostelQueries.findHostelById(hostelId)
-    if (!hostel) return notFound("Hostel not found")
-
     const guests = Array.isArray(request.guests) ? request.guests : []
     if (!guests.length) return badRequest("This request has no guests")
+
+    const parsedAllotment = parseGuestAllotmentBody(body, guests)
+    if (parsedAllotment.error) return badRequest(parsedAllotment.error)
 
     const guestChargesInput = Array.isArray(body?.guestCharges) ? body.guestCharges : null
     if (!guestChargesInput || guestChargesInput.length !== guests.length) {
@@ -1043,11 +1171,20 @@ export const accommodationService = {
       guestCharges: guestChargesInput,
     })
     if (quote.error) return badRequest(quote.error)
-    if (!(quote.total > 0)) return badRequest("Total amount must be greater than zero")
+
+    const hostelDocs = await hostelQueries.findHostelsByIds(parsedAllotment.hostelIds)
+    const hostelById = new Map(hostelDocs.map((h) => [String(h._id), h]))
+    for (const hid of parsedAllotment.hostelIds) {
+      if (!hostelById.get(hid)) return notFound("Hostel not found")
+    }
 
     const config = await getAccommodationConfig()
     const remarks = String(body?.remarks || "").trim()
     const finalAmount = quote.total
+    const waived = !(finalAmount > 0)
+    const hostelNames = parsedAllotment.hostelIds.map((id) => hostelById.get(id)?.name).filter(Boolean)
+    const hostelLabel = formatHostelNames(hostelNames)
+    const primaryHostelId = parsedAllotment.hostelIds[0]
 
     /**
      * Availability is a read-then-write, and the write lands on *this* request's
@@ -1055,57 +1192,90 @@ export const accommodationService = {
      * so a transaction would not conflict and both would succeed. Serialising
      * per hostel is what actually prevents the oversell.
      */
-    const claim = await withLockRetry(`lock:accommodation:allot:${hostelId}`, 30, async () => {
-      const availability = await getHostelGuestAvailability({
-        hostelId,
-        from: request.stay.fromDate,
-        to: request.stay.toDate,
-        excludeRequestId: request._id,
-      })
-      // Rooms are given whole, so a booking is limited by free ROOMS first and
-      // by beds within them second.
-      const roomsNeeded = roomsNeededFor(request.persons, availability.largestRoom)
-      if (availability.availableRooms < roomsNeeded) {
-        return badRequest(
-          `No guest rooms left at ${hostel.name} for these dates (this booking needs ${roomsNeeded}, ${availability.availableRooms} free)`
-        )
-      }
-      if (availability.available < request.persons) {
-        return badRequest(
-          `Not enough beds at ${hostel.name} for these dates (need ${request.persons}, available ${availability.available})`
-        )
+    const claim = await withHostelLocks(parsedAllotment.hostelIds, async () => {
+      for (const [hid, count] of parsedAllotment.counts) {
+        const hostel = hostelById.get(hid)
+        const availability = await getHostelGuestAvailability({
+          hostelId: hid,
+          from: request.stay.fromDate,
+          to: request.stay.toDate,
+          excludeRequestId: request._id,
+        })
+        const roomsNeeded = roomsNeededFor(count, availability.largestRoom)
+        if (availability.availableRooms < roomsNeeded) {
+          return badRequest(
+            `No guest rooms left at ${hostel?.name || "this hostel"} for these dates (this booking needs ${roomsNeeded}, ${availability.availableRooms} free)`
+          )
+        }
+        if (availability.available < count) {
+          return badRequest(
+            `Not enough beds at ${hostel?.name || "this hostel"} for these dates (need ${count}, available ${availability.available})`
+          )
+        }
       }
 
       request.quote = quote
       request.payment.amount = finalAmount
       // QR image comes from Accommodation settings (uploaded fileRef). No payment link.
       request.payment.paymentLink = ""
-      request.payment.qrRef = config?.defaultPaymentQR || ""
+      request.payment.qrRef = waived ? "" : config?.defaultPaymentQR || ""
       request.payment.remarks = remarks
-      request.payment.status = PAYMENT_STATUS.PENDING
       request.payment.mode = null
-      request.allotment = { hostelId, allottedBy: user._id, allottedAt: new Date() }
+      request.guestAllotments = parsedAllotment.allotments
+      request.allotment = { hostelId: primaryHostelId, allottedBy: user._id, allottedAt: new Date() }
       request.currentStage = null
       request.stageDeadlineAt = null
-      applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, {
-        by: user._id,
-        note: `Payment requested · allotted to ${hostel.name} · ${finalAmount}`,
-      })
+      if (waived) {
+        // CW_APPROVED → PAYMENT_REQUESTED → PAYMENT_VERIFIED (state machine
+        // does not allow a direct jump). Student is not asked to pay ₹0.
+        request.payment.status = PAYMENT_STATUS.VERIFIED
+        request.payment.verifiedBy = user._id
+        request.payment.verifiedAt = new Date()
+        request.payment.note = "No charge"
+        applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, {
+          by: user._id,
+          note: `No charge · allotted to ${hostelLabel}`,
+        })
+        applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_VERIFIED, {
+          by: user._id,
+          note: "No payment due",
+        })
+      } else {
+        request.payment.status = PAYMENT_STATUS.PENDING
+        applyStatus(request, ACCOMMODATION_STATUS.PAYMENT_REQUESTED, {
+          by: user._id,
+          note: `Payment requested · allotted to ${hostelLabel} · ${finalAmount}`,
+        })
+      }
       await accommodationOwner.persist(request)
       return null
     })
 
     if (claim === LOCK_NOT_ACQUIRED) {
-      return badRequest(`${hostel.name} is being allotted by someone else right now — please try again in a moment`)
+      return badRequest("A selected hostel is being allotted by someone else right now — please try again in a moment")
     }
     if (claim) return claim // capacity check failed
+
+    if (waived) {
+      accommodationEmails
+        .sendStudentDecisionEmail({
+          requestId: request._id,
+          to: request.applicantEmail,
+          studentName: request.applicantName,
+          status: request.status,
+          reason: `No payment is due. Your guests have been allotted accommodation at ${hostelLabel}.`,
+        })
+        .catch(() => {})
+      notifySupervisorReadyForRooms(request)
+      return success(request, 200, "No charge — hostel allotted")
+    }
 
     accommodationEmails
       .sendPaymentRequestEmail({
         to: request.applicantEmail,
         studentName: request.applicantName,
         amount: request.payment.amount,
-        hostelName: hostel.name,
+        hostelName: hostelLabel,
         request,
       })
       .catch(() => {})
@@ -1573,26 +1743,30 @@ export const accommodationService = {
       extraAmount = 0
     }
 
-    // Capacity for the new window when a hostel is already allotted.
-    if (request.allotment?.hostelId) {
-      const hostelId = request.allotment.hostelId
-      const claim = await withLockRetry(`lock:accommodation:allot:${hostelId}`, 30, async () => {
-        const availability = await getHostelGuestAvailability({
-          hostelId,
-          from: newFrom,
-          to: newTo,
-          excludeRequestId: request._id,
-        })
-        const roomsNeeded = roomsNeededFor(request.persons, availability.largestRoom)
-        if (availability.availableRooms < roomsNeeded) {
-          return badRequest(
-            `Not enough guest rooms free for the new dates (need ${roomsNeeded}, ${availability.availableRooms} free)`
-          )
-        }
-        if (availability.available < request.persons) {
-          return badRequest(
-            `Not enough beds free for the new dates (need ${request.persons}, available ${availability.available})`
-          )
+    // Capacity for the new window when hostels are already allotted (per guest).
+    const allottedIds = uniqueAllottedHostelIds(request)
+    if (allottedIds.length) {
+      const claim = await withHostelLocks(allottedIds, async () => {
+        for (const hostelId of allottedIds) {
+          const need = personsAllottedToHostel(request, hostelId)
+          if (!need) continue
+          const availability = await getHostelGuestAvailability({
+            hostelId,
+            from: newFrom,
+            to: newTo,
+            excludeRequestId: request._id,
+          })
+          const roomsNeeded = roomsNeededFor(need, availability.largestRoom)
+          if (availability.availableRooms < roomsNeeded) {
+            return badRequest(
+              `Not enough guest rooms free for the new dates (need ${roomsNeeded}, ${availability.availableRooms} free)`
+            )
+          }
+          if (availability.available < need) {
+            return badRequest(
+              `Not enough beds free for the new dates (need ${need}, available ${availability.available})`
+            )
+          }
         }
         return null
       })
@@ -1773,9 +1947,8 @@ export const accommodationService = {
     }
     await accommodationOwner.persist(request)
 
-    const hostel = request.allotment?.hostelId
-      ? await hostelQueries.findHostelById(request.allotment.hostelId)
-      : null
+    const resolvedHostels = await resolveHostelNames(request)
+    const hostelName = formatHostelNames(resolvedHostels.names)
 
     // Render the HCU invoice sheet, then stash it so it can be re-downloaded
     // later. A storage failure must not cost the student their invoice email,
@@ -1785,7 +1958,8 @@ export const accommodationService = {
       pdf = await renderInvoicePdf(
         buildInvoiceModel({
           request,
-          hostelName: hostel?.name || "",
+          hostelName,
+          hostelNameByGuestIndex: Object.fromEntries(resolvedHostels.byGuestIndex),
           gstin: config?.gstin || "",
           studentName: request.applicantName,
         })
@@ -1814,7 +1988,7 @@ export const accommodationService = {
         number,
         quote: request.quote,
         gstin: config?.gstin,
-        hostelName: hostel?.name,
+        hostelName,
         request,
         pdf,
       })
@@ -1851,20 +2025,55 @@ export const accommodationService = {
     })
   },
 
-  // Supervisor assignment view: per-room free beds in the allotted hostel.
-  async getRoomAvailability(requestId) {
+  // Supervisor assignment view: per-room free beds in the hostels this
+  // supervisor owns for this request. Admins see every allotted hostel.
+  async getRoomAvailability(requestId, user) {
     const request = await accommodationQueries.findRequestByIdLean(requestId)
     if (!request) return notFound("Accommodation request not found")
-    if (!request.allotment?.hostelId) return badRequest("A hostel has not been allotted yet")
-    const rooms = await getGuestRoomAvailability({
-      hostelId: request.allotment.hostelId,
-      includeRoomIds: (request.rooms || []).map((r) => r.roomId),
+    const allottedIds = uniqueAllottedHostelIds(request)
+    if (!allottedIds.length) return badRequest("A hostel has not been allotted yet")
+
+    let hostelIds = allottedIds
+    let guestIndexes = Array.from({ length: request.guests?.length || request.persons || 0 }, (_, i) => i)
+    if (user?.role === ROLES.HOSTEL_SUPERVISOR) {
+      const mine = await supervisorHostelIds(user)
+      guestIndexes = guestIndexesForHostels(request, mine)
+      hostelIds = allottedIds.filter((id) => mine.includes(String(id)))
+      if (!guestIndexes.length || !hostelIds.length) {
+        return forbidden("No guests on this request are allotted to your hostel")
+      }
+    }
+
+    const rooms = []
+    const hostels = []
+    for (const hid of hostelIds) {
+      const mine = new Set(guestIndexesForHostel(request, hid))
+      const includeRoomIds = (request.rooms || [])
+        .filter((r) => (r.guestIndexes || []).some((i) => mine.has(Number(i))))
+        .map((r) => r.roomId)
+      const list = await getGuestRoomAvailability({ hostelId: hid, includeRoomIds })
+      const hostel = await hostelQueries.findHostelById(hid)
+      const tagged = list.map((r) => ({ ...r, hostelId: hid, hostelName: hostel?.name || "" }))
+      rooms.push(...tagged)
+      hostels.push({
+        hostelId: hid,
+        name: hostel?.name || "",
+        guestIndexes: guestIndexesForHostel(request, hid),
+        rooms: tagged,
+      })
+    }
+    return success({
+      stay: request.stay,
+      persons: guestIndexes.length,
+      guestIndexes,
+      rooms,
+      hostels,
     })
-    return success({ stay: request.stay, persons: request.persons, rooms })
   },
 
-  // Supervisor assigns specific guest rooms/beds (mandatory step). Reached only
-  // after payment is verified (pay-later also waits for payment first).
+  // Supervisor assigns rooms for the guests allotted to their hostel. Other
+  // hostels' assignments on the same request are left untouched. The request
+  // only moves to ROOMS_ASSIGNED once every guest has a room.
   async assignRooms(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
@@ -1880,13 +2089,17 @@ export const accommodationService = {
           : "This request is not ready for room assignment"
       )
     }
-    const hostelId = request.allotment?.hostelId
-    if (!hostelId) return badRequest("A hostel has not been allotted yet")
+
+    const mineHostels = await supervisorHostelIds(user)
+    if (!mineHostels.length) return forbidden("You are not assigned to a hostel")
+    const myGuests = guestIndexesForHostels(request, mineHostels)
+    if (!myGuests.length) return forbidden("No guests on this request are allotted to your hostel")
+    const myGuestSet = new Set(myGuests)
+    const persons = request.persons || (request.guests?.length || 0)
 
     const assignments = Array.isArray(body?.rooms) ? body.rooms : []
     if (assignments.length === 0) return badRequest("At least one room assignment is required")
 
-    const persons = request.persons || (request.guests?.length || 0)
     const allIndexes = []
     for (const assignment of assignments) {
       if (!assignment?.roomId) return badRequest("Each assignment needs a roomId")
@@ -1896,18 +2109,29 @@ export const accommodationService = {
         if (!Number.isInteger(index) || index < 0 || index >= persons) {
           return badRequest("Invalid guest index in assignment")
         }
+        if (!myGuestSet.has(index)) {
+          return forbidden("You can only assign rooms to visitors allotted to your hostel")
+        }
         allIndexes.push(index)
       }
     }
     const uniqueIndexes = new Set(allIndexes)
     if (uniqueIndexes.size !== allIndexes.length) return badRequest("A guest is assigned to more than one room")
-    if (uniqueIndexes.size !== persons) return badRequest("Every guest must be assigned to exactly one room")
+    if (uniqueIndexes.size !== myGuests.length) {
+      return badRequest("Assign a room to every visitor allotted to your hostel")
+    }
 
-    // Valid rooms = fully-empty Active rooms in the hostel, plus the ones this
-    // booking already holds (so a reassignment can keep them).
-    const prevRoomIds = new Set((request.rooms || []).map((r) => String(r.roomId)))
-    const availability = await getGuestRoomAvailability({ hostelId, includeRoomIds: [...prevRoomIds] })
-    const availById = new Map(availability.map((r) => [String(r.roomId), r]))
+    // Valid rooms = empty Active rooms in this supervisor's allotted hostels,
+    // plus rooms this booking already holds for those guests (reassignment).
+    const availById = new Map()
+    for (const hid of mineHostels.filter((id) => uniqueAllottedHostelIds(request).includes(String(id)))) {
+      const mine = new Set(guestIndexesForHostel(request, hid))
+      const includeRoomIds = (request.rooms || [])
+        .filter((r) => (r.guestIndexes || []).some((i) => mine.has(Number(i))))
+        .map((r) => r.roomId)
+      const list = await getGuestRoomAvailability({ hostelId: hid, includeRoomIds })
+      for (const r of list) availById.set(String(r.roomId), r)
+    }
     for (const assignment of assignments) {
       const info = availById.get(String(assignment.roomId))
       if (!info) return badRequest("One or more selected rooms are no longer available")
@@ -1918,27 +2142,41 @@ export const accommodationService = {
       }
     }
 
-    request.rooms = assignments.map((a) => ({ roomId: a.roomId, guestIndexes: a.guestIndexes }))
+    const prevRoomIds = new Set((request.rooms || []).map((r) => String(r.roomId)))
+    const kept = (request.rooms || []).filter(
+      (row) => !(row.guestIndexes || []).some((i) => myGuestSet.has(Number(i)))
+    )
+    const incoming = assignments.map((a) => ({ roomId: a.roomId, guestIndexes: a.guestIndexes }))
+    const merged = [...kept, ...incoming]
+    const covered = assignedGuestIndexes({ rooms: merged })
+    const allGuestCount = persons
+    const fullyAssigned = covered.size === allGuestCount && [...Array(allGuestCount).keys()].every((i) => covered.has(i))
+
+    request.rooms = merged
     request.roomsAssignedBy = user._id
     request.roomsAssignedAt = new Date()
-    if (request.status !== ACCOMMODATION_STATUS.ROOMS_ASSIGNED) {
+    if (fullyAssigned && request.status !== ACCOMMODATION_STATUS.ROOMS_ASSIGNED) {
       applyStatus(request, ACCOMMODATION_STATUS.ROOMS_ASSIGNED, { by: user._id, note: "Rooms assigned" })
-    } else {
+    } else if (fullyAssigned) {
       request.timeline.push({
         status: ACCOMMODATION_STATUS.ROOMS_ASSIGNED,
         by: user._id,
         at: new Date(),
         note: "Rooms re-assigned",
       })
+    } else {
+      request.timeline.push({
+        status: request.status,
+        by: user._id,
+        at: new Date(),
+        note: `Rooms assigned for ${myGuests.length} visitor(s) at this hostel`,
+      })
     }
     await accommodationOwner.persist(request)
 
-    // Flip the newly-held rooms to "Guest" and release any dropped on reassignment.
-    const newRoomIds = new Set(assignments.map((a) => String(a.roomId)))
+    const newRoomIds = new Set(merged.map((a) => String(a.roomId)))
     const toHold = [...newRoomIds].filter((id) => !prevRoomIds.has(id))
     const toRelease = [...prevRoomIds].filter((id) => !newRoomIds.has(id))
-    // Atomic guest holds/releases via the room owner (no capacity-clobbering RMW).
-    // Best-effort as before: a flip failure must not fail the already-saved request.
     try {
       await roomOwner.holdRoomsForGuest(toHold)
       await roomOwner.releaseRooms(toRelease)
@@ -1946,16 +2184,18 @@ export const accommodationService = {
       console.error("Guest room flip failed:", err.message)
     }
 
-    const hostel = await hostelQueries.findHostelById(hostelId)
-    accommodationEmails
-      .sendRoomsAssignedEmail({
-        to: request.applicantEmail,
-        studentName: request.applicantName,
-        hostelName: hostel?.name,
-        request,
-      })
-      .catch(() => {})
-    return success(request, 200, "Rooms assigned")
+    if (fullyAssigned) {
+      const resolved = await resolveHostelNames(request)
+      accommodationEmails
+        .sendRoomsAssignedEmail({
+          to: request.applicantEmail,
+          studentName: request.applicantName,
+          hostelName: formatHostelNames(resolved.names),
+          request,
+        })
+        .catch(() => {})
+    }
+    return success(request, 200, fullyAssigned ? "Rooms assigned" : "Rooms assigned for your hostel")
   },
 
   async checkIn(requestId, user) {

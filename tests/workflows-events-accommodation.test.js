@@ -27,6 +27,12 @@ import { setupTestDb, teardownTestDb } from "./helpers/db.js"
 import { as, anon } from "./helpers/http.js"
 import { seed } from "./helpers/seed.js"
 import { createHostel, createRoom } from "./helpers/seed/operations.js"
+import { seedHostelSupervisorProfile } from "./helpers/seed/admin-sw.js"
+
+async function supervisorFor(hostel) {
+  const { user } = await seedHostelSupervisorProfile({ hostels: [hostel], activeHostel: hostel })
+  return user
+}
 
 // ---- storage stub ----------------------------------------------------------
 // /upload/* and the accommodation invoice issue step both delegate to the
@@ -482,7 +488,7 @@ describe("workflow 2 — accommodation full lifecycle incl. extension additional
   })
 
   it("supervisor assigns both guests across two rooms; gate checks them in", async () => {
-    const supervisorApi = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+    const supervisorApi = await as(await supervisorFor(ctx.hostel))
     const res = await supervisorApi.post(`${ACC_BASE}/${ctx.requestId}/assign-rooms`).send({
       rooms: [
         { roomId: ctx.roomA._id, guestIndexes: [0] },
@@ -671,7 +677,7 @@ describe("workflow 2 seam — extension capacity vs. rooms the party already hol
       .then((a) => a.post(`${ACC_BASE}/${requestId}/payment-verify`).send({ action: "verify" }))
     expect(res.status).toBe(200)
 
-    res = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+    res = await as(await supervisorFor(hostel))
       .then((s) =>
         s.post(`${ACC_BASE}/${requestId}/assign-rooms`).send({
           rooms: [

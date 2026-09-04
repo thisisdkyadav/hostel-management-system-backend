@@ -283,9 +283,24 @@ const AccommodationRequestSchema = new mongoose.Schema(
     scheduleChanges: { type: [ScheduleChangeSchema], default: [] },
 
     allotment: {
+      // First / primary hostel (legacy single-hostel readers). Per-guest
+      // hostels live in guestAllotments — a request may split visitors.
       hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", default: null },
       allottedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
       allottedAt: { type: Date, default: null },
+    },
+    // Hostel chosen by Chief Warden Office for each visitor (index into guests[]).
+    guestAllotments: {
+      type: [
+        new mongoose.Schema(
+          {
+            guestIndex: { type: Number, required: true },
+            hostelId: { type: mongoose.Schema.Types.ObjectId, ref: "Hostel", required: true },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
     },
 
     rooms: { type: [RoomAssignmentSchema], default: [] },
@@ -311,6 +326,7 @@ AccommodationRequestSchema.index({ requesterUserId: 1, createdAt: -1 })
 AccommodationRequestSchema.index({ status: 1, createdAt: -1 })
 AccommodationRequestSchema.index({ currentStage: 1, stageDeadlineAt: 1 }) // auto-approve sweep
 AccommodationRequestSchema.index({ "allotment.hostelId": 1, status: 1 })
+AccommodationRequestSchema.index({ "guestAllotments.hostelId": 1, status: 1 })
 AccommodationRequestSchema.index({ "stay.fromDate": 1, "stay.toDate": 1 }) // availability overlap
 
 AccommodationRequestSchema.pre("save", function () {

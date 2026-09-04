@@ -14,8 +14,16 @@
 
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { accommodationQueries } from "../../../../services/accommodation/accommodationQueries.service.js"
+import { personsAllottedToHostel } from "./accommodation.allotment.js"
 
 const bedCount = (room) => room.originalCapacity || room.capacity || 0
+
+const roomSummary = (room) => ({
+  roomId: room._id,
+  roomNumber: room.roomNumber,
+  unitNumber: room.unitId?.unitNumber || null,
+  beds: bedCount(room),
+})
 
 /**
  * Hostel-level headroom (CW Office capacity + allotment view).
@@ -39,9 +47,9 @@ export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRe
     to,
     excludeRequestId,
   })
-  const committedBeds = pending.reduce((sum, req) => sum + (req.persons || 0), 0)
+  const committedBeds = pending.reduce((sum, req) => sum + personsAllottedToHostel(req, hostelId), 0)
   const committedRooms = pending.reduce(
-    (sum, req) => sum + roomsNeededFor(req.persons || 0, largestRoom),
+    (sum, req) => sum + roomsNeededFor(personsAllottedToHostel(req, hostelId), largestRoom),
     0
   )
 
@@ -56,6 +64,7 @@ export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRe
     availableRooms,
     // Beds a new party could actually occupy, capped by the rooms left for it.
     available: Math.max(0, Math.min(totalBeds - committedBeds, availableRooms * largestRoom)),
+    rooms: emptyRooms.map(roomSummary),
   }
 }
 

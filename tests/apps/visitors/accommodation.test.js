@@ -3,6 +3,7 @@ import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
 import { createHostel, createRoom } from "../../helpers/seed/operations.js"
+import { seedHostelSupervisorProfile } from "../../helpers/seed/admin-sw.js"
 
 beforeAll(async () => {
   await setupTestDb()
@@ -44,6 +45,11 @@ const cwo = () => seed.createUser({ role: "Admin", subRole: "Chief Warden Office
 const chiefWarden = () => seed.createUser({ role: "Admin", subRole: "Chief Warden" })
 const accountant = () => seed.createUser({ role: "Admin", subRole: "Accountant" })
 
+async function supervisorFor(hostel) {
+  const { user } = await seedHostelSupervisorProfile({ hostels: [hostel], activeHostel: hostel })
+  return user
+}
+
 async function submitFor(student, overrides = {}) {
   const api = await as(student)
   const res = await api.post("/api/v1/accommodation/requests").send({ ...validBody(), ...overrides })
@@ -52,8 +58,8 @@ async function submitFor(student, overrides = {}) {
 }
 
 /** submit -> capacity approve (routes to FA) -> bypass FA -> CW approve. */
-async function advanceToCwApproved(student) {
-  const request = await submitFor(student)
+async function advanceToCwApproved(student, overrides = {}) {
+  const request = await submitFor(student, overrides)
   const cwoApi = await as(await cwo())
   let res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/capacity-decision`).send({
     action: "approve",
@@ -478,13 +484,28 @@ describe("accommodation — payment request & hostel allotment (CW Office)", () 
     expect(res.status).toBe(400)
     expect(res.body.message).toMatch(/every guest/i)
 
-    // zero price refused
+    // missing price refused
     res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
       hostelId: hostel._id,
-      guestCharges: [{ guestIndex: 0, price: 0, gstPercentage: 0 }],
+      guestCharges: [{ guestIndex: 0, gstPercentage: 0 }],
     })
     expect(res.status).toBe(400)
     expect(res.body.message).toMatch(/price is required/i)
+
+    // negative / non-numeric price refused
+    res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [{ guestIndex: 0, price: -10, gstPercentage: 0 }],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/price is invalid/i)
+
+    res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [{ guestIndex: 0, price: "abc", gstPercentage: 0 }],
+    })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/price is invalid/i)
 
     // happy path
     res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
@@ -496,6 +517,95 @@ describe("accommodation — payment request & hostel allotment (CW Office)", () 
     expect(res.body.data.status).toBe("Payment Requested")
     expect(res.body.data.payment.amount).toBe(560) // 500 + 12%
     expect(String(res.body.data.allotment.hostelId)).toBe(String(hostel._id))
+    expect(res.body.data.guestAllotments).toEqual([
+      expect.objectContaining({ guestIndex: 0, hostelId: expect.anything() }),
+    ])
+    expect(String(res.body.data.guestAllotments[0].hostelId)).toBe(String(hostel._id))
+  })
+
+  it("Chief Warden Office may set 0 as the amount for any guest", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student, {
+      guests: [
+        { name: "Ramu Yadav", gender: "Male", age: 52, relation: "Father", aadharNumber: "111122223333" },
+        { name: "Sita Yadav", gender: "Female", age: 48, relation: "Mother", aadharNumber: "444455556666" },
+      ],
+    })
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: `Z-${Date.now() % 100000}`, capacity: 2 })
+    const api = await as(await cwo())
+
+    const res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      guestCharges: [
+        { guestIndex: 0, price: 500, gstPercentage: 0 },
+        { guestIndex: 1, price: 0, gstPercentage: 0 },
+      ],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Payment Requested")
+    expect(res.body.data.payment.amount).toBe(500)
+    expect(res.body.data.quote.guestCharges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ guestIndex: 0, price: 500, total: 500 }),
+        expect.objectContaining({ guestIndex: 1, price: 0, total: 0 }),
+      ])
+    )
+  })
+
+  it("all guests at 0 waives payment and allots the hostel as Payment Verified", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: `W-${Date.now() % 100000}`, capacity: 2 })
+    const api = await as(await cwo())
+
+    const res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostel._id,
+      remarks: "Complimentary stay",
+      guestCharges: [{ guestIndex: 0, price: 0, gstPercentage: 0 }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.message).toMatch(/no charge/i)
+    expect(res.body.data.status).toBe("Payment Verified")
+    expect(res.body.data.payment.amount).toBe(0)
+    expect(res.body.data.payment.status).toBe("Verified")
+    expect(res.body.data.payment.note).toBe("No charge")
+    expect(String(res.body.data.allotment.hostelId)).toBe(String(hostel._id))
+    expect(res.body.data.quote.guestCharges[0].price).toBe(0)
+  })
+
+  it("allots a different hostel per visitor and only counts those guests against each hostel", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student, {
+      guests: [
+        { name: "Ramu Yadav", gender: "Male", age: 52, relation: "Father", aadharNumber: "111122223333" },
+        { name: "Sita Yadav", gender: "Female", age: 48, relation: "Mother", aadharNumber: "444455556666" },
+      ],
+    })
+    const hostelA = await createHostel()
+    const hostelB = await createHostel()
+    await createRoom({ hostelId: hostelA._id, roomNumber: `PA-${Date.now() % 100000}`, capacity: 2 })
+    await createRoom({ hostelId: hostelB._id, roomNumber: `PB-${Date.now() % 100000}`, capacity: 2 })
+    const api = await as(await cwo())
+
+    const res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+      hostelId: hostelA._id, // ignored when guestAllotments is present
+      guestCharges: [
+        { guestIndex: 0, price: 400, gstPercentage: 0 },
+        { guestIndex: 1, price: 400, gstPercentage: 0 },
+      ],
+      guestAllotments: [
+        { guestIndex: 0, hostelId: hostelA._id },
+        { guestIndex: 1, hostelId: hostelB._id },
+      ],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Payment Requested")
+    expect(String(res.body.data.allotment.hostelId)).toBe(String(hostelA._id))
+    expect(res.body.data.guestAllotments).toHaveLength(2)
+    expect(String(res.body.data.guestAllotments[0].hostelId)).toBe(String(hostelA._id))
+    expect(String(res.body.data.guestAllotments[1].hostelId)).toBe(String(hostelB._id))
   })
 
   it("deferPayment moves Payment Requested -> Payment Deferred and refuses otherwise", async () => {
@@ -823,23 +933,30 @@ describe("accommodation — arrival tail (availability, rooms, check-in/out)", (
     expect(Array.isArray(res.body.data.hostels)).toBe(true)
     expect(res.body.data.pricing).toHaveProperty("priceOptions")
     expect(res.body.data.pricing).toHaveProperty("gstOptions")
+    if (res.body.data.hostels.length > 0) {
+      expect(res.body.data.hostels[0]).toHaveProperty("rooms")
+    }
   })
 
   it("room availability requires an allotted hostel; assignment validates coverage and beds", async () => {
     const student = await iitiStudent()
     const early = await submitFor(student) // no allotment yet
-    const supervisor = await seed.createUser({ role: "Hostel Supervisor" })
-    const supervisorApi = await as(supervisor)
+    const unscopedApi = await as(await seed.createUser({ role: "Hostel Supervisor" }))
 
-    let res = await supervisorApi.get(`/api/v1/accommodation/requests/${early._id}/room-availability`)
+    let res = await unscopedApi.get(`/api/v1/accommodation/requests/${early._id}/room-availability`)
     expect(res.status).toBe(400)
     expect(res.body.message).toMatch(/not been allotted/i)
 
     const { request, hostel, roomA } = await fullyVerified(await iitiStudent())
 
+    res = await unscopedApi.get(`/api/v1/accommodation/requests/${request._id}/room-availability`)
+    expect(res.status).toBe(403)
+
+    const supervisorApi = await as(await supervisorFor(hostel))
     res = await supervisorApi.get(`/api/v1/accommodation/requests/${request._id}/room-availability`)
     expect(res.status).toBe(200)
     expect(res.body.data.rooms.length).toBeGreaterThanOrEqual(1)
+    expect(res.body.data.guestIndexes).toEqual([0])
 
     // empty assignment refused
     res = await supervisorApi.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({ rooms: [] })
@@ -859,13 +976,79 @@ describe("accommodation — arrival tail (availability, rooms, check-in/out)", (
     expect(res.status).toBe(200)
     expect(res.body.data.status).toBe("Rooms Assigned")
     expect(String(res.body.data.rooms[0].roomId)).toBe(String(roomA._id))
+  })
 
-    void hostel
+  it("each supervisor only assigns visitors allotted to their hostel; rooms complete when both have assigned", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student, {
+      guests: [
+        { name: "Ramu Yadav", gender: "Male", age: 52, relation: "Father", aadharNumber: "111122223333" },
+        { name: "Sita Yadav", gender: "Female", age: 48, relation: "Mother", aadharNumber: "444455556666" },
+      ],
+    })
+    const hostelA = await createHostel()
+    const hostelB = await createHostel()
+    const hostelC = await createHostel()
+    const roomA = await createRoom({ hostelId: hostelA._id, roomNumber: `SA-${Date.now() % 100000}`, capacity: 2 })
+    const roomB = await createRoom({ hostelId: hostelB._id, roomNumber: `SB-${Date.now() % 100000}`, capacity: 2 })
+    await createRoom({ hostelId: hostelC._id, roomNumber: `SC-${Date.now() % 100000}`, capacity: 2 })
+
+    await as(await cwo()).then((c) =>
+      c.post(`/api/v1/accommodation/requests/${request._id}/payment-request`).send({
+        guestCharges: [
+          { guestIndex: 0, price: 300, gstPercentage: 0 },
+          { guestIndex: 1, price: 300, gstPercentage: 0 },
+        ],
+        guestAllotments: [
+          { guestIndex: 0, hostelId: hostelA._id },
+          { guestIndex: 1, hostelId: hostelB._id },
+        ],
+      })
+    )
+    await as(student).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+        utr: "123456789012",
+        paidAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+        screenshotFileRef: "media://payments/split.png",
+      })
+    )
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+
+    const supA = await as(await supervisorFor(hostelA))
+    const supB = await as(await supervisorFor(hostelB))
+    const supC = await as(await supervisorFor(hostelC))
+
+    const listA = await supA.get("/api/v1/accommodation/requests?limit=200")
+    expect(listA.body.data.items.some((r) => String(r._id) === String(request._id))).toBe(true)
+    const listC = await supC.get("/api/v1/accommodation/requests?limit=200")
+    expect(listC.body.data.items.some((r) => String(r._id) === String(request._id))).toBe(false)
+
+    // A cannot assign B's visitor
+    let res = await supA.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [{ roomId: roomB._id, guestIndexes: [1] }],
+    })
+    expect(res.status).toBe(403)
+
+    res = await supA.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [{ roomId: roomA._id, guestIndexes: [0] }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Payment Verified")
+    expect(res.body.data.rooms).toHaveLength(1)
+
+    res = await supB.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [{ roomId: roomB._id, guestIndexes: [1] }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.status).toBe("Rooms Assigned")
+    expect(res.body.data.rooms).toHaveLength(2)
   })
 
   it("gate check-in requires assigned rooms; check-out requires check-in", async () => {
     const student = await iitiStudent()
-    const { request, roomA } = await fullyVerified(student)
+    const { request, hostel, roomA } = await fullyVerified(student)
     const gate = await seed.createUser({ role: "Hostel Gate" })
     const gateApi = await as(gate)
 
@@ -874,7 +1057,7 @@ describe("accommodation — arrival tail (availability, rooms, check-in/out)", (
     expect(res.status).toBe(400)
     expect(res.body.message).toMatch(/rooms are assigned/i)
 
-    await as(await seed.createUser({ role: "Hostel Supervisor" })).then((s) =>
+    await as(await supervisorFor(hostel)).then((s) =>
       s.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
         rooms: [{ roomId: roomA._id, guestIndexes: [0] }],
       })
@@ -1094,7 +1277,7 @@ describe("accommodation — workflow transition violations", () => {
     })
     await as(student).then((a) => a.post(`/api/v1/accommodation/requests/${request._id}/defer-payment`))
 
-    const supervisorApi = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+    const supervisorApi = await as(await supervisorFor(hostel))
     const res = await supervisorApi.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
       rooms: [{ roomId: room._id, guestIndexes: [0] }],
     })
@@ -1122,7 +1305,7 @@ describe("accommodation — workflow transition violations", () => {
       a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
     )
     const gateApi = await as(await seed.createUser({ role: "Hostel Gate" }))
-    await as(await seed.createUser({ role: "Hostel Supervisor" })).then((s) =>
+    await as(await supervisorFor(hostel)).then((s) =>
       s.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
         rooms: [{ roomId: room._id, guestIndexes: [0] }],
       })
@@ -1342,7 +1525,7 @@ describe("accommodation — assignment duplicate-guest guard", () => {
       a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
     )
 
-    const supervisorApi = await as(await seed.createUser({ role: "Hostel Supervisor" }))
+    const supervisorApi = await as(await supervisorFor(hostel))
     const res = await supervisorApi.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
       rooms: [
         { roomId: roomA._id, guestIndexes: [0] },
