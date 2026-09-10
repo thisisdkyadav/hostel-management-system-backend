@@ -42,7 +42,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.dashboard", "Admin Dashboard", ["/admin"]),
   route("route.admin.liveCheckInOut", "Live Check In/Out", ["/admin/live-checkinout", "/admin/lc"]),
   route("route.admin.faceScanners", "Face Scanners", ["/admin/face-scanners", "/admin/fs"]),
-  route("route.admin.hostels", "Hostels", ["/admin/hostels", "/admin/hostels/:hostelName", "/admin/hostels/:hostelName/units/:unitNumber"]),
+  route("route.admin.hostels", "Hostels", ["/admin/hostels", "/admin/hostels/:hostelName", "/admin/hostels/:hostelName/units/:unitNumber", "/admin/hostel-explorer"]),
   route("route.admin.caterers", "Caterers", ["/admin/caterers"]),
   route("route.admin.diningPeriods", "Dining Periods", ["/admin/dining-periods"]),
   route("route.admin.diningRebates", "Dining Rebates", ["/admin/dining-rebates"]),
