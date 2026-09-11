@@ -258,6 +258,7 @@ class HostelSupervisorService {
         },
         hostel: user.hostel,
         pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
+        sidebarMode: user.sidebarMode || undefined,
       };
       await session.save();
     }

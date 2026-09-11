@@ -79,6 +79,7 @@ export const simAuthenticate = async (req, res, next) => {
       authz: userData.authz || {},
       hostel: userData.hostel || null,
       pinnedTabs: Array.isArray(userData.pinnedTabs) ? userData.pinnedTabs : [],
+      sidebarMode: userData.sidebarMode || undefined,
     };
     req.simSessionID = sessionID;
 

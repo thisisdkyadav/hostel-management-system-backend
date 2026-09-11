@@ -71,6 +71,7 @@ export const refreshUserData = async (req, res, next) => {
       authz: buildSessionAuthz(user),
       hostel: user.hostel,
       pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
+      sidebarMode: user.sidebarMode || undefined,
     }
 
     // Set req.user directly from session data
@@ -115,6 +116,7 @@ export const authenticate = async (req, res, next) => {
         authz: buildSessionAuthz(user),
         hostel: user.hostel,
         pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
+        sidebarMode: user.sidebarMode || undefined,
       }
 
       req.user = req.session.userData

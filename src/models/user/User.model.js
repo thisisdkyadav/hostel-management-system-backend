@@ -97,6 +97,11 @@ const UserSchema = new mongoose.Schema(
       type: [String],
       default: undefined,
     },
+    sidebarMode: {
+      type: String,
+      enum: ["v1", "v2", "v3", "v4"],
+      default: undefined,
+    },
     signature: {
       type: UserSignatureSchema,
       default: undefined,
