@@ -122,8 +122,8 @@ export const sendPaymentRequestEmail = async ({ to, studentName, amount, hostelN
     ${hostelLine}
     <p>Open your request in the SMS portal and scan the payment QR shown there.</p>
     <p>Stay: ${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}</p>
-    <p>Pay now and upload the UTR, payment date and a screenshot on the SMS portal — or choose
-    <strong>Pay later</strong>. Rooms will be allocated only after payment; you can pay when the guest arrives.</p>
+    <p>Pay now and upload the UTR, payment date and a screenshot on the SMS portal.
+    Rooms will be allocated only after payment is verified.</p>
     ${ctaButton(studentRequestLink(request?._id), "Pay & upload proof")}`
   await emailService.sendCustomEmail({ to, subject: "Payment requested for your accommodation request", body })
 }
