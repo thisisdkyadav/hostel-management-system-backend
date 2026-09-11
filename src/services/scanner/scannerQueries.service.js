@@ -69,6 +69,11 @@ export const scannerQueries = {
   async findActiveScanners() {
     return withScannerRefs(FaceScanner.find({ isActive: true }))
   },
+
+  /** Count scanners matching a filter (dashboard tallies). */
+  async countScanners(filter = {}) {
+    return FaceScanner.countDocuments(filter)
+  },
 }
 
 export default scannerQueries

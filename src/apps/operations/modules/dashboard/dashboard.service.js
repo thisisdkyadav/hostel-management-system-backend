@@ -13,6 +13,22 @@ import { hostelQueries } from '../../../../services/hostel/hostelQueries.service
 import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { porRequestQueries } from '../../../../services/club/porRequestQueries.service.js';
 import { eventProposalQueries } from '../../../../services/gymkhana/eventProposalQueries.service.js';
+import { activityCalendarQueries } from '../../../../services/gymkhana/activityCalendarQueries.service.js';
+import { eventExpenseQueries } from '../../../../services/gymkhana/eventExpenseQueries.service.js';
+import { megaEventQueries } from '../../../../services/gymkhana/megaEventQueries.service.js';
+import { gymkhanaEventQueries } from '../../../../services/gymkhana/gymkhanaEventQueries.service.js';
+import { lostAndFoundQueries } from '../../../../services/lost-found/lostAndFoundQueries.service.js';
+import { feedbackQueries } from '../../../../services/feedback/feedbackQueries.service.js';
+import { accommodationQueries } from '../../../../services/accommodation/accommodationQueries.service.js';
+import { taskQueries } from '../../../../services/task/taskQueries.service.js';
+import { discoQueries } from '../../../../services/disco/discoQueries.service.js';
+import { electionQueries } from '../../../../services/elections/electionQueries.service.js';
+import { attendanceQueries } from '../../../../services/attendance/attendanceQueries.service.js';
+import { expenditureQueries } from '../../../../services/expenditure/expenditureQueries.service.js';
+import { bestPerformerApplicationQueries } from '../../../../services/award/bestPerformerApplicationQueries.service.js';
+import { inventoryQueries } from '../../../../services/inventory/inventoryQueries.service.js';
+import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.service.js';
+import { scannerQueries } from '../../../../services/scanner/scannerQueries.service.js';
 import { HCU_MANAGED_SUBROLES, ROLES } from '../../../../core/constants/roles.constants.js';
 import { getDiningOfficeDashboard } from '../dining-office/dining-office-dashboard.service.js';
 import mongoose from 'mongoose';
@@ -52,6 +68,58 @@ const PROPOSAL_IN_PROCESS_STATUSES = [
   'pending_dean',
   'revision_requested',
 ]
+
+const CALENDAR_IN_PROCESS_STATUSES = [
+  'pending_president',
+  'pending_student_affairs',
+  'pending_officer',
+  'pending_associate_dean',
+  'pending_dean',
+]
+
+const EXPENSE_IN_PROCESS_STATUSES = [
+  'pending',
+  'pending_student_affairs',
+  'pending_officer',
+  'pending_associate_dean',
+  'pending_dean',
+]
+
+const ACCOMMODATION_PENDING_STATUSES = [
+  'Submitted',
+  'Pending CWO Capacity Check',
+  'Pending FA Recommendation',
+  'Pending CW Approval',
+  'Returned to Student',
+]
+
+const ACCOMMODATION_PAYMENT_STATUSES = [
+  'CW Approved',
+  'Payment Requested',
+  'Payment Deferred',
+  'Payment Submitted',
+  'Hostel Allotted',
+]
+
+const ACCOMMODATION_STAY_STATUSES = ['Rooms Assigned', 'Checked In']
+
+const TASK_OPEN_STATUSES = ['Created', 'Assigned', 'In Progress']
+
+const MAINTENANCE_TRADES = ['Plumbing', 'Electrical', 'Civil', 'Cleanliness', 'Internet', 'Attendant', 'Other']
+
+const hostelIdSet = (rows, field) => {
+  const ids = new Set()
+  for (const row of rows || []) {
+    const values = field === 'hostelIds' ? (row.hostelIds || []) : (row.hostelId ? [row.hostelId] : [])
+    for (const value of values) {
+      const id = value?._id || value
+      if (id) ids.add(String(id))
+    }
+  }
+  return ids
+}
+
+const emptyHostelIds = (row) => !Array.isArray(row?.hostelIds) || row.hostelIds.length === 0
 
 // Hosteller = not a day scholar. Matches Students page filter `isDayScholar=false`:
 // false, null, or field missing. Do NOT use `{ isDayScholar: false }` alone — that
@@ -340,18 +408,169 @@ class DashboardService {
    * Append another `{ key, label, count }` entry when a new type is added.
    */
   async getInProcessItems() {
-    const [por, proposals] = await Promise.all([
+    const [por, proposals, calendars, megaProposals, expenses] = await Promise.all([
       porRequestQueries.countRequests({ status: { $in: POR_IN_PROCESS_STATUSES } }),
       eventProposalQueries.countProposals({
         status: { $in: PROPOSAL_IN_PROCESS_STATUSES },
         isDeleted: { $ne: true },
       }),
+      activityCalendarQueries.countCalendars({ status: { $in: CALENDAR_IN_PROCESS_STATUSES } }),
+      megaEventQueries.countOccurrences({ 'proposal.status': { $in: PROPOSAL_IN_PROCESS_STATUSES } }),
+      eventExpenseQueries.countExpenses({ approvalStatus: { $in: EXPENSE_IN_PROCESS_STATUSES } }),
     ])
 
     return [
       { key: 'por', label: 'POR requests', count: por },
       { key: 'proposals', label: 'Event proposals', count: proposals },
+      { key: 'calendars', label: 'Activity calendars', count: calendars },
+      { key: 'megaProposals', label: 'Mega event proposals', count: megaProposals },
+      { key: 'expenses', label: 'Event bills', count: expenses },
     ]
+  }
+
+  async getStaffCoverage() {
+    const [hostels, wardens, associates, supervisors, security, gates] = await Promise.all([
+      hostelQueries.findActiveHostels(),
+      staffRolesQueries.listWithUser('Warden'),
+      staffRolesQueries.listWithUser('AssociateWarden'),
+      staffRolesQueries.listWithUser('HostelSupervisor'),
+      staffRolesQueries.listWithUser('Security'),
+      staffRolesQueries.listWithUser('HostelGate'),
+    ])
+
+    const wardenHostels = hostelIdSet(wardens, 'hostelIds')
+    const associateHostels = hostelIdSet(associates, 'hostelIds')
+    const supervisorHostels = hostelIdSet(supervisors, 'hostelIds')
+    const securityHostels = hostelIdSet(security, 'hostelId')
+    const gateHostels = hostelIdSet(gates, 'hostelId')
+    const uncovered = (covered) => hostels.filter((hostel) => !covered.has(String(hostel._id))).length
+
+    return {
+      totalHostels: hostels.length,
+      withoutWarden: uncovered(wardenHostels),
+      withoutAssociate: uncovered(associateHostels),
+      withoutSupervisor: uncovered(supervisorHostels),
+      withoutSecurity: uncovered(securityHostels),
+      withoutGate: uncovered(gateHostels),
+      unassignedWardens: wardens.filter(emptyHostelIds).length,
+      unassignedAssociates: associates.filter(emptyHostelIds).length,
+      unassignedSupervisors: supervisors.filter(emptyHostelIds).length,
+    }
+  }
+
+  /**
+   * Operational counts for the Hostels / Student Affairs / Staff dashboards.
+   */
+  async getOpsSnapshot() {
+    const now = new Date()
+    const today = new Date(now)
+    today.setHours(0, 0, 0, 0)
+    const weekAhead = new Date(today.getTime() + 7 * MS_PER_DAY)
+
+    const [
+      lostActive,
+      lostClaimed,
+      feedbackPending,
+      feedbackSeen,
+      visitorsPending,
+      visitorsPayment,
+      visitorsStay,
+      tasksOpen,
+      tasksOverdue,
+      leavesPending,
+      discoOpen,
+      discoFinalized,
+      discoRejected,
+      electionsPublished,
+      electionsDraft,
+      nominationsPending,
+      gymkhanaUpcoming,
+      gymkhanaProposalPending,
+      gymkhanaOverdue,
+      gymkhanaThisWeek,
+      megaPending,
+      attendanceOpen,
+      attendanceClosed,
+      expenditureOpen,
+      expenditureClosed,
+      awardSubmitted,
+      awardApproved,
+      inventoryEmpty,
+      scannersActive,
+      scannersInactive,
+      scannersGate,
+      scannersDining,
+      coverage,
+      maintenanceTrades,
+    ] = await Promise.all([
+      lostAndFoundQueries.countItems({ status: 'Active' }),
+      lostAndFoundQueries.countItems({ status: 'Claimed' }),
+      feedbackQueries.countFeedbacks({ status: 'Pending' }),
+      feedbackQueries.countFeedbacks({ status: 'Seen' }),
+      accommodationQueries.countRequests({ status: { $in: ACCOMMODATION_PENDING_STATUSES } }),
+      accommodationQueries.countRequests({ status: { $in: ACCOMMODATION_PAYMENT_STATUSES } }),
+      accommodationQueries.countRequests({ status: { $in: ACCOMMODATION_STAY_STATUSES } }),
+      taskQueries.countTasks({ status: { $in: TASK_OPEN_STATUSES } }),
+      taskQueries.countTasks({ status: { $in: TASK_OPEN_STATUSES }, dueDate: { $lt: today } }),
+      leaveQueries.countLeaves({ status: 'Pending' }),
+      discoQueries.countProcessCases({ caseStatus: 'under_process' }),
+      discoQueries.countProcessCases({ caseStatus: 'finalized_with_action' }),
+      discoQueries.countProcessCases({ caseStatus: 'final_rejected' }),
+      electionQueries.countElections({ status: 'published' }),
+      electionQueries.countElections({ status: 'draft' }),
+      electionQueries.countNominations({ status: 'pending' }),
+      gymkhanaEventQueries.countEvents({ isMegaEvent: { $ne: true }, status: { $in: ['upcoming', 'proposal_pending', 'proposal_submitted', 'proposal_approved'] } }),
+      gymkhanaEventQueries.countEvents({ isMegaEvent: { $ne: true }, status: { $in: ['upcoming', 'proposal_pending'] }, proposalSubmitted: { $ne: true } }),
+      gymkhanaEventQueries.countEvents({
+        isMegaEvent: { $ne: true },
+        status: { $in: ['upcoming', 'proposal_pending'] },
+        proposalSubmitted: { $ne: true },
+        proposalDueDate: { $lt: now },
+      }),
+      gymkhanaEventQueries.countEvents({
+        isMegaEvent: { $ne: true },
+        status: { $nin: ['cancelled', 'completed'] },
+        scheduledStartDate: { $gte: today, $lt: weekAhead },
+      }),
+      megaEventQueries.countOccurrences({ status: { $in: ['proposal_pending', 'proposal_submitted'] } }),
+      attendanceQueries.countOccurrences({ status: 'open' }),
+      attendanceQueries.countOccurrences({ status: 'closed' }),
+      expenditureQueries.countOccurrences({ status: 'open' }),
+      expenditureQueries.countOccurrences({ status: 'closed' }),
+      bestPerformerApplicationQueries.countApplications({ 'review.status': 'submitted' }),
+      bestPerformerApplicationQueries.countApplications({ 'review.status': 'approved' }),
+      inventoryQueries.countHostelInventory({ availableCount: { $lte: 0 } }),
+      scannerQueries.countScanners({ isActive: true }),
+      scannerQueries.countScanners({ isActive: false }),
+      scannerQueries.countScanners({ type: 'hostel-gate' }),
+      scannerQueries.countScanners({ type: 'dining-meal' }),
+      this.getStaffCoverage(),
+      Promise.all(MAINTENANCE_TRADES.map((category) => staffRolesQueries.countByRole('MaintenanceStaff', { category }))),
+    ])
+
+    return {
+      lostAndFound: { active: lostActive, claimed: lostClaimed, total: lostActive + lostClaimed },
+      visitors: { pending: visitorsPending, payment: visitorsPayment, inStay: visitorsStay },
+      feedbacks: { pending: feedbackPending, seen: feedbackSeen, total: feedbackPending + feedbackSeen },
+      tasks: { open: tasksOpen, overdue: tasksOverdue },
+      leaves: { pending: leavesPending },
+      inventory: { empty: inventoryEmpty },
+      disciplinary: { underProcess: discoOpen, finalized: discoFinalized, rejected: discoRejected },
+      elections: { published: electionsPublished, draft: electionsDraft, nominationsPending },
+      gymkhana: {
+        upcoming: gymkhanaUpcoming,
+        proposalPending: gymkhanaProposalPending,
+        overdueProposals: gymkhanaOverdue,
+        thisWeek: gymkhanaThisWeek,
+      },
+      megaEvents: { pending: megaPending },
+      attendance: { open: attendanceOpen, closed: attendanceClosed },
+      expenditure: { open: expenditureOpen, closed: expenditureClosed },
+      awards: { submitted: awardSubmitted, approved: awardApproved },
+      scanners: { active: scannersActive, inactive: scannersInactive, hostelGate: scannersGate, dining: scannersDining },
+      coverage,
+      maintenanceTrades: MAINTENANCE_TRADES.map((label, index) => ({ key: label, label, count: maintenanceTrades[index] || 0 })),
+    }
   }
 
   /**
@@ -390,7 +609,7 @@ class DashboardService {
    * Get complete dashboard data for admin
    */
   async getDashboardData() {
-    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess, staff, dining] = await Promise.all([
+    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess, staff, dining, ops] = await Promise.all([
       this.getStudentStats(),
       this.getHostelStats(),
       this.getEvents(),
@@ -401,6 +620,7 @@ class DashboardService {
       this.getInProcessItems(),
       this.getStaffCounts(),
       this.getDiningSnapshot(),
+      this.getOpsSnapshot(),
     ]);
 
     return success({
@@ -414,6 +634,7 @@ class DashboardService {
       inProcess,
       staff,
       dining,
+      ops,
     });
   }
 

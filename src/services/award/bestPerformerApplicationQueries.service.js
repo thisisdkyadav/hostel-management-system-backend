@@ -53,6 +53,11 @@ export const bestPerformerApplicationQueries = {
       "name email"
     )
   },
+
+  /** Count applications matching a filter (dashboard tallies). */
+  async countApplications(filter = {}) {
+    return OverallBestPerformerApplication.countDocuments(filter)
+  },
 }
 
 export default bestPerformerApplicationQueries

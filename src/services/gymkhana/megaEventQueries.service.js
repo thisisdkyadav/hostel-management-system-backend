@@ -51,6 +51,11 @@ export const megaEventQueries = {
     return MegaEventOccurrence.countDocuments({ seriesId })
   },
 
+  /** Count occurrences matching a filter (dashboard tallies). */
+  async countOccurrences(filter = {}) {
+    return MegaEventOccurrence.countDocuments(filter)
+  },
+
   /** Occurrences whose embedded proposal is at a given status (approval queue). */
   async findOccurrencesByProposalStatus(status) {
     return MegaEventOccurrence.find({ "proposal.status": status })

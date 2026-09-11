@@ -55,6 +55,11 @@ export const expenditureQueries = {
   async findOccurrenceById(id) {
     return ExpenditureOccurrence.findById(id)
   },
+
+  /** Count occurrences matching a filter (dashboard tallies). */
+  async countOccurrences(filter = {}) {
+    return ExpenditureOccurrence.countDocuments(filter)
+  },
 }
 
 export default expenditureQueries

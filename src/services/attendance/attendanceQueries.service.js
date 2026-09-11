@@ -43,6 +43,11 @@ export const attendanceQueries = {
     return AttendanceOccurrence.findById(id).lean()
   },
 
+  /** Count occurrences matching a filter (dashboard tallies). */
+  async countOccurrences(filter = {}) {
+    return AttendanceOccurrence.countDocuments(filter)
+  },
+
   // ==================== AttendanceRecord ====================
 
   /** Present-count per occurrence for a set of ids -> [{ _id, count }]. */

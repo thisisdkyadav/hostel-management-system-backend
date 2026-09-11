@@ -70,6 +70,11 @@ describe("dashboard — admin views", () => {
     expect(Array.isArray(res.body.data.staff)).toBe(true)
     expect(res.body.data.staff.length).toBeGreaterThan(0)
     expect(res.body.data).toHaveProperty("dining")
+    expect(res.body.data.ops).toBeDefined()
+    expect(res.body.data.ops.lostAndFound).toEqual(expect.objectContaining({ active: expect.any(Number), claimed: expect.any(Number) }))
+    expect(res.body.data.ops.disciplinary).toEqual(expect.objectContaining({ underProcess: expect.any(Number) }))
+    expect(res.body.data.ops.coverage).toEqual(expect.objectContaining({ totalHostels: expect.any(Number), withoutWarden: expect.any(Number) }))
+    expect(res.body.data.inProcess.some((item) => item.key === "calendars")).toBe(true)
 
     res = await as(await seed.superAdmin()).then((a) => a.get("/api/v1/dashboard"))
     expect(res.status).toBe(200)
