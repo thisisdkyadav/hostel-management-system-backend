@@ -67,6 +67,9 @@ describe("dashboard — admin views", () => {
     expect(res.status).toBe(200)
     expect(res.body.success).toBe(true)
     expect(res.body.data).toBeDefined()
+    expect(Array.isArray(res.body.data.staff)).toBe(true)
+    expect(res.body.data.staff.length).toBeGreaterThan(0)
+    expect(res.body.data).toHaveProperty("dining")
 
     res = await as(await seed.superAdmin()).then((a) => a.get("/api/v1/dashboard"))
     expect(res.status).toBe(200)

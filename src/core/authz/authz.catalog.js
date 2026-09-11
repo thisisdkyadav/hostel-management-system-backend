@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 17
+export const AUTHZ_CATALOG_VERSION = 18
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -39,7 +39,13 @@ const constraint = (key, label, valueType, defaultValue = null) => ({
 
 export const AUTHZ_ROUTE_DEFINITIONS = [
   // Admin
-  route("route.admin.dashboard", "Admin Dashboard", ["/admin"]),
+  route("route.admin.dashboard", "Admin Dashboard", [
+    "/admin",
+    "/admin/dashboard/hostels",
+    "/admin/dashboard/student-affairs",
+    "/admin/dashboard/staff",
+    "/admin/dashboard/dining",
+  ]),
   route("route.admin.liveCheckInOut", "Live Check In/Out", ["/admin/live-checkinout", "/admin/lc"]),
   route("route.admin.faceScanners", "Face Scanners", ["/admin/face-scanners", "/admin/fs"]),
   route("route.admin.hostels", "Hostels", ["/admin/hostels", "/admin/hostels/:hostelName", "/admin/hostels/:hostelName/units/:unitNumber", "/admin/hostel-explorer"]),

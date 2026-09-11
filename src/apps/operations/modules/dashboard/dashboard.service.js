@@ -13,7 +13,8 @@ import { hostelQueries } from '../../../../services/hostel/hostelQueries.service
 import { userQueries } from '../../../../services/user/userQueries.service.js';
 import { porRequestQueries } from '../../../../services/club/porRequestQueries.service.js';
 import { eventProposalQueries } from '../../../../services/gymkhana/eventProposalQueries.service.js';
-import { ROLES } from '../../../../core/constants/roles.constants.js';
+import { HCU_MANAGED_SUBROLES, ROLES } from '../../../../core/constants/roles.constants.js';
+import { getDiningOfficeDashboard } from '../dining-office/dining-office-dashboard.service.js';
 import mongoose from 'mongoose';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -354,10 +355,42 @@ class DashboardService {
   }
 
   /**
+   * Headcounts for the Staff dashboard roster. Links match the Staff nav.
+   */
+  async getStaffCounts() {
+    const items = [
+      { key: 'wardens', label: 'Wardens', to: '/admin/wardens', filter: { role: ROLES.WARDEN } },
+      { key: 'associateWardens', label: 'Associate wardens', to: '/admin/associate-wardens', filter: { role: ROLES.ASSOCIATE_WARDEN } },
+      { key: 'hostelSupervisors', label: 'Hostel supervisors', to: '/admin/hostel-supervisors', filter: { role: ROLES.HOSTEL_SUPERVISOR } },
+      { key: 'hcu', label: 'HCU users', to: '/admin/administrators', filter: { role: ROLES.ADMIN, subRole: { $in: HCU_MANAGED_SUBROLES } } },
+      { key: 'gymkhana', label: 'Gymkhana members', to: '/admin/gymkhana', filter: { role: ROLES.GYMKHANA } },
+      { key: 'academics', label: 'Academics', to: '/admin/academics', filter: { role: ROLES.ACADEMICS } },
+      { key: 'security', label: 'Security', to: '/admin/security', filter: { role: ROLES.SECURITY } },
+      { key: 'maintenance', label: 'Maintenance', to: '/admin/maintenance', filter: { role: ROLES.MAINTENANCE_STAFF } },
+    ]
+
+    const counts = await Promise.all(items.map((item) => userQueries.countUsers(item.filter)))
+    return items.map(({ key, label, to }, index) => ({ key, label, to, count: counts[index] || 0 }))
+  }
+
+  /**
+   * Dining Office snapshot, reused so admin Dining matches that portal.
+   * Failure here must not take down the rest of the dashboard.
+   */
+  async getDiningSnapshot() {
+    try {
+      const result = await getDiningOfficeDashboard()
+      return result?.data || null
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * Get complete dashboard data for admin
    */
   async getDashboardData() {
-    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess] = await Promise.all([
+    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess, staff, dining] = await Promise.all([
       this.getStudentStats(),
       this.getHostelStats(),
       this.getEvents(),
@@ -366,6 +399,8 @@ class DashboardService {
       this.getUsersOnLeave(),
       this.getResolverRankings(),
       this.getInProcessItems(),
+      this.getStaffCounts(),
+      this.getDiningSnapshot(),
     ]);
 
     return success({
@@ -377,6 +412,8 @@ class DashboardService {
       leaves,
       ratings: resolverRankings,
       inProcess,
+      staff,
+      dining,
     });
   }
 
