@@ -334,6 +334,59 @@ describe("authz — session-shape resilience", () => {
     expect(res.status).toBe(200)
   })
 
+  it("does not persist authz.effective into a Go-shaped shared session", async () => {
+    const warden = await seed.warden()
+    const { env } = await import("../src/config/env.config.js")
+    const sid = crypto.randomBytes(24).toString("hex")
+    const redis = new Redis(env.REDIS_URL)
+    const sig = crypto
+      .createHmac("sha256", env.SESSION_SECRET)
+      .update(sid)
+      .digest("base64")
+      .replace(/=+$/, "")
+    const cookie = `connect.sid=s:${sid}.${sig}`
+
+    try {
+      await redis.set(
+        `${env.REDIS_SESSION_PREFIX}${sid}`,
+        JSON.stringify({
+          cookie: {
+            originalMaxAge: 604800000,
+            expires: new Date(Date.now() + 604800000).toISOString(),
+            secure: false,
+            httpOnly: true,
+            path: "/",
+            sameSite: "lax",
+          },
+          userId: String(warden._id),
+          userData: {
+            _id: String(warden._id),
+            email: warden.email,
+            role: "Warden",
+            subRole: null,
+            authz: { override: {} },
+            hostel: null,
+            pinnedTabs: [],
+          },
+          role: "Warden",
+          email: warden.email,
+        }),
+        "EX",
+        3600
+      )
+
+      const api = await clientFor(cookie)
+      const res = await api.get("/api/v1/tasks/my-tasks")
+      expect(res.status).toBe(200)
+
+      const stored = JSON.parse(await redis.get(`${env.REDIS_SESSION_PREFIX}${sid}`))
+      expect(stored.userData.authz.effective).toBeUndefined()
+      expect(stored.userData.role).toBe("Warden")
+    } finally {
+      redis.disconnect()
+    }
+  })
+
   it("session whose user was deleted falls back to the DB and answers 401 'User not found'", async () => {
     const user = await seed.student()
     const cookie = await rawSession({

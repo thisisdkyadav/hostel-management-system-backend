@@ -6,6 +6,17 @@ import { createRedisSessionStore } from "../services/session/redisSession.store.
 import { env } from "./env.config.js"
 
 /**
+ * Cookie SameSite must match go-backend defaultSameSite:
+ * - HTTPS / production: None (cross-site frontend + API)
+ * - plain HTTP / development: Lax
+ *
+ * Strict in development overwrites the Go-issued Lax cookie the first time
+ * Node persists a non-student session, and the next reload looks logged out.
+ * Production must stay None; Lax here would drop cookies on the real site.
+ */
+export const defaultSessionSameSite = (isDevelopment) => (isDevelopment ? "lax" : "None")
+
+/**
  * Create session configuration
  * Note: Must be called after env is loaded
  */
@@ -20,7 +31,7 @@ export const createSessionConfig = () => ({
   cookie: {
     httpOnly: true,
     secure: !env.isDevelopment,
-    sameSite: env.isDevelopment ? "Strict" : "None",
+    sameSite: defaultSessionSameSite(env.isDevelopment),
     maxAge: env.SESSION_TTL_SECONDS * 1000,
   },
 })

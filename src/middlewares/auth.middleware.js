@@ -5,26 +5,21 @@
 import { userQueries } from "../services/user/userQueries.service.js"
 import { AUTHZ_CATALOG_VERSION, buildEffectiveAuthzForUser, extractUserAuthzOverride } from "../core/authz/index.js"
 
-const buildSessionAuthz = (userLike) => {
-  const override = extractUserAuthzOverride(userLike)
-  const effective = buildEffectiveAuthzForUser({
-    role: userLike.role,
-    subRole: userLike.subRole ?? null,
-    authz: { override },
-  })
-
-  return { override, effective }
-}
+const buildPersistedSessionAuthz = (userLike) => ({
+  override: extractUserAuthzOverride(userLike),
+})
 
 const withAuthzSessionData = (sessionUserData = {}) => {
-  const hasLegacyPermissions = Object.prototype.hasOwnProperty.call(sessionUserData, "permissions")
   const { permissions: _legacyPermissions, ...sanitizedUserData } = sessionUserData
 
   if (
     sanitizedUserData?.authz?.effective &&
     sanitizedUserData.authz.effective.catalogVersion === AUTHZ_CATALOG_VERSION
   ) {
-    return { userData: sanitizedUserData, shouldPersist: hasLegacyPermissions && sanitizedUserData.role !== "Student" }
+    // Hydrate in-memory only. The Redis document is shared with Go, which
+    // omits authz.effective by contract. Writing it back reissues Set-Cookie
+    // and logs non-student users out on reload in development.
+    return { userData: sanitizedUserData, shouldPersist: false }
   }
 
   const fallbackOverride = sanitizedUserData?.authz?.override || {}
@@ -41,9 +36,7 @@ const withAuthzSessionData = (sessionUserData = {}) => {
     },
   }
 
-  // Student traffic is dominant and does not need session rewrites for authz hydration.
-  const shouldPersist = sanitizedUserData.role !== "Student"
-  return { userData: nextUserData, shouldPersist }
+  return { userData: nextUserData, shouldPersist: false }
 }
 
 /**
@@ -68,15 +61,14 @@ export const refreshUserData = async (req, res, next) => {
       email: user.email,
       role: user.role,
       subRole: user.subRole,
-      authz: buildSessionAuthz(user),
+      authz: buildPersistedSessionAuthz(user),
       hostel: user.hostel,
       pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
       sidebarMode: user.sidebarMode || undefined,
       theme: user.theme || undefined,
     }
 
-    // Set req.user directly from session data
-    req.user = req.session.userData
+    req.user = withAuthzSessionData(req.session.userData).userData
 
     next()
   } catch (error) {
@@ -114,14 +106,14 @@ export const authenticate = async (req, res, next) => {
         email: user.email,
         role: user.role,
         subRole: user.subRole,
-        authz: buildSessionAuthz(user),
+        authz: buildPersistedSessionAuthz(user),
         hostel: user.hostel,
         pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
         sidebarMode: user.sidebarMode || undefined,
         theme: user.theme || undefined,
       }
 
-      req.user = req.session.userData
+      req.user = withAuthzSessionData(req.session.userData).userData
     }
 
     next()

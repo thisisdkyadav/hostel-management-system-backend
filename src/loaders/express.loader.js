@@ -27,7 +27,7 @@ import studentAffairsApp from '../apps/student-affairs/index.js';
 import visitorsApp from '../apps/visitors/index.js';
 import operationsApp from '../apps/operations/index.js';
 import campusLifeApp from '../apps/campus-life/index.js';
-import { createRedisSessionStore } from '../services/session/redisSession.store.js';
+import { createSessionConfig } from '../config/session.config.js';
 import simApp from '../apps/sim/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,24 +53,7 @@ const regularCorsOptions = {
  * @returns {Function} Session middleware
  */
 export const createSessionMiddleware = () => {
-  const isDevelopment = env.NODE_ENV === 'development';
-  const sessionTtlSeconds = env.SESSION_TTL_SECONDS;
-  
-  return session({
-    secret: env.SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: createRedisSessionStore({
-      prefix: env.REDIS_SESSION_PREFIX,
-      ttlSeconds: sessionTtlSeconds,
-    }),
-    cookie: {
-      httpOnly: true,
-      secure: !isDevelopment,
-      sameSite: !isDevelopment ? 'None' : 'Strict',
-      maxAge: sessionTtlSeconds * 1000,
-    },
-  });
+  return session(createSessionConfig());
 };
 
 /**
