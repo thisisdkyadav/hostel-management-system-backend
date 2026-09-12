@@ -31,6 +31,7 @@ import { staffRolesQueries } from '../../../../services/user/staffRolesQueries.s
 import { scannerQueries } from '../../../../services/scanner/scannerQueries.service.js';
 import { HCU_MANAGED_SUBROLES, ROLES } from '../../../../core/constants/roles.constants.js';
 import { getDiningOfficeDashboard } from '../dining-office/dining-office-dashboard.service.js';
+import { countSessionActivity } from '../../../../services/session/redisSessionMeta.service.js';
 import mongoose from 'mongoose';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000
@@ -38,6 +39,22 @@ const PAST_MONTH_MS = 30 * MS_PER_DAY
 const PAST_YEAR_MS = 365 * MS_PER_DAY
 const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN]
 const RESOLVER_LIST_LIMIT = 5
+const EMPTY_ACTIVITY = {
+  daily: 0,
+  weekly: 0,
+  dailyByRole: { students: 0, staff: 0 },
+  weeklyByRole: { students: 0, staff: 0 },
+}
+
+const splitActivityRoles = (users = []) => {
+  let students = 0
+  let staff = 0
+  for (const user of users) {
+    if (user?.role === ROLES.STUDENT) students += 1
+    else staff += 1
+  }
+  return { students, staff }
+}
 
 const RATING_WINDOWS = {
   '1M': PAST_MONTH_MS,
@@ -606,10 +623,37 @@ class DashboardService {
   }
 
   /**
+   * Unique users who opened the app (session lastActive), last 24h / 7d.
+   * Redis failure must not take down the rest of the dashboard.
+   */
+  async getActivitySnapshot() {
+    try {
+      const activity = await countSessionActivity()
+      const loadRoles = async (ids) => {
+        const valid = (Array.isArray(ids) ? ids : []).filter((id) => mongoose.Types.ObjectId.isValid(id))
+        if (valid.length === 0) return []
+        return userQueries.findUsers({ _id: { $in: valid } }, { select: 'role', lean: true })
+      }
+      const [dailyUsers, weeklyUsers] = await Promise.all([
+        loadRoles(activity.dailyUserIds),
+        loadRoles(activity.weeklyUserIds),
+      ])
+      return {
+        daily: activity.daily || 0,
+        weekly: activity.weekly || 0,
+        dailyByRole: splitActivityRoles(dailyUsers),
+        weeklyByRole: splitActivityRoles(weeklyUsers),
+      }
+    } catch {
+      return { ...EMPTY_ACTIVITY }
+    }
+  }
+
+  /**
    * Get complete dashboard data for admin
    */
   async getDashboardData() {
-    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess, staff, dining, ops] = await Promise.all([
+    const [students, hostels, events, complaints, hostlerAndDayScholarCounts, leaves, resolverRankings, inProcess, staff, dining, ops, activity] = await Promise.all([
       this.getStudentStats(),
       this.getHostelStats(),
       this.getEvents(),
@@ -621,6 +665,7 @@ class DashboardService {
       this.getStaffCounts(),
       this.getDiningSnapshot(),
       this.getOpsSnapshot(),
+      this.getActivitySnapshot(),
     ]);
 
     return success({
@@ -635,6 +680,7 @@ class DashboardService {
       staff,
       dining,
       ops,
+      activity,
     });
   }
 

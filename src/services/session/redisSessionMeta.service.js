@@ -180,6 +180,88 @@ export const revokeUserSessions = async (userId) => {
   return sessionIds.length;
 };
 
+const USER_SESSIONS_KEY_PREFIX = `${USER_SESSIONS_PREFIX}:`;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+const emptyActivity = () => ({
+  daily: 0,
+  weekly: 0,
+  signedIn: 0,
+  dailyUserIds: [],
+  weeklyUserIds: [],
+});
+
+const userIdFromSessionsKey = (key) => {
+  const index = String(key).indexOf(USER_SESSIONS_KEY_PREFIX);
+  if (index < 0) return "";
+  return String(key).slice(index + USER_SESSIONS_KEY_PREFIX.length);
+};
+
+const scanSessionUserKeys = async (client) => {
+  const keys = [];
+  const stream = client.scanStream({ match: `${USER_SESSIONS_KEY_PREFIX}*`, count: 200 });
+
+  await new Promise((resolve, reject) => {
+    stream.on("data", (batch) => {
+      if (Array.isArray(batch) && batch.length > 0) keys.push(...batch);
+    });
+    stream.on("end", resolve);
+    stream.on("error", reject);
+  });
+
+  return keys;
+};
+
+/**
+ * Unique users with a live session, bucketed by session lastActive.
+ * lastActive is written by Go on login and on /authz/me (every app open).
+ * Sessions expire after SESSION_TTL_SECONDS (7 days), so weekly ≈ signed-in.
+ */
+export const countSessionActivity = async (now = new Date()) => {
+  try {
+    const client = getSessionRedisClient();
+    const keys = await scanSessionUserKeys(client);
+    if (keys.length === 0) return emptyActivity();
+
+    const pipeline = client.pipeline();
+    keys.forEach((key) => pipeline.zrevrange(key, 0, 0, "WITHSCORES"));
+    const rows = await pipeline.exec();
+
+    const nowMs = now instanceof Date ? now.getTime() : Date.now();
+    const dayAgo = nowMs - DAY_MS;
+    const weekAgo = nowMs - WEEK_MS;
+    const dailyUserIds = [];
+    const weeklyUserIds = [];
+    const signedInIds = [];
+
+    keys.forEach((key, index) => {
+      const userId = userIdFromSessionsKey(key);
+      const tuple = rows?.[index];
+      const result = Array.isArray(tuple) ? tuple[1] : null;
+      if (!userId || !Array.isArray(result) || result.length < 2) return;
+
+      const lastActive = Number(result[1]);
+      if (!Number.isFinite(lastActive)) return;
+
+      signedInIds.push(userId);
+      if (lastActive >= weekAgo) weeklyUserIds.push(userId);
+      if (lastActive >= dayAgo) dailyUserIds.push(userId);
+    });
+
+    return {
+      daily: dailyUserIds.length,
+      weekly: weeklyUserIds.length,
+      signedIn: signedInIds.length,
+      dailyUserIds,
+      weeklyUserIds,
+    };
+  } catch (error) {
+    console.error("Error counting session activity:", error?.message || error);
+    return emptyActivity();
+  }
+};
+
 export const deleteSessionMeta = async (sessionId, userId = null) => {
   const sessionIdString = sessionId?.toString?.() || "";
   if (!sessionIdString) return false;

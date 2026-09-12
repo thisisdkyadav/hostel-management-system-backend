@@ -10,6 +10,11 @@ import {
   createAllocation,
 } from "../../helpers/seed/operations.js"
 import { createComplaint } from "../../helpers/seed/complaints.js"
+import {
+  countSessionActivity,
+  createSessionMeta,
+  deleteSessionMeta,
+} from "../../../src/services/session/redisSessionMeta.service.js"
 
 beforeAll(async () => {
   await setupTestDb()
@@ -75,6 +80,12 @@ describe("dashboard — admin views", () => {
     expect(res.body.data.ops.disciplinary).toEqual(expect.objectContaining({ underProcess: expect.any(Number) }))
     expect(res.body.data.ops.coverage).toEqual(expect.objectContaining({ totalHostels: expect.any(Number), withoutWarden: expect.any(Number) }))
     expect(res.body.data.inProcess.some((item) => item.key === "calendars")).toBe(true)
+    expect(res.body.data.activity).toEqual(expect.objectContaining({
+      daily: expect.any(Number),
+      weekly: expect.any(Number),
+      dailyByRole: expect.objectContaining({ students: expect.any(Number), staff: expect.any(Number) }),
+      weeklyByRole: expect.objectContaining({ students: expect.any(Number), staff: expect.any(Number) }),
+    }))
 
     res = await as(await seed.superAdmin()).then((a) => a.get("/api/v1/dashboard"))
     expect(res.status).toBe(200)
@@ -403,5 +414,44 @@ describe("dashboard — resolver rankings and in-process", () => {
     expect(byKey.proposals).toMatchObject({ label: "Event proposals" })
     expect(Number(byKey.por.count)).toBeGreaterThanOrEqual(1)
     expect(Number(byKey.proposals.count)).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe("dashboard — session activity", () => {
+  it("counts unique users by session lastActive windows", async () => {
+    const student = await seed.student()
+    const staff = await seed.warden()
+    const stale = await seed.student()
+    const now = new Date()
+    const threeDaysAgo = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000)
+    const tenDaysAgo = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000)
+    const studentSid = `dash-dau-${student._id}`
+    const staffSid = `dash-wau-${staff._id}`
+    const staleSid = `dash-old-${stale._id}`
+
+    await createSessionMeta({ userId: student._id, sessionId: studentSid, lastActive: now })
+    await createSessionMeta({ userId: staff._id, sessionId: staffSid, lastActive: threeDaysAgo })
+    await createSessionMeta({ userId: stale._id, sessionId: staleSid, lastActive: tenDaysAgo })
+
+    try {
+      const counted = await countSessionActivity(now)
+      expect(counted.dailyUserIds).toContain(String(student._id))
+      expect(counted.dailyUserIds).not.toContain(String(staff._id))
+      expect(counted.weeklyUserIds).toContain(String(student._id))
+      expect(counted.weeklyUserIds).toContain(String(staff._id))
+      expect(counted.weeklyUserIds).not.toContain(String(stale._id))
+
+      const res = await as(await seed.admin()).then((a) => a.get("/api/v1/dashboard"))
+      expect(res.status).toBe(200)
+      expect(res.body.data.activity.daily).toBeGreaterThanOrEqual(1)
+      expect(res.body.data.activity.weekly).toBeGreaterThanOrEqual(2)
+      expect(res.body.data.activity.dailyByRole.students).toBeGreaterThanOrEqual(1)
+      expect(res.body.data.activity.weeklyByRole.staff).toBeGreaterThanOrEqual(1)
+      expect(res.body.data.activity).not.toHaveProperty("dailyUserIds")
+    } finally {
+      await deleteSessionMeta(studentSid, student._id)
+      await deleteSessionMeta(staffSid, staff._id)
+      await deleteSessionMeta(staleSid, stale._id)
+    }
   })
 })
