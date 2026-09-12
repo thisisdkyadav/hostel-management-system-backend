@@ -72,6 +72,7 @@ export const refreshUserData = async (req, res, next) => {
       hostel: user.hostel,
       pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
       sidebarMode: user.sidebarMode || undefined,
+      theme: user.theme || undefined,
     }
 
     // Set req.user directly from session data
@@ -117,6 +118,7 @@ export const authenticate = async (req, res, next) => {
         hostel: user.hostel,
         pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
         sidebarMode: user.sidebarMode || undefined,
+        theme: user.theme || undefined,
       }
 
       req.user = req.session.userData

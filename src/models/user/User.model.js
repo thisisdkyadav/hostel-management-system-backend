@@ -102,6 +102,11 @@ const UserSchema = new mongoose.Schema(
       enum: ["v1", "v2", "v3", "v4"],
       default: undefined,
     },
+    theme: {
+      type: String,
+      enum: ["light", "dark"],
+      default: undefined,
+    },
     signature: {
       type: UserSignatureSchema,
       default: undefined,

@@ -239,6 +239,7 @@ class AssociateWardenService {
         hostel: user.hostel,
         pinnedTabs: Array.isArray(user.pinnedTabs) ? user.pinnedTabs : [],
         sidebarMode: user.sidebarMode || undefined,
+        theme: user.theme || undefined,
       };
       await session.save();
     }
