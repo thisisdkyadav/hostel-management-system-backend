@@ -38,6 +38,7 @@ const HOSTEL_STAFF_STUDENT_DOCS = new Set([
   'h2-forms',
   'certificates',
   'payment-screenshots',
+  'insurance-docs',
 ]);
 const DISCO_POLICIES = new Set(['disco-process-docs']);
 const SIGNATURE_POLICIES = new Set(['signature-images']);

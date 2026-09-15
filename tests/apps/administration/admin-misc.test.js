@@ -15,10 +15,12 @@
  * asserted below are the ones actually observed from the app.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import http from "node:http"
 import bcrypt from "bcrypt"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
+import { extractRollNumberFromInsurancePdfFilename } from "../../../src/apps/administration/modules/admin/insuranceProvider.service.js"
 import {
   createHostel,
   createStudentProfile,
@@ -908,5 +910,155 @@ describe("POST /admin/student/health/bulk-update", () => {
 
     const health = await adminApi.get(`${BASE}/student/health/${student._id}`)
     expect(health.body.health.bloodGroup).toBe("AB-")
+  })
+})
+
+describe("extractRollNumberFromInsurancePdfFilename", () => {
+  it("reads the roll number from {id}_{rollNumber}.pdf", () => {
+    expect(extractRollNumberFromInsurancePdfFilename("10238188_230001024.pdf")).toBe("230001024")
+    expect(extractRollNumberFromInsurancePdfFilename("10238188_230001024.PDF")).toBe("230001024")
+    expect(extractRollNumberFromInsurancePdfFilename("/tmp/10238188_230001024.pdf")).toBe("230001024")
+    expect(extractRollNumberFromInsurancePdfFilename("230001024.pdf")).toBe("230001024")
+  })
+
+  it("returns null for missing or non-pdf names", () => {
+    expect(extractRollNumberFromInsurancePdfFilename("")).toBeNull()
+    expect(extractRollNumberFromInsurancePdfFilename("10238188_230001024.txt")).toBeNull()
+    expect(extractRollNumberFromInsurancePdfFilename("_.pdf")).toBeNull()
+  })
+})
+
+describe("POST /admin/insurance-providers/student-document", () => {
+  const PDF_BYTES = Buffer.from("%PDF-1.4\n% fake insurance pdf\n%%EOF\n")
+  const url = `${BASE}/insurance-providers/student-document`
+
+  let stubServer
+  let originalServiceUrl
+  let originalInternalKey
+  let pdfUser
+  let pdfRoll
+
+  beforeAll(async () => {
+    stubServer = http.createServer((req, res) => {
+      const chunks = []
+      req.on("data", (c) => chunks.push(c))
+      req.on("end", () => {
+        const raw = Buffer.concat(chunks)
+        const text = raw.toString("latin1")
+        const field = (name) => {
+          const m = text.match(new RegExp(`name="${name}"\\r\\n\\r\\n([^\\r\\n]+)`))
+          return m ? m[1] : ""
+        }
+        const fileMeta = (() => {
+          const m = text.match(/name="file"; filename="([^"]*)"\r\nContent-Type: ([^\r\n]+)/i)
+          return m ? { filename: m[1], contentType: m[2] } : { filename: "", contentType: "" }
+        })()
+        const n = Date.now()
+        const name = fileMeta.filename || "upload.bin"
+        res.setHeader("content-type", "application/json")
+        res.end(
+          JSON.stringify({
+            file_id: `stub-ins-${n}`,
+            file_ref: `media://stub/ins-${n}-${name}`,
+            url: `http://storage.test/ins-${n}-${name}`,
+            content_type: fileMeta.contentType || "application/pdf",
+            size: raw.length,
+            original_name: name,
+            policy: field("policy"),
+          })
+        )
+      })
+    })
+    await new Promise((resolve) => stubServer.listen(0, "127.0.0.1", resolve))
+    const { env } = await import("../../../src/config/env.config.js")
+    originalServiceUrl = env.storage.serviceUrl
+    originalInternalKey = env.storage.internalApiKey
+    env.storage.serviceUrl = `http://127.0.0.1:${stubServer.address().port}`
+    if (!originalInternalKey) env.storage.internalApiKey = "test-internal-key"
+
+    pdfUser = await seed.student()
+    pdfRoll = (await createStudentProfile({ userId: pdfUser._id, rollNumber: "230001024" })).rollNumber
+  })
+
+  afterAll(async () => {
+    const { env } = await import("../../../src/config/env.config.js")
+    if (originalServiceUrl !== null) env.storage.serviceUrl = originalServiceUrl
+    else env.storage.serviceUrl = ""
+    if (originalInternalKey !== null) env.storage.internalApiKey = originalInternalKey
+    else env.storage.internalApiKey = ""
+    await new Promise((resolve) => stubServer.close(resolve))
+  })
+
+  it("401 for unauthenticated requests", async () => {
+    const res = await anonApi.post(url).attach("document", PDF_BYTES, "10238188_230001024.pdf")
+    expect(res.status).toBe(401)
+  })
+
+  it("403 for non-admin roles", async () => {
+    const res = await studentApi.post(url).attach("document", PDF_BYTES, "10238188_230001024.pdf")
+    expect(res.status).toBe(403)
+  })
+
+  it("400 when no file is uploaded", async () => {
+    const res = await adminApi.post(url)
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/no file uploaded/i)
+  })
+
+  it("400 when the file name has no roll number", async () => {
+    const res = await adminApi.post(url).attach("document", PDF_BYTES, "notes.txt")
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/roll number/i)
+  })
+
+  it("404 when no student matches the roll number in the file name", async () => {
+    const res = await adminApi.post(url).attach("document", PDF_BYTES, "10238188_999999999.pdf")
+    expect(res.status).toBe(404)
+    expect(res.body.message).toMatch(/999999999/i)
+  })
+
+  it("attaches the PDF to the student named in the file", async () => {
+    const res = await adminApi.post(url).attach("document", PDF_BYTES, `10238188_${pdfRoll}.pdf`)
+    expect(res.status).toBe(200)
+    expect(res.body.rollNumber).toBe(pdfRoll)
+    expect(String(res.body.userId)).toBe(String(pdfUser._id))
+    expect(res.body.documentRef).toMatch(/^media:\/\/stub\//)
+    expect(res.body.documentName).toBe(`10238188_${pdfRoll}.pdf`)
+
+    const health = await adminApi.get(`${BASE}/student/health/${pdfUser._id}`)
+    expect(health.status).toBe(200)
+    expect(health.body.health.insurance.documentRef).toBe(res.body.documentRef)
+    expect(health.body.health.insurance.documentName).toBe(`10238188_${pdfRoll}.pdf`)
+  })
+
+  it("replaces a previous PDF and keeps insurance number when health is updated", async () => {
+    const provider = await createProviderViaApi()
+    const first = await adminApi.post(url).attach("document", PDF_BYTES, `10238188_${pdfRoll}.pdf`)
+    expect(first.status).toBe(200)
+
+    const second = await adminApi.post(url).attach("document", PDF_BYTES, `99999999_${pdfRoll.toLowerCase()}.pdf`)
+    expect(second.status).toBe(200)
+    expect(second.body.documentRef).not.toBe(first.body.documentRef)
+    expect(second.body.documentName).toBe(`99999999_${pdfRoll.toLowerCase()}.pdf`)
+
+    const put = await adminApi.put(`${BASE}/student/health/${pdfUser._id}`).send({
+      bloodGroup: "O+",
+      insurance: { insuranceProvider: provider._id, insuranceNumber: "POL-PDF-1" },
+    })
+    expect(put.status).toBe(200)
+    expect(put.body.health.insurance.insuranceNumber).toBe("POL-PDF-1")
+    expect(put.body.health.insurance.documentRef).toBe(second.body.documentRef)
+    expect(put.body.health.insurance.documentName).toBe(`99999999_${pdfRoll.toLowerCase()}.pdf`)
+
+    const bulk = await adminApi.post(`${BASE}/insurance-providers/bulk-student-update`).send({
+      insuranceProviderId: provider._id,
+      studentsData: [{ rollNumber: pdfRoll, insuranceNumber: "POL-PDF-2" }],
+    })
+    expect(bulk.status).toBe(200)
+
+    const health = await adminApi.get(`${BASE}/student/health/${pdfUser._id}`)
+    expect(health.body.health.insurance.insuranceNumber).toBe("POL-PDF-2")
+    expect(health.body.health.insurance.documentRef).toBe(second.body.documentRef)
+    expect(health.body.health.insurance.documentName).toBe(`99999999_${pdfRoll.toLowerCase()}.pdf`)
   })
 })

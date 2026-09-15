@@ -130,6 +130,7 @@ describe("upload — auth wall", () => {
     ["post", "/api/v1/upload/signature-image"],
     ["post", "/api/v1/upload/election-nomination-document"],
     ["post", "/api/v1/upload/por-document-pdf"],
+    ["post", "/api/v1/upload/insurance-pdf"],
   ]
   it("401 on every route without a session", async () => {
     const api = await anon()
@@ -346,6 +347,29 @@ describe("upload — size limits (election nomination / POR / disCo)", () => {
 
     const studentApi = await as(await seed.student())
     expect((await studentApi.post("/api/v1/upload/disco-process-pdf").attach("document", pdf(), "d.pdf")).status).toBe(403)
+  })
+})
+
+describe("upload — insurance PDF", () => {
+  it("admins only; attaches to the student named in the file", async () => {
+    const { createStudentProfile } = await import("../../helpers/seed/operations.js")
+    const student = await seed.student()
+    const rollNumber = (await createStudentProfile({ userId: student._id, rollNumber: "230009999" })).rollNumber
+    const adminApi = await as(await seed.admin())
+
+    const studentApi = await as(student)
+    expect(
+      (await studentApi.post("/api/v1/upload/insurance-pdf").attach("document", pdf(), `10238188_${rollNumber}.pdf`)).status
+    ).toBe(403)
+
+    const before = received.length
+    const res = await adminApi
+      .post("/api/v1/upload/insurance-pdf")
+      .attach("document", pdf(), `10238188_${rollNumber}.pdf`)
+    expect(res.status).toBe(200)
+    expect(res.body.rollNumber).toBe(rollNumber)
+    expect(res.body.documentRef).toMatch(/^media:\/\/stub\//)
+    expect(received[before].policy).toBe("insurance-pdf")
   })
 })
 

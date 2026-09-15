@@ -228,7 +228,14 @@ export async function createFamilyMember({ userId, name, relationship = "Father"
   })
 }
 
-export async function createHealthRecord({ userId, bloodGroup, insuranceNumber, insuranceProvider } = {}) {
+export async function createHealthRecord({
+  userId,
+  bloodGroup,
+  insuranceNumber,
+  insuranceProvider,
+  documentRef,
+  documentName,
+} = {}) {
   const { Health } = await models()
   return Health.create({
     userId,
@@ -236,6 +243,8 @@ export async function createHealthRecord({ userId, bloodGroup, insuranceNumber, 
     insurance: {
       ...(insuranceProvider ? { insuranceProvider } : {}),
       ...(insuranceNumber ? { insuranceNumber } : {}),
+      ...(documentRef ? { documentRef } : {}),
+      ...(documentName ? { documentName } : {}),
     },
   })
 }

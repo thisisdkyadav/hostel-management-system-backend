@@ -11,6 +11,8 @@ const HealthSchema = new mongoose.Schema({
   insurance: {
     insuranceProvider: { type: mongoose.Schema.Types.ObjectId, ref: "InsuranceProvider" },
     insuranceNumber: { type: String },
+    documentRef: { type: String },
+    documentName: { type: String },
   },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

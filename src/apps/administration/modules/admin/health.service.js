@@ -33,7 +33,23 @@ class HealthService {
    * @param {Object} data - Health data
    */
   async updateHealth(userId, { bloodGroup, insurance }) {
-    const health = await healthOwner.updateHealthByUser(userId, { bloodGroup, insurance });
+    const updates = {};
+    if (bloodGroup !== undefined) updates.bloodGroup = bloodGroup;
+    if (insurance && typeof insurance === 'object') {
+      if ('insuranceProvider' in insurance) {
+        updates['insurance.insuranceProvider'] = insurance.insuranceProvider || null;
+      }
+      if ('insuranceNumber' in insurance) {
+        updates['insurance.insuranceNumber'] = insurance.insuranceNumber || null;
+      }
+      if ('documentRef' in insurance) {
+        updates['insurance.documentRef'] = insurance.documentRef || null;
+      }
+      if ('documentName' in insurance) {
+        updates['insurance.documentName'] = insurance.documentName || null;
+      }
+    }
+    const health = await healthOwner.updateHealthByUser(userId, updates);
     return success({ message: 'Health updated', health });
   }
 

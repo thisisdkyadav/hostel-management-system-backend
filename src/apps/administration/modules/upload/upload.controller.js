@@ -7,6 +7,7 @@
  */
 
 import { uploadService } from './upload.service.js';
+import { insuranceProviderService } from '../admin/insuranceProvider.service.js';
 import { asyncHandler } from '../../../../utils/index.js';
 
 /**
@@ -260,6 +261,24 @@ export const uploadPorDocumentPDF = asyncHandler(async (req, res) => {
 
   if (!result.success) {
     return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
+ * Attach one insurance PDF to the student named in the file.
+ * Same handler as POST /admin/insurance-providers/student-document.
+ */
+export const uploadInsurancePdf = asyncHandler(async (req, res) => {
+  const result = await insuranceProviderService.attachStudentInsurancePdf({
+    file: getFileFromRequest(req),
+    actorId: req.user?._id,
+    actorRole: req.user?.role,
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, error: result.error || result.message });
   }
 
   return res.status(result.statusCode).json(result.data);

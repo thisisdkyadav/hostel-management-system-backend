@@ -5,6 +5,7 @@
  * @module services/insuranceProvider.service
  */
 
+import path from 'node:path';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { success, notFound, badRequest, error, conflict, withTransaction } from '../../../../services/base/index.js';
 import { healthOwner } from '../../../../services/health/healthOwner.service.js';
@@ -12,6 +13,23 @@ import { healthQueries } from '../../../../services/health/healthQueries.service
 import { insuranceOwner } from '../../../../services/insurance/insuranceOwner.service.js';
 import { insuranceQueries } from '../../../../services/insurance/insuranceQueries.service.js';
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
+import { invalidateStudentDashboardCache } from '../../../../utils/redisCache.js';
+import { uploadService } from '../upload/upload.service.js';
+
+/**
+ * Insurance PDFs are named `{id}_{rollNumber}.pdf`, e.g. `10238188_230001024.pdf`.
+ * The roll number is the last `_`-separated token of the basename.
+ */
+export const extractRollNumberFromInsurancePdfFilename = (filename) => {
+  const base = path.basename(String(filename || '')).trim();
+  const match = base.match(/^(.+)\.pdf$/i);
+  if (!match) return null;
+  const stem = match[1].trim();
+  if (!stem) return null;
+  const lastUnderscore = stem.lastIndexOf('_');
+  const roll = (lastUnderscore === -1 ? stem : stem.slice(lastUnderscore + 1)).trim();
+  return roll ? roll.toUpperCase() : null;
+};
 
 // Entity label for the response envelopes this service used to inherit from the
 // former BaseService entity name ('Insurance provider').
@@ -165,7 +183,13 @@ class InsuranceProviderService {
           bulkUpdateOps.push({
             updateOne: {
               filter: { _id: healthRecordMap[userIdStr]._id },
-              update: { $set: { insurance: insuranceObj, updatedAt: Date.now() } }
+              update: {
+                $set: {
+                  'insurance.insuranceProvider': insuranceObj.insuranceProvider,
+                  'insurance.insuranceNumber': insuranceObj.insuranceNumber,
+                  updatedAt: Date.now(),
+                }
+              }
             }
           });
         } else {
@@ -203,6 +227,68 @@ class InsuranceProviderService {
         },
         successDetails: results.success
       });
+    });
+  }
+
+  /**
+   * Attach one insurance PDF to the student whose roll number is in the filename.
+   * @param {Object} params
+   * @param {Express.Multer.File} params.file
+   * @param {string} params.actorId
+   * @param {string} params.actorRole
+   */
+  async attachStudentInsurancePdf({ file, actorId, actorRole }) {
+    if (!file) {
+      return badRequest('No file uploaded');
+    }
+
+    const rollNumber = extractRollNumberFromInsurancePdfFilename(file.originalname);
+    if (!rollNumber) {
+      return badRequest('Could not read a roll number from the file name. Use {id}_{rollNumber}.pdf');
+    }
+
+    const studentProfile = await studentProfileQueries.findByRollNumberCaseInsensitive(rollNumber, {
+      select: 'userId rollNumber',
+      lean: true,
+    });
+    if (!studentProfile?.userId) {
+      return notFound(`Student with roll number ${rollNumber}`);
+    }
+
+    const uploadResult = await uploadService.uploadInsurancePdf({
+      userId: studentProfile.userId,
+      actorId,
+      actorRole,
+      file,
+    });
+    if (!uploadResult.success) {
+      return error(uploadResult.message || 'Failed to upload insurance PDF', uploadResult.statusCode || 502);
+    }
+
+    const documentRef = uploadResult.data?.fileRef;
+    const documentName = uploadResult.data?.originalName || file.originalname;
+    if (!documentRef) {
+      return error('Failed to upload insurance PDF', 502);
+    }
+
+    let health;
+    try {
+      health = await healthOwner.setInsuranceDocumentByUser(studentProfile.userId, {
+        documentRef,
+        documentName,
+      });
+    } catch (err) {
+      return error('Failed to attach insurance PDF', 500, err.message);
+    }
+
+    await invalidateStudentDashboardCache(studentProfile.userId);
+
+    return success({
+      message: 'Insurance PDF attached',
+      rollNumber: studentProfile.rollNumber,
+      userId: studentProfile.userId,
+      documentRef: health?.insurance?.documentRef || documentRef,
+      documentName: health?.insurance?.documentName || documentName,
     });
   }
 }

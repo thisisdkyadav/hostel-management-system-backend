@@ -213,6 +213,19 @@ export const studentProfileQueries = {
     return StudentProfile.countDocuments(filter)
   },
 
+  /**
+   * One profile by case-insensitive exact roll number. Options: { select, lean }.
+   * Used by insurance PDF attach, which reads the roll from a filename.
+   */
+  async findByRollNumberCaseInsensitive(rollNumber, { select, lean } = {}) {
+    let query = StudentProfile.findOne({
+      rollNumber: { $regex: new RegExp(`^${escapeRegex(rollNumber)}$`, "i") },
+    })
+    if (select) query = query.select(select)
+    if (lean) query = query.lean()
+    return query
+  },
+
   /** One profile by a single roll number. Options: { select, lean }. */
   async findByRollNumber(rollNumber, { select, lean } = {}) {
     let query = StudentProfile.findOne({ rollNumber })

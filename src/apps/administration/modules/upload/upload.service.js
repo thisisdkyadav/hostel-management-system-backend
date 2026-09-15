@@ -266,6 +266,22 @@ class UploadService {
     });
   }
 
+  async uploadInsurancePdf({ userId, actorId, actorRole, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    const sizeValidation = validateSize(file, TEN_MB);
+    if (!sizeValidation.ok) return sizeValidation;
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'insurance-pdf',
+      actorId: actorId || userId,
+      actorRole: actorRole || 'Admin',
+      entityHint: String(userId || ''),
+    });
+  }
+
   async uploadPorDocumentPDF({ userId, file }) {
     const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
     if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');

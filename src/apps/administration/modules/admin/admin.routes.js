@@ -6,6 +6,7 @@
  */
 
 import express from 'express';
+import multer from 'multer';
 import {
   addHostel,
   getHostels,
@@ -93,6 +94,7 @@ import {
   updateInsuranceProvider,
   deleteInsuranceProvider,
   updateBulkStudentInsurance,
+  attachStudentInsurancePdf,
 } from './insuranceProviderController.js';
 import {
   getHealth,
@@ -115,6 +117,22 @@ import { requireAnyCapability, requireRouteAccess } from '../../../../middleware
 import { routeGuard } from '../../../../lib/api-kit/index.js';
 
 const router = express.Router();
+
+const TEN_MB = 10 * 1024 * 1024;
+const insurancePdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: TEN_MB },
+});
+
+const handleInsurancePdfUpload = (req, res, next) => {
+  insurancePdfUpload.single('document')(req, res, (error) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'Document size must be 10MB or smaller' });
+    }
+    if (error) return next(error);
+    return next();
+  });
+};
 
 // All routes require authentication
 router.use(authenticate);
@@ -236,6 +254,12 @@ router.post('/insurance-providers', requireRouteAccess('route.admin.settings'), 
 router.put('/insurance-providers/:id', requireRouteAccess('route.admin.settings'), updateInsuranceProvider);
 router.delete('/insurance-providers/:id', requireRouteAccess('route.admin.settings'), deleteInsuranceProvider);
 router.post('/insurance-providers/bulk-student-update', requireRouteAccess('route.admin.students'), updateBulkStudentInsurance);
+router.post(
+  '/insurance-providers/student-document',
+  requireRouteAccess('route.admin.students'),
+  handleInsurancePdfUpload,
+  attachStudentInsurancePdf
+);
 
 // Student health management
 router.get('/student/health/:userId', requireRouteAccess('route.admin.students'), getHealth);

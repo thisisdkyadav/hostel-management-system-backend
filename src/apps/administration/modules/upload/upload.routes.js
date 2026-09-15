@@ -23,6 +23,7 @@ import {
   uploadElectionNominationDocument,
   uploadOverallBestPerformerProofPDF,
   uploadPorDocumentPDF,
+  uploadInsurancePdf,
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -50,6 +51,13 @@ const guardOverallBestPerformer = routeGuard(
 const guardPor = routeGuard(
   {
     [ROLES.STUDENT]: 'route.student.por',
+  },
+  { onUnmapped: 'allow' }
+);
+
+const guardInsurancePdf = routeGuard(
+  {
+    [ROLES.ADMIN]: 'route.admin.students',
   },
   { onUnmapped: 'allow' }
 );
@@ -217,6 +225,14 @@ router.post(
   guardPor(['Student']),
   handleElectionNominationUpload,
   uploadPorDocumentPDF
+);
+
+// Student insurance PDF (roll number is in the filename)
+router.post(
+  '/insurance-pdf',
+  guardInsurancePdf(['Admin']),
+  handleElectionNominationUpload,
+  uploadInsurancePdf
 );
 
 export default router;

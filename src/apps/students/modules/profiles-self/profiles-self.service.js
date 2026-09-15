@@ -34,11 +34,15 @@ const toObjectIdString = (value) => {
 const buildInsuranceSummary = (health) => {
   const insuranceNumber = health?.insurance?.insuranceNumber || null;
   const provider = health?.insurance?.insuranceProvider;
+  const documentRef = health?.insurance?.documentRef || null;
+  const documentName = health?.insurance?.documentName || null;
 
-  if (!insuranceNumber && !provider) return null;
+  if (!insuranceNumber && !provider && !documentRef) return null;
 
   return {
     insuranceNumber,
+    documentRef,
+    documentName,
     provider: provider
       ? {
           name: provider.name || null,

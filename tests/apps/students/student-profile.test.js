@@ -356,6 +356,8 @@ describe("GET /health", () => {
       userId: student._id,
       bloodGroup: "O+",
       insuranceNumber: "INS-123456",
+      documentRef: "media://ins-hlt002",
+      documentName: "10238188_HLT002.pdf",
     })
     const api = await as(student)
     const res = await api.get(`${BASE}/health`)
@@ -363,6 +365,8 @@ describe("GET /health", () => {
     expect(res.body.message).toBe("Health data fetched successfully")
     expect(res.body.data.bloodGroup).toBe("O+")
     expect(res.body.data.insurance.insuranceNumber).toBe("INS-123456")
+    expect(res.body.data.insurance.documentRef).toBe("media://ins-hlt002")
+    expect(res.body.data.insurance.documentName).toBe("10238188_HLT002.pdf")
   })
 })
 

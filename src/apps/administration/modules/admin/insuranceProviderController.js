@@ -33,3 +33,12 @@ export const updateBulkStudentInsurance = asyncHandler(async (req, res) => {
   const result = await insuranceProviderService.updateBulkStudentInsurance(req.body)
   sendResponse(res, result)
 })
+
+export const attachStudentInsurancePdf = asyncHandler(async (req, res) => {
+  const result = await insuranceProviderService.attachStudentInsurancePdf({
+    file: req.file,
+    actorId: req.user?._id,
+    actorRole: req.user?.role,
+  })
+  sendResponse(res, result)
+})

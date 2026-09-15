@@ -2,7 +2,7 @@
  * Health Owner Service
  * --------------------
  * The single WRITE surface for the `Health` collection (per-user health info:
- * blood group + insurance sub-doc). Per the domain-ownership rule, the model is
+ * blood group + insurance sub-doc, including the insurance PDF). Per the domain-ownership rule, the model is
  * mutated ONLY inside `src/services/health/`; the health app-service, the
  * insurance-provider bulk flow, and the student-profile service route every
  * write through here (reads live in healthQueries.service.js).
@@ -28,6 +28,28 @@ export const healthOwner = {
   /** Set just the blood group for a user. Returns the raw updateOne result. */
   async setBloodGroupByUser(userId, bloodGroup) {
     return Health.updateOne({ userId }, { $set: { bloodGroup } })
+  },
+
+  /**
+   * Attach (or replace) a student's insurance PDF without touching provider/number.
+   * Upserts the health record so a missing row does not block bulk PDF attach.
+   */
+  async setInsuranceDocumentByUser(userId, { documentRef, documentName }) {
+    return Health.findOneAndUpdate(
+      { userId },
+      {
+        $set: {
+          "insurance.documentRef": documentRef,
+          "insurance.documentName": documentName,
+          updatedAt: Date.now(),
+        },
+        $setOnInsert: {
+          userId,
+          bloodGroup: "",
+        },
+      },
+      { new: true, upsert: true }
+    )
   },
 
   /** Bulk-insert health records (transaction-aware). */

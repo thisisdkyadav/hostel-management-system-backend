@@ -107,6 +107,8 @@ describe("GET /dashboard", () => {
       userId: student._id,
       bloodGroup: "A+",
       insuranceNumber: "INS-DASH-1",
+      documentRef: "media://ins-dash-1",
+      documentName: "10238188_DSH001.pdf",
     })
 
     const { Event } = await import("../../../src/models/index.js")
@@ -156,6 +158,8 @@ describe("GET /dashboard", () => {
     expect(data.resolvedComplaintsWithoutFeedback.map((c) => c.title)).toEqual(["Broken fan"])
 
     expect(data.insurance.insuranceNumber).toBe("INS-DASH-1")
+    expect(data.insurance.documentRef).toBe("media://ins-dash-1")
+    expect(data.insurance.documentName).toBe("10238188_DSH001.pdf")
 
     // Events are served through a shared Redis cache built from the DB; assert
     // our event shows up rather than exact totals (other seeds may exist).
