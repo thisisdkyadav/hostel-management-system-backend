@@ -232,9 +232,21 @@ const drawDeclaration = (doc, y, { total }) => {
   return y + 24
 }
 
+const MIN_BODY_ROW_HEIGHT = 22
+const DETAILS_COL = COLUMNS[1]
+
+const measureBodyRowHeight = (doc, data) => {
+  if (!data?.details) return MIN_BODY_ROW_HEIGHT
+  doc.font("Helvetica").fontSize(7)
+  const textHeight = doc.heightOfString(String(data.details), {
+    width: DETAILS_COL.width - 6,
+    align: "left",
+  })
+  return Math.max(MIN_BODY_ROW_HEIGHT, textHeight + 8)
+}
+
 const drawChargeTable = (doc, y, { rows, total, utr }) => {
   const headerHeight = 24
-  const rowHeight = 22
   const xs = []
   let cursor = PAGE_MARGIN
   for (const col of COLUMNS) {
@@ -249,12 +261,16 @@ const drawChargeTable = (doc, y, { rows, total, utr }) => {
   })
   y += headerHeight
 
-  // The sheet always shows three body rows and tints the first two, whether or
-  // not they carry an entry — that shape is part of the form.
-  const bodyRows = 3
+  // Keep the printed sheet's three-row shape, then grow so every hostel /
+  // guest group actually appears. The grand-total footer is independent of
+  // how many body rows we draw, so a short table used to drop names while
+  // still showing the full amount.
+  const list = Array.isArray(rows) ? rows : []
+  const bodyRows = Math.max(3, list.length)
   const tintedRows = 2
   for (let r = 0; r < bodyRows; r += 1) {
-    const data = rows[r]
+    const data = list[r]
+    const rowHeight = measureBodyRowHeight(doc, data)
     COLUMNS.forEach((col, i) => {
       box(doc, xs[i], y, col.width, rowHeight, { fill: r < tintedRows ? ROW_FILL : undefined })
       if (data) cellText(doc, data[col.key], xs[i], y, col.width, rowHeight, { align: col.align, size: 7 })
@@ -359,6 +375,88 @@ const drawComputerGeneratedNote = (doc, y) => {
 // ---- public API ---------------------------------------------------------
 
 /**
+ * Pick the guest each charge line belongs to.
+ *
+ * GuestChargeSchema defaults `guestIndex` to 0, so older / partial rows can
+ * all claim guest 0. Claim each index at most once, then fall back to the
+ * charge-line position so later guests still appear on the sheet.
+ */
+const resolveChargeGuestIndex = (gc, chargePosition, guests, claimed) => {
+  const n = guests.length
+  const idx = Number(gc?.guestIndex)
+  const inRange = Number.isInteger(idx) && idx >= 0 && idx < n
+  if (inRange && !claimed.has(idx)) {
+    claimed.add(idx)
+    return idx
+  }
+  if (chargePosition < n && !claimed.has(chargePosition)) {
+    claimed.add(chargePosition)
+    return chargePosition
+  }
+  return inRange ? idx : chargePosition
+}
+
+const hostelNameForGuest = (guestIndex, hostelNameByGuestIndex, hostelName) =>
+  hostelNameByGuestIndex?.[guestIndex] ||
+  hostelNameByGuestIndex?.[String(guestIndex)] ||
+  hostelName ||
+  ""
+
+/**
+ * One invoice table row per hostel (HCU sheet style): Guest Details lists
+ * every visitor staying there, comma-separated. Amounts are summed so the
+ * row total still matches the payment even when guests were split.
+ */
+const rowsGroupedByHostel = ({
+  guests,
+  guestCharges,
+  stay,
+  nights,
+  hostelName,
+  hostelNameByGuestIndex,
+}) => {
+  const claimed = new Set()
+  const groups = []
+  const byHostel = new Map()
+
+  for (let i = 0; i < guestCharges.length; i += 1) {
+    const gc = guestCharges[i]
+    const guestIndex = resolveChargeGuestIndex(gc, i, guests, claimed)
+    const hostel = hostelNameForGuest(guestIndex, hostelNameByGuestIndex, hostelName)
+    let group = byHostel.get(hostel)
+    if (!group) {
+      group = { hostel, names: [], count: 0, prices: [], gstAmount: 0, total: 0 }
+      byHostel.set(hostel, group)
+      groups.push(group)
+    }
+    const name = String(gc?.guestName || guests[guestIndex]?.name || "").trim()
+    if (name) group.names.push(name)
+    group.count += 1
+    group.prices.push(Number(gc?.price) || 0)
+    group.gstAmount += Number(gc?.gstAmount) || 0
+    group.total += Number(gc?.total) || 0
+  }
+
+  return groups.map((group) => {
+    const samePrice = group.prices.every((price) => price === group.prices[0])
+    const tariff = samePrice
+      ? group.prices[0] || 0
+      : group.prices.reduce((sum, price) => sum + price, 0) / (group.prices.length || 1)
+    return {
+      guests: String(group.count),
+      details: group.names.join(", "),
+      hostel: group.hostel,
+      from: sheetDate(stay.fromDate),
+      to: sheetDate(stay.toDate),
+      days: nights,
+      tariff: money(tariff),
+      gst: money(group.gstAmount),
+      total: money(group.total),
+    }
+  })
+}
+
+/**
  * Flatten an AccommodationRequest into the sheet's fields.
  * `hostelName` is resolved by the caller (allotment stores only the id).
  */
@@ -371,17 +469,14 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
   const nights = String(request?.nights ?? quote.nights ?? "")
 
   const rows = guestCharges.length
-    ? guestCharges.map((gc) => ({
-        guests: "1",
-        details: gc.guestName || guests[gc.guestIndex]?.name || "",
-        hostel: hostelNameByGuestIndex[gc.guestIndex] || hostelName,
-        from: sheetDate(stay.fromDate),
-        to: sheetDate(stay.toDate),
-        days: nights,
-        tariff: money(gc.price),
-        gst: money(gc.gstAmount),
-        total: money(gc.total),
-      }))
+    ? rowsGroupedByHostel({
+        guests,
+        guestCharges,
+        stay,
+        nights,
+        hostelName,
+        hostelNameByGuestIndex,
+      })
     : guests.length
       ? [{
           guests: String(guests.length),
