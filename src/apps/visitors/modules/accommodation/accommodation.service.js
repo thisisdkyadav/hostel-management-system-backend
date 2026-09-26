@@ -62,7 +62,7 @@ import {
   UTR_RE,
 } from "./accommodation.constants.js"
 import { resolveStayTimes } from "./accommodation.stay.js"
-import { buildInvoiceModel, buildInvoiceNumber, renderInvoicePdf } from "./accommodation.invoice-pdf.js"
+import { buildInvoiceModel, buildInvoiceNumber, listSettledPayments, renderInvoicePdf } from "./accommodation.invoice-pdf.js"
 import { storageClient } from "../../../../services/storage/storage.client.js"
 import { fileAccessService } from "../../../../services/storage/file-access.service.js"
 import * as accommodationEmails from "./accommodation.emails.js"
@@ -137,6 +137,27 @@ const openAdditionalPayment = (request) =>
 
 const submittedAdditionalPayment = (request) =>
   (request.additionalPayments || []).find((p) => p.status === PAYMENT_STATUS.SUBMITTED)
+
+/** Student has already transferred money (proof in, or accountant verified). */
+const paymentCollected = (payment) =>
+  [PAYMENT_STATUS.SUBMITTED, PAYMENT_STATUS.VERIFIED].includes(payment?.status)
+
+const mainPaymentLocked = (request) => paymentCollected(request?.payment)
+
+const settledPaymentTotal = (request) =>
+  ROUND2(listSettledPayments(request).reduce((sum, p) => sum + (Number(p.amount) || 0), 0))
+
+const invoicePaymentsSettled = (request) => {
+  if (request.payment?.status !== PAYMENT_STATUS.VERIFIED) return false
+  return !openAdditionalPayment(request) && !submittedAdditionalPayment(request)
+}
+
+const stayClosedForInvoice = (request) =>
+  Boolean(request.checkOutAt) ||
+  [
+    ACCOMMODATION_STATUS.CHECKED_OUT,
+    ACCOMMODATION_STATUS.INVOICED,
+  ].includes(request.status)
 
 const parseStayDate = (raw) => {
   if (raw == null || raw === "") return null
@@ -353,6 +374,21 @@ const resolveFacultyAdvisorEmail = (...candidates) => {
 const validateFacultyAdvisorEmail = (email) => {
   if (!email) return "Faculty advisor / supervisor email is required"
   if (!EMAIL_RE.test(email)) return "Enter a valid faculty advisor / supervisor email"
+  return null
+}
+
+const validateOfficeGuests = (guests) => {
+  if (!Array.isArray(guests) || guests.length === 0) return "At least one guest is required"
+  for (const guest of guests) {
+    if (!guest?.name || !guest?.gender) return "Each guest needs a name and gender"
+    const age = normalizeGuestAge(guest?.age)
+    if (age === null) return "Each guest needs an age"
+    if (age < 0 || age > 150) return "Guest age must be between 0 and 150"
+    if (!guest?.relation || !String(guest.relation).trim()) return "Each guest needs a relation to the student"
+    const aadhaar = String(guest?.aadharNumber || "").replace(/\s/g, "")
+    if (!aadhaar) return "Each guest needs an Aadhaar number"
+    if (!/^\d{12}$/.test(aadhaar)) return "Aadhaar number must be 12 digits"
+  }
   return null
 }
 
@@ -678,6 +714,7 @@ export const accommodationService = {
       roomsPending = supervisorRoomsPending(request, hostels)
     }
 
+    const settledPayments = listSettledPayments(request)
     return success({
       ...request,
       student,
@@ -687,6 +724,8 @@ export const accommodationService = {
       hostelNameByGuestIndex,
       supervisorGuestIndexes,
       supervisorRoomsPending: roomsPending,
+      settledPayments,
+      settledPaymentTotal: settledPaymentTotal(request),
     })
   },
 
@@ -877,8 +916,7 @@ export const accommodationService = {
     if (wasBlockingProgress) {
       notifySupervisorReadyForRooms(request)
     } else {
-      // The stay is already running, so the invoice is due immediately.
-      await this._issueInvoice(request).catch(() => {})
+      await this._maybeIssueInvoice(request).catch(() => {})
     }
 
     accommodationEmails
@@ -1504,6 +1542,9 @@ export const accommodationService = {
         })
       }
       await accommodationOwner.persist(request)
+      if (action === PAYMENT_DECISION.VERIFY) {
+        await this._maybeIssueInvoice(request).catch(() => {})
+      }
       accommodationEmails
         .sendStudentDecisionEmail({
           requestId: request._id,
@@ -1579,8 +1620,8 @@ export const accommodationService = {
     }
     await accommodationOwner.persist(request)
 
-    if (isLegacyDeferredSettlement && action === PAYMENT_DECISION.VERIFY) {
-      await this._issueInvoice(request).catch(() => {})
+    if (action === PAYMENT_DECISION.VERIFY) {
+      await this._maybeIssueInvoice(request).catch(() => {})
     }
 
     accommodationEmails
@@ -1862,6 +1903,250 @@ export const accommodationService = {
   },
 
   /**
+   * Chief Warden Office edits booking info. Stay dates are always editable.
+   * Amount:
+   *  - before a payment request: charges are stored as a draft quote only
+   *  - payment requested but not collected: the open bill is updated in place
+   *  - after the student has paid: original payment is locked; extra amount
+   *    opens a second payment request
+   */
+  async officeEditRequest(requestId, body, user) {
+    const request = await accommodationQueries.findRequestById(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    if ([ACCOMMODATION_STATUS.REJECTED, ACCOMMODATION_STATUS.CANCELLED].includes(request.status)) {
+      return badRequest("This request can no longer be edited")
+    }
+
+    const notes = []
+    const roomsAssigned = Array.isArray(request.rooms) && request.rooms.length > 0
+    const stayClosed = stayClosedForInvoice(request)
+
+    if (body?.guests) {
+      const guestError = validateOfficeGuests(body.guests)
+      if (guestError) return badRequest(guestError)
+      const nextGuests = normalizeGuests(body.guests)
+      if (roomsAssigned && nextGuests.length !== (request.guests?.length || 0)) {
+        return badRequest("Guest count cannot change after rooms are assigned")
+      }
+      if (uniqueAllottedHostelIds(request).length && nextGuests.length !== (request.guests?.length || 0)) {
+        const parsed = parseGuestAllotmentBody(body, nextGuests)
+        if (parsed.error) {
+          return badRequest("Select a hostel for every guest when changing the party after allotment")
+        }
+        request.guestAllotments = parsed.allotments
+        request.allotment.hostelId = parsed.hostelIds[0] || request.allotment.hostelId
+      }
+      request.guests = nextGuests
+      request.persons = nextGuests.length
+      if (request.quote) request.quote.persons = nextGuests.length
+      notes.push(`Guests updated (${nextGuests.length})`)
+    }
+
+    if (body?.roomPreference != null && body.roomPreference !== "") {
+      if (!ROOM_PREFERENCES.has(body.roomPreference)) {
+        return badRequest("Room preference (Single or Double) is required")
+      }
+      request.roomPreference = body.roomPreference
+      notes.push(`Room preference ${body.roomPreference}`)
+    }
+
+    if (body?.permanentAddress != null) {
+      request.permanentAddress = String(body.permanentAddress || "").trim()
+      notes.push("Address updated")
+    }
+    if (body?.applicantPhone != null) {
+      request.applicantPhone = String(body.applicantPhone || "").trim()
+      notes.push("Phone updated")
+    }
+    if (body?.applicantEmail != null) {
+      const email = String(body.applicantEmail || "").trim().toLowerCase()
+      if (email && !EMAIL_RE.test(email)) return badRequest("Enter a valid applicant email")
+      request.applicantEmail = email
+      notes.push("Email updated")
+    }
+    if (body?.facultyAdvisorEmail != null) {
+      const fa = String(body.facultyAdvisorEmail || "").trim().toLowerCase()
+      if (fa && !EMAIL_RE.test(fa)) return badRequest("Enter a valid faculty advisor email")
+      request.facultyAdvisorEmail = fa || null
+      notes.push("Faculty advisor email updated")
+    }
+
+    let datesChanged = false
+    if (body?.stay) {
+      const nextFrom = body.stay.fromDate != null ? parseStayDate(body.stay.fromDate) : request.stay?.fromDate
+      const nextTo = body.stay.toDate != null ? parseStayDate(body.stay.toDate) : request.stay?.toDate
+      if (!nextFrom || !nextTo) return badRequest("Stay from/to dates are required")
+      if (nextTo.getTime() <= nextFrom.getTime()) return badRequest("Stay end date must be after the start date")
+
+      const times = resolveStayTimes({
+        checkInTime: body.stay.checkInTime ?? request.stay?.checkInTime,
+        checkOutTime: body.stay.checkOutTime ?? request.stay?.checkOutTime,
+      })
+      if (times.error) return badRequest(times.error)
+
+      datesChanged =
+        dayKey(nextFrom) !== dayKey(request.stay?.fromDate) ||
+        dayKey(nextTo) !== dayKey(request.stay?.toDate) ||
+        times.checkInTime !== (request.stay?.checkInTime || "") ||
+        times.checkOutTime !== (request.stay?.checkOutTime || "")
+
+      if (datesChanged && !stayClosed && uniqueAllottedHostelIds(request).length) {
+        const allottedIds = uniqueAllottedHostelIds(request)
+        const claim = await withHostelLocks(allottedIds, async () => {
+          for (const hostelId of allottedIds) {
+            const need = personsAllottedToHostel(request, hostelId)
+            if (!need) continue
+            const availability = await getHostelGuestAvailability({
+              hostelId,
+              from: nextFrom,
+              to: nextTo,
+              excludeRequestId: request._id,
+            })
+            const roomsNeeded = roomsNeededFor(need, availability.largestRoom)
+            if (availability.availableRooms < roomsNeeded) {
+              return badRequest(
+                `Not enough guest rooms free for the new dates (need ${roomsNeeded}, ${availability.availableRooms} free)`
+              )
+            }
+            if (availability.available < need) {
+              return badRequest(
+                `Not enough beds free for the new dates (need ${need}, available ${availability.available})`
+              )
+            }
+          }
+          return null
+        })
+        if (claim === LOCK_NOT_ACQUIRED) {
+          return badRequest("This hostel is being updated right now — try again in a moment")
+        }
+        if (claim) return claim
+      }
+
+      request.stay.fromDate = nextFrom
+      request.stay.toDate = nextTo
+      request.stay.checkInTime = times.checkInTime
+      request.stay.checkOutTime = times.checkOutTime
+      request.stay.earlyCheckInHours = times.earlyCheckInHours
+      request.stay.lateCheckOutHours = times.lateCheckOutHours
+      if (body.stay.purpose != null) request.stay.purpose = String(body.stay.purpose || "").trim()
+      request.nights = computeNights(nextFrom, nextTo)
+      if (request.quote) request.quote.nights = request.nights
+      notes.push(`Stay ${dayKey(nextFrom)} to ${dayKey(nextTo)}`)
+    } else if (body?.stay?.purpose != null && request.stay) {
+      request.stay.purpose = String(body.stay.purpose || "").trim()
+      notes.push("Purpose updated")
+    }
+
+    const hasCharges = Array.isArray(body?.guestCharges)
+    const extraRaw = body?.extraAmount
+    const hasExtra = extraRaw !== undefined && extraRaw !== null && String(extraRaw).trim() !== ""
+    let paymentNotice = ""
+
+    if (hasCharges || hasExtra) {
+      const guests = request.guests || []
+      let extraAmount = hasExtra ? ROUND2(extraRaw) : 0
+      if (hasExtra && (!Number.isFinite(extraAmount) || extraAmount < 0)) {
+        return badRequest("Extra amount is invalid")
+      }
+
+      if (hasCharges) {
+        const quote = buildQuoteFromGuestCharges({
+          guests,
+          nights: request.nights,
+          guestCharges: body.guestCharges,
+        })
+        if (quote.error) return badRequest(quote.error)
+
+        if (!paymentStepPassed(request)) {
+          request.quote = quote
+          notes.push(`Draft charges ₹${quote.total}`)
+        } else if (!mainPaymentLocked(request)) {
+          request.quote = quote
+          request.payment.amount = quote.total
+          const remarks = String(body?.remarks || "").trim()
+          if (remarks) request.payment.remarks = remarks
+          notes.push(`Open bill updated to ₹${quote.total}`)
+          paymentNotice = `The amount payable is now Rs. ${quote.total.toFixed(2)}.`
+        } else {
+          extraAmount = quote.total
+        }
+      } else if (!mainPaymentLocked(request) && paymentStepPassed(request) && hasExtra) {
+        request.payment.amount = extraAmount
+        if (request.quote) request.quote.total = extraAmount
+        const remarks = String(body?.remarks || "").trim()
+        if (remarks) request.payment.remarks = remarks
+        notes.push(`Open bill updated to ₹${extraAmount}`)
+        paymentNotice = `The amount payable is now Rs. ${extraAmount.toFixed(2)}.`
+      }
+
+      if (mainPaymentLocked(request) && extraAmount > 0) {
+        const config = await getAccommodationConfig()
+        const label = String(body?.extraLabel || "").trim() || "Additional charge"
+        const remarks = String(body?.remarks || "").trim() || label
+        const open = openAdditionalPayment(request)
+        if (open) {
+          open.amount = extraAmount
+          open.label = label
+          open.remarks = remarks
+          notes.push(`Open extra payment updated to ₹${extraAmount}`)
+        } else if (submittedAdditionalPayment(request)) {
+          return badRequest("An additional payment is already submitted — wait for verification before requesting another")
+        } else {
+          request.additionalPayments = request.additionalPayments || []
+          request.additionalPayments.push({
+            amount: extraAmount,
+            status: PAYMENT_STATUS.PENDING,
+            mode: null,
+            label,
+            remarks,
+          })
+          notes.push(`Additional payment of ₹${extraAmount} requested`)
+        }
+        if (!request.payment.qrRef && config?.defaultPaymentQR) {
+          request.payment.qrRef = config.defaultPaymentQR
+        }
+        paymentNotice = `An additional payment of Rs. ${extraAmount.toFixed(2)} has been requested.`
+      } else if (mainPaymentLocked(request) && hasCharges && extraAmount === 0) {
+        return badRequest("The original payment cannot be edited after it is paid. Request an additional amount instead.")
+      }
+    }
+
+    if (notes.length === 0) return badRequest("Nothing to update")
+
+    request.timeline.push({
+      status: request.status,
+      by: user._id,
+      at: new Date(),
+      note: `Office edit: ${notes.join(" · ")}`,
+    })
+    await accommodationOwner.persist(request)
+
+    if (paymentNotice) {
+      const extraOpen = openAdditionalPayment(request)
+      accommodationEmails
+        .sendPaymentRequestEmail({
+          to: request.applicantEmail,
+          studentName: request.applicantName,
+          amount: extraOpen?.amount || request.payment?.amount,
+          hostelName: "",
+          request,
+        })
+        .catch(() => {})
+    }
+    accommodationEmails
+      .sendStudentDecisionEmail({
+        requestId: request._id,
+        to: request.applicantEmail,
+        studentName: request.applicantName,
+        status: "Request updated",
+        reason: `${notes.join(". ")}.${paymentNotice ? ` ${paymentNotice}` : ""}`,
+      })
+      .catch(() => {})
+
+    return success(request, 200, `Request updated.${paymentNotice ? ` ${paymentNotice}` : ""}`)
+  },
+
+  /**
    * Accountant corrects UTR and/or payment date after proof is submitted or
    * verified (typos, bank statement reconciliation). Does not change status.
    * Optional body.additionalPaymentId targets an extension / extra payment.
@@ -1927,19 +2212,34 @@ export const accommodationService = {
   },
 
   /**
+   * Issue the GST invoice once the stay has closed and every bill is settled.
+   * Re-renders if an extra payment lands after the first copy was generated.
+   */
+  async _maybeIssueInvoice(request) {
+    if (!stayClosedForInvoice(request)) return request
+    if (!invoicePaymentsSettled(request)) return request
+    return this._issueInvoice(request, { replace: Boolean(request.invoice?.generatedAt) })
+  },
+
+  /**
    * Generate + email the GST invoice for a request whose payment is settled.
    * Does not touch the workflow status — closing the stay is the sweep's job.
-   * No-ops if an invoice already exists.
+   * `replace` rebuilds the PDF (same invoice number) when a later extra payment
+   * has to appear on the same receipt.
    */
-  async _issueInvoice(request) {
-    if (request.invoice?.generatedAt) return request
+  async _issueInvoice(request, { replace = false } = {}) {
+    if (request.invoice?.generatedAt && !replace) return request
     const config = await getAccommodationConfig()
     const generatedAt = new Date()
-    // GST invoices must run in an unbroken consecutive series per financial
-    // year, so the serial comes from an atomic counter — not the request id.
-    const seriesKey = buildInvoiceNumber({ serial: null, date: generatedAt }).replace(/\/[^/]*$/, "")
-    const serial = await accommodationOwner.nextInvoiceSerial(seriesKey)
-    const number = buildInvoiceNumber({ serial, date: generatedAt })
+    const existingNumber = replace ? String(request.invoice?.number || "").trim() : ""
+    let number = existingNumber
+    if (!number) {
+      // GST invoices must run in an unbroken consecutive series per financial
+      // year, so the serial comes from an atomic counter — not the request id.
+      const seriesKey = buildInvoiceNumber({ serial: null, date: generatedAt }).replace(/\/[^/]*$/, "")
+      const serial = await accommodationOwner.nextInvoiceSerial(seriesKey)
+      number = buildInvoiceNumber({ serial, date: generatedAt })
+    }
     request.invoice = {
       number,
       pdfFileRef: "",
@@ -2221,6 +2521,7 @@ export const accommodationService = {
     request.checkOutAt = new Date()
     applyStatus(request, ACCOMMODATION_STATUS.CHECKED_OUT, { by: user._id, note: "Checked out" })
     await accommodationOwner.persist(request)
+    await this._maybeIssueInvoice(request).catch(() => {})
     return success(request, 200, "Guests checked out")
   },
 
@@ -2236,7 +2537,7 @@ export const accommodationService = {
 
     let count = 0
     for (const request of due) {
-      if (request.payment?.status === PAYMENT_STATUS.VERIFIED) {
+      if (invoicePaymentsSettled(request)) {
         await this._issueInvoice(request)
       }
       applyStatus(request, ACCOMMODATION_STATUS.INVOICED, {

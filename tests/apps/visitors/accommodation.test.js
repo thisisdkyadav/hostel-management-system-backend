@@ -1153,7 +1153,8 @@ describe("accommodation — invoice (legacy deferred settlement path)", () => {
       stay: { fromDate: day(-2), toDate: day(1) },
       persons: 1,
       nights: 3,
-      status: "Rooms Assigned", // legacy in-flight status
+      status: "Checked Out",
+      checkOutAt: new Date(),
       payment: { amount: 900, mode: "later", status: "Deferred" },
       allotment: { hostelId: hostel._id, allottedBy: null, allottedAt: new Date() },
     })
@@ -1165,14 +1166,14 @@ describe("accommodation — invoice (legacy deferred settlement path)", () => {
     const request = await seedLegacyDeferred(student, hostel)
     const api = await as(student)
 
-    // legacy deferred settlement: status stays Hostel Allotted, payment -> Submitted
+    // legacy deferred settlement after checkout: stay status stays put, payment -> Submitted
     let res = await api.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
       utr: "121212121212",
       paidAt: new Date(Date.now() - 3600 * 1000).toISOString(),
       screenshotFileRef: "media://payments/legacy.png",
     })
     expect(res.status).toBe(200)
-    expect(res.body.data.status).toBe("Rooms Assigned")
+    expect(res.body.data.status).toBe("Checked Out")
     expect(res.body.data.payment.status).toBe("Submitted")
 
     // invoice endpoint refuses before generation
@@ -1498,7 +1499,8 @@ describe("accommodation — invoice disposition variants & list pagination clamp
       stay: { fromDate: day(-3), toDate: day(-1) },
       persons: 1,
       nights: 2,
-      status: "Rooms Assigned",
+      status: "Checked Out",
+      checkOutAt: new Date(),
       payment: { amount: 700, mode: "later", status: "Deferred" },
       allotment: { hostelId: hostel._id, allottedBy: null, allottedAt: new Date() },
     })
@@ -1568,5 +1570,140 @@ describe("accommodation — assignment duplicate-guest guard", () => {
     })
     expect(res.status).toBe(400)
     expect(res.body.message).toMatch(/more than one room/i)
+  })
+})
+
+describe("accommodation — CWO office edit & extra payments", () => {
+  async function paymentRequested(student, charges = [{ guestIndex: 0, price: 400, gstPercentage: 0 }]) {
+    const request = await advanceToCwApproved(student)
+    const hostel = await createHostel()
+    await createRoom({ hostelId: hostel._id, roomNumber: `OE-${Date.now() % 100000}`, capacity: 2 })
+    const res = await (await as(await cwo()))
+      .post(`/api/v1/accommodation/requests/${request._id}/payment-request`)
+      .send({ hostelId: hostel._id, guestCharges: charges })
+    expect(res.status).toBe(200)
+    return { request, hostel }
+  }
+
+  it("403 for non-CWO; CWO can change stay dates before payment is requested", async () => {
+    const student = await iitiStudent()
+    const request = await advanceToCwApproved(student)
+    const cwApi = await as(await chiefWarden())
+    let res = await cwApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      stay: { fromDate: dateOnly(day(8)), toDate: dateOnly(day(12)) },
+    })
+    expect(res.status).toBe(403)
+
+    const cwoApi = await as(await cwo())
+    res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      stay: { fromDate: dateOnly(day(8)), toDate: dateOnly(day(12)), purpose: "Updated visit" },
+      applicantPhone: "9000011111",
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.stay.purpose).toBe("Updated visit")
+    expect(res.body.data.applicantPhone).toBe("9000011111")
+    expect(res.body.data.nights).toBe(4)
+    expect(res.body.data.payment.amount || 0).toBe(0)
+  })
+
+  it("unpaid payment request: date + guestCharges update the open bill in place", async () => {
+    const student = await iitiStudent()
+    const { request } = await paymentRequested(student)
+    const cwoApi = await as(await cwo())
+    const res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      stay: { fromDate: dateOnly(day(7)), toDate: dateOnly(day(11)) },
+      guestCharges: [{ guestIndex: 0, price: 700, gstPercentage: 0 }],
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.payment.amount).toBe(700)
+    expect(res.body.data.quote.total).toBe(700)
+    expect(res.body.data.additionalPayments || []).toHaveLength(0)
+    expect(res.body.data.nights).toBe(4)
+  })
+
+  it("after the student has paid, original amount is locked and extraAmount opens a second payment", async () => {
+    const student = await iitiStudent()
+    const { request } = await paymentRequested(student)
+    await as(student).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+        utr: "123456789012",
+        paidAt: new Date().toISOString(),
+        screenshotFileRef: "media://payments/oe.png",
+      })
+    )
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+
+    const cwoApi = await as(await cwo())
+    const res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      stay: { fromDate: dateOnly(day(7)), toDate: dateOnly(day(12)) },
+      extraAmount: 250,
+      extraLabel: "Extra nights",
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.payment.amount).toBe(400)
+    expect(res.body.data.payment.status).toBe("Verified")
+    expect(res.body.data.additionalPayments).toHaveLength(1)
+    expect(res.body.data.additionalPayments[0]).toEqual(
+      expect.objectContaining({ amount: 250, status: "Pending", label: "Extra nights" })
+    )
+    expect(res.body.data.nights).toBe(5)
+  })
+
+  it("checkout issues a single invoice covering the main bill and a verified extra payment", async () => {
+    const student = await iitiStudent()
+    const { request, hostel } = await paymentRequested(student)
+    const room = await createRoom({ hostelId: hostel._id, roomNumber: `INV-${Date.now() % 100000}`, capacity: 2 })
+    await as(student).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+        utr: "111122223333",
+        paidAt: new Date().toISOString(),
+        screenshotFileRef: "media://payments/main.png",
+      })
+    )
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+    await (await as(await cwo()))
+      .post(`/api/v1/accommodation/requests/${request._id}/office-edit`)
+      .send({ extraAmount: 150, extraLabel: "Late checkout" })
+    const addlId = (
+      await (await as(student)).get(`/api/v1/accommodation/requests/${request._id}`)
+    ).body.data.additionalPayments[0]._id
+    await as(student).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+        additionalPaymentId: addlId,
+        utr: "444455556666",
+        paidAt: new Date().toISOString(),
+        screenshotFileRef: "media://payments/extra.png",
+      })
+    )
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({
+        action: "verify",
+        additionalPaymentId: addlId,
+      })
+    )
+
+    const supervisorApi = await as(await supervisorFor(hostel))
+    await supervisorApi.post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [{ roomId: room._id, guestIndexes: [0] }],
+    })
+    const gateApi = await as(await seed.createUser({ role: "Hostel Gate" }))
+    await gateApi.post(`/api/v1/accommodation/requests/${request._id}/checkin`)
+    const checkout = await gateApi.post(`/api/v1/accommodation/requests/${request._id}/checkout`)
+    expect(checkout.status).toBe(200)
+
+    const detail = await (await as(student)).get(`/api/v1/accommodation/requests/${request._id}`)
+    expect(detail.body.data.invoice.generatedAt).toBeTruthy()
+    expect(detail.body.data.settledPaymentTotal).toBe(550)
+    expect(detail.body.data.settledPayments.map((p) => p.utr).sort()).toEqual(["111122223333", "444455556666"])
+
+    const invoice = await (await as(student)).get(
+      `/api/v1/accommodation/requests/${request._id}/invoice?disposition=attachment`
+    )
+    expect(invoice.status).toBe(200)
+    expect(invoice.headers["content-type"]).toMatch(/application\/pdf/)
   })
 })

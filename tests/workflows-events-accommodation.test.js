@@ -572,35 +572,12 @@ describe("workflow 2 — accommodation full lifecycle incl. extension additional
   it("gate checkout works after the additional bill settles; invoice fetch returns PDF bytes", async () => {
     const gateApi = await as(await seed.createUser({ role: "Hostel Gate" }))
     const api = await as(ctx.student)
-    const acctApi = await as(await accountant())
 
     const checkout = await gateApi.post(`${ACC_BASE}/${ctx.requestId}/checkout`)
     expect(checkout.status).toBe(200)
     expect(checkout.body.data.status).toBe("Checked Out")
 
-    // SUSPECTED BUG (cross-module seam): a fully paid, checked-out booking has
-    // NO invoice reachable through any public API. Invoices are only issued by
-    // (a) the nightly stay-close cron or (b) mark_paid when the stay is already
-    // running — plain portal verification of BOTH payments never generates one,
-    // so right after check-out the student's invoice fetch fails.
-    let invoice = await api.get(`${ACC_BASE}/${ctx.requestId}/invoice`)
-    expect(invoice.status).toBe(400)
-    expect(invoice.body.message).toMatch(/no invoice has been generated/i)
-
-    // API-reachable path to the receipt: accountant unsets then manually marks
-    // the settled initial bill paid again — the stay is over, so issuing fires.
-    const unpaid = await acctApi
-      .post(`${ACC_BASE}/${ctx.requestId}/payment-settle`)
-      .send({ action: "mark_unpaid", note: "Reconciling before receipt" })
-    expect(unpaid.status).toBe(200)
-    const paid = await acctApi.post(`${ACC_BASE}/${ctx.requestId}/payment-settle`).send({
-      action: "mark_paid",
-      method: "Bank transfer reconciled",
-      reference: "123456789012",
-    })
-    expect(paid.status).toBe(200)
-
-    invoice = await api.get(`${ACC_BASE}/${ctx.requestId}/invoice?disposition=attachment`)
+    const invoice = await api.get(`${ACC_BASE}/${ctx.requestId}/invoice?disposition=attachment`)
     expect(invoice.status).toBe(200)
     expect(invoice.headers["content-type"]).toMatch(/application\/pdf/)
     expect(invoice.headers["content-disposition"]).toMatch(/^attachment;/)

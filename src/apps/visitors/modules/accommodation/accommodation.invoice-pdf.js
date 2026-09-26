@@ -456,6 +456,47 @@ const rowsGroupedByHostel = ({
   })
 }
 
+/** Verified payments on a request (main bill + later extras), for the receipt. */
+export const listSettledPayments = (request) => {
+  const rows = []
+  const main = request?.payment
+  if (main?.status === "Verified") {
+    rows.push({
+      kind: "main",
+      label: "Accommodation charges",
+      amount: Number(main.amount) || 0,
+      utr: String(main.utr || "").trim(),
+      paidAt: main.paidAt || null,
+    })
+  }
+  for (const extra of Array.isArray(request?.additionalPayments) ? request.additionalPayments : []) {
+    if (extra?.status !== "Verified") continue
+    rows.push({
+      kind: "additional",
+      label: extra.label || "Additional charge",
+      amount: Number(extra.amount) || 0,
+      utr: String(extra.utr || "").trim(),
+      paidAt: extra.paidAt || null,
+    })
+  }
+  return rows
+}
+
+const extraPaymentRows = ({ extras, stay, nights }) =>
+  extras
+    .filter((p) => p.kind === "additional")
+    .map((p) => ({
+      guests: "",
+      details: p.label,
+      hostel: "",
+      from: sheetDate(stay.fromDate),
+      to: sheetDate(stay.toDate),
+      days: nights,
+      tariff: money(p.amount),
+      gst: money(0),
+      total: money(p.amount),
+    }))
+
 /**
  * Flatten an AccommodationRequest into the sheet's fields.
  * `hostelName` is resolved by the caller (allotment stores only the id).
@@ -465,10 +506,13 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
   const stay = request?.stay || {}
   const guests = Array.isArray(request?.guests) ? request.guests : []
   const guestCharges = Array.isArray(quote.guestCharges) ? quote.guestCharges : []
-  const total = Number(request?.payment?.amount) || Number(quote.total) || 0
+  const settled = listSettledPayments(request)
+  const settledTotal = settled.reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
+  const total = settledTotal || Number(request?.payment?.amount) || Number(quote.total) || 0
   const nights = String(request?.nights ?? quote.nights ?? "")
+  const utrs = settled.map((p) => p.utr).filter(Boolean)
 
-  const rows = guestCharges.length
+  const chargeRows = guestCharges.length
     ? rowsGroupedByHostel({
         guests,
         guestCharges,
@@ -487,16 +531,18 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
           days: nights,
           tariff: money(quote.feePerPersonPerNight),
           gst: money(quote.gstAmount),
-          total: money(total),
+          total: money(Number(quote.total) || total),
         }]
       : []
+
+  const rows = [...chargeRows, ...extraPaymentRows({ extras: settled, stay, nights })]
 
   return {
     invoiceNumber: request?.invoice?.number || buildInvoiceNumber({ serial: 0 }),
     invoiceDate: request?.invoice?.generatedAt || new Date(),
     gstin,
     total,
-    utr: request?.payment?.utr || "",
+    utr: utrs.join(" · ") || request?.payment?.utr || "",
     requestedBy: studentName || request?.applicantName || "",
     purpose: stay.purpose || "",
     source: "Self",
@@ -530,4 +576,4 @@ export const renderInvoicePdf = (model) =>
     }
   })
 
-export default { renderInvoicePdf, buildInvoiceModel, amountInWords, buildInvoiceNumber }
+export default { renderInvoicePdf, buildInvoiceModel, amountInWords, buildInvoiceNumber, listSettledPayments }

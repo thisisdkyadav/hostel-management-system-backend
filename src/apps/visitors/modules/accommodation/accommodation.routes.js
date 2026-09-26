@@ -136,6 +136,14 @@ router.post(
   ctrl.decideScheduleChange
 )
 
+// Chief Warden Office edits stay / guests / charges (payment-stage rules apply)
+router.post(
+  "/requests/:requestId/office-edit",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.CHIEF_WARDEN_OFFICE]),
+  ctrl.officeEditRequest
+)
+
 // Accountant verifies / rejects the payment
 router.post(
   "/requests/:requestId/payment-verify",

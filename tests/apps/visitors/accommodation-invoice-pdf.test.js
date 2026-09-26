@@ -120,6 +120,23 @@ describe("accommodation invoice sheet — multi-hostel guest names", () => {
     expect(text).toContain("Arjun Iyer")
   })
 
+  it("sums verified extra payments and lists every UTR on the sheet", () => {
+    const request = fourGuestsTwoHostels()
+    request.payment = { amount: 3360, status: "Verified", utr: "205311487629" }
+    request.additionalPayments = [
+      { amount: 500, status: "Verified", utr: "111122223333", label: "Extra nights" },
+      { amount: 200, status: "Pending", utr: "000000000000", label: "Ignored" },
+    ]
+    const model = buildInvoiceModel({
+      request,
+      hostelNameByGuestIndex: { 0: "Guest House A", 1: "Guest House A", 2: "Hall 2", 3: "Hall 2" },
+    })
+    expect(model.total).toBe(3860)
+    expect(model.utr).toBe("205311487629 · 111122223333")
+    expect(model.rows.some((row) => row.details === "Extra nights")).toBe(true)
+    expect(model.rows.some((row) => row.details === "Ignored")).toBe(false)
+  })
+
   it("draws more than three body rows so a fourth hostel's guests are not dropped", async () => {
     const request = fourGuestsTwoHostels()
     const model = buildInvoiceModel({

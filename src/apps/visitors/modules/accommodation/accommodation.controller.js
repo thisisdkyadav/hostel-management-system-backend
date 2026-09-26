@@ -126,6 +126,10 @@ export const decideScheduleChange = asyncHandler(async (req, res) => {
   )
 })
 
+export const officeEditRequest = asyncHandler(async (req, res) => {
+  sendStandardResponse(res, await accommodationService.officeEditRequest(req.params.requestId, req.body, req.user))
+})
+
 // Arrival tail (Supervisor / Gate + CW Office availability).
 export const getAllotmentAvailability = asyncHandler(async (req, res) => {
   sendStandardResponse(res, await accommodationService.getAllotmentAvailability(req.params.requestId))
