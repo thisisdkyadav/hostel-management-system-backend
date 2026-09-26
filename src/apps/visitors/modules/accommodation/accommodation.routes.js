@@ -53,6 +53,14 @@ router.get(
   guard(["Student", "Admin", "Hostel Supervisor", "Hostel Gate"]),
   ctrl.getRequestById
 )
+// Accountant: Excel of invoiced payments in a date range (invoice generatedAt)
+router.get(
+  "/invoices/export",
+  guard(["Admin"]),
+  requireAdminSubRole([SUBROLES.ACCOUNTANT]),
+  ctrl.exportInvoices
+)
+
 // The invoice PDF, for anyone who can already open the request
 router.get(
   "/requests/:requestId/invoice",

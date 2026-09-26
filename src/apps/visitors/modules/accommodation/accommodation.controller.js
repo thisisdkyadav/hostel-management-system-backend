@@ -37,6 +37,18 @@ export const cancelRequest = asyncHandler(async (req, res) => {
 
 // Streams the invoice PDF itself, so it needs the raw response rather than the
 // standard envelope. `disposition=attachment` makes the browser download it.
+export const exportInvoices = asyncHandler(async (req, res) => {
+  const result = await accommodationService.exportInvoices(req.query)
+  if (!result.success) {
+    return res.status(result.statusCode || 400).json({ success: false, message: result.message })
+  }
+  const { buffer, contentType, filename } = result.data
+  res.setHeader("Content-Type", contentType)
+  res.setHeader("Content-Length", buffer.length)
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`)
+  return res.end(buffer)
+})
+
 export const getInvoiceFile = asyncHandler(async (req, res) => {
   const result = await accommodationService.getInvoiceFile(req.params.requestId, req.user)
   if (!result.success) {

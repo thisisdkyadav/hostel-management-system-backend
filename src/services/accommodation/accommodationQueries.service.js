@@ -73,6 +73,15 @@ export const accommodationQueries = {
    * Statuses transition to INVOICED, so a closed request never matches again —
    * no invoice filter is needed. Mutated + persisted by the caller in a loop.
    */
+  /** Lean requests whose GST invoice was generated in [from, to] inclusive. */
+  async findInvoicedBetween(from, to) {
+    return AccommodationRequest.find({
+      "invoice.generatedAt": { $gte: new Date(from), $lte: new Date(to) },
+    })
+      .sort({ "invoice.generatedAt": 1 })
+      .lean()
+  },
+
   async findDueForStayClose() {
     return AccommodationRequest.find({
       status: {

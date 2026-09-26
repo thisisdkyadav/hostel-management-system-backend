@@ -4,6 +4,7 @@ import {
   buildInvoiceModel,
   renderInvoicePdf,
 } from "../../../src/apps/visitors/modules/accommodation/accommodation.invoice-pdf.js"
+import { invoiceExportRows } from "../../../src/apps/visitors/modules/accommodation/accommodation.invoice-export.js"
 
 /** pdfkit stores Helvetica runs as Flate-compressed hex strings. */
 const pdfText = (buffer) => {
@@ -135,6 +136,24 @@ describe("accommodation invoice sheet — multi-hostel guest names", () => {
     expect(model.utr).toBe("205311487629 · 111122223333")
     expect(model.rows.some((row) => row.details === "Extra nights")).toBe(true)
     expect(model.rows.some((row) => row.details === "Ignored")).toBe(false)
+  })
+
+  it("export rows are one line per settled payment with stay period and UTR", () => {
+    const request = fourGuestsTwoHostels()
+    request.applicantName = "Aarav Sharma"
+    request.applicantEmail = "aarav@iiti.ac.in"
+    request.payment = { amount: 3360, status: "Verified", utr: "205311487629", paidAt: "2026-02-13" }
+    request.additionalPayments = [
+      { amount: 500, status: "Verified", utr: "111122223333", paidAt: "2026-02-14", label: "Extra nights" },
+    ]
+    const rows = invoiceExportRows([request])
+    expect(rows).toHaveLength(2)
+    expect(rows[0][0]).toBe("Aarav Sharma")
+    expect(rows[0][1]).toBe("aarav@iiti.ac.in")
+    expect(rows[0][2]).toMatch(/Feb/)
+    expect(rows[0][4]).toBe("205311487629")
+    expect(rows[1][3]).toBe("500.00")
+    expect(rows[1][4]).toBe("111122223333")
   })
 
   it("draws more than three body rows so a fourth hostel's guests are not dropped", async () => {

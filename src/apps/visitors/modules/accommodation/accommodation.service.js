@@ -63,6 +63,7 @@ import {
 } from "./accommodation.constants.js"
 import { resolveStayTimes } from "./accommodation.stay.js"
 import { buildInvoiceModel, buildInvoiceNumber, listSettledPayments, renderInvoicePdf } from "./accommodation.invoice-pdf.js"
+import { buildInvoiceExportExcel, invoiceExportRows } from "./accommodation.invoice-export.js"
 import { storageClient } from "../../../../services/storage/storage.client.js"
 import { fileAccessService } from "../../../../services/storage/file-access.service.js"
 import * as accommodationEmails from "./accommodation.emails.js"
@@ -770,6 +771,32 @@ export const accommodationService = {
       })
     )
     return success({ buffer, contentType: "application/pdf", filename })
+  },
+
+  /**
+   * Accountant download: every invoiced booking whose GST invoice was generated
+   * in [from, to], one row per settled payment (main + extras).
+   */
+  async exportInvoices(query = {}) {
+    const fromKey = String(query.from || "").slice(0, 10)
+    const toKey = String(query.to || "").slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fromKey) || !/^\d{4}-\d{2}-\d{2}$/.test(toKey)) {
+      return badRequest("Start and end dates are required (YYYY-MM-DD)")
+    }
+    if (fromKey > toKey) return badRequest("Start date must be on or before the end date")
+    const from = new Date(`${fromKey}T00:00:00.000Z`)
+    const to = new Date(`${toKey}T23:59:59.999Z`)
+    const requests = await accommodationQueries.findInvoicedBetween(from, to)
+    const file = buildInvoiceExportExcel({
+      fromLabel: fromKey,
+      toLabel: toKey,
+      rows: invoiceExportRows(requests),
+    })
+    return success({
+      buffer: Buffer.from(file.xml, "utf8"),
+      contentType: file.contentType,
+      filename: file.filename,
+    })
   },
 
   async cancelRequest(requestId, user) {

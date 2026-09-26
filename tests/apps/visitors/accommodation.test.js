@@ -1707,3 +1707,61 @@ describe("accommodation — CWO office edit & extra payments", () => {
     expect(invoice.headers["content-type"]).toMatch(/application\/pdf/)
   })
 })
+
+describe("accommodation — accountant invoice Excel export", () => {
+  it("403 for CWO; 400 without dates; exports settled payments whose invoice falls in the range", async () => {
+    const student = await iitiStudent()
+    const hostel = await createHostel()
+    const { AccommodationRequest } = await import("../../../src/models/index.js")
+    const generatedAt = new Date()
+    await AccommodationRequest.create({
+      typeKey: "parents-siblings",
+      requesterUserId: student._id,
+      applicantName: "Aarav Sharma",
+      applicantEmail: "aarav@iiti.ac.in",
+      guests: [{ name: "Ramu Yadav", gender: "Male", age: 52, relation: "Father", aadharNumber: "111122223333" }],
+      roomPreference: "Single",
+      stay: { fromDate: day(7), toDate: day(9) },
+      persons: 1,
+      nights: 2,
+      status: "Invoiced",
+      payment: {
+        amount: 400,
+        status: "Verified",
+        utr: "111122223333",
+        paidAt: new Date("2026-02-10T10:00:00.000Z"),
+      },
+      additionalPayments: [
+        {
+          amount: 150,
+          status: "Verified",
+          utr: "444455556666",
+          paidAt: new Date("2026-02-12T10:00:00.000Z"),
+          label: "Extra nights",
+        },
+      ],
+      allotment: { hostelId: hostel._id },
+      invoice: { number: "HCU/ACC/25-26/9", generatedAt, gstApplicable: false },
+    })
+
+    const cwoApi = await as(await cwo())
+    expect((await cwoApi.get("/api/v1/accommodation/invoices/export?from=2026-01-01&to=2026-12-31")).status).toBe(403)
+
+    const acctApi = await as(await accountant())
+    let res = await acctApi.get("/api/v1/accommodation/invoices/export")
+    expect(res.status).toBe(400)
+
+    const today = generatedAt.toISOString().slice(0, 10)
+    res = await acctApi.get(`/api/v1/accommodation/invoices/export?from=${today}&to=${today}`)
+    expect(res.status).toBe(200)
+    expect(res.headers["content-type"]).toMatch(/excel|spreadsheet/i)
+    const body = res.text
+    expect(body).toContain("Student name")
+    expect(body).toContain("Aarav Sharma")
+    expect(body).toContain("aarav@iiti.ac.in")
+    expect(body).toContain("111122223333")
+    expect(body).toContain("444455556666")
+    expect(body).toContain("400.00")
+    expect(body).toContain("150.00")
+  })
+})
