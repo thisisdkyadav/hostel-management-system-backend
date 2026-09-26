@@ -130,7 +130,7 @@ export const updateComplaintCategorySchema = Joi.object({
   }),
   body: Joi.object({
     category: Joi.string()
-      .valid("Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other")
+      .valid("Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Carpenter", "Other")
       .required(),
   }),
 });

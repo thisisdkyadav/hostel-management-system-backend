@@ -91,6 +91,19 @@ describe("POST /complaint (create)", () => {
     expect(complaint.attachments).toEqual(["media://photo/1.jpg"])
   })
 
+  it("creates a complaint in the Carpenter category", async () => {
+    const { user } = studentWithAllocation
+    const api = await as(user)
+    const res = await api.post(BASE).send({
+      userId: String(user._id),
+      title: "Broken hostel bed",
+      description: "The wooden bed frame is cracked and needs a carpenter",
+      category: "Carpenter",
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.category).toBe("Carpenter")
+  })
+
   it("defaults category to Other when omitted", async () => {
     const { user } = studentWithAllocation
     const api = await as(user)
@@ -555,6 +568,13 @@ describe("PUT /complaint/:complaintId/category", () => {
     const ownerApi = await as(student)
     const got = await ownerApi.get(`${BASE}/all`).query({ category: "Internet" })
     expect(got.body.data.items.map((c) => c.id)).toContain(String(complaint._id))
+  })
+
+  it("accepts Carpenter as a category", async () => {
+    const api = await as(admin)
+    const res = await api.put(`${BASE}/${complaint._id}/category`).send({ category: "Carpenter" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.category).toBe("Carpenter")
   })
 })
 

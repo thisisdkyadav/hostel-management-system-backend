@@ -560,7 +560,7 @@ class ComplaintService {
    * Update complaint category (type)
    */
   async updateCategory(complaintId, category, user) {
-    const allowedCategories = ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Other"];
+    const allowedCategories = ["Plumbing", "Electrical", "Civil", "Cleanliness", "Internet", "Carpenter", "Other"];
     if (!allowedCategories.includes(category)) {
       return badRequest("Invalid complaint category");
     }
