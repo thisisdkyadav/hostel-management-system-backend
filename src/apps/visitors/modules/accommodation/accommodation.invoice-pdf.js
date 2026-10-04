@@ -543,9 +543,9 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
     gstin,
     total,
     utr: utrs.join(" · ") || request?.payment?.utr || "",
-    requestedBy: studentName || request?.applicantName || "",
+    requestedBy: request?.typeKey === "intern" ? request.h4?.payer?.name || request.applicantName : studentName || request?.applicantName || "",
     purpose: stay.purpose || "",
-    source: "Self",
+    source: request?.typeKey === "intern" && request.h4?.payer?.type === "faculty" ? "Faculty" : "Self",
     rows,
   }
 }

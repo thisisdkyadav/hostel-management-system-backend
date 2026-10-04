@@ -5,6 +5,8 @@ import { isMediaRef } from '../../../../services/storage/file-ref.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { certificateQueries } from '../../../../services/certificate/certificateQueries.service.js';
 import { userQueries } from '../../../../services/user/userQueries.service.js';
+import { accommodationQueries } from '../../../../services/accommodation/accommodationQueries.service.js';
+import { isCreator, isFaculty, isOffice, isAccounts, validId, freshUser } from '../../../visitors/modules/intern-accommodation/h4.helpers.js';
 import { env } from '../../../../config/env.config.js';
 import { logger } from '../../../../services/base/Logger.js';
 
@@ -81,6 +83,15 @@ const staffSharesHostelWithStudent = async (user, subjectUserId) => {
 
 const canViewMedia = async (user, meta, fileRef) => {
   if (!user?._id) return false;
+  // H4 proof and invoice files have a request ID as their entity hint. Apply
+  // request access before the general administrator/creator media rules.
+  if (validId(meta?.entityHint) && ['payment-screenshots', 'certificates'].includes(meta?.policy)) {
+    const request = await accommodationQueries.findH4ById(meta.entityHint, { lean: true });
+    if (request) {
+      const actor = await freshUser(user);
+      return !!actor && (isCreator(request, actor) || isFaculty(request, actor) || isOffice(actor) || isAccounts(actor));
+    }
+  }
   if (ADMIN_ROLES.has(user.role)) return true;
 
   const policy = String(meta?.policy || '');

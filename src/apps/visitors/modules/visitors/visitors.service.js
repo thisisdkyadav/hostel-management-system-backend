@@ -9,6 +9,10 @@ import { studentProfileQueries } from '../../../../services/student/studentProfi
 import { hostelQueries } from '../../../../services/hostel/hostelQueries.service.js';
 import { visitorOwner } from '../../../../services/visitor/visitorOwner.service.js';
 import { visitorQueries } from '../../../../services/visitor/visitorQueries.service.js';
+import { accommodationQueries } from '../../../../services/accommodation/accommodationQueries.service.js';
+import { withHostelLocks } from '../intern-accommodation/h4.helpers.js';
+import { LOCK_NOT_ACQUIRED } from '../../../../services/lock/distributedLock.js';
+import { getStayWindow } from '../accommodation/accommodation.stay.js';
 import { getConfigWithDefault } from '../../../../utils/configDefaults.js';
 import { emitVisitorUpdate } from '../../../../utils/socketHandlers.js';
 import {
@@ -280,8 +284,16 @@ class VisitorsService {
    * @param {Object} user - Requesting user
    */
   async allocateRoomsToVisitorRequest(requestId, allocationData, user) {
+    const result = await withHostelLocks([String(user.hostel?._id || '')], () => this.allocateRoomsLocked(requestId, allocationData, user));
+    return result === LOCK_NOT_ACQUIRED ? badRequest('Room availability is being updated. Try again.') : result;
+  }
+
+  async allocateRoomsLocked(requestId, allocationData, user) {
     return withTransaction(async (session) => {
       const hostelId = user.hostel._id;
+      const request = await visitorQueries.findRequestById(requestId, { session });
+      if (!request) return notFound(ENTITY);
+      if (String(request.hostelId) !== String(hostelId)) return forbidden('This request belongs to another hostel');
 
       // Sequential, not Promise.all: every query here shares one transaction
       // session, and a ClientSession cannot run operations concurrently. Parallel
@@ -309,6 +321,8 @@ class VisitorsService {
         if (foundRoom.occupancy) {
           throw new Error(`Room ${roomNumber} in unit ${unitNumber} is already occupied by a student`);
         }
+        const h4 = await accommodationQueries.findReservations({ roomIds: [foundRoom._id], ...getStayWindow({ fromDate: request.fromDate, toDate: request.toDate }), session });
+        if (h4.length) return badRequest(`Room ${roomNumber} has an overlapping H4 reservation`);
         allocatedRoomIds.push(foundRoom._id);
       }
 

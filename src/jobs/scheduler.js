@@ -10,11 +10,14 @@
 
 import { withLock } from "../services/lock/distributedLock.js"
 import { accommodationService } from "../apps/visitors/modules/accommodation/accommodation.service.js"
+import { h4Service } from "../apps/visitors/modules/intern-accommodation/h4.service.js"
+import { h4Notifications } from "../apps/visitors/modules/intern-accommodation/h4.notifications.js"
 
 const HOUR_MS = 60 * 60 * 1000
 const STARTUP_DELAY_MS = 30 * 1000
 
 let tickTimer = null
+let notificationTimer = null
 
 const pad = (n) => String(n).padStart(2, "0")
 const dateStamp = (now) => `${now.getUTCFullYear()}-${pad(now.getUTCMonth() + 1)}-${pad(now.getUTCDate())}`
@@ -26,6 +29,9 @@ const hourWindowKey = (prefix, now = new Date()) => `lock:cron:${prefix}:${dateS
 const dayWindowKey = (prefix, now = new Date()) => `lock:cron:${prefix}:${dateStamp(now)}`
 
 const runHourlyJobs = async () => {
+  await withLock(hourWindowKey("h4-stay-close"), HOUR_MS / 1000,
+    () => h4Service.closeEndedStays(), { release: false })
+    .catch(error => console.error("[scheduler] H4 stay closure failed:", error.message))
   // Accommodation: 24h Chief Warden auto-approve sweep (hourly).
   await withLock(
     hourWindowKey("accommodation-auto-approve"),
@@ -65,10 +71,12 @@ export const startJobScheduler = () => {
   tickTimer = setInterval(() => {
     runHourlyJobs().catch(() => {})
   }, HOUR_MS)
+  notificationTimer = setInterval(() => h4Notifications.drain().catch(error => console.error("[scheduler] H4 notification delivery failed:", error.message)), 60000)
   console.log("⏰ Job scheduler started")
 }
 
 export const stopJobScheduler = () => {
+  if (notificationTimer) { clearInterval(notificationTimer); notificationTimer = null }
   if (tickTimer) {
     clearInterval(tickTimer)
     tickTimer = null

@@ -25,6 +25,15 @@ const toObjectId = (value) =>
   value instanceof mongoose.Types.ObjectId ? value : new mongoose.Types.ObjectId(value)
 
 export const hostelQueries = {
+  async findH4RoomCandidates(hostelId, roomNumber, unitId, { session } = {}) {
+    const filter = { hostelId, roomNumber }
+    if (unitId) filter.unitId = unitId
+    return withSession(Room.find(filter), session).populate("unitId", "unitNumber").lean()
+  },
+  async findAllocationsForRoom(roomId, { session } = {}) {
+    return withSession(RoomAllocation.find({ roomId }), session)
+      .populate("userId", "name").populate("studentProfileId", "rollNumber").lean()
+  },
   // ==================== Hostel ====================
 
   /** Full hostel doc by id (lean). Optional session for txn reads. */

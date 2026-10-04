@@ -61,7 +61,7 @@ import {
   FA_TOKEN_TTL_MS,
   UTR_RE,
 } from "./accommodation.constants.js"
-import { resolveStayTimes } from "./accommodation.stay.js"
+import { resolveStayTimes, getStayWindow } from "./accommodation.stay.js"
 import { buildInvoiceModel, buildInvoiceNumber, listSettledPayments, renderInvoicePdf } from "./accommodation.invoice-pdf.js"
 import { buildInvoiceExportExcel, invoiceExportRows } from "./accommodation.invoice-export.js"
 import { storageClient } from "../../../../services/storage/storage.client.js"
@@ -433,6 +433,12 @@ const normalizeGuests = (guests = []) =>
     name: String(guest?.name || "").trim(),
   }))
 
+const assignedH4Conflict = async (request, stay) => {
+  if (!request.rooms?.length || stayClosedForInvoice(request)) return null
+  const reservations = await accommodationQueries.findReservations({ roomIds: request.rooms.map(r => r.roomId), ...getStayWindow(stay) })
+  return reservations.length ? badRequest("An assigned room has an overlapping H4 reservation for the new dates. Change the room or dates first.") : null
+}
+
 export const accommodationService = {
   async getTypes() {
     const types = await listAccommodationTypes()
@@ -447,6 +453,7 @@ export const accommodationService = {
   },
 
   async submitRequest(body, user) {
+    if (body?.typeKey === "intern") return badRequest("Use the separate H4 accommodation page")
     const typeKey = body.typeKey || "parents-siblings"
     const type = await getAccommodationType(typeKey)
     if (!type) return badRequest("Invalid accommodation type")
@@ -1266,6 +1273,8 @@ export const accommodationService = {
           hostelId: hid,
           from: request.stay.fromDate,
           to: request.stay.toDate,
+          checkInTime: request.stay.checkInTime,
+          checkOutTime: request.stay.checkOutTime,
           excludeRequestId: request._id,
         })
         const roomsNeeded = roomsNeededFor(count, availability.largestRoom)
@@ -1763,6 +1772,13 @@ export const accommodationService = {
    * body: { action: approve|reject, note?, extraAmount? }
    */
   async decideScheduleChange(requestId, changeId, body, user) {
+    const request = await accommodationQueries.findRequestByIdLean(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    const result = await withHostelLocks(uniqueAllottedHostelIds(request), () => this._decideScheduleChangeLocked(requestId, changeId, body, user))
+    return result === LOCK_NOT_ACQUIRED ? badRequest("Room availability is being updated — try again") : result
+  },
+
+  async _decideScheduleChangeLocked(requestId, changeId, body, user) {
     const action = String(body?.action || "").trim()
     if (![SCHEDULE_DECISION.APPROVE, SCHEDULE_DECISION.REJECT].includes(action)) {
       return badRequest("Invalid action")
@@ -1806,6 +1822,9 @@ export const accommodationService = {
     const newTo = change.requestedToDate
     if (!newFrom || !newTo) return badRequest("Invalid requested dates on this change")
 
+    const h4Conflict = await assignedH4Conflict(request, { ...request.stay.toObject(), fromDate: newFrom, toDate: newTo })
+    if (h4Conflict) return h4Conflict
+
     let extraAmount = ROUND2(body?.extraAmount)
     if (Number.isNaN(extraAmount) || extraAmount < 0) return badRequest("Extra amount is invalid")
     if (!paymentStepPassed(request)) {
@@ -1816,7 +1835,7 @@ export const accommodationService = {
     // Capacity for the new window when hostels are already allotted (per guest).
     const allottedIds = uniqueAllottedHostelIds(request)
     if (allottedIds.length) {
-      const claim = await withHostelLocks(allottedIds, async () => {
+      const claim = await (async () => {
         for (const hostelId of allottedIds) {
           const need = personsAllottedToHostel(request, hostelId)
           if (!need) continue
@@ -1824,6 +1843,8 @@ export const accommodationService = {
             hostelId,
             from: newFrom,
             to: newTo,
+            checkInTime: request.stay.checkInTime,
+            checkOutTime: request.stay.checkOutTime,
             excludeRequestId: request._id,
           })
           const roomsNeeded = roomsNeededFor(need, availability.largestRoom)
@@ -1839,7 +1860,7 @@ export const accommodationService = {
           }
         }
         return null
-      })
+      })()
       if (claim === LOCK_NOT_ACQUIRED) {
         return badRequest("This hostel is being updated right now — try again in a moment")
       }
@@ -1938,6 +1959,13 @@ export const accommodationService = {
    *    opens a second payment request
    */
   async officeEditRequest(requestId, body, user) {
+    const request = await accommodationQueries.findRequestByIdLean(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    const result = await withHostelLocks(uniqueAllottedHostelIds(request), () => this._officeEditRequestLocked(requestId, body, user))
+    return result === LOCK_NOT_ACQUIRED ? badRequest("Room availability is being updated — try again") : result
+  },
+
+  async _officeEditRequestLocked(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     if ([ACCOMMODATION_STATUS.REJECTED, ACCOMMODATION_STATUS.CANCELLED].includes(request.status)) {
@@ -2017,9 +2045,14 @@ export const accommodationService = {
         times.checkInTime !== (request.stay?.checkInTime || "") ||
         times.checkOutTime !== (request.stay?.checkOutTime || "")
 
+      if (datesChanged && !stayClosed) {
+        const h4Conflict = await assignedH4Conflict(request, { fromDate: nextFrom, toDate: nextTo, ...times })
+        if (h4Conflict) return h4Conflict
+      }
+
       if (datesChanged && !stayClosed && uniqueAllottedHostelIds(request).length) {
         const allottedIds = uniqueAllottedHostelIds(request)
-        const claim = await withHostelLocks(allottedIds, async () => {
+        const claim = await (async () => {
           for (const hostelId of allottedIds) {
             const need = personsAllottedToHostel(request, hostelId)
             if (!need) continue
@@ -2027,6 +2060,8 @@ export const accommodationService = {
               hostelId,
               from: nextFrom,
               to: nextTo,
+              checkInTime: times.checkInTime,
+              checkOutTime: times.checkOutTime,
               excludeRequestId: request._id,
             })
             const roomsNeeded = roomsNeededFor(need, availability.largestRoom)
@@ -2042,7 +2077,7 @@ export const accommodationService = {
             }
           }
           return null
-        })
+        })()
         if (claim === LOCK_NOT_ACQUIRED) {
           return badRequest("This hostel is being updated right now — try again in a moment")
         }
@@ -2254,7 +2289,7 @@ export const accommodationService = {
    * `replace` rebuilds the PDF (same invoice number) when a later extra payment
    * has to appear on the same receipt.
    */
-  async _issueInvoice(request, { replace = false } = {}) {
+  async _issueInvoice(request, { replace = false, sendEmail = true } = {}) {
     if (request.invoice?.generatedAt && !replace) return request
     const config = await getAccommodationConfig()
     const generatedAt = new Date()
@@ -2300,8 +2335,9 @@ export const accommodationService = {
         actorRole: "System",
         sourceService: "accommodation",
         entityHint: String(request._id),
+        timeoutMs: request.typeKey === "intern" ? 10000 : undefined,
       })
-      const fileRef = stored?.fileRef || stored?.data?.fileRef || ""
+      const fileRef = stored?.file_ref || stored?.fileRef || stored?.data?.fileRef || ""
       if (fileRef) {
         request.invoice.pdfFileRef = fileRef
         await accommodationOwner.persist(request)
@@ -2311,9 +2347,10 @@ export const accommodationService = {
     }
 
     try {
+      if (!sendEmail) return request
       await accommodationEmails.sendInvoiceEmail({
-        to: request.applicantEmail,
-        studentName: request.applicantName,
+        to: request.typeKey === "intern" ? request.h4.payer.email : request.applicantEmail,
+        studentName: request.typeKey === "intern" ? request.h4.payer.name : request.applicantName,
         number,
         quote: request.quote,
         gstin: config?.gstin,
@@ -2340,6 +2377,8 @@ export const accommodationService = {
     const hostels = await listHostelsGuestAvailability({
       from: request.stay?.fromDate,
       to: request.stay?.toDate,
+      checkInTime: request.stay?.checkInTime,
+      checkOutTime: request.stay?.checkOutTime,
       excludeRequestId: requestId,
     })
     const config = await getAccommodationConfig()
@@ -2380,7 +2419,7 @@ export const accommodationService = {
       const includeRoomIds = (request.rooms || [])
         .filter((r) => (r.guestIndexes || []).some((i) => mine.has(Number(i))))
         .map((r) => r.roomId)
-      const list = await getGuestRoomAvailability({ hostelId: hid, includeRoomIds })
+      const list = await getGuestRoomAvailability({ hostelId: hid, includeRoomIds, from: request.stay.fromDate, to: request.stay.toDate, checkInTime: request.stay.checkInTime, checkOutTime: request.stay.checkOutTime })
       const hostel = await hostelQueries.findHostelById(hid)
       const tagged = list.map((r) => ({ ...r, hostelId: hid, hostelName: hostel?.name || "" }))
       rooms.push(...tagged)
@@ -2404,6 +2443,13 @@ export const accommodationService = {
   // hostels' assignments on the same request are left untouched. The request
   // only moves to ROOMS_ASSIGNED once every guest has a room.
   async assignRooms(requestId, body, user) {
+    const request = await accommodationQueries.findRequestByIdLean(requestId)
+    if (!request) return notFound("Accommodation request not found")
+    const result = await withHostelLocks(uniqueAllottedHostelIds(request), () => this._assignRoomsLocked(requestId, body, user))
+    return result === LOCK_NOT_ACQUIRED ? badRequest("Room availability is being updated — try again") : result
+  },
+
+  async _assignRoomsLocked(requestId, body, user) {
     const request = await accommodationQueries.findRequestById(requestId)
     if (!request) return notFound("Accommodation request not found")
     const assignable = [
@@ -2458,7 +2504,7 @@ export const accommodationService = {
       const includeRoomIds = (request.rooms || [])
         .filter((r) => (r.guestIndexes || []).some((i) => mine.has(Number(i))))
         .map((r) => r.roomId)
-      const list = await getGuestRoomAvailability({ hostelId: hid, includeRoomIds })
+      const list = await getGuestRoomAvailability({ hostelId: hid, includeRoomIds, from: request.stay.fromDate, to: request.stay.toDate, checkInTime: request.stay.checkInTime, checkOutTime: request.stay.checkOutTime })
       for (const r of list) availById.set(String(r.roomId), r)
     }
     for (const assignment of assignments) {

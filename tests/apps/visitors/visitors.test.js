@@ -420,7 +420,7 @@ describe("visitor staff operations — missing lifecycle guards", () => {
     const student = await seed.student()
     const hostel = await createHostel()
     await createRoom({ hostelId: hostel._id, roomNumber: "X-101", capacity: 2 })
-    const rejected = await seedRequest(student, { status: "Rejected" })
+    const rejected = await seedRequest(student, { status: "Rejected", hostelId: hostel._id })
 
     const api = await supervisorFor(hostel)
     const res = await api.post(`/api/v1/visitor/requests/${rejected._id}/allocate`).send({
@@ -434,7 +434,7 @@ describe("visitor staff operations — missing lifecycle guards", () => {
     const student = await seed.student()
     const hostel = await createHostel()
     const room = await createRoom({ hostelId: hostel._id, roomNumber: "X-201", capacity: 4 })
-    const request = await seedRequest(student)
+    const request = await seedRequest(student, { hostelId: hostel._id })
 
     const api = await supervisorFor(hostel)
     const res = await api.post(`/api/v1/visitor/requests/${request._id}/allocate`).send({
@@ -532,12 +532,16 @@ describe("visitor requests — staff operations", () => {
       capacity: 2,
       occupancy: 1,
     })
-    const request = await seedRequest(student)
+    const request = await seedRequest(student, { hostelId: hostel._id })
 
     // session must carry the staff hostel (normally derived from the staff profile)
     const api = await as(supervisor, {
       userData: { hostel: { _id: hostel._id, name: hostel.name } },
     })
+
+    const otherHostel = await createHostel()
+    const otherHostelApi = await as(supervisor, { userData: { hostel: { _id: otherHostel._id, name: otherHostel.name } } })
+    expect((await otherHostelApi.post(`/api/v1/visitor/requests/${request._id}/allocate`).send({ allocationData: [["G-101", "V1"]] })).status).toBe(403)
 
     // occupied room refused
     let res = await api.post(`/api/v1/visitor/requests/${request._id}/allocate`).send({

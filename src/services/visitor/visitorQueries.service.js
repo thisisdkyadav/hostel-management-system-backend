@@ -17,6 +17,11 @@ import { Visitors, VisitorProfile, VisitorRequest } from "../../models/index.js"
 const withSession = (query, session) => (session ? query.session(session) : query)
 
 export const visitorQueries = {
+  async findRoomBookings({ roomId, from, to, session } = {}) {
+    return withSession(VisitorRequest.find({ allocatedRooms: roomId, status: "Approved",
+      checkOutTime: null, fromDate: { $lte: new Date(to) }, toDate: { $gte: new Date(from) } }), session)
+      .select("fromDate toDate status").populate("visitors", "name").lean()
+  },
   // ==================== VisitorRequest ====================
 
   /** Paginated request list (hydrated + populated), newest first. */

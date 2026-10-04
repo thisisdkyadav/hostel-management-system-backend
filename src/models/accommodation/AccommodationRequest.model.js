@@ -9,6 +9,7 @@
  */
 
 import mongoose from "mongoose"
+import { H4DetailsSchema } from "./H4Details.schema.js"
 
 export const ACCOMMODATION_STATUS = {
   DRAFT: "Draft",
@@ -238,6 +239,7 @@ const TimelineEntrySchema = new mongoose.Schema(
 const AccommodationRequestSchema = new mongoose.Schema(
   {
     typeKey: { type: String, required: true }, // -> AccommodationType.key
+    h4: { type: H4DetailsSchema, default: undefined },
     requesterUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
 
     // Applicant snapshot (from H2 form / student profile)
@@ -323,6 +325,9 @@ const AccommodationRequestSchema = new mongoose.Schema(
 )
 
 AccommodationRequestSchema.index({ requesterUserId: 1, createdAt: -1 })
+AccommodationRequestSchema.index({ typeKey: 1, "h4.facultyUserId": 1, currentStage: 1, createdAt: -1 })
+AccommodationRequestSchema.index({ typeKey: 1, "h4.batchId": 1, createdAt: -1 })
+AccommodationRequestSchema.index({ typeKey: 1, "h4.amendment.stage": 1 })
 AccommodationRequestSchema.index({ status: 1, createdAt: -1 })
 AccommodationRequestSchema.index({ currentStage: 1, stageDeadlineAt: 1 }) // auto-approve sweep
 AccommodationRequestSchema.index({ "allotment.hostelId": 1, status: 1 })

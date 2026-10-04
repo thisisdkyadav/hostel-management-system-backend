@@ -56,3 +56,10 @@ export const describeExtension = (stay = {}) => {
 }
 
 export { STANDARD_CHECK_TIME }
+
+/** Reservation interval in institute time. Endpoints are half-open: a room
+ * may be reused at the previous stay's exact departure time. */
+export const getStayWindow = ({ fromDate, toDate, checkInTime = STANDARD_CHECK_TIME, checkOutTime = STANDARD_CHECK_TIME }) => ({
+  from: new Date(`${new Date(fromDate).toISOString().slice(0, 10)}T${checkInTime}:00+05:30`),
+  to: new Date(`${new Date(toDate).toISOString().slice(0, 10)}T${checkOutTime}:00+05:30`),
+})

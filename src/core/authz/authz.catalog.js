@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 18
+export const AUTHZ_CATALOG_VERSION = 19
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -38,6 +38,18 @@ const constraint = (key, label, valueType, defaultValue = null) => ({
 })
 
 export const AUTHZ_ROUTE_DEFINITIONS = [
+  route("route.admin.internAccommodation", "Intern & Student Accommodation (H4)", ["/admin/intern-accommodation"]),
+  route("route.student.internAccommodation", "Intern & Student Accommodation (H4)", ["/student/intern-accommodation"]),
+  route("route.academics.internAccommodation", "Intern & Student Accommodation (H4)", ["/academics/intern-accommodation"]),
+  route("route.hostelSupervisor.internAccommodation", "Intern & Student Accommodation (H4)", ["/hostel-supervisor/intern-accommodation"]),
+  route("route.hostelGate.internAccommodation", "Intern & Student Accommodation (H4)", ["/hostel-gate/intern-accommodation"]),
+  route("route.warden.internAccommodation", "Intern & Student Accommodation (H4)", ["/warden/intern-accommodation"]),
+  route("route.associateWarden.internAccommodation", "Intern & Student Accommodation (H4)", ["/associate-warden/intern-accommodation"]),
+  route("route.security.internAccommodation", "Intern & Student Accommodation (H4)", ["/guard/intern-accommodation"]),
+  route("route.maintenance.internAccommodation", "Intern & Student Accommodation (H4)", ["/maintenance/intern-accommodation"]),
+  route("route.gymkhana.internAccommodation", "Intern & Student Accommodation (H4)", ["/gymkhana/intern-accommodation"]),
+  route("route.superAdmin.internAccommodation", "Intern & Student Accommodation (H4)", ["/super-admin/intern-accommodation"]),
+  route("route.dining.internAccommodation", "Intern & Student Accommodation (H4)", ["/caterer/intern-accommodation", "/dining-office/intern-accommodation"]),
   // Admin
   route("route.admin.dashboard", "Admin Dashboard", [
     "/admin",
@@ -259,9 +271,11 @@ export const AUTHZ_ROUTE_KEYS_BY_SUBROLE = {
   [DINING_SUBROLES.OFFICE]: [
     ...AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.diningOffice.")),
     ...DINING_OFFICE_ADMIN_ROUTE_KEYS,
+    "route.dining.internAccommodation",
     "route.dining.media",
   ],
   [DINING_SUBROLES.CATERER]: [
+    "route.dining.internAccommodation",
     ...AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
     "route.dining.media",
   ],

@@ -15,6 +15,7 @@
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { accommodationQueries } from "../../../../services/accommodation/accommodationQueries.service.js"
 import { personsAllottedToHostel } from "./accommodation.allotment.js"
+import { getStayWindow } from "./accommodation.stay.js"
 
 const bedCount = (room) => room.originalCapacity || room.capacity || 0
 
@@ -26,8 +27,12 @@ const bedCount = (room) => room.originalCapacity || room.capacity || 0
  * bookings a hostel can take. Beds are still reported, because a party has to
  * fit inside the rooms it is given.
  */
-export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId } = {}) => {
-  const emptyRooms = await hostelQueries.findEmptyActiveRooms(hostelId)
+export const getHostelGuestAvailability = async ({ hostelId, from, to, excludeRequestId, checkInTime, checkOutTime } = {}) => {
+  const candidates = await hostelQueries.findEmptyActiveRooms(hostelId)
+  const window = getStayWindow({ fromDate: from, toDate: to, checkInTime, checkOutTime })
+  const h4 = await accommodationQueries.findReservations({ hostelId, ...window, excludeRequestId })
+  const reserved = new Set(h4.map(r => String(r.roomId)))
+  const emptyRooms = candidates.filter(r => !reserved.has(String(r._id)))
   const totalBeds = emptyRooms.reduce((sum, room) => sum + bedCount(room), 0)
   const largestRoom = emptyRooms.reduce((max, room) => Math.max(max, bedCount(room)), 0)
 
@@ -68,14 +73,14 @@ export const roomsNeededFor = (persons, largestRoom) => {
 }
 
 // Availability across every hostel that currently has empty Active rooms.
-export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId } = {}) => {
+export const listHostelsGuestAvailability = async ({ from, to, checkInTime, checkOutTime, excludeRequestId } = {}) => {
   const hostelIds = await hostelQueries.distinctHostelIdsWithEmptyActiveRooms()
   const hostels = await hostelQueries.findHostelsByIds(hostelIds, "name type gender isArchived")
 
   const results = []
   for (const hostel of hostels) {
     if (hostel.isArchived) continue
-    const availability = await getHostelGuestAvailability({ hostelId: hostel._id, from, to, excludeRequestId })
+    const availability = await getHostelGuestAvailability({ hostelId: hostel._id, from, to, checkInTime, checkOutTime, excludeRequestId })
     results.push({ hostelId: hostel._id, name: hostel.name, type: hostel.type, gender: hostel.gender, ...availability })
   }
   return results
@@ -84,8 +89,12 @@ export const listHostelsGuestAvailability = async ({ from, to, excludeRequestId 
 // Per-room list for the Supervisor: fully-empty Active rooms in the hostel, plus
 // the rooms this booking already holds (now status "Guest") so they show up for
 // reassignment. `includeRoomIds` are the current request's assigned room ids.
-export const getGuestRoomAvailability = async ({ hostelId, includeRoomIds = [] } = {}) => {
-  const rooms = await hostelQueries.findGuestEligibleRooms(hostelId, includeRoomIds)
+export const getGuestRoomAvailability = async ({ hostelId, includeRoomIds = [], from, to, checkInTime, checkOutTime } = {}) => {
+  const candidates = await hostelQueries.findGuestEligibleRooms(hostelId, includeRoomIds)
+  const window = getStayWindow({ fromDate: from || new Date(), toDate: to || new Date("2100-01-01"), checkInTime, checkOutTime })
+  const h4 = await accommodationQueries.findReservations({ hostelId, ...window })
+  const reserved = new Set(h4.map(r => String(r.roomId)))
+  const rooms = candidates.filter(r => !reserved.has(String(r._id)))
 
   return rooms.map((room) => {
     const beds = bedCount(room)

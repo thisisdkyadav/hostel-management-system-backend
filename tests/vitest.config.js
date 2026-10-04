@@ -18,6 +18,10 @@ const TEST_ENV = {
   REDIS_SESSION_PREFIX: `itest${NS ? "-" + NS : ""}:sess:`,
   SESSION_SECRET: "integration-test-session-secret-do-not-use-in-prod",
   USE_LOCAL_STORAGE: "true",
+  // Integration tests must never use credentials inherited from backend/.env.
+  SMTP_USER: "",
+  SMTP_PASS: "",
+  SMTP_ACCOUNTS: "[]",
 }
 
 export default defineConfig({

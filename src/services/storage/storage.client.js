@@ -50,7 +50,7 @@ class StorageClient {
     return String(env.storage.serviceUrl || '').replace(/\/$/, '');
   }
 
-  async upload({ file, policy, actorId, actorRole, sourceService, entityHint = '' }) {
+  async upload({ file, policy, actorId, actorRole, sourceService, entityHint = '', timeoutMs }) {
     ensureConfigured();
 
     if (!file?.buffer) {
@@ -75,6 +75,7 @@ class StorageClient {
       method: 'POST',
       headers: buildInternalHeaders(),
       body: formData,
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
 
     return parseJsonResponse(response);
