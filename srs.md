@@ -1,63 +1,26 @@
 ## Software Requirements Specification (SRS)
 
-### Hostel Management System (HMS) – Backend API
+### Hostel Management System (HMS) — Complete Product
 
-Version: 3.0  
-Date: 2026-01-08
+Version: 5.0  
+Date: 2026-09-21
 
 ### Revision History
 
-- 1.0 (2025-06-10): Initial SRS
-- 2.0 (2025-08-10): Fully revised to match implemented backend: session-based auth, RBAC/permissions, Razorpay payments, external API, deployment and detailed diagrams
-- 3.0 (2026-01-08): Comprehensive update with Socket.io (real-time), Redis adapter, Face Scanner (automated attendance), Leave Management, Certificates, Undertakings, and Spreadsheet-view data APIs.
+- 1.0–3.0: Express-only SRS (session auth, Razorpay, Socket.IO, scanners)
+- 4.0–4.3 (2026-09-21): Express rewritten to the current modular monolith
+- 5.0 (2026-09-21): Single product SRS covering all four services: frontend, Go backend, Express backend, storage backend
 
-## Table of Contents
+### Table of Contents
 
 1. Introduction
-   - 1.1 Purpose
-   - 1.2 Scope
-   - 1.3 Definitions, Acronyms, Abbreviations
-   - 1.4 References
-   - 1.5 Overview
 2. Overall Description
-   - 2.1 Product Perspective
-   - 2.2 Architectural Overview (with diagrams)
-   - 2.3 Product Functions
-   - 2.4 User Characteristics
-   - 2.5 Constraints
-   - 2.6 Assumptions and Dependencies
-3. Detailed Architecture
-   - 3.1 Runtime and Deployment Architecture
-   - 3.2 Request Lifecycle and Middleware Order
-   - 3.3 Authentication and Session Management (incl. SSO)
-   - 3.4 Authorization and RBAC Permissions Model
-   - 3.5 Real-time Communication (Socket.io & Redis)
-   - 3.6 File Uploads and Storage (Local)
-   - 3.7 Payments (Razorpay)
-   - 3.8 Face Scanner Integration
-   - 3.9 Configuration Management
-   - 3.10 Logging and Error Handling
-   - 3.11 Security Posture
+3. Architecture (Frontend, Go, Storage, Express)
 4. Functional Requirements
-   - 4.1 Auth & Session
-   - 4.2 Real-time Features
-   - 4.3 Core Modules (Student, Warden, Admin, Security, Super Admin)
-   - 4.4 Supporting Modules (Complaints, Lost & Found, Events, Visitors, Feedback, Notifications, Stats, Inventory, Tasks, Undertakings, Leave, Certificates, Face Scanner)
-   - 4.5 Payments
-   - 4.6 Uploads
-   - 4.7 External API
 5. Non-Functional Requirements
 6. Interface Requirements
-   - 6.1 Software Interfaces
-   - 6.2 Communication Interfaces
-7. Data Model & Database Requirements
-   - 7.1 Data Entities Overview
-   - 7.2 Key Schemas
-   - 7.3 Indexing & Integrity
-   - 7.4 ER Diagram
-8. API Surface Overview
-   - 8.1 Route Namespaces
-   - 8.2 High-Level Route Map (diagram)
+7. Data Model
+8. API Surface
 9. Appendices
 
 ---
@@ -66,41 +29,52 @@ Date: 2026-01-08
 
 ### 1.1 Purpose
 
-This SRS defines the backend API for the Hostel Management System (HMS). It captures implemented behavior and design so engineering, QA, security, and stakeholders share a single, accurate reference.
+This is the **product SRS** for HMS (Hostel Management System / SMS) at IIT Indore. It describes implemented behavior of the four live services so a receiving team can operate and extend the system from one document.
+
+Per-service coding conventions stay in each service’s `STRUCTURE_GUIDE.md`. This file states **what the product does**.
 
 ### 1.2 Scope
 
-Backend API built with Node.js and Express, using MongoDB via Mongoose. It supports:
+Four services, one product:
 
-- Authentication (email/password, Google) and server-side sessions
-- Single Sign-On (SSO) integration via JWT tokens
-- Real-time communication via Socket.io with Redis adapter
-- Role-based access and fine-grained permissions
-- Automated attendance tracking via Face Scanners
-- Student, Warden, Admin, Security, Super Admin modules
-- Complaints, Lost & Found, Events, Visitors, Feedback, Notifications, Stats, Leave, Certificates
-- Hostel/Rooms (with spreadsheet-view API), Inventory, Tasks, Undertakings, Staff attendance, Family members
-- File uploads to local filesystem
-- Razorpay payment link creation and status checks
-- External API namespace for integrations
+| Service | Default port | Stack | Owns |
+|---|---|---|---|
+| **Frontend** | Vite 5173 | React 19, Vite, TanStack Query, hzero, Capacitor | Role portals, public token pages, PWA |
+| **Go backend** | 5001 | Go 1.23, `net/http`, mongo-driver, go-redis | Login, sessions, SSO, Google, password reset, AuthZ catalog HTTP |
+| **Express backend** | 5000 | Node ESM, Express 5, Mongoose 9, Socket.IO | Domain REST, scanners, jobs, realtime |
+| **Storage backend** | 5100 | Rust, Axum, Mongo | File bytes, policies, signed download URLs |
 
-### 1.3 Definitions, Acronyms, Abbreviations
+Shared infrastructure: **MongoDB replica set**, **Redis**.
 
-- HMS: Hostel Management System
-- RBAC: Role-Based Access Control
-- CORS: Cross-Origin Resource Sharing
-- TTL: Time To Live (expiry)
-- SSO: Single Sign-On
+In scope: every live user and device flow listed in §4.  
+Out of scope: payment-gateway capture; empty student-affairs folders (scholarship, counseling, SA disciplinary); a live Grievance model.
 
-### 1.4 References
+### 1.3 Definitions
 
-- Codebase: `server.js`, `routes/*`, `controllers/*`, `models/*`, `middlewares/*`, `externalApi/*`, `config/socket.js`, `utils/socketHandlers.js`
-- Express, Mongoose, connect-mongo, express-session, Socket.io, Redis
-- Razorpay Node SDK
+| Term | Meaning |
+|---|---|
+| HMS | Hostel Management System (also SMS in some files) |
+| AuthZ | Catalog of route keys, capabilities, constraints, plus per-user overrides |
+| Session bridge | Redis document Go writes and Express reads (`connect.sid`) |
+| `media://` | Opaque file ref in Mongo; resolved to a short-lived signed URL |
+| Effective AuthZ | Catalog + role/sub-role defaults + override, computed in memory |
+| Owner / Queries | Express-only: the only files allowed to touch a Mongoose model |
+| POR | Position of Responsibility |
+| DisCo | Disciplinary Committee |
+| CWO | Chief Warden Office (Admin sub-role) |
+| HCU | Halls of Residence / hostel-ops Admin sub-role |
+| SSO | External HMS SSO, verified by Go |
+
+### 1.4 References (inside the four services)
+
+- Frontend: `src/routes/AppRoutes.jsx`, `src/config/apiConfig.js`, `src/service/core/apiClient.js`, `src/components/authz/RouteAccessGuard.jsx`, `docs/data-fetching.md`, `structure_design.md`
+- Go: `cmd/api`, `internal/modules/auth`, `internal/modules/authz`, `internal/modules/simauth`, `internal/shared/session`, `STRUCTURE_GUIDE.md`, `MIGRATION_NOTES.md`
+- Express: `src/server.js`, `src/loaders/express.loader.js`, `src/apps/*`, `src/core/authz/`, `STRUCTURE_GUIDE.md`, `docs/accommodation-flow.md`, `tests/AGENTS.md`
+- Storage: `src/app.rs`, `src/policy.rs`, `src/storage.rs`, `STRUCTURE_GUIDE.md`
 
 ### 1.5 Overview
 
-The document explains architecture and behavior first, then enumerates requirements, interfaces, and data models with diagrams.
+Section 2 is the product. Section 3 is each service. Section 4 is functional requirements (UI, auth, domain, files). Later sections cover env, data, HTTP, and handover risks.
 
 ---
 
@@ -108,710 +82,715 @@ The document explains architecture and behavior first, then enumerates requireme
 
 ### 2.1 Product Perspective
 
-The API is the central service in a client–server architecture. A separate frontend consumes REST endpoints over HTTPS and maintains real-time connections via WebSockets. Data persists in MongoDB; sessions are stored in MongoDB via `connect-mongo`. Redis is used for Socket.io distribution and real-time online user tracking.
+Students, wardens, admins, gymkhana, dining, security, and other staff use HMS for rooms, complaints, visitors, dining, events, elections, leave, inventory, and related workflows.
 
 ```mermaid
 graph LR
-  subgraph Client
-    FE["Web Frontend"]
-    SC["Face Scanner Device"]
+  subgraph Clients
+    FE["Frontend (Vite React / PWA)"]
+    SC["Face scanner device"]
   end
-
-  subgraph Backend
-    EX["Express App<br/>Routes + Controllers"]
-    SIO["Socket.io Server"]
-    MS[(MongoDB)]
-    SS["Session Store (MongoDB)"]
+  subgraph Services
+    GO["Go :5001 auth + authz"]
+    EX["Express :5000 domain + Socket.IO"]
+    ST["Storage :5100 files"]
+  end
+  subgraph Data
+    MS[(MongoDB replica set)]
     RD[(Redis)]
-    end
-
-  subgraph External Services
-    RZP[Razorpay]
   end
-
-  FE <--> |HTTPS + Cookies| EX
-  FE <--> |WebSockets| SIO
-  SC --> |HTTP Basic Auth| EX
-  EX <--> |Mongoose| MS
-  EX <--> |connect-mongo| SS
-  SIO <--> |Redis Adapter| RD
-  EX <--> |ioredis| RD
-  EX --> |SDK| RZP
+  FE -->|VITE_GO_API_URL /api/v1/auth* /authz*| GO
+  FE -->|VITE_API_URL /api/v1 domain| EX
+  FE -->|/socket.io| EX
+  FE -->|signed GET /v1/files/:id| ST
+  SC -->|Basic Auth scan| EX
+  GO --> MS
+  GO -->|SET sess:| RD
+  EX -->|GET sess:| RD
+  EX --> MS
+  EX -->|x-storage-internal-key| ST
+  ST --> MS
 ```
 
-### 2.2 Architectural Overview (with diagrams)
+### 2.2 Product Functions
 
-#### Deployment View
+- Authenticate (email, Google, SSO) and keep a shared cookie session
+- Role portals with route-key AuthZ (nav filter + route guard)
+- Hostel, student, dining, complaints, visitors, accommodation, leave, inventory, campus life, gymkhana/SA workflows
+- Real-time invalidation and live gate/mess feeds
+- Files via storage policies and `media://` refs
+- Public token pages (complaint feedback, election ballot/support, H2 faculty advisor)
 
-```mermaid
-graph TD
-  LB["Reverse Proxy / Load Balancer"]
-  APP["Node.js Process (Express + Socket.io)"]
-  DB[("MongoDB Cluster")]
-  RD[("Redis Instance")]
-  RZP[Razorpay]
+### 2.3 User Characteristics
 
-  LB --> APP
-  APP --> DB
-  APP --> RD
-  APP --> RZP
-```
+Roles: Student, Admin, Super Admin, Warden, Associate Warden, Hostel Supervisor, Security, Hostel Gate, Maintenance Staff, Gymkhana, Academics, Dining.
 
-#### Request Lifecycle & Middleware Order
+Dining sub-roles: `Office`, `Caterer`. Office categories: `Dining Warden`, `Dining Hall Supervisor`.  
+Admin sub-roles: HCU, Student Affairs, Officer SA, Associate Dean SA, Dean SA, Chief Warden, Chief Warden Office, Accountant.  
+Gymkhana sub-roles: GS Gymkhana, President Gymkhana, Election Officer, Councils, Committee, Mega Events, Club.  
+Academics sub-role: HOD.
 
-As implemented in `server.js`:
+Machine clients: face scanners (`hostel-gate` or `dining-meal`). Super-Admin can CRUD `ApiClient` records; no live request middleware consumes those keys.
 
-1. express.urlencoded → cookieParser → Session-specific CORS (if SSO/Scanner) → Regular CORS (with credentials) → express-session (connect-mongo) → static `/uploads` (if local) → mount `/api/upload` → express.json → mount remaining routes
+### 2.4 Constraints and dependencies
 
-```mermaid
-sequenceDiagram
-  autonumber
-  actor FE as Frontend / Client
-  participant EX as Express
-  participant SES as SessionStore
-
-  FE->>EX: HTTP Request
-  EX->>EX: urlencoded parser
-  EX->>EX: cookieParser
-  alt SSO Verify
-    EX->>EX: SSO CORS (No creds) + verify token
-  else Face Scanner
-    EX->>EX: Scanner CORS (No creds) + Basic Auth
-  else Regular Request
-    EX->>EX: Standard CORS (ALLOWED_ORIGINS, credentials)
-    EX->>SES: Load/Save Session (connect-mongo)
-  end
-  EX->>EX: Serve /uploads (if local)
-  EX->>EX: Mount /api/upload (before json)
-  EX->>EX: json parser
-  EX->>EX: Route handlers
-  EX-->>FE: Response
-```
-
-### 2.3 Product Functions
-
-- Server-side session login (email/password, Google)
-- RBAC by role plus permission map
-- Real-time updates via Socket.io (online status, notifications)
-- Automated Face Scanner processing for gate attendance
-- CRUD around students, rooms, hostels, visitors, lost & found, complaints, events, leave, certificates, undertakings
-- File upload for profile images, student ID cards, and certificates
-- Razorpay payment link creation and status fetch
-- External API namespace for integrations
-
-### 2.4 User Characteristics
-
-- Students: Basic web skills
-- Wardens/Admin/Security: Basic web skills
-- Super Admin: Intermediate (system configuration)
-- Face Scanner: Embedded device client
-
-### 2.5 Constraints
-
-- Node.js runtime, Express framework, Socket.io
-- MongoDB database (Disk)
-- Redis database (Memory - for real-time state)
-- Razorpay account/keys for payments
-
-### 2.6 Assumptions and Dependencies
-
-- Valid user accounts exist (provisioned via Admin flows)
-- External services (Razorpay, Redis) are reachable
-- Frontend is hosted with allowed origins configured
+- Mongo replica set (Express transactions)
+- Redis required (sessions, Socket.IO adapter, locks, caches, device index)
+- Session secret, prefix, cookie name, TTL, SameSite/Secure **identical** on Go and Express
+- Storage `INTERNAL_API_KEY` must match Express `STORAGE_INTERNAL_API_KEY`
+- AuthZ catalog is compiled **twice** (Go + Express) — versions must stay aligned (§9.5)
+- Users are provisioned in Admin flows; Google/SSO do not auto-create accounts
 
 ---
 
-## 3. Detailed Architecture
+## 3. Architecture
 
-### 3.1 Runtime and Deployment Architecture
+### 3.1 Frontend
 
-- Single Express application (`server.js`) mounting routers under `/api/*` and `/external-api`
-- Session management using `express-session` with `connect-mongo` store
-- Real-time layer using `Socket.io` with `redis-adapter` for scaling across multiple instances.
-- Sessions TTL: 7 days; cookies `httpOnly`, `secure` in non-dev, `sameSite` None in non-dev
+Vite + React 19. Default API bases:
 
-### 3.2 Request Lifecycle and Middleware Order
+- `VITE_API_URL` → Express `http://localhost:5000/api/v1`
+- `VITE_GO_API_URL` → Go `http://localhost:5001/api/v1`
 
-See sequence above. The upload routes are mounted before `express.json()` to support multipart handling via `multer` memory storage. Specialized CORS handlers exist for SSO and Face Scanner routes to bypass credential requirements where necessary.
+`src/service/core/apiClient.js` + `goApiClient` send cookies (`credentials`). Auth and AuthZ modules use Go; domain modules use Express.
 
-### 3.3 Authentication and Session Management
+App shell (`src/App.jsx`): QueryClient → BrowserRouter → AuthProvider → SocketProvider → QueryInvalidationBridge → AuthzProvider → routes.
 
-- Email/password login: `POST /api/auth/login`
-- Google login: `POST /api/auth/google` (verifies id_token with Google)
-- SSO: `GET /api/sso/redirect` (signs JWT) and `POST /api/sso/verify` (verifies JWT)
+AuthZ UI pattern:
 
-- Current user: `GET /api/auth/user` (requires session)
-- Logout: `GET /api/auth/logout` (destroys session and clears cookie)
-- Refresh user data: `GET /api/auth/refresh`
-- Device sessions listing and remote logout: `GET /api/auth/user/devices`, `POST /api/auth/user/devices/logout/:sessionId`
+1. `RouteAccessGuard` on each private route (`canRoute(routeKey)`)
+2. `useAuthorizedNavItems` filters layout nav
+3. `can` / `canAny` from `useAuthz` only for planned capability checks (`cap.students.edit.personal`)
 
-Session details:
+Data: TanStack Query; keys from `src/lib/query/queryKeys.js`; sockets `visitor-update`, `complaint-update`, `notification` invalidate caches. Some live pages also listen for `gateentry:new` and dining meal events.
 
-- On successful login/Google: `req.session.userId`, `role`, `email`, and an `userData` cache with `_id, email, role, permissions (object), hostel`
-- A `Session` collection tracks device sessions (`userId`, `sessionId`, user agent, ip, device name, login/lastActive`)
+Public routes (no session): `/`, `/login`, `/sso`, `/forgot-password`, `/reset-password`, `/complaint-feedback/:token`, `/election-support-confirmation/:token`, `/election-ballot/:token`, accommodation recommendation token page.
 
-```mermaid
-sequenceDiagram
-  autonumber
-  actor FE as Frontend
-  participant EX as Express
-  participant DB as MongoDB
-  participant SS as SessionStore
+Role route trees (lazy): Super Admin, Student, Maintenance, Warden, Associate Warden, Hostel Supervisor, Security, Hostel Gate, Admin, Gymkhana, Academics, Caterer, Dining Office.
 
-  FE->>EX: POST /api/auth/login (email, password)
-  EX->>DB: Find user by email
-  DB-->>EX: User (+password)
-  EX->>EX: bcrypt.compare
-  EX->>DB: Update aesKey
-  EX->>SS: Create session (userId, role, userData)
-  EX->>DB: Create Session record
-  EX-->>FE: 200 OK
-  Note over EX,FE: Set-Cookie connect.sid + response body (user)
+UI kit: **hzero** + design tokens (`docs/design.md`, `docs/ui.md`). Capacitor Android wrapper exists. PWA install/update prompts.
 
-  FE->>EX: GET /api/auth/user
-  EX->>SS: Load session
-  EX-->>FE: 200 user
+### 3.2 Go backend (auth + AuthZ)
+
+Modular monolith: handler → service → repository.
+
+```
+cmd/api
+internal/app                 mux, CORS, recover, shutdown
+internal/config
+internal/platform/mongo|redis
+internal/shared/httpx|session|email
+internal/modules/auth|authz|simauth
 ```
 
-### 3.4 Authorization and RBAC Permissions Model
+Start: `make run` / `go run ./cmd/api`. Build: `make build` → `bin/hms-auth`. Tests: `go test ./...`.
 
-- Roles: `Student`, `Maintenance Staff`, `Warden`, `Associate Warden`, `Admin`, `Security`, `Super Admin`, `Hostel Supervisor`, `Hostel Gate`
-- Role checks via `authorizeRoles([...])`
-- Fine-grained permissions via a Map on `User.permissions`, with resources like `students_info`, `lost_and_found`, `events`, `visitors`, `complaints`, `feedback`, `rooms`, `hostels`, `users`, etc., each with actions `view|edit|create|delete|react`
-- Middleware `requirePermission(resource, action)` uses `hasPermission` to allow/deny
+**Session contract (must match Express)**
 
-```mermaid
-flowchart LR
-  A([Request]) --> B{Authenticated?}
-  B -- No --> X[[401 Unauthorized]]
-  B -- Yes --> C{Role Allowed?}
-  C -- No --> Y[[403 Forbidden]]
-  C -- Yes --> D{Permission Check?}
-  D -- Not required --> Z[[Proceed]]
-  D -- Required --> E{hasPermission}
-  E -- True --> Z[[Proceed]]
-  E -- False --> Y[[403 Forbidden]]
-```
+- Cookie `connect.sid`, value `s:<id>.<hmac-sha256>`
+- Redis key `{REDIS_SESSION_PREFIX}{id}` default `sess:`
+- JSON: `userId`, `role`, `email`, `userData` (`_id`, `email`, `role`, `subRole`, `authz.override` only, `hostel`, `pinnedTabs`, `sidebarMode`, `theme`)
+- **Never persist `authz.effective` in Redis**
+- Device index: `session:meta:v1`, `session:user:v1`
+- Touch refreshes TTL (default 7 days)
+- SameSite: Lax on HTTP, None+Secure on HTTPS (`SESSION_SECURE`)
 
-#### 3.4.1 Role-wise Access Diagrams
+**Login paths:** email/password (bcrypt); Google `id_token` via tokeninfo; SSO POST to `AUTH_SSO_VERIFY_URL`. Existing user only. AES key minted on first login (returned to client). Hostel summary from wardens / associatewardens / hostelsupervisors / hostelgates / securities.
 
-The following diagrams illustrate the typical resource access per role (summarized from default permissions). They are indicative; custom permissions can override defaults.
+**AuthZ HTTP:** in-process catalog. `GET /authz/catalog`, `GET /authz/me`. Super Admin + `route.superAdmin.authz`: list users, get/update/reset override (`reason` required), write `authzaudits`.
 
-Student (defaults overview)
+Go catalog version **15**. Express catalog version **18**. Media route keys exist in Express only (§9.5).
 
-```mermaid
-graph LR
-  STU[Student]
-  STU --> EV["Events: view/react"]
-  STU --> LAF["Lost and Found: create/view/react"]
-  STU --> CMP["Complaints: create/view"]
-  STU --> FB["Feedback: create/view"]
-  STU --> SINV["Student Inventory: create/view"]
-```
+**Sim (flagged):** `POST /api/v1/sim/auth/google` with `X-Sim-Key` issues `sim.sid` / `sim:sess:`. AES keys go to `sim_user_aes`, not `users`.
 
-Warden (defaults overview)
+Envelope: `{ success, message, data, errors }`.
 
-```mermaid
-graph LR
-  WAR[Warden]
-  WAR --> STINF["Students Info: view/react"]
-  WAR --> SINV["Student Inventory: view/edit/create/delete/react"]
-  WAR --> CMP["Complaints: create/view"]
-  WAR --> LAF["Lost and Found: view"]
-  WAR --> EV["Events: view"]
-  WAR --> VIS["Visitors: view"]
-  WAR --> FB["Feedback: view/react"]
-```
+### 3.3 Storage backend
 
-Admin (defaults overview)
+Rust Axum. Default port **5100**. Files on disk under `DATA_ROOT`; metadata in Mongo DB `MONGO_DB_NAME` (default `hms_storage`).
 
-```mermaid
-graph LR
-  ADM[Admin]
-  ADM --> STINF["Students Info: all actions"]
-  ADM --> SINV["Student Inventory: all actions"]
-  ADM --> LAF["Lost and Found: all actions"]
-  ADM --> EV["Events: all actions"]
-  ADM --> VIS["Visitors: all actions"]
-  ADM --> CMP["Complaints: all actions"]
-  ADM --> FB["Feedback: all actions"]
-  ADM --> RMS["Rooms: all actions"]
-  ADM --> HOS["Hostels: all actions"]
-  ADM --> USR["Users: all actions"]
-```
+Internal routes require header `x-storage-internal-key` = `INTERNAL_API_KEY`. Browsers never call internal routes.
 
-Security (defaults overview)
+| Method | Path | Who |
+|---|---|---|
+| GET | `/health` | anyone |
+| POST | `/internal/v1/files` | Express upload (multipart + policy) |
+| POST | `/internal/v1/files/sign` | Express media resolve |
+| GET | `/internal/v1/files/:file_id/meta` | Express |
+| GET | `/internal/v1/files/:file_id/content` | Express |
+| DELETE | `/internal/v1/files/:file_id` | Express |
+| GET | `/v1/files/:file_id?expires&signature&disposition` | Browser, HMAC signed |
 
-```mermaid
-graph LR
-  SEC[Security]
-  SEC --> VIS["Visitors: view/edit/create/react"]
-  SEC --> LAF["Lost and Found: view/edit/create/react"]
-  SEC --> EV["Events: view"]
-  SEC --> STINF["Students Info: view"]
-```
+Body limit 20 MB. Policies in `policy.rs` (see §3.4 uploads). Soft-delete via `deleted_at`. `file_ref` is `media://…`.
 
-Super Admin (defaults overview)
+### 3.4 Express backend (domain)
 
-```mermaid
-graph LR
-  SA[Super Admin]
-  SA --> ALL["All resources: full access"]
-```
+Modular monolith. `src/loaders/express.loader.js` is the mount-point source of truth. Model access only in `src/services/<domain>/*Owner` and `*Queries` (`npm run check:boundary`).
 
-#### 3.4.2 Route-derived Role Access (Authorizations in routes/\*)
+| App | Mount | Owns |
+|---|---|---|
+| `iam` | `/api/v1` | `/users/*`, `/signature/*` |
+| `complaints` | `/api/v1` | `/complaint/*` |
+| `visitors` | `/api/v1` | `/visitor/*`, `/accommodation/*`, `/appointments/*`, `/jr-appointments/*` |
+| `operations` | `/api/v1` | tasks, live-checkinout, inventory, staff, hostel, leave, sheet, online-users, security, face-scanner, dining-meal-verification, dining-office, dashboard, stats |
+| `campus-life` | `/api/v1` | event, lost-and-found, feedback, notification, undertaking, disCo, certificate |
+| `administration` | `/api/v1` | admin, warden, super-admin, family, config, email, media, upload |
+| `students` | `/api/v1/students` | profile, profiles-admin, profiles-self, dining |
+| `student-affairs` | `/api/v1/student-affairs` | grievances (stub), events, overall-best-performer, elections, clubs, por, attendance, expenditure |
+| `sim` | `/api/v1/sim` | dining load-sim (flagged) |
 
-These diagrams reflect actual `authorizeRoles(...)` usage found in the route files and key `requirePermission(...)`-gated reads. They represent modules/endpoints currently accessible per role, independent of default permission maps.
+No auth app. Login is Go.
 
-Student (from `studentRoutes`, `complaintRoutes`, `eventRoutes`, `feedbackRoutes`, `lostAndFoundRoutes`, `uploadRoutes`, `paymentRoutes`, `undertakingRoutes`, `securityRoutes`)
+**Pipeline:** urlencoded 1 MB → cookieParser → scanner CORS on legacy `/api/face-scanner/{ping,scan,test-auth}` → CORS credentials → Redis session (skipped for `/api/v1/sim`) → optional `/uploads` → JSON 1 MB → routers → `/health` → 404 → errorHandler. `trust proxy` = 1.
 
-```mermaid
-graph LR
-  STU[Student]
-  STU --> SMOD["Student Module"]
-  STU --> CMP["Complaints: create/view/edit/delete (self)"]
-  STU --> EV["Events: view"]
-  STU --> FB["Feedback: view"]
-  STU --> LAF["Lost and Found: view"]
-  STU --> UP["Uploads: profile, student-id"]
-  STU --> PAY["Payments: status"]
-  STU --> UND["Undertakings: view/accept"]
-  STU --> SEC["Security Entries: view"]
-```
+Protected order: `authenticate` (hydrate `req.user`, effective AuthZ **in memory**) → `authorizeRoles` → `requireRouteAccess` / `routeGuard`. Public routes are declared before `authenticate`.
 
-Warden (from `studentRoutes`, `hostelRoutes`, `complaintRoutes`, `disCoRoutes`, `familyMemberRoutes`, `eventRoutes`, `feedbackRoutes`, `lostAndFoundRoutes`, `inventoryRoutes`, `userRoutes`, `dashboardRoutes`, `uploadRoutes`, `securityRoutes`)
+**Uploads:** multer memory → storage `POST /internal/v1/files` with a policy → Mongo stores `media://`. `GET/POST /api/v1/media/resolve` returns a signed URL. Fallbacks: `USE_LOCAL_STORAGE=true` serves `/uploads`; Azure env vars remain for legacy.
 
-```mermaid
-graph LR
-  WAR[Warden]
-  WAR --> STINF["Students: view/edit via permissions"]
-  WAR --> HOST["Hostel: units/rooms"]
-  WAR --> CMP["Complaints: create/view/update"]
-  WAR --> LAF["Lost and Found: create/edit/delete/view"]
-  WAR --> EV["Events: view"]
-  WAR --> FB["Feedback: view"]
-  WAR --> INV["Inventory: assign/view/edit"]
-  WAR --> FAM["Family Members: manage"]
-  WAR --> DSC["DisCo: view by student"]
-  WAR --> USR["Users: search/by-role/get"]
-  WAR --> DB["Dashboard: counts/stats"]
-  WAR --> UP["Uploads: profile"]
-  WAR --> SEC["Security Entries: view"]
-```
+| Policy key | Max | Allowed |
+|---|---|---|
+| `profile-image` | 500 KB | images |
+| `student-id-card` | 1 MB | images |
+| `signature-image` | 256 KB | images |
+| `payment-screenshot`, `lost-and-found-image` | 5 MB | images |
+| event/h2/disco/election/por/obp/insurance PDFs | 10 MB | PDF |
+| `certificate` | 10 MB | images + PDF |
 
-Associate Warden & Hostel Supervisor (similar to Warden per routes)
+**Face scanners** at `/api/v1/face-scanner`: device Basic Auth or legacy header; types `hostel-gate` (hostelId, in/out) and `dining-meal` (catererId). Logs: `logs/scanner_requests.log`, `logs/student_not_found.log`.
 
-```mermaid
-graph LR
-  AW[Associate Warden] --> STINF
-  AW --> HOST
-  AW --> CMP
-  AW --> LAF
-  AW --> EV
-  AW --> FB
-  AW --> INV
-  AW --> FAM
-  AW --> DSC
-  AW --> USR
-  AW --> DB
-  AW --> UP
-  AW --> SEC
+**Jobs:** hourly Redis-locked — accommodation 24h Chief Warden auto-approve; daily stay-end invoices. Also: events/L&F first-page cache; election voting-email dispatch.
 
-  HS[Hostel Supervisor] --> STINF
-  HS --> HOST
-  HS --> CMP
-  HS --> LAF
-  HS --> EV
-  HS --> FB
-  HS --> INV
-  HS --> FAM
-  HS --> DSC
-  HS --> USR
-  HS --> DB
-  HS --> UP
-  HS --> SEC
-```
+**Action-link tokens:** hashed one-time email links for complaint feedback, H2 faculty advisor, election supporter/ballot.
 
-Admin (from virtually all modules; `adminRoutes`, `configRoutes`, `userRoutes`, `dashboardRoutes`, `taskRoutes`, `paymentRoutes`, etc.)
+**Sockets:** `/socket.io`, session auth, Redis adapter. Rooms `user:`, `role:`, `hostel:`, `caterer:`. Broadcasts `notification`, `visitor-update`, `complaint-update`; presence `user:online`/`offline`; client `activity`.
 
-```mermaid
-graph LR
-  ADM[Admin]
-  ADM --> ALL["Core Modules: all actions"]
-  ADM --> CFG["Config"]
-  ADM --> USR["Users incl. bulk ops"]
-  ADM --> DB["Dashboard"]
-  ADM --> TSK["Tasks"]
-  ADM --> PAY["Payments: create-link + status"]
-```
+**Payments:** no Razorpay. Accommodation screenshot + 12-digit UTR; visitor payment-info amount; SA expenditure bookkeeping.
 
-Super Admin
+**Config keys:** degrees, departments, studentBatches, studentGroups, studentEditableFields, systemSettings, accommodation (CWO+Accountant only), academicHolidays, gymkhanaEventCategories, porCertificateTemplate.
 
-```mermaid
-graph LR
-  SA[Super Admin]
-  SA --> USR["Users: bulk ops"]
-  SA --> DB["Dashboard"]
-  SA --> INV["Inventory"]
-  SA --> TSK["Tasks"]
-  SA --> CORE["Core Modules (admin-level)"]
-```
-
-Security & Hostel Gate (from `securityRoutes`, `lostAndFoundRoutes`)
-
-```mermaid
-graph LR
-  SEC[Security]
-  SEC --> EN["Security Entries: view"]
-  SEC --> LAF["Lost and Found: create/edit/delete/view"]
-  SEC --> EV["Events: view"]
-  SEC --> STINF["Students: view (where permitted)"]
-
-  HG[Hostel Gate]
-  HG --> EN["Security Entries: view"]
-  HG --> LAF["Lost and Found: create/edit/delete/view"]
-```
-
-Maintenance Staff (from `complaintRoutes`)
-
-```mermaid
-graph LR
-  MSF[Maintenance Staff]
-  MSF --> CMP["Complaints: update-status, stats, updates"]
-```
-
-### 3.5 Real-time Communication (Socket.io & Redis)
-
-- Path: `/socket.io`
-- Auth: Shared session middleware with Express.
-- Implementation: `config/socket.js` and `utils/socketHandlers.js`.
-- Redis: Used for pub/sub (adapter) and `addOnlineUser`/`removeOnlineUser` real-time state management.
-- Rooms: Users automatically join rooms like `user:{userId}`, `role:{role}`, and `hostel:{hostelId}` for targeted broadcasts.
-
-### 3.6 File Uploads and Storage (Local)
-
-- Endpoints (authenticated):
-  - `POST /api/upload/profile/:userId` (roles: Admin, Warden, Associate Warden, Hostel Supervisor, Student)
-  - `POST /api/upload/student-id/:side` (role: Student)
-  - `POST /api/certificate/add` (Administrative upload of certificates)
-- `multer` in-memory, then either:
-  - Local disk at `uploads/` (when `USE_LOCAL_STORAGE=true`) and served from `/uploads`
-  - Local storage is served from `/uploads`
-
-```mermaid
-sequenceDiagram
-  participant FE as Frontend
-  participant EX as Express
-  %% Azure Blob removed
-  participant FS as Local FS
-
-  FE->>EX: POST /api/upload/profile/:userId (multipart/form-data)
-  EX->>EX: authorizeRoles + authenticate
-  alt USE_LOCAL_STORAGE
-    EX->>FS: write buffer to /uploads/profile-images
-    EX-->>FE: 200 {url:"/uploads/profile-images/..."}
-  else
-    EX-->>FE: 501 {error: "Not implemented"}
-  end
-```
-
-### 3.7 Payments (Razorpay)
-
-- `POST /api/payment/create-link` (Admin) creates a payment link for an amount (INR); returns `short_url` and `id`
-- `GET /api/payment/status/:paymentLinkId` (authorized roles + `requirePermission('visitors','view')`) fetches payment link status
-
-```mermaid
-sequenceDiagram
-  participant FE as Admin FE
-  participant EX as Express
-  participant RZ as Razorpay
-
-  FE->>EX: POST /api/payment/create-link {amount}
-  EX->>RZ: paymentLink.create(amount*100, INR)
-  RZ-->>EX: {short_url, id}
-  EX-->>FE: 200 {paymentLink, id}
-
-  FE->>EX: GET /api/payment/status/:id
-  EX->>RZ: paymentLink.fetch(id)
-  RZ-->>EX: {status}
-  EX-->>FE: 200 {status}
-```
-
-### 3.8 Face Scanner Integration
-
-- Auth: Basic Auth via specialized `authenticateScanner` middleware.
-- Actions: `GET /api/face-scanner/ping` for status checks, `POST /api/face-scanner/scan` for processing attendance.
-- Processing: Logic handles recording entry/exit based on device configuration (direction "in" or "out").
-- Configuration: Managed via dashboard for `username`, `password`, and `hostelId` linkage.
-
-### 3.9 Configuration Management
-
-- Configs stored in `models/configuration.js` with controller/utilities (`utils/configDefaults.js`) that auto-create defaults:
-  - `degrees`, `departments`, `studentEditableFields`
-- Utility `initializeDefaultConfigs()` ensures defaults are present
-
-### 3.10 Logging and Error Handling
-
-- Console logging for startup, DB connections, and errors in controllers
-- Errors returned as JSON with appropriate HTTP status codes
-
-### 3.11 Security Posture
-
-- HTTPS recommended for all environments
-- CORS: general routes use `ALLOWED_ORIGINS` with `credentials: true`. Specialized routes (SSO, Scanner) use permissive CORS with separate auth mechanisms.
-- Sessions: `httpOnly`, `secure` in production, `sameSite: 'None'` in production; TTL 7 days; store crypto with `SESSION_SECRET`
-- Passwords hashed via `bcrypt` with salt
-- Sensitive configuration via environment variables
+Express catalog version **18**. Runtime AuthZ is always strict 403.
 
 ---
 
 ## 4. Functional Requirements
 
-### 4.1 Auth & Session
+### 4.1 Frontend
 
-- FR-A1: Users can log in via email/password
-- FR-A2: Users can log in via Google ID token
-- FR-A3: SSO support via signed JWT tokens for cross-domain usage
-- FR-A4: Successful auth initializes a server-side session and sets secure cookie
-- FR-A5: Authenticated users can fetch their profile (`/api/auth/user`) and refresh server-cached userData
-- FR-A6: Users can update their password (when a password exists)
-- FR-A7: Users can view and revoke device sessions
-- FR-A8: Users can log out, destroying their session and clearing the cookie
+- FR-FE1: Public home, login, SSO, forgot/reset password
+- FR-FE2: After login, open the portal for the user’s role; hide nav items the catalog does not allow
+- FR-FE3: Guard private pages with `RouteAccessGuard`
+- FR-FE4: Public token pages for complaint feedback, election support, election ballot, H2 faculty recommendation
+- FR-FE5: Auth/AuthZ HTTP via Go client; domain HTTP via Express client; cookies included
+- FR-FE6: TanStack Query caching; socket invalidation for visitors, complaints, notifications
+- FR-FE7: Live pages for gate entries and caterer meal verification
+- FR-FE8: Super-Admin AuthZ UI reads **Go** catalog/overrides
+- FR-FE9: PWA install/update; optional Capacitor Android build
+- FR-FE10: Design tokens + hzero only (no ad-hoc color literals in new UI)
 
-### 4.2 Real-time Features
+### 4.2 Authentication and AuthZ (Go)
 
-- FR-RT1: Real-time online user tracking stored in Redis
-- FR-RT2: Role-based, hostel-based, and individual user message broadcasting
-- FR-RT3: Heartbeat/activity tracking via Socket client events
+- FR-A1: Email/password login; set `connect.sid`
+- FR-A2: Google ID-token login for an existing user
+- FR-A3: External SSO token login for an existing user
+- FR-A4: `GET /auth/user` with effective AuthZ and hostel summary
+- FR-A5: Refresh session from Mongo
+- FR-A6: Logout (delete Redis + clear cookie)
+- FR-A7: List devices; logout another device
+- FR-A8: Change password (old + new)
+- FR-A9: Forgot / verify / reset password email (`FRONTEND_URL/reset-password?token=`, TTL default 60 min)
+- FR-A10: PATCH pinned tabs, sidebar mode, theme
+- FR-Z1: Authenticated catalog read
+- FR-Z2: Authenticated self effective AuthZ
+- FR-Z3: Super Admin list users (role / excludeRoles, pagination)
+- FR-Z4: Super Admin get/update/reset override with reason; write `authzaudits`
+- FR-SIM-GO: Flagged sim login + catalog/me on `sim.sid`
 
-### 4.3 Core Modules
+### 4.3 Express identity (users)
 
-Namespaces mounted under `/api/*` include: `auth`, `warden`, `student`, `admin`, `complaint`, `security`, `lost-and-found`, `event`, `hostel`, `stats`, `feedback`, `visitor`, `notification`, `disCo`, `payment`, `super-admin`, `family`, `staff`, `inventory`, `permissions`, `dashboard`, `tasks`, `users`, `config`, `student-profile`, `sso`, `undertaking`, `leave`, `certificate`, `face-scanner`, `sheet`, `online-users`.
+Node assumes a valid Go session.
 
-Each module provides CRUD and actions consistent with the domain. Access is enforced via `authenticate`, `authorizeRoles`, and selectively `requirePermission`.
+- FR-I1: Authenticated callers identified from `connect.sid` / Redis
+- FR-I2: Staff search users, list by role, fetch by id
+- FR-I3: Admin / Super Admin bulk-update or remove passwords
+- FR-I4: Self signature CRUD; Admin signatory directory
+- FR-I5: Super-Admin / Admin manage Admin accounts and API-client **records** (keys unused at the wire)
+- FR-I6: Admin `POST /admin/user/update-password` (`route.admin.updatePassword`)
 
-### 4.4 Supporting Modules
+### 4.4 Real-time
 
-- Complaints: submission, assignment, status workflow
-- Leave Management: application, approval/rejection cycle, and return (join) status
-- Certificate Management: tracking and managing student documents
-- Lost & Found: lost/found item lifecycle
-- Events: creation and user reactions
-- Visitors: digital logging of entry/exit
-- Feedback: submission and reactions
-- Notifications: role-targeted announcements
-- Stats & Sheets: dashboard aggregates and spreadsheet-friendly data exports
-- Inventory: tracking hostel and student items
-- Tasks, Undertakings (digital signing), Staff Attendance, Family members, Dashboard, Config management
+- FR-RT1: Track online users in Redis
+- FR-RT2: Join user / role / hostel / caterer rooms
+- FR-RT3: Broadcast `notification`, `visitor-update`, `complaint-update`
+- FR-RT4: Heartbeat via client `activity`
 
-### 4.5 Payments
+### 4.5 Hostels, Rooms, Allocations
 
-- FR-P1: Admin can generate payment link via Razorpay
-- FR-P2: System can fetch payment link status
+- FR-H1: Admin CRUD hostels (unit-based or room-only; Boys/Girls/Co-ed; archive). Authenticated `GET /api/v1/admin/hostel/list` returns a simple hostel list
+- FR-H2: Units and rooms; bulk add/edit/status; occupancy and allocation invariants. Hostel Supervisor writes are scoped to their **active hostel**
+- FR-H3: Allocate / change / vacate rooms (`POST /hostel/allocate`, deallocate, bulk `update-allocations`). Wipe-all-allocations is Admin/Supervisor
+- FR-H4: Spreadsheet-style hostel sheet and allocation summary (`/api/v1/sheet`)
+- FR-H5: Dashboard: Admin/Super Admin overview; warden-family hostel statistics; student counts (`/api/v1/dashboard`)
+- FR-H6: Operational stats (`/hostel`, `/lostandfound`, `/security`, `/maintenancestaff`, `/room/:hostelId`, `/visitor/:hostelId`, `/event/:hostelId`, `/wardens`, `/complaints`)
+- FR-H7: Online users list/stats for Admin/Super Admin (`/api/v1/online-users`)
 
-### 4.6 Uploads
+### 4.6 Students
 
-- FR-U1: Authenticated users can upload profile images (role-restricted)
-- FR-U2: Students can upload front/back of student ID cards
-- FR-U3: System returns accessible URL from local storage
+- FR-S1: Students read/update their profile within `studentEditableFields`; manage family members and health (`/api/v1/students/profile`)
+- FR-S2: Student dashboard and ID-card get/upload (`/api/v1/students/profiles-self`); ID-card sides also via `/upload/student-id/:side`
+- FR-S3: Staff directory: list/export/details, create (Admin), personal edits gated by `cap.students.edit.personal` (`/api/v1/students/profiles-admin`)
+- FR-S4: Bulk tools (Admin + Hostel Supervisor + capability): missing roll numbers, data consistency, status, day-scholar, batch, groups, bulk health
+- FR-S5: Taxonomy lists (degrees/departments/batches/groups); Admin rename under `route.admin.settings`
+- FR-S6: Room-allocation lookup/update from the student tool (Admin + Hostel Supervisor, active-hostel scoped)
+- FR-S7: Student status enum `Active | Graduated | Dropped | Inactive`; `isDayScholar` + owner contact; `facultyAdvisorEmail` (accommodation FA emails)
+- FR-S8: Insurance providers CRUD, claims CRUD, insurance PDF upload (`insurance-pdf` policy)
 
-### 4.7 External API
+### 4.7 Dining
 
-- FR-E1: Provide integration endpoints under `/external-api`
-- FR-E2: Enforce API-level authorization for clients (per `apiAuth` middleware)
+Dining is split across four HTTP areas. Admin setup lives under `/api/v1/admin`. Student self-service is `/api/v1/students/dining`. Caterer meal check-in is `/api/v1/dining-meal-verification`. Dining Office (Mess Office) is `/api/v1/dining-office`. The Dining **Office** sub-role also receives selected admin dining route keys (`caterers`, `diningPeriods`, `diningRebates`, `diningBilling`); `route.admin.diningOffice` (staff logins) stays Admin-only.
+
+**Setup (Admin, and Dining Office where keyed)**
+
+- FR-D1: CRUD caterers; archive
+- FR-D2: Dining **periods** with date range, meal slots (default Breakfast / Lunch / Dinner), `dailyRate`, caterer list, per-caterer seat capacities (`maxStudentCount` / `allocatedCount`), rebate settings, eligibility (`all-active` or custom roll-number list), archive
+- FR-D3: Period **registration**: either a student sign-up window (`allocationStartAt`–`allocationEndAt`) or `registrationEnabled: false` for admin-only (manual) assignment
+- FR-D4: Allocations: assign one student, bulk assign, reconcile seat counts, remove a student (`/api/v1/admin/dining-periods/:id/allocations…`)
+
+**Student portal** (`/api/v1/students/dining`, `route.student.dining`)
+
+- FR-D5: Portal state — open/closed/manual/not-started periods, remaining seats, current allocation
+- FR-D6: Select or switch caterer while the window is open; capacity is transactional so two students cannot take the last seat
+- FR-D7: Apply for **rebates** (mess leave). Short-term auto-approves when period rules pass (defaults: 2 days advance, max 3 continuous days, max 10 short-term days per period). Longer stretches are **long-term** and stay `pending` for Admin/Dining Office approve/reject
+- FR-D8: View billing wallet(s) for current and past billing periods
+
+**Rebates (staff)**
+
+- FR-D9: List rebate requests; approve or reject long-term (`/api/v1/admin/dining-rebates/:id/approve|reject`). Only **approved** days reduce charges
+
+**Meal check-in**
+
+- FR-D10: Caterer sub-role only: context, live feed, available students, rebate summary, **manual** verify (`/api/v1/dining-meal-verification`)
+- FR-D11: Face scanner linked to a `catererId` verifies a meal via the same dining rules (known student → meal slot open → allocated to this caterer → not on approved rebate today → not already marked)
+- FR-D12: Outcomes are stored on `DiningMealVerification` (confirmed, wrong caterer, on leave, duplicate, unknown, no meal, not allocated)
+
+**Billing**
+
+- FR-D13: Billing periods and per-student **accounts**. Credit (`allocatedAmount`) is admin-managed; charges are **computed on read**: days in contained dining periods minus approved rebate days, times `dailyRate`. Balance = allocated − charges
+- FR-D14: Bulk wallet adjustments with mode `add` | `deduct` | `set` (`/api/v1/admin/dining-billing-periods/:id/accounts/bulk`)
+
+**Dining Office**
+
+- FR-D15: Read-only dashboard: current period, current meal, caterer utilization, expected/checked-in/pending/on-leave today, rebate queues, billing totals (`GET /api/v1/dining-office/dashboard`)
+- FR-D16: Admin CRUD for Dining Office staff logins (`/api/v1/admin/dining-office`)
+
+### 4.8 Complaints and Feedback
+
+- FR-C1: Create/list complaints; categories Plumbing / Electrical / Civil / Cleanliness / Internet / Carpenter / Other; statuses Pending, In Progress, Resolved, Forwarded to IDO, Rejected
+- FR-C2: Maintenance `PUT /update-status/:id`; staff status/category/resolution notes; student/staff feedback + 1–5 rating
+- FR-C3: Public token routes for email feedback (`GET/POST /api/v1/complaint/feedback/:token`) via action-link tokens
+- FR-C4: Hostel-id constraint `constraint.complaints.scope.hostelIds` limits which hostels a user can act on
+- FR-C5: Campus-life **feedback** (`/api/v1/feedback`): students add/edit/delete; staff list, status, reply; Socket `complaint-update` on complaint changes
+
+### 4.9 Visitors, Appointments, Accommodation
+
+**Visitors** (`/api/v1/visitor`) — day/overnight visitor requests, distinct from H2 accommodation
+
+- FR-V1: Students CRUD visitor **profiles** and **requests**; staff list/summary; student-specific list
+- FR-V2: Student payment-info (amount) on a request
+- FR-V3: Warden family allocate rooms; Admin status action; Hostel Gate check-in/out and check-time edit
+- FR-V4: Socket `visitor-update` on mutations
+
+**Appointments** (Officer SA / Associate Dean SA / Dean SA)
+
+- FR-AP1: Public submit + public target list (`POST /api/v1/appointments`, `GET /public/targets`); alias `/jr-appointments`
+- FR-AP2: Admin list/get/review; toggle `acceptingAppointments` on self
+- FR-AP3: Hostel Gate list + `PATCH /gate/:id/entry`
+
+**Accommodation** (H2 / guest stay — see `docs/accommodation-flow.md`)
+
+- FR-AC1: Public faculty-advisor recommend/decline via action-link token (14-day TTL)
+- FR-AC2: Student quote, submit, resubmit, cancel, defer-payment; CWO capacity screen; Chief Warden approve / request modification / reject (24h auto-approve); CWO/CW can bypass FA; CWO/CW admin-cancel
+- FR-AC3: CWO payment request (QR + amount) and allotment-availability; student screenshot + 12-digit UTR; Accountant verify/reject, edit UTR/date, manual settle
+- FR-AC4: Hostel Supervisor room availability + assign rooms; Hostel Gate check-in/out
+- FR-AC5: Stay-end GST invoice (PDF download `GET .../invoice` + email); postpone/extend (1 postpone, 2 extends) decided by CWO
+- FR-AC6: Configurable types, three price presets, three GST presets, GSTIN
+
+### 4.10 Leave, Gate, Security, Attendance
+
+- FR-L1: Hostel Supervisor and Maintenance Staff apply for leave; Admin lists, approves, rejects, records join
+- FR-L2: Hostel Gate student entries: create (manual or email lookup), edit, delete, recent, face-scanner feed, QR verify (`QR_PRIVATE_KEY`), cross-hostel reason
+- FR-L3: Students and staff list entries (`GET /api/v1/security/entries`); `GET /security/` returns the caller's security/gate profile
+- FR-L4: Staff attendance record + QR verify at gate (`/api/v1/staff`)
+- FR-L5: Live check-in/out feed, hostel-wise stats, recent activity, time analytics (`/api/v1/live-checkinout`)
+- FR-L6: Face scanner device ingest (Express face-scanner module) — hostel-gate entries **or** dining meals depending on scanner type
+
+### 4.11 Inventory and Tasks
+
+- FR-IN1: Inventory item types (Admin/Super Admin)
+- FR-IN2: Assign/update hostel inventory; warden family can view
+- FR-IN3: Assign/return student inventory; status updates and summaries
+- FR-T1: Admin/Super Admin CRUD tasks; assignees update status and list `my-tasks`
+
+### 4.12 Campus Life
+
+- FR-CL1: **Hostel** events at `/api/v1/event` — list for warden family + students; Admin create/update/delete. Gymkhana calendars are §4.13
+- FR-CL2: Lost-and-found: students list; staff create/update/delete + image upload. First page cached in Redis
+- FR-CL3: Notifications: Admin create; Admin/Student/warden family list, stats, active-count; Socket `notification`
+- FR-CL4: Undertakings: staff CRUD, assign by roll numbers, remove assignee, status; students pending/accepted/details/accept/pending-count
+- FR-CL5: Certificates: Admin add/update/delete; warden family list by student
+- FR-CL6: **DisCo actions** on a student (Admin add/update/delete, reminder-done; warden family can read)
+- FR-CL7: **Disciplinary process cases** (`/disCo/process/cases`): submit, list, get, export bundle, stage-2, send/skip email, committee minutes, finalize (`route.admin.disciplinaryProcess`)
+
+### 4.13 Student Affairs / Gymkhana
+
+Base: `/api/v1/student-affairs`. Actors: Gymkhana (sub-roles GS, President, Election Officer, Councils, Committee, Mega Events, Club), Admin with SA sub-roles (Student Affairs, Officer SA, Associate Dean SA, Dean SA), Academics (HOD), Students. Typical approval chain after Student Affairs: Officer SA → Associate Dean SA → Dean SA (Student Affairs picks which of those stages run).
+
+**Grievances** (`/grievances`)
+
+- FR-SA1: Routes are mounted (create, list, get, delete, status, assign, resolve, comments, stats). The service is a **stub**: every handler returns that the Grievance model is not implemented. There is no Grievance collection. Do not treat this as a live workflow.
+
+**Clubs** (`/clubs`)
+
+- FR-SA2: Admin / Super Admin list, create, update clubs
+- FR-SA3: Gymkhana **Club** sub-role reads own club (`GET /clubs/me`). There is no student join/members API on this module
+
+**POR** (`/por`)
+
+- FR-SA4: Student creates/updates a POR request (supporting PDF via `/api/v1/upload/por-document-pdf`)
+- FR-SA5: Workspace for Student / Gymkhana / Admin; staff list a student's requests
+- FR-SA6: Admin CRUD **POR categories** (reviewer mapping)
+- FR-SA7: Approve / reject / request revision. Status chain includes `pending_gymkhana` | `pending_club` | `pending_gs` | `pending_president` | `pending_student_affairs` | `pending_officer` | `pending_associate_dean` | `pending_dean` | `approved` | `rejected` | `revision_requested`
+- FR-SA8: Approval history; certificate payload from config `porCertificateTemplate` (`GET /por/:id/certificate`)
+
+**Gymkhana events** (`/events`) — distinct from hostel `/api/v1/event`
+
+- FR-SA9: **Activity calendars** by academic year: create, list, get, update (Gymkhana), settings (Admin), date-overlap check, submit (President), approve/reject, lock/unlock (Admin), history
+- FR-SA10: **Amendments** after a calendar is locked: GS requests; Admin lists pending, approve/reject
+- FR-SA11: **Event proposals** (GS): pending-proposals dashboard, create/update, approve/reject/revision, history; Admin surgical edit, soft-delete, restore; deleted-items list
+- FR-SA12: **Event expenses/bills** (GS submit/update; Admin approve/reject, surgical edit, soft-delete/restore); list all expenses
+- FR-SA13: **Mega-event series** (Admin create) and **occurrences**; Gymkhana submits occurrence proposal + expense; Admin approve/reject/revision; history
+- FR-SA14: Audit timeline `GET /events/audit/:entityType/:entityId`; Gymkhana dashboard summary and profile; calendar-view and event list
+- FR-SA15: `GET /events/approval/post-student-affairs-approvers` — Admin list of Officer SA / Associate Dean SA / Dean SA users for the next stage
+
+**Elections** (`/elections`)
+
+- FR-SA16: Public (no session): supporter confirmation get/respond by token; ballot get/submit by token
+- FR-SA17: Student portal state, current elections; upsert nomination; supporter lookup; withdraw; cast vote / submit votes
+- FR-SA18: Admin create / clone / update elections; nomination review; publish results; live voting stats; voting-email and test-email recipient lists and send (scheduler also dispatches voting mail)
+- FR-SA19: Scope-count helper for electorate sizing. Posts carry category (executive / senator / HORC / custom) and nomination rules (CGPA, proposers/seconders, hostel residency, etc.). Nomination statuses: submitted, verified, modification_requested, rejected, withdrawn
+
+**Gymkhana / event attendance** (`/attendance`) — not hostel-gate attendance
+
+- FR-SA20: Admin/Super Admin create/update/delete occurrences and upload a roster (CSV, max 5000 rolls)
+- FR-SA21: Admin/Super Admin/Gymkhana list/get occurrences; scan or manual mark; delete a record. Sources: camera, scanner, manual. Duplicate scans are recorded as duplicate
+
+**Overall best performer** (`/overall-best-performer`)
+
+- FR-SA22: Admin create/update occurrences; selector + detail for Admin/Academics
+- FR-SA23: Student portal + upsert application (proof PDF upload)
+- FR-SA24: Admin review; set item type, coursework score (`ug_cgpa` / `pg_cpi` / `research_coursework_cpi`), project/thesis grades
+- FR-SA25: Academics **HOD verification** on an application. Scoring tables for publications, patents, BTP awards, responsibilities, co-curricular points live in `best-performer.constants.js`
+
+**Expenditure** (`/expenditure`, Admin `route.admin.expenditure`)
+
+- FR-SA26: CRUD occurrences; nested expenses; bills under an expense; occurrence-level payments (bookkeeping sources such as SAC); supporting documents
+
+**Not implemented (folders only, routes commented out):** scholarships, counseling, student-affairs disciplinary (hostel DisCo is campus-life `/disCo`).
+
+### 4.14 Administration, Email, Media
+
+- FR-AD1: CRUD for Wardens, Associate Wardens, Hostel Supervisors, Gymkhana users, Academics users, Security, Maintenance (plus per-staff stats), Hostel Gates
+- FR-AD2: Warden / Associate Warden / Hostel Supervisor profiles and **active-hostel** selection (`/api/v1/warden/...`)
+- FR-AD3: Family-member admin including bulk (`/api/v1/family`)
+- FR-AD4: Email: status, send (individual/group), test-all SMTP accounts (`/api/v1/email`)
+- FR-AD5: Resolve `media://` refs (`GET /media/resolve`, `POST /media/resolve-batch`)
+- FR-AD6: Config get/update/reset (§3.4)
+- FR-AD7: Super-Admin dashboard stats, Admin CRUD, API-client records
+- FR-AD8: Admin task-stats (`GET /api/v1/admin/task-stats`)
+
+### 4.15 Uploads
+
+See §3.4 (uploads) and §3.3 (storage). System returns `media://` (or local `/uploads/...` when local storage is on).
+
+### 4.16 Simulator (optional)
+
+When `SIMULATION_ENABLED=true` and `SIMULATION_SECRET` length ≥ 16:
+
+- FR-SIM1: Seed/reset dining sim data; stats
+- FR-SIM2: Simulated student dining portal/select/rebates/billing under a separate `sim.sid` cookie
+
+Never enable against production dining.
+
+### 4.17 Storage
+
+- FR-ST1: Internal upload with policy, actor, checksum; return `file_id` + `file_ref`
+- FR-ST2: Sign a `media://` ref to a time-limited GET URL
+- FR-ST3: Internal meta/content/delete
+- FR-ST4: Public GET only with valid HMAC `expires` + `signature`
+- FR-ST5: Reject unknown policies and oversize files
 
 ---
 
 ## 5. Non-Functional Requirements
 
-- Performance: typical GET APIs under 2s; login under 3s under normal load; socket latency < 500ms
-- Availability: recommended 99.5%+ with proper infra
-- Security: HTTPS-only, secure cookies, salted password hashes, CORS restrictions, principle of least privilege
-- Reliability: database connection retries; session TTL cleanup via MongoDB TTL indexes; horizontal scaling of sockets with Redis
-- Maintainability: modular routes/controllers/models; documentation in `/docs`
+- **Performance:** typical authenticated GETs under 2s; Socket.IO ping 25s / timeout 60s; signed URL TTL default 300s
+- **Availability:** Express multi-instance via Redis sessions + Socket.IO adapter; job locks; Go is a single process today
+- **Security:** HTTPS, CORS allowlists, httpOnly cookies, bcrypt, fail-closed AuthZ, storage internal key never in the browser
+- **Integrity:** Express `npm run check:boundary`; replica-set transactions; storage checksums
+- **Tests:** Express `backend/tests` Vitest (real Mongo+Redis); Go `go test ./...`; frontend `npm run check` (tokens, design, jsx refs)
+- **Observability:** slog (Go), console + scanner logs (Express), Axum trace (storage)
+- No HTTP rate limiter on these services
 
 ---
 
 ## 6. Interface Requirements
 
-### 6.1 Software Interfaces (Environment Variables)
+### 6.1 Frontend env
 
-From `config/environment.js`:
+| Variable | Default |
+|---|---|
+| `VITE_API_URL` | `http://localhost:5000/api/v1` |
+| `VITE_GO_API_URL` | `http://localhost:5001/api/v1` |
+| Google OAuth client id | used by `@react-oauth/google` |
 
-- `NODE_ENV`, `PORT`
-- `SESSION_SECRET`, `JWT_SECRET`
-- `MONGO_URI`, `REDIS_URL`
-- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`
-- `ALLOWED_ORIGINS` (comma-separated)
-- `USE_LOCAL_STORAGE` ("true" to enable local file storage)
+### 6.2 Go env
 
-### 6.2 Communication Interfaces
+Required: `MONGO_URI`, `SESSION_SECRET`.
 
-- REST over HTTPS; JSON request/response bodies (multipart for uploads)
-- WebSockets over WSS for real-time features
-- CORS: configured per `server.js` matching environment variables
+| Variable | Default / notes |
+|---|---|
+| `PORT` | 5001 |
+| `APP_ENV` / `NODE_ENV` | development |
+| `MONGO_DB_NAME` | from URI path |
+| `REDIS_URL` | `redis://localhost:6379` |
+| `REDIS_SESSION_PREFIX` | `sess:` |
+| `SESSION_TTL_SECONDS` | 7 days |
+| `SESSION_COOKIE_NAME` | `connect.sid` |
+| `SESSION_COOKIE_DOMAIN` | empty |
+| `SESSION_SECURE` | false |
+| `SESSION_SAME_SITE` | empty → Lax if insecure, None if secure |
+| `ALLOWED_ORIGINS` | CSV |
+| `FRONTEND_URL` | `http://localhost:3000` |
+| `SMTP_*` | password-reset mail (single account) |
+| `AUTH_SSO_VERIFY_URL` | HMS SSO verify |
+| `GOOGLE_TOKEN_VERIFY_URL` | Google tokeninfo |
+| `PASSWORD_RESET_TTL_MINUTES` | 60 |
+| `BCRYPT_COST` | 10 |
+| `SIMULATION_*` | optional sim login |
+
+### 6.3 Express env
+
+Required: `MONGO_URI`, `SESSION_SECRET`.
+
+| Variable | Purpose |
+|---|---|
+| `PORT` | 5000 |
+| `REDIS_URL`, `REDIS_SESSION_PREFIX`, `SESSION_TTL_SECONDS` | must match Go |
+| `ALLOWED_ORIGINS`, `FRONTEND_URL` | CORS / email links |
+| `STORAGE_SERVICE_URL`, `STORAGE_INTERNAL_API_KEY` | storage client |
+| `USE_LOCAL_STORAGE`, `AZURE_STORAGE_*` | fallbacks |
+| `SMTP_HOST`, `PORT`, `USER`, `PASS`, `FROM`, `SEND_AS`, `SMTP_ACCOUNTS`, `SMTP_SEND_INTERVAL_MS`, `SMTP_DEVELOPMENT_REDIRECT_TO` | mail (round-robin optional) |
+| `QR_PRIVATE_KEY` | gate QR |
+| `SIMULATION_*` | dining sim |
+| `COMMON_*` | events / L&F cache |
+| `AUTHZ_*` | smoke scripts only; runtime is always enforce |
+
+### 6.4 Storage env
+
+Required: `MONGO_URI`, `INTERNAL_API_KEY`, `SIGNING_SECRET`.
+
+| Variable | Default |
+|---|---|
+| `PORT` | 5100 |
+| `MONGO_DB_NAME` | `hms_storage` |
+| `DATA_ROOT` | `./data` |
+| `SIGNED_URL_TTL_SECONDS` | 300 |
+
+Express `STORAGE_INTERNAL_API_KEY` must equal storage `INTERNAL_API_KEY`.
+
+### 6.5 Communication
+
+- REST JSON; multipart uploads Express → storage
+- Cookies on Go and Express
+- WebSocket `/socket.io` on Express
+- Signed HTTPS GET on storage
+- SMTP from Go (reset) and Express (domain mail)
+- Outbound HTTPS from Go to Google and SSO
+- Face scanners → Express `/api/v1/face-scanner/scan`
 
 ---
 
-## 7. Data Model & Database Requirements
+## 7. Data Model
 
-### 7.1 Data Entities Overview
+### 7.1 Express / Go Mongo (same application database)
 
-Key entities include: `User`, `StudentProfile`, `Leave`, `Certificate`, `FaceScanner`, `Undertaking`, `UndertakingAssignment`, `Hostel`, `Unit`, `Room`, `RoomAllocation`, `Complaint`, `LostAndFound`, `Event`, `Notification`, `VisitorProfile`, `Visitors`, `Session`, `configuration`.
+| Domain | Collections |
+|---|---|
+| user | User, Warden, AssociateWarden, HostelSupervisor, HostelGate, Security, MaintenanceStaff, Admin, Gymkhana, PasswordResetToken |
+| hostel | Hostel, Unit, Room, RoomAllocation |
+| student | StudentProfile |
+| dining | Caterer, DiningPeriod, DiningAllocation, DiningRebate, DiningBillingPeriod, DiningBillingAccount, DiningMealVerification, DiningOfficeStaff |
+| complaint | Complaint, FeedbackToken |
+| visitor | VisitorProfile, VisitorRequest, Visitors, Appointment, FamilyMember |
+| accommodation | AccommodationRequest, AccommodationType, InvoiceCounter |
+| attendance | Leave, CheckInOut, StaffAttendance, AttendanceOccurrence, AttendanceRecord |
+| inventory | InventoryItemType, HostelInventory, StudentInventory |
+| campus | Event, LostAndFound, Feedback, Notification, Certificate, Undertaking, UndertakingAssignment, DisCoAction, DisCoProcessCase |
+| gymkhana / SA | Club, PorCategory, PorRequest, ActivityCalendar, EventProposal, GymkhanaEvent, EventExpense, ApprovalLog, CalendarAmendment, MegaEventSeries, MegaEventOccurrence, Election, ElectionNomination, ElectionVote, ExpenditureOccurrence, OverallBestPerformerOccurrence, OverallBestPerformerApplication |
+| ops | Task, FaceScanner, ApiClient, Health, InsuranceProvider, InsuranceClaim, Configuration |
+| infra | ActionLinkToken, AuditLog, AuthzAudit |
 
-### 7.2 Key Schemas (Version 3.0 Additions)
+Go additionally writes `authzaudits` and (if sim) `sim_user_aes`. Device sessions are Redis-only. `Poll` model is unused. Academics has no staff-profile collection.
 
-- `Leave`: `userId`, `status` (Pending/Approved/Rejected), `startDate`, `endDate`, `approvalBy`, `joinStatus`.
-- `Certificate`: `userId`, `certificateType`, `certificateUrl`, `issueDate`.
-- `FaceScanner`: `username`, `passwordHash`, `direction` (in/out), `hostelId`, `isActive`.
-- `Undertaking`: `title`, `content`, `deadline`, `createdBy`.
+### 7.2 Storage Mongo
 
-### 7.3 Indexing & Integrity
+Collection of `StoredFile`: `file_id`, `file_ref`, `policy`, names, content type, size, sha256, `disk_path`, actor, `source_service`, `entity_hint`, `created_at`, `deleted_at`.
 
-- Create indexes for frequent lookups (e.g., `User.email`, `Leave.userId`, `FaceScanner.username`).
-- Maintain referential integrity for role-linked hostels and allocations.
+### 7.3 Schema notes
 
-### 7.4 ER Diagram (Detailed)
+- User.role includes Gymkhana, Academics, Dining; subRole + authz.override; signature image or text
+- StudentProfile dates are `YYYY-MM-DD`; status Active/Graduated/Dropped/Inactive; day-scholar; facultyAdvisorEmail
+- Hostel.type `unit-based` | `room-only`
+- DiningPeriod: meal slots, dailyRate, capacities, rebate settings, eligibility, optional registration window
+- DiningBillingAccount credit is stored; charges computed
+- FaceScanner.type `hostel-gate` | `dining-meal`
+- Files in domain docs are `media://` strings
+
+### 7.4 ER (condensed)
+
+See Express `hostel-management-system-er-diagram.md` for the detailed diagram.
 
 ```mermaid
 erDiagram
-  USER {
-    string id
-    string email
-    string role
-    map permissions
-  }
-
-  STUDENT_PROFILE {
-    string id
-    string userId
-    string enrollmentNo
-  }
-
-  LEAVE {
-    string id
-    string userId
-    string status
-    date startDate
-  }
-
-  CERTIFICATE {
-    string id
-    string userId
-    string type
-    string url
-  }
-
-  FACE_SCANNER {
-    string id
-    string username
-    string direction
-    string hostelId
-  }
-
-  SESSION {
-    string id
-    string userId
-    string sessionId
-  }
-
-  USER ||--o{ STUDENT_PROFILE : has
-  USER ||--o{ LEAVE : applies_for
-  USER ||--o{ CERTIFICATE : has_docs
-  USER ||--o{ SESSION : has_devices
-  HOSTEL ||--o{ FACE_SCANNER : located_at
-  STUDENT_PROFILE ||--o{ COMPLAINT : submits
-  STUDENT_PROFILE ||--o{ UNDERTAKING_ASSIGNMENT : signs
+  USER ||--o| STUDENT_PROFILE : has
+  USER ||--o{ SESSION_REDIS : authenticates
+  HOSTEL ||--o{ ROOM : contains
+  STUDENT_PROFILE ||--o{ ROOM_ALLOCATION : allocated
+  STUDENT_PROFILE ||--o{ DINING_ALLOCATION : eats
+  CATERER ||--o{ DINING_MEAL_VERIFICATION : checks_in
+  USER ||--o{ ACCOMMODATION_REQUEST : requests
+  CLUB ||--o{ POR_REQUEST : appoints
+  ELECTION ||--o{ ELECTION_VOTE : records
+  STORED_FILE ||--o{ MEDIA_REF : referenced_by
 ```
 
 ---
 
-## 8. API Surface Overview
+## 8. API Surface
 
-### 8.1 Route Namespaces (mounted in `server.js`)
+### 8.1 Go
 
-- `/api/auth`
-- `/api/leave`
-- `/api/certificate`
-- `/api/face-scanner`
-- `/api/undertaking`
-- `/api/online-users`
-- `/api/sheet`
-- `/api/sso`
-- `/api/student-profile`
-- `/api/warden`
-- `/api/student`
-- `/api/admin`
-- `/api/complaint`
-- `/api/security`
-- `/api/lost-and-found`
-- `/api/event`
-- `/api/hostel`
-- `/api/stats`
-- `/api/feedback`
-- `/api/visitor`
-- `/api/notification`
-- `/api/disCo`
-- `/api/payment`
-- `/api/super-admin`
-- `/api/family`
-- `/api/staff`
-- `/api/inventory`
-- `/api/permissions`
-- `/api/dashboard`
-- `/api/tasks`
-- `/api/users`
-- `/api/config`
-- `/api/upload`
-- `/external-api`
-
-### 8.2 High-Level Route Map
-
-```mermaid
-graph TD
-  A[/server.js/] -->|mount| AU[/api/auth/]
-  A --> LE[/api/leave/]
-  A --> CE[/api/certificate/]
-  A --> FS[/api/face-scanner/]
-  A --> UN[/api/undertaking/]
-  A --> OU[/api/online-users/]
-  A --> SH[/api/sheet/]
-  A --> SSO[/api/sso/]
-  A --> WA[/api/warden/]
-  A --> ST[/api/student/]
-  A --> AD[/api/admin/]
-  A --> CP[/api/complaint/]
-  A --> SC[/api/security/]
-  A --> LF[/api/lost-and-found/]
-  A --> EV[/api/event/]
-  A --> HO[/api/hostel/]
-  A --> PM[/api/payment/]
-  A --> UP[/api/upload/]
-  A --> EXT[/external-api/]
 ```
+GET  /  /health  /api/v1/health
+POST /api/v1/auth/login
+POST /api/v1/auth/google
+POST /api/v1/auth/verify-sso-token
+GET  /api/v1/auth/user
+PATCH /api/v1/auth/user/pinned-tabs
+PATCH /api/v1/auth/user/sidebar-mode
+PATCH /api/v1/auth/user/theme
+GET  /api/v1/auth/logout
+GET  /api/v1/auth/refresh
+GET  /api/v1/auth/user/devices
+POST /api/v1/auth/user/devices/logout/{sessionId}
+POST /api/v1/auth/update-password
+POST /api/v1/auth/forgot-password
+GET  /api/v1/auth/reset-password/{token}
+POST /api/v1/auth/reset-password
+GET  /api/v1/authz/catalog
+GET  /api/v1/authz/me
+GET  /api/v1/authz/users
+GET  /api/v1/authz/users/{role}
+GET  /api/v1/authz/user/{userId}
+PUT  /api/v1/authz/user/{userId}
+POST /api/v1/authz/user/{userId}/reset
+POST /api/v1/sim/auth/google          (flagged)
+GET  /api/v1/sim/authz/catalog        (flagged)
+GET  /api/v1/sim/authz/me             (flagged)
+```
+
+### 8.2 Express namespaces
+
+| Prefix | App |
+|---|---|
+| `/api/v1/users`, `/signature` | iam |
+| `/api/v1/complaint` | complaints |
+| `/api/v1/visitor`, `/accommodation`, `/appointments`, `/jr-appointments` | visitors |
+| `/api/v1/tasks`, `/live-checkinout`, `/inventory`, `/staff`, `/hostel`, `/leave`, `/sheet`, `/online-users`, `/security`, `/face-scanner`, `/dining-meal-verification`, `/dining-office`, `/dashboard`, `/stats` | operations |
+| `/api/v1/event`, `/lost-and-found`, `/feedback`, `/notification`, `/undertaking`, `/disCo`, `/certificate` | campus-life |
+| `/api/v1/admin`, `/warden`, `/super-admin`, `/family`, `/config`, `/email`, `/media`, `/upload` | administration |
+| `/api/v1/students/profile`, `/profiles-admin`, `/profiles-self`, `/dining` | students |
+| `/api/v1/student-affairs/*` | student-affairs |
+| `/api/v1/sim` | sim (flagged) |
+
+Public Express examples: complaint feedback token, accommodation recommendation token, appointments public submit/targets, election supporter/ballot tokens, face-scanner ping/scan/test-auth (device auth).
+
+Exact verbs live in each module’s `*.routes.js`.
+
+### 8.3 Storage
+
+See §3.3.
 
 ---
 
 ## 9. Appendices
 
-### 9.1 Security Checklist
+### 9.1 Session alignment checklist (Go ↔ Express)
 
-- Enforce HTTPS end-to-end.
-- Set `ALLOWED_ORIGINS` precisely.
-- Ensure `secure` cookies in production; `sameSite: 'None'`.
-- Validate and sanitize inputs for all endpoints.
-- Store credentials only in environment variables.
+1. `REDIS_URL`
+2. `REDIS_SESSION_PREFIX`
+3. `SESSION_SECRET`
+4. Cookie name `connect.sid`
+5. Session TTL
+6. SameSite / Secure (HTTPS: None + Secure; local HTTP: Lax)
+7. Do not persist `authz.effective` in Redis
 
-### 9.2 Operations Notes
+### 9.2 Related docs (inside the four services)
 
-- Session and online-user stores use MongoDB/Redis with TTL for automated cleanup.
-- Face Scanners require unique Basic Auth credentials configured in the system.
+| Topic | Where |
+|---|---|
+| Express conventions | Express `STRUCTURE_GUIDE.md` |
+| Accommodation state machine | Express `docs/accommodation-flow.md` |
+| ER diagram | Express `hostel-management-system-er-diagram.md` |
+| Express tests | Express `tests/AGENTS.md` |
+| Go conventions / migration | Go `STRUCTURE_GUIDE.md`, `MIGRATION_NOTES.md` |
+| Storage conventions | Storage `STRUCTURE_GUIDE.md` |
+| Frontend AuthZ / Query | Frontend `structure_design.md`, `docs/data-fetching.md` |
 
-### 9.3 Future Enhancements
+### 9.3 Intentional non-goals
 
-- Rate limiting and structured logging.
-- Enhanced support for facial recognition metadata.
+- Payment-gateway capture
+- Auto-provision users on Google/SSO miss
+- Live `/external-api` (removed)
+- Grievance **model** (routes stub)
+- Scholarship, counseling, SA disciplinary modules (empty folders)
+- Academics / library / placement Express apps (commented mounts)
+
+### 9.4 How to run (each service)
+
+- Frontend: `npm run dev` (Vite)
+- Go: `make run`
+- Express: `npm run dev` (port 5000)
+- Storage: cargo/dev script on port 5100
+
+### 9.5 Handover risks
+
+| Item | Status |
+|---|---|
+| AuthZ catalog versions | Go **15**, Express **18** |
+| `route.*.media` keys | In Express catalog; **missing in Go**. Super-Admin AuthZ UI reads Go, so those keys do not appear until Go is bumped |
+| Dining `route.dining.media` | Express Dining Office/Caterer defaults include it; Go does not |
+| Duplicate catalogs | Change Go `internal/modules/authz/catalog.go` and Express `src/core/authz/authz.catalog.js` together |
+| Express `iam/modules/permissions/` | Empty leftover |
+| Express student-affairs README | Stale |
+| `Poll` model | Unused |
+| Express `npm test` | Placeholder; real tests in `tests/` |
+| `connect-mongo` / Azure Blob | Leftover Express dependencies |
+| `AUTHZ_MODE` | Express smoke scripts only |
+
+### 9.6 Express integration-test map
+
+Under Express `tests/apps/`: administration, campus-life, complaints, iam, operations, student-affairs, students, visitors, plus realtime, sim, smoke, authz-overrides, concurrency, data-shapes, protocol, session-cookie, workflows.
 
 ---
 
-This SRS reflects the comprehensive version 3.0 backend implementation.
+This SRS is the single product specification for HMS as implemented in version 5.0 (September 2026).

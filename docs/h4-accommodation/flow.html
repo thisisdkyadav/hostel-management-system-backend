@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>H4 · Detailed visual flow</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef2f6;color:#20374e;font:14px system-ui,sans-serif}header{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:15px 24px;background:#fff;border-bottom:1px solid #d7e1ea;position:sticky;top:0;z-index:2}strong{font-size:17px;margin-right:auto}button,a{font:inherit;border:1px solid #cfdae5;border-radius:6px;padding:7px 11px;background:#fff;color:#244a76;cursor:pointer;text-decoration:none}button:hover,a:hover{background:#edf3fb}button[aria-pressed=true]{color:white;background:#244a76;border-color:#244a76}.controls{display:flex;gap:6px;align-items:center}.tabs{display:flex;gap:6px;padding:12px 24px;background:#f8fafc;border-bottom:1px solid #d7e1ea;flex-wrap:wrap}.stage{overflow:auto;padding:20px;min-height:calc(100vh - 128px)}#diagram{display:block;background:white;box-shadow:0 6px 28px #29425b14;margin:0 auto;max-width:none}.caption{color:#6c7e8e;font-size:12px}button:focus-visible,a:focus-visible{outline:3px solid #4b8bcc;outline-offset:3px}@media(max-width:700px){header{padding:12px;gap:10px}strong{width:100%;font-size:15px}.tabs{padding:10px}.tabs button{font-size:12px}.stage{padding:8px}}@media print{header,.tabs{display:none}.stage{padding:0;overflow:visible}#diagram{width:100%!important;box-shadow:none}}
+</style>
+</head>
+<body>
+<header><strong>H4 Accommodation · Detailed flow</strong><div class="controls"><button id="zoom-out" aria-label="Zoom out">−</button><button id="fit">Fit width</button><button id="zoom-in" aria-label="Zoom in">+</button><span id="scale" class="caption"></span></div><a id="download" href="detailed-flow.svg" download>Download SVG</a><a href="detailed-flow.pdf" download>Download PDF</a></header>
+<nav class="tabs" aria-label="Flow stages"><button data-flow="detailed-flow" aria-pressed="true">Complete flow</button><button data-flow="01-approvals" aria-pressed="false">01 · Creation &amp; approval</button><button data-flow="02-payment" aria-pressed="false">02 · Offer &amp; payment</button><button data-flow="03-room-assignment" aria-pressed="false">03 · Room warnings &amp; assignment</button><button data-flow="04-stay-and-invoice" aria-pressed="false">04 · Stay &amp; invoice</button></nav>
+<main class="stage"><img id="diagram" src="detailed-flow.svg" alt="Detailed H4 accommodation flow: faculty recommendation, CW Office review, Chief Warden approval, verified payer payment, typed room selection with warning overrides, arrival, close-out and payer invoice."></main>
+<script>
+const image=document.getElementById('diagram');let scale=1;
+function resize(){image.style.width=Math.round(1800*scale)+'px';document.getElementById('scale').textContent=Math.round(scale*100)+'%';}
+function fit(){scale=Math.min(1,(document.querySelector('.stage').clientWidth-40)/1800);resize();}
+document.getElementById('fit').onclick=fit;
+document.getElementById('zoom-in').onclick=()=>{scale=Math.min(2.5,scale+.15);resize();};
+document.getElementById('zoom-out').onclick=()=>{scale=Math.max(.2,scale-.15);resize();};
+document.querySelectorAll('[data-flow]').forEach(button=>button.onclick=()=>{image.src=button.dataset.flow+'.svg';document.getElementById('download').href=image.src;document.querySelectorAll('[data-flow]').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));document.querySelector('.stage').scrollTo({top:0,left:0});window.scrollTo({top:0});});
+fit();window.addEventListener('resize',fit);
+</script>
+</body></html>

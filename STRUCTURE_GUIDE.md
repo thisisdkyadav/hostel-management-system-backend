@@ -1,7 +1,7 @@
 # Backend Structure Guide
 
 Purpose: current backend architecture reference for contributors and coding agents.
-Last updated: August 9, 2026
+Last updated: September 21, 2026
 
 > **This is THE backend doc — the single source of truth.** Setup, structure,
 > conventions, the model-ownership rules, authorization, design principles, and history
@@ -12,7 +12,7 @@ Last updated: August 9, 2026
 
 ## Quick Start
 
-**Prerequisites:** Node.js 18+ (works on 24) · MongoDB 5+ **as a replica set** (required for the transactions in §6.7 — e.g. `...?replicaSet=rs0`) · Redis (optional, for Socket.IO scaling).
+**Prerequisites:** Node.js 18+ (works on 24) · MongoDB 5+ **as a replica set** (required for the transactions in §6.7 — e.g. `...?replicaSet=rs0`) · Redis (**required** for sessions shared with Go; also Socket.IO adapter and caches).
 
 ```bash
 npm install
@@ -98,33 +98,34 @@ There is **no** `src/routes/`, `src/external/`, or backend-root legacy re-export
 
 ## 3. App Mount Points
 
-Defined in `src/loaders/express.loader.js`. There is **no separate `auth` app** — identity/users are served by `iam`, and primary authentication / session / SSO issuance is handled by the Go backend (`/api/sso/verify` remains as a transitional verify endpoint with special CORS).
+Defined in `src/loaders/express.loader.js`. There is **no separate `auth` app** — identity/users are served by `iam`. Login / session / SSO issuance and AuthZ HTTP (`/api/v1/authz/*`) are the Go backend. Express only **reads** the shared Redis session.
 
 | App | Mounted At | Owns (examples) |
 |---|---|---|
-| `iam` | `/api/v1` | `/users/*`, `/authz/*` |
+| `iam` | `/api/v1` | `/users/*`, `/signature/*` |
 | `complaints` | `/api/v1` | `/complaint/*` |
-| `visitors` | `/api/v1` | `/visitor/*` |
-| `operations` | `/api/v1` | `/tasks/*`, `/live-checkinout/*`, `/inventory/*`, `/staff/*`, `/hostel/*`, `/leave/*`, `/security/*`, `/face-scanner/*`, `/dashboard/*`, `/stats/*` |
+| `visitors` | `/api/v1` | `/visitor/*`, `/accommodation/*`, `/appointments/*`, `/jr-appointments/*` |
+| `operations` | `/api/v1` | `/tasks/*`, `/live-checkinout/*`, `/inventory/*`, `/staff/*`, `/hostel/*`, `/leave/*`, `/sheet/*`, `/online-users/*`, `/security/*`, `/face-scanner/*`, `/dining-meal-verification/*`, `/dining-office/*`, `/dashboard/*`, `/stats/*` |
 | `campus-life` | `/api/v1` | `/event/*`, `/lost-and-found/*`, `/feedback/*`, `/notification/*`, `/undertaking/*`, `/disCo/*`, `/certificate/*` |
-| `administration` | `/api/v1` | `/admin/*`, `/warden/*`, `/super-admin/*`, `/family/*`, `/config/*`, `/email/*`, `/upload/*`, `/health` (compat) |
+| `administration` | `/api/v1` | `/admin/*`, `/warden/*`, `/super-admin/*`, `/family/*`, `/config/*`, `/email/*`, `/media/*`, `/upload/*`, `/health` (compat) |
 | `students` | `/api/v1/students` | `/profile/*`, `/profiles-admin/*`, `/profiles-self/*`, `/dining/*` |
-| `student-affairs` | `/api/v1/student-affairs` | `/grievances/*`, `/events/*`, `/elections/*`, `/attendance/*`, `/best-performer/*` |
+| `student-affairs` | `/api/v1/student-affairs` | `/grievances/*` (stub), `/events/*`, `/overall-best-performer/*`, `/elections/*`, `/clubs/*`, `/por/*`, `/attendance/*`, `/expenditure/*` |
+| `sim` | `/api/v1/sim` | Dining load-sim (flagged; separate cookie) |
 
-Special / non-`/api/v1` routes in the loader: `/api/sso/verify`, `/api/face-scanner/ping`, `/api/face-scanner/scan`, `/api/face-scanner/test-auth`. Health: `/health` (global) and `/api/v1/health` (compat, served by `administration`).
+Loader applies scanner CORS on `/api/face-scanner/{ping,scan,test-auth}`; live scanner routes are `/api/v1/face-scanner/*`. Health: `/health` (global) and `/api/v1/health` (compat, served by `administration`).
 
 ## 4. App Ownership Rules
 
 *(Feature/route ownership — for model/data ownership see §6.)*
 
-- `iam`: users and authz (identity and access management).
+- `iam`: users and signatures (AuthZ HTTP is Go; Node still evaluates the catalog).
 - `complaints`: complaint lifecycle.
 - `students`: student profile/admin/self flows (+ student-facing dining).
-- `visitors`: visitor request/profile workflows.
-- `operations`: operational workflows and operational analytics.
+- `visitors`: visitor requests, appointments, accommodation.
+- `operations`: operational workflows and operational analytics (including dining office / meal verification).
 - `campus-life`: student-life/community workflows.
 - `administration`: cross-role administration workflows.
-- `student-affairs`: dedicated student-affairs domain (grievance, events, elections, attendance, best-performer).
+- `student-affairs`: gymkhana/SA domain (events, elections, clubs, POR, attendance, expenditure, best-performer; grievance routes are a stub).
 
 **Rule:** new features go to the owning app module. Do not recreate a generic `hostel` catch-all app.
 
@@ -315,7 +316,8 @@ $ npm run check:boundary
 
 Before merging:
 
-- **Model boundary:** `npm run check:boundary` prints the clean summary (this is the closest thing to CI — there is **no** test suite; `npm test` is a placeholder).
+- **Model boundary:** `npm run check:boundary` prints the clean summary.
+- **Integration tests:** `cd tests && npm test` (Vitest against a local replica set + Redis). The root `package.json` `npm test` script is still a placeholder.
 - **Loader import sanity:** `node -e "import('./src/loaders/express.loader.js')"`.
 - **Syntax:** `node --check` on changed files.
 - `git status` shows only expected changes.
@@ -367,7 +369,7 @@ Auth is **three layers**, applied in this order on a protected route:
 **Source-of-truth files:**
 - Catalog: `src/core/authz/authz.catalog.js`
 - Middleware: `src/middlewares/authz.middleware.js`
-- IAM authz APIs: `src/apps/iam/modules/authz/` (`/api/v1/authz/*`, **Super-Admin only**)
+- AuthZ HTTP CRUD: **Go** (`/api/v1/authz/*`). Node evaluates the catalog locally in `authenticate` / `authz.middleware.js`
 - Per-user overrides: `src/models/user/User.model.js` (`authz.override`, `authz.meta`)
 
 **Rollout is intentionally narrow** — route access is the primary control. Only one capability and one constraint are live in runtime code:
@@ -384,9 +386,9 @@ Reintroduce capabilities/constraints only **feature-by-feature** — add the key
 
 ## 13. Runtime & Stack
 
-- **Stack:** Node.js (ESM) · Express 4 · Mongoose 9 / MongoDB (replica set for transactions) · sessions via `connect-mongo` · realtime via Socket.IO (+ Redis adapter, optional) · file storage Azure Blob **or** local (`USE_LOCAL_STORAGE=true`).
-- **Socket.IO events:** `notification`, `visitor-update`, `complaint-update`, `online-users` — see `src/loaders/socket.loader.js`.
-- **Machine / API-key access:** the `ApiClient` model; keys managed by Super-Admins at `/api/v1/super-admin/api-clients`, consumed by machine endpoints (e.g. face-scanner). The old `/external-api` router was removed.
+- **Stack:** Node.js (ESM) · Express 5 · Mongoose 9 / MongoDB (replica set for transactions) · sessions via **Redis** (`sess:` prefix, shared with Go) · realtime via Socket.IO (+ Redis adapter) · files via storage-backend (`media://`) with local/Azure leftovers.
+- **Socket.IO events:** `notification`, `visitor-update`, `complaint-update`; presence `user:online` / `user:offline`. See `src/loaders/socket.loader.js` and `src/utils/socketHandlers.js`.
+- **Machine access:** face scanners authenticate with scanner username/password (Basic or legacy header). Super-Admin can CRUD `ApiClient` records at `/api/v1/super-admin/api-clients`; no Node middleware currently consumes those keys. The old `/external-api` router was removed.
 - **HTTP routes** are defined by each module's `*.routes.js` and mounted in `src/loaders/express.loader.js` (§3) — there is no separate route-list doc to keep in sync.
 - **Env:** full list in `.env.example`; required keys are `MONGO_URI` and `SESSION_SECRET`.
 
@@ -396,4 +398,4 @@ These are the only backend docs kept outside this file — they are reference ar
 
 - `docs/accommodation-flow.md` — the accommodation workflow diagram (referenced from `accommodation.workflow.js` and `AccommodationRequest.model.js`).
 - `hostel-management-system-er-diagram.md` — data-model ER diagram.
-- `srs.md` — original software-requirements spec (historical).
+- `srs.md` — product SRS for all four services (frontend, Go, Express, storage).
