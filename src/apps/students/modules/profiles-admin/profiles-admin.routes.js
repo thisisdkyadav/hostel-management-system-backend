@@ -6,6 +6,8 @@
  */
 
 import express from 'express';
+import multer from 'multer';
+import { attachStudentProfilePhoto } from './profiles-admin.photos.controller.js';
 import {
   createStudentsProfiles,
   updateStudentsProfiles,
@@ -65,6 +67,28 @@ const requireAdminSettingsRouteAccess = requireRouteAccess('route.admin.settings
 // `cap.students.edit.personal`, exactly like the single/bulk profile edits.
 const BULK_TOOL_ROLES = ['Admin', 'Hostel Supervisor'];
 const requireStudentEditCapability = requireAnyCapability(['cap.students.edit.personal']);
+
+const profilePhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 500 * 1024, files: 1, fields: 1, parts: 2 },
+}).single('image');
+
+router.post(
+  '/profiles/profile-picture',
+  guard(BULK_TOOL_ROLES),
+  requireStudentEditCapability,
+  (req, res, next) => profilePhotoUpload(req, res, (err) => {
+    if (!err) return next();
+    if (!(err instanceof multer.MulterError)) return next(err);
+    return res.status(400).json({
+      success: false,
+      message: err.code === 'LIMIT_FILE_SIZE'
+        ? 'Profile pictures must be 500KB or smaller'
+        : 'Upload one JPEG/JPG image named with the student roll number',
+    });
+  }),
+  attachStudentProfilePhoto
+);
 
 router.get(
   '/profiles',

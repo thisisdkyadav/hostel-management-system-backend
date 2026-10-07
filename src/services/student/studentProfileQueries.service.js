@@ -217,11 +217,12 @@ export const studentProfileQueries = {
    * One profile by case-insensitive exact roll number. Options: { select, lean }.
    * Used by insurance PDF attach, which reads the roll from a filename.
    */
-  async findByRollNumberCaseInsensitive(rollNumber, { select, lean } = {}) {
+  async findByRollNumberCaseInsensitive(rollNumber, { select, lean, populate } = {}) {
     let query = StudentProfile.findOne({
       rollNumber: { $regex: new RegExp(`^${escapeRegex(rollNumber)}$`, "i") },
     })
     if (select) query = query.select(select)
+    if (populate) query = query.populate(populate)
     if (lean) query = query.lean()
     return query
   },
