@@ -70,7 +70,7 @@ const requireStudentEditCapability = requireAnyCapability(['cap.students.edit.pe
 
 const profilePhotoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024, files: 1, fields: 1, parts: 2 },
+  limits: { fileSize: 500 * 1024, files: 1, fields: 1, fieldSize: 16 },
 }).single('image');
 
 router.post(

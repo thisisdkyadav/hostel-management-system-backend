@@ -111,6 +111,7 @@ describe("bulk profile pictures", () => {
     const before = uploaded
     for (const override of [undefined, "false"]) {
       const result = await upload(adminApi, "EXISTING.jpg", override)
+      expect(result.status, JSON.stringify(result.body)).toBe(200)
       expect(result.body.data.status).toBe("skipped")
     }
     expect(uploaded).toBe(before)
@@ -120,6 +121,7 @@ describe("bulk profile pictures", () => {
   it("replaces an existing picture only with explicit override", async () => {
     const user = await createStudent("OVERRIDE", "https://example.test/original.jpg")
     const result = await upload(adminApi, "OVERRIDE.jpeg", "true")
+    expect(result.status, JSON.stringify(result.body)).toBe(200)
     expect(result.body.data.status).toBe("updated")
     expect(await storedPhoto(user)).toMatch(/^media:\/\/photo-test-/)
   })
