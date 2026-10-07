@@ -3,8 +3,10 @@ import { studentProfileQueries } from "../../../../services/student/studentProfi
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { diningOwner } from "../../../../services/dining/diningOwner.service.js"
 import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
-import { badRequest, notFound, success } from "../../../../services/base/index.js"
+import { badRequest, error, notFound, success } from "../../../../services/base/index.js"
 import { getIO } from "../../../../loaders/socket.loader.js"
+import { LOCK_NOT_ACQUIRED, withLock } from "../../../../services/lock/distributedLock.js"
+import { env } from "../../../../config/env.config.js"
 import {
   getApprovedRebateStudentIdsForDay,
   getCatererDiningRebateSummary,
@@ -18,6 +20,7 @@ const UNKNOWN_STUDENT_STATUS = "unknown-student"
 const OUTSIDE_MEAL_TIME_STATUS = "outside-meal-time"
 const NO_ACTIVE_PERIOD_STATUS = "no-active-period"
 const ON_REBATE_STATUS = "on-rebate"
+const FACE_SCAN_INTERVAL_MS = 15_000
 
 const STATUS_MESSAGES = {
   [VERIFIED_STATUS]: "Meal verified successfully",
@@ -211,7 +214,7 @@ const createVerificationRecord = async ({
   return verification
 }
 
-export const verifyDiningMeal = async ({
+const recordDiningMealAttempt = async ({
   rollNumber,
   catererId,
   scannedAt = new Date(),
@@ -372,6 +375,43 @@ export const verifyDiningMeal = async ({
     201,
     STATUS_MESSAGES[status],
   )
+}
+
+export const verifyDiningMeal = async (options = {}) => {
+  if (options.source !== "face-scanner") return recordDiningMealAttempt(options)
+
+  const rollNumber = normalizeRollNumber(options.rollNumber)
+  if (!rollNumber) return badRequest("Roll number is required")
+  if (!mongoose.Types.ObjectId.isValid(options.catererId)) return badRequest("Valid caterer is required")
+  const scannedAt = new Date(options.scannedAt ?? Date.now())
+  if (Number.isNaN(scannedAt.getTime())) return badRequest("Valid scan time is required")
+
+  // Serialize attempts across devices/workers so simultaneous pushes cannot both
+  // pass the recent-scan check. A different caterer has its own scan history.
+  const lockKey = `${env.REDIS_SESSION_PREFIX}lock:dining-face-scan:${options.catererId}:${rollNumber}`
+  const deadline = Date.now() + 2_000
+  do {
+    const result = await withLock(lockKey, 60, async () => {
+      const recentScan = await diningQueries.findOneVerification({
+        catererId: options.catererId,
+        rollNumber,
+        source: "face-scanner",
+        scannedAt: {
+          $gt: new Date(scannedAt.getTime() - FACE_SCAN_INTERVAL_MS),
+          $lt: new Date(scannedAt.getTime() + FACE_SCAN_INTERVAL_MS),
+        },
+      }, { select: "_id", lean: true })
+
+      if (recentScan) {
+        return success({ skipped: true }, 200, "Repeated face scan ignored (within 15 seconds)")
+      }
+      return recordDiningMealAttempt({ ...options, rollNumber, scannedAt })
+    })
+    if (result !== LOCK_NOT_ACQUIRED) return result
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  } while (Date.now() < deadline)
+
+  return error("Meal verification is busy. Please retry the face scan.", 503)
 }
 
 export const getDiningMealVerificationFeed = async ({

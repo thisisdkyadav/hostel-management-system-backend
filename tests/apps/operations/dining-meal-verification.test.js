@@ -390,3 +390,124 @@ describe("dining meal verification — hardening edges", () => {
     expect(res.body.data.pendingCount).toBe(0)
   })
 })
+
+describe("dining meal verification — repeated face scans", () => {
+  const BASE = "/api/v1/dining-meal-verification"
+  const SCANNERS = "/api/v1/face-scanner"
+  const basicHeader = (credentials) => `Basic ${Buffer.from(`${credentials.username}:${credentials.password}`).toString("base64")}`
+  const pad2 = (value) => String(value).padStart(2, "0")
+  const atSeconds = (base, seconds) => new Date(base.getTime() + seconds * 1000)
+  const nativePunch = (rollNumber, time) => ({
+    deviceID: "meal-terminal", employeeID: rollNumber,
+    date: `${time.getFullYear()}-${pad2(time.getMonth() + 1)}-${pad2(time.getDate())}`,
+    time: `${pad2(time.getHours())}:${pad2(time.getMinutes())}:${pad2(time.getSeconds())}`,
+    modeofPunch: "Face",
+  })
+
+  async function scannerFor(caterer, provider = "time-watch") {
+    const api = await as(await seed.admin())
+    const res = await api.post(SCANNERS).send({
+      name: `Meal scanner ${caterer._id}`, provider, type: "dining-meal", direction: "in", catererId: String(caterer._id),
+      ...(provider === "zkteco" ? { deviceName: `meal-${caterer._id}` } : {}),
+    })
+    expect(res.status).toBe(201)
+    return { ...res.body.data.credentials, scanner: res.body.data.scanner }
+  }
+
+  async function scanFixture(provider = "time-watch") {
+    const { user, caterer } = await catererLogin("Face Scan Interval Foods")
+    const period = await activePeriod([caterer._id])
+    const { profile } = await allocatedStudent(period, caterer)
+    const credentials = await scannerFor(caterer, provider)
+    const api = await as(user)
+    const device = await anon()
+    const time = new Date(); time.setHours(12, 0, 0, 0)
+    const faceAt = (scanTime, rollNumber = profile.rollNumber) => device.post(`${SCANNERS}/scan`)
+      .set("Authorization", basicHeader(credentials)).send(nativePunch(rollNumber, scanTime))
+    const feed = async () => {
+      const res = await api.get(`${BASE}/feed`)
+      expect(res.status).toBe(200)
+      return res.body.data.entries
+    }
+    return { api, device, caterer, period, profile, credentials, time, faceAt, feed }
+  }
+
+  it("skips scans within 15 seconds and accepts one exactly 15 seconds after the last saved scan", async () => {
+    const { faceAt, time, feed } = await scanFixture()
+    expect((await faceAt(time)).body.isSuccess).toBe("Y")
+    const repeated = await faceAt(atSeconds(time, 14))
+    expect(repeated.status).toBe(200)
+    expect(repeated.body).toEqual({ isSuccess: "Y", outputMessage: "Repeated face scan ignored (within 15 seconds)" })
+    expect(await feed()).toHaveLength(1)
+    const afterWindow = await faceAt(atSeconds(time, 15))
+    expect(afterWindow.status).toBe(200)
+    expect(afterWindow.body.outputMessage).not.toMatch(/ignored/)
+    const entries = await feed()
+    expect(entries).toHaveLength(2)
+    expect(entries.map((entry) => entry.scannedAt)).toEqual([atSeconds(time, 15).toISOString(), time.toISOString()])
+  })
+
+  it("also skips an out-of-order scan less than 15 seconds from a saved face scan", async () => {
+    const { faceAt, time, feed } = await scanFixture()
+    await faceAt(time)
+    expect((await faceAt(atSeconds(time, -1))).body.outputMessage).toMatch(/ignored/)
+    expect(await feed()).toHaveLength(1)
+  })
+
+  it("allows only one saved attempt when the same student is pushed concurrently", async () => {
+    const { faceAt, time, feed } = await scanFixture()
+    const responses = await Promise.all([faceAt(time), faceAt(time), faceAt(time)])
+    expect(responses.every((res) => res.status === 200 && res.body.isSuccess === "Y")).toBe(true)
+    expect(responses.filter((res) => res.body.outputMessage.includes("ignored"))).toHaveLength(2)
+    expect(await feed()).toHaveLength(1)
+  })
+
+  it("applies the same rule to records within a ZKTeco batch", async () => {
+    const { device, credentials, profile, time, feed } = await scanFixture("zkteco")
+    const punches = [0, 14, 15].map((seconds) => {
+      const native = nativePunch(profile.rollNumber, atSeconds(time, seconds))
+      return { EMP_CODE: profile.rollNumber, PUNCH_DATETIME: `${native.date} ${native.time}`, TERMINAL_ALIAS: credentials.scanner.deviceName }
+    })
+    const res = await device.post(`${SCANNERS}/scan`).set("Authorization", basicHeader(credentials)).send(punches)
+    expect(res.status).toBe(200)
+    expect(res.body.status).toBe("success")
+    expect(await feed()).toHaveLength(2)
+  })
+
+  it("keeps manual attempts independent of the face-scan interval", async () => {
+    const { api, profile, faceAt, time, feed } = await scanFixture()
+    const manual = () => api.post(`${BASE}/manual`).send({ rollNumber: profile.rollNumber, scannedAt: time.toISOString() })
+    expect((await manual()).status).toBe(201)
+    expect((await faceAt(time)).body.outputMessage).not.toMatch(/ignored/)
+    expect((await manual()).status).toBe(201)
+    expect((await faceAt(atSeconds(time, 10))).body.outputMessage).toMatch(/ignored/)
+    const entries = await feed()
+    expect(entries).toHaveLength(3)
+    expect(entries.filter((entry) => entry.source === "manual")).toHaveLength(2)
+    expect(entries.filter((entry) => entry.source === "face-scanner")).toHaveLength(1)
+  })
+
+  it("does not suppress another student or a scan at a different caterer", async () => {
+    const { faceAt, time, feed, period, caterer, profile } = await scanFixture()
+    const another = await allocatedStudent(period, caterer)
+    await faceAt(time)
+    expect((await faceAt(time, another.profile.rollNumber)).body.outputMessage).not.toMatch(/ignored/)
+    expect(await feed()).toHaveLength(2)
+    const other = await catererLogin("Separate Scan Foods")
+    const credentials = await scannerFor(other.caterer)
+    const res = await (await anon()).post(`${SCANNERS}/scan`).set("Authorization", basicHeader(credentials)).send(nativePunch(profile.rollNumber, time))
+    expect(res.status).toBe(200)
+    expect(res.body.outputMessage).not.toMatch(/ignored/)
+    const otherFeed = await (await as(other.user)).get(`${BASE}/feed`)
+    expect(otherFeed.body.data.entries).toHaveLength(1)
+  })
+
+  it("skips repeated flagged attempts outside an active dining period as well", async () => {
+    const { faceAt, time } = await scanFixture()
+    const future = new Date(time); future.setDate(future.getDate() + 100)
+    expect((await faceAt(future)).body.outputMessage).toMatch(/no active dining period/i)
+    const repeated = await faceAt(atSeconds(future, 5))
+    expect(repeated.status).toBe(200)
+    expect(repeated.body.outputMessage).toMatch(/ignored/)
+  })
+})
