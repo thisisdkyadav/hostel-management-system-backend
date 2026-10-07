@@ -122,7 +122,7 @@ const ACCOMMODATION_STAY_STATUSES = ['Rooms Assigned', 'Checked In']
 
 const TASK_OPEN_STATUSES = ['Created', 'Assigned', 'In Progress']
 
-const MAINTENANCE_TRADES = ['Plumbing', 'Electrical', 'Civil', 'Cleanliness', 'Internet', 'Attendant', 'Other']
+const MAINTENANCE_TRADES = ['Plumbing', 'Electrical', 'Civil', 'Carpenter', 'Cleanliness', 'Internet', 'Attendant', 'Other']
 
 const hostelIdSet = (rows, field) => {
   const ids = new Set()

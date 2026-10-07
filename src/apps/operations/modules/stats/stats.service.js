@@ -101,16 +101,17 @@ class StatsService {
    * Get maintenance staff statistics
    */
   async getMaintenanceStaffStats() {
-    const [total, plumbing, electrical, cleanliness, internet, civil] = await Promise.all([
+    const [total, plumbing, electrical, cleanliness, internet, civil, carpenter] = await Promise.all([
       staffRolesQueries.countByRole('MaintenanceStaff'),
       staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Plumbing' }),
       staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Electrical' }),
       staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Cleanliness' }),
       staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Internet' }),
-      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Civil' })
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Civil' }),
+      staffRolesQueries.countByRole('MaintenanceStaff', { category: 'Carpenter' })
     ]);
 
-    return success({ total, plumbing, electrical, cleanliness, internet, civil });
+    return success({ total, plumbing, electrical, cleanliness, internet, civil, carpenter });
   }
 
   /**
