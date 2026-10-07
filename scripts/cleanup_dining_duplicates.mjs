@@ -1,6 +1,6 @@
 /**
- * Remove historical face-scan duplicates less than 15 seconds from a verified
- * entry for the same student, caterer, period and meal. Exactly 15 seconds is kept.
+ * Remove historical face-scan duplicates less than 40 seconds from a verified
+ * entry for the same student, caterer, period and meal. Exactly 40 seconds is kept.
  * Machine timestamps are compared in either direction to handle delayed requests.
  * Manual entries and verified entries are preserved.
  *
@@ -37,8 +37,8 @@ export const duplicateCleanupPipeline = (collectionName) => [
           { $eq: ["$catererId", "$$caterer"] },
           { $eq: ["$periodId", "$$period"] },
           { $eq: ["$mealSlotKey", "$$meal"] },
-          { $gt: ["$scannedAt", { $subtract: ["$$time", 15_000] }] },
-          { $lt: ["$scannedAt", { $add: ["$$time", 15_000] }] },
+          { $gt: ["$scannedAt", { $subtract: ["$$time", 40_000] }] },
+          { $lt: ["$scannedAt", { $add: ["$$time", 40_000] }] },
         ] },
       } },
       { $limit: 1 },

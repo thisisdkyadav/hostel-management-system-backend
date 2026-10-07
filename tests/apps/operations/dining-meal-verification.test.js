@@ -432,25 +432,26 @@ describe("dining meal verification — repeated face scans", () => {
     return { api, device, caterer, period, profile, credentials, time, faceAt, feed }
   }
 
-  it("skips scans within 15 seconds and accepts one exactly 15 seconds after the last saved scan", async () => {
+  it("skips scans within 40 seconds and accepts one exactly 40 seconds after the last saved scan", async () => {
     const { faceAt, time, feed } = await scanFixture()
     expect((await faceAt(time)).body.isSuccess).toBe("Y")
-    const repeated = await faceAt(atSeconds(time, 14))
+    expect((await faceAt(atSeconds(time, 15))).body.outputMessage).toMatch(/ignored/)
+    const repeated = await faceAt(atSeconds(time, 39))
     expect(repeated.status).toBe(200)
-    expect(repeated.body).toEqual({ isSuccess: "Y", outputMessage: "Repeated face scan ignored (within 15 seconds)" })
+    expect(repeated.body).toEqual({ isSuccess: "Y", outputMessage: "Repeated face scan ignored (within 40 seconds)" })
     expect(await feed()).toHaveLength(1)
-    const afterWindow = await faceAt(atSeconds(time, 15))
+    const afterWindow = await faceAt(atSeconds(time, 40))
     expect(afterWindow.status).toBe(200)
     expect(afterWindow.body.outputMessage).not.toMatch(/ignored/)
     const entries = await feed()
     expect(entries).toHaveLength(2)
-    expect(entries.map((entry) => entry.scannedAt)).toEqual([atSeconds(time, 15).toISOString(), time.toISOString()])
+    expect(entries.map((entry) => entry.scannedAt)).toEqual([atSeconds(time, 40).toISOString(), time.toISOString()])
   })
 
-  it("also skips an out-of-order scan less than 15 seconds from a saved face scan", async () => {
+  it("also skips an out-of-order scan less than 40 seconds from a saved face scan", async () => {
     const { faceAt, time, feed } = await scanFixture()
     await faceAt(time)
-    expect((await faceAt(atSeconds(time, -1))).body.outputMessage).toMatch(/ignored/)
+    expect((await faceAt(atSeconds(time, -39))).body.outputMessage).toMatch(/ignored/)
     expect(await feed()).toHaveLength(1)
   })
 
@@ -464,7 +465,7 @@ describe("dining meal verification — repeated face scans", () => {
 
   it("applies the same rule to records within a ZKTeco batch", async () => {
     const { device, credentials, profile, time, feed } = await scanFixture("zkteco")
-    const punches = [0, 14, 15].map((seconds) => {
+    const punches = [0, 15, 39, 40].map((seconds) => {
       const native = nativePunch(profile.rollNumber, atSeconds(time, seconds))
       return { EMP_CODE: profile.rollNumber, PUNCH_DATETIME: `${native.date} ${native.time}`, TERMINAL_ALIAS: credentials.scanner.deviceName }
     })

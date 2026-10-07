@@ -25,12 +25,12 @@ test("cleanup previews, backs up and deletes only nearby face duplicates", async
       rollNumber: "STUDENT1", mealSlotKey: "lunch", source: "face-scanner",
       status: "duplicate", scannedAt: new Date(scanTime + offset), ...overrides,
     })
-    const removable = [0, 1, 14_999, -14_999].map((offset) => record(offset))
+    const removable = [0, 1, 15_000, 16_000, 39_999, -39_999].map((offset) => record(offset))
     for (let i = 0; i < 205; i += 1) removable.push(record(2000 + i))
     removable.push(record(1000, { rollNumber: "MANUAL_VERIFIED" }))
     const preserved = [
       record(0, { status: "verified" }),
-      record(15_000), record(-15_000), record(16_000),
+      record(40_000), record(-40_000), record(41_000),
       record(1000, { source: "manual" }),
       record(1000, { rollNumber: "OTHER_STUDENT" }),
       record(1000, { catererId: new mongoose.Types.ObjectId() }),

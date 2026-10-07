@@ -20,7 +20,7 @@ const UNKNOWN_STUDENT_STATUS = "unknown-student"
 const OUTSIDE_MEAL_TIME_STATUS = "outside-meal-time"
 const NO_ACTIVE_PERIOD_STATUS = "no-active-period"
 const ON_REBATE_STATUS = "on-rebate"
-const FACE_SCAN_INTERVAL_MS = 15_000
+const FACE_SCAN_INTERVAL_MS = 40_000
 
 const STATUS_MESSAGES = {
   [VERIFIED_STATUS]: "Meal verified successfully",
@@ -403,7 +403,7 @@ export const verifyDiningMeal = async (options = {}) => {
       }, { select: "_id", lean: true })
 
       if (recentScan) {
-        return success({ skipped: true }, 200, "Repeated face scan ignored (within 15 seconds)")
+        return success({ skipped: true }, 200, "Repeated face scan ignored (within 40 seconds)")
       }
       return recordDiningMealAttempt({ ...options, rollNumber, scannedAt })
     })
