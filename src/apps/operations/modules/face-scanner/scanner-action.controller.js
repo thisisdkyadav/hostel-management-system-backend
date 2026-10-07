@@ -5,7 +5,8 @@ import { asyncHandler } from "../../../../utils/index.js"
  * Scanner Action Controller
  * Handles automated actions from scanner devices.
  *
- * Two request formats are accepted on POST /scan (the format is auto-detected):
+ * Time Watch uses the native object; ZKTeco uses named terminal punches.
+ * Provider-less legacy devices retain automatic format detection on POST /scan:
  *
  * 1. Native format (single object) — reply { "isSuccess": "Y", "outputMessage": ... }
  *    {
@@ -17,8 +18,8 @@ import { asyncHandler } from "../../../../utils/index.js"
  *
  * 2. Easy TimePro / ZKTeco push (JSON array of punches) — reply
  *    { "status": "success", "code": 200, "message": "Attendance data processed successfully" }
- *    [ { "EMP_CODE": "22BCS001", "PUNCH_DATETIME": "2025-08-04 09:32:00",
- *        "PUNCH_STATE": "0", "VERIFY_TYPE": "15", "TERMINAL_SN": "K70798176", ... } ]
+ *    [ { "EMP_CODE": "22BCS001", "PUNCH_DATETIME": "04-08-2025 09:32:00",
+ *        "TERMINAL_ALIAS": "m1", "TERMINAL_SN": "K70798176", ... } ]
  *
  * Both auth schemes (HTTP Basic Auth and the legacy custom header) are handled
  * upstream by authenticateScanner.
@@ -30,7 +31,7 @@ const pad2 = (value) => String(value).padStart(2, "0")
 const isEasyTimeProPayload = (body) => {
   if (Array.isArray(body)) return true
   if (!body || typeof body !== "object") return false
-  return "EMP_CODE" in body || "PUNCH_DATETIME" in body || "TERMINAL_SN" in body
+  return "EMP_CODE" in body || "PUNCH_DATETIME" in body || "TERMINAL_SN" in body || "TERMINAL_ALIAS" in body
 }
 
 /** PUNCH_STATE → IN/OUT (undefined falls back to the scanner's configured direction). */
@@ -54,7 +55,7 @@ const mapVerifyType = (verifyType) => {
 }
 
 /**
- * Parse "YYYY-MM-DD HH:mm:ss" / ISO PUNCH_DATETIME (with PUNCH_TIME fallback)
+ * Parse DD-MM-YYYY, YYYY-MM-DD, or ISO PUNCH_DATETIME (with PUNCH_TIME fallback)
  * into { date, time, dateTime }. Treated as server-local time, matching the
  * native single-object path. Returns {} when unparseable.
  */
@@ -71,6 +72,8 @@ const parsePunchDateTime = (punchDateTime, punchTime) => {
   }
   if (!timePart && punchTime) timePart = String(punchTime).trim()
 
+  const dayFirst = /^(\d{1,2})-(\d{1,2})-(\d{4})$/.exec(datePart)
+  if (dayFirst) datePart = `${dayFirst[3]}-${dayFirst[2]}-${dayFirst[1]}`
   const dateMatch = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(datePart)
   if (!dateMatch) return {}
   const date = `${dateMatch[1]}-${pad2(dateMatch[2])}-${pad2(dateMatch[3])}`
@@ -81,6 +84,9 @@ const parsePunchDateTime = (punchDateTime, punchTime) => {
 
   const dateTime = new Date(`${date}T${time}`)
   if (Number.isNaN(dateTime.getTime())) return {}
+  if (dateTime.getFullYear() !== Number(dateMatch[1]) || dateTime.getMonth() + 1 !== Number(dateMatch[2]) ||
+    dateTime.getDate() !== Number(dateMatch[3]) || dateTime.getHours() !== Number(timeMatch[1]) ||
+    dateTime.getMinutes() !== Number(timeMatch[2]) || dateTime.getSeconds() !== Number(timeMatch[3] || 0)) return {}
   return { date, time, dateTime }
 }
 
@@ -124,19 +130,22 @@ const processEasyTimeProBatch = async (req, res, scanner) => {
   const records = Array.isArray(req.body) ? req.body : [req.body]
 
   for (const record of records) {
-    const scanData = mapEasyTimeProRecord(record, scanner)
+    const recordScanner = req.scannersByDeviceName
+      ? req.scannersByDeviceName.get(record.TERMINAL_ALIAS.trim())
+      : scanner
+    const scanData = mapEasyTimeProRecord(record, recordScanner)
     if (!scanData) {
       console.warn("Skipping invalid Easy TimePro record:", JSON.stringify(record))
       continue
     }
 
     try {
-      if (scanner.type === "hostel-gate") {
-        await scannerActionService.processHostelGateEntry(scanner, scanData)
-      } else if (scanner.type === "dining-meal") {
-        await scannerActionService.processDiningMealVerification(scanner, scanData)
+      if (recordScanner.type === "hostel-gate") {
+        await scannerActionService.processHostelGateEntry(recordScanner, scanData)
+      } else if (recordScanner.type === "dining-meal") {
+        await scannerActionService.processDiningMealVerification(recordScanner, scanData)
       } else {
-        console.warn(`Unknown scanner type for Easy TimePro batch: ${scanner.type}`)
+        console.warn(`Unknown scanner type for Easy TimePro batch: ${recordScanner.type}`)
       }
     } catch (error) {
       console.error("Error processing Easy TimePro record:", error)
@@ -159,6 +168,9 @@ export const processScan = asyncHandler(async (req, res) => {
 
   // Easy TimePro / ZKTeco push (array or Easy TimePro-keyed object)
   if (isEasyTimeProPayload(req.body)) {
+    if (scanner.provider === "time-watch") {
+      return res.status(400).json({ isSuccess: "N", outputMessage: "Time Watch requires the single-object device format" })
+    }
     return processEasyTimeProBatch(req, res, scanner)
   }
 

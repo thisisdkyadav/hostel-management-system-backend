@@ -11,6 +11,12 @@ import { createHostel, createUnit, createRoom, createStudentProfile, createAlloc
 
 const models = async () => import("../../../src/models/index.js")
 
+/** Rebuild scanner indexes after setupTestDb drops the collections. */
+export async function createScannerIndexes() {
+  const { FaceScanner } = await models()
+  await FaceScanner.createIndexes()
+}
+
 /**
  * Create a student (user + profile) with an active room allocation and the
  * profile's currentRoomAllocation link set.

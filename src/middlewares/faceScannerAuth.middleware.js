@@ -39,12 +39,9 @@ const logScannerRequest = (req) => {
 }
 
 /**
- * HTTP Basic Authentication (e.g. Easy TimePro / ZKTeco push).
- * Device sends `Authorization: Basic base64(username:password)` where the
- * username/password are the scanner credentials we issued.
- * Returns the matching scanner document, or null.
+ * Decode Basic credentials. Device identity is resolved separately.
  */
-const tryBasicAuth = async (req) => {
+const readBasicCredentials = (req) => {
   const header = req.headers.authorization || req.headers.Authorization
   if (!header || !/^basic\s+/i.test(header)) return null
 
@@ -62,12 +59,54 @@ const tryBasicAuth = async (req) => {
   const password = decoded.slice(separatorIndex + 1)
   if (!username) return null
 
+  return { username, password }
+}
+
+const tryBasicAuth = async (req) => {
+  const credentials = readBasicCredentials(req)
+  if (!credentials) return null
+  const { username, password } = credentials
   const scanner = await scannerQueries.findActiveScannerByUsername(username)
 
   if (!scanner) return null
 
   const isPasswordValid = await bcrypt.compare(password, scanner.passwordHash)
   return isPasswordValid ? scanner : null
+}
+
+const scannerData = (scanner) => ({
+  _id: scanner._id,
+  username: scanner.username,
+  name: scanner.name,
+  provider: scanner.provider,
+  deviceName: scanner.deviceName,
+  type: scanner.type,
+  direction: scanner.direction,
+  hostelId: scanner.hostelId,
+  catererId: scanner.catererId,
+  isActive: scanner.isActive,
+})
+
+/** Authenticate every named device before processing any punches in the batch. */
+const authenticateZkteco = async (req) => {
+  const credentials = readBasicCredentials(req)
+  if (!credentials) return { status: 401, message: "Invalid credentials" }
+  const records = Array.isArray(req.body) ? req.body : [req.body]
+  const deviceNames = req.method === "GET"
+    ? [req.query.deviceName]
+    : records.map((record) => record?.TERMINAL_ALIAS)
+  if (!deviceNames.length || deviceNames.some((name) => typeof name !== "string" || !name.trim())) {
+    return { status: 400, message: "Device name (TERMINAL_ALIAS) is required for every ZKTeco record" }
+  }
+  const names = [...new Set(deviceNames.map((name) => name.trim()))]
+  const scanners = await scannerQueries.findActiveZktecoScannersByDeviceNames(names)
+  if (scanners.length !== names.length) return { status: 401, message: "Unknown or inactive ZKTeco device" }
+  for (const scanner of scanners) {
+    if (credentials.username !== scanner.username || !(await bcrypt.compare(credentials.password, scanner.passwordHash))) {
+      return { status: 401, message: "Invalid credentials" }
+    }
+  }
+  return { scanners }
 }
 
 /**
@@ -111,6 +150,8 @@ const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner }) => {
           ? {
               id: String(scanner._id),
               name: scanner.name,
+              provider: scanner.provider,
+              deviceName: scanner.deviceName,
               type: scanner.type,
               direction: scanner.direction,
             }
@@ -130,16 +171,36 @@ const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner }) => {
  * 1. HTTP Basic Auth — `Authorization: Basic base64(username:password)`
  * 2. Legacy custom header — header name = username, value = password
  *
- * Basic Auth is tried first (a single indexed lookup); if absent/invalid we
- * fall back to scanning custom headers.
+ * ZKTeco punches resolve each TERMINAL_ALIAS before validating Basic credentials.
+ * Time Watch and unconfigured legacy scanners retain their authentication paths.
  */
 export const authenticateScanner = async (req, res, next) => {
   try {
     // Log the request to a file for debugging
     logScannerRequest(req)
 
+    const records = Array.isArray(req.body) ? req.body : [req.body]
+    const hasDeviceName = records.some((record) => record && typeof record === "object" && "TERMINAL_ALIAS" in record)
+    const credentials = readBasicCredentials(req)
     const basicScanner = await tryBasicAuth(req)
     const authenticatedScanner = basicScanner || (await tryHeaderAuth(req))
+    const legacyScanner = authenticatedScanner && !authenticatedScanner.provider
+    // A ZKTeco-only username must never fall back to legacy routing when alias is missing.
+    const namedAuth = (hasDeviceName && !legacyScanner) || req.query.deviceName !== undefined ||
+      (credentials && (await scannerQueries.findScannersByUsername(credentials.username)).some((scanner) => scanner.provider === "zkteco"))
+
+    if (namedAuth) {
+      const result = await authenticateZkteco(req)
+      emitLiveScanEvent(req, { authSuccess: Boolean(result.scanners), authMethod: "basic", scanner: result.scanners?.[0] })
+      if (!result.scanners) return res.status(result.status).json({ isSuccess: "N", outputMessage: result.message })
+      req.scannersByDeviceName = new Map(result.scanners.map((scanner) => [scanner.deviceName, scannerData(scanner)]))
+      req.scanner = scannerData(result.scanners[0])
+      for (const scanner of result.scanners) {
+        scannerOwner.touchScannerLastActive(scanner._id).catch((err) => console.error("Error updating scanner lastActiveAt:", err))
+      }
+      return next()
+    }
+
     const authMethod = basicScanner ? "basic" : authenticatedScanner ? "header" : null
 
     // Live broadcast to admin monitors (both success and failure).
@@ -159,16 +220,7 @@ export const authenticateScanner = async (req, res, next) => {
     )
 
     // Attach scanner data to request
-    req.scanner = {
-      _id: authenticatedScanner._id,
-      username: authenticatedScanner.username,
-      name: authenticatedScanner.name,
-      type: authenticatedScanner.type,
-      direction: authenticatedScanner.direction,
-      hostelId: authenticatedScanner.hostelId,
-      catererId: authenticatedScanner.catererId,
-      isActive: authenticatedScanner.isActive,
-    }
+    req.scanner = scannerData(authenticatedScanner)
 
     console.log("Scanner authenticated successfully:", req.scanner.name)
 

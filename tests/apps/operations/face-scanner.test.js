@@ -30,7 +30,7 @@ import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
 import { initRealtime } from "../../helpers/seed/operations.js"
-import { allocateStudent, unallocatedStudent, createHostelWithRoom } from "../../helpers/seed/face-scan.js"
+import { allocateStudent, unallocatedStudent, createHostelWithRoom, createScannerIndexes } from "../../helpers/seed/face-scan.js"
 
 const BASE = "/api/v1/face-scanner"
 
@@ -1086,5 +1086,133 @@ describe("scan flow hardening (Easy TimePro batch)", () => {
     const entries = (await fetchEntries()).filter((e) => entryUserId(e) === String(user._id))
     expect(entries.length).toBe(1)
     expect(entries[0].status).toBe("Checked In")
+  })
+})
+
+describe("provider-specific configuration and routing", () => {
+  let inDevice, outDevice, otherPasswordDevice, studentIn, studentOut
+  const shared = { username: "zkteco-shared", password: "shared-provider-test-password" }
+  const config = (deviceName, extra = {}) => ({ name: `ZKTeco ${deviceName}`, provider: "zkteco", deviceName, type: "hostel-gate", direction: "in", ...shared, ...extra })
+  const punch = (alias, employee = "230001024", date = "06-10-2026 14:04:17") => ({ EMP_CODE: employee, PUNCH_DATETIME: date, TERMINAL_ALIAS: alias, TERMINAL_SN: "AJE1261500721" })
+  const push = async (body, credentials = shared) => (await anon()).post(`${BASE}/scan`).set("Authorization", basicHeader(credentials.username, credentials.password)).send(body)
+
+  beforeAll(async () => {
+    await createScannerIndexes()
+    const api = await as(admin)
+    const first = await createHostelWithRoom({ hostelName: "ZKTeco In Hostel" })
+    const second = await createHostelWithRoom({ hostelName: "ZKTeco Out Hostel" })
+    inDevice = await createScanner(api, config("m1", { hostelId: String(first.hostel._id) }))
+    outDevice = await createScanner(api, config("m2", { hostelId: String(second.hostel._id), direction: "out" }))
+    otherPasswordDevice = await createScanner(api, config("m3", { password: "other-device-test-password" }))
+    ;({ user: studentIn } = await allocateStudent({ rollNumber: "230001024", hostelId: first.hostel._id }))
+    ;({ user: studentOut } = await allocateStudent({ rollNumber: "230001025", hostelId: second.hostel._id }))
+  })
+
+  it("allows different named devices to share username and password", () => {
+    expect(inDevice.username).toBe(outDevice.username)
+    expect(inDevice.password).toBe(outDevice.password)
+    expect(inDevice.scanner.provider).toBe("zkteco")
+    expect(inDevice.scanner.deviceName).toBe("m1")
+    expect(outDevice.scanner.deviceName).toBe("m2")
+  })
+
+  it("validates providers, required names, credentials and unique aliases", async () => {
+    const api = await as(admin)
+    expect((await api.post(BASE).send(config("m1"))).status).toBe(409)
+    expect((await api.post(BASE).send(config(" "))).status).toBe(400)
+    expect((await api.post(BASE).send(config("m4", { provider: "unknown" }))).status).toBe(400)
+    expect((await api.post(BASE).send(config("m4", { password: "" }))).status).toBe(400)
+    expect((await api.post(BASE).send(config("m4", { username: "bad:name" }))).status).toBe(400)
+    expect((await api.put(`${BASE}/${inDevice.scanner._id}`).send({ provider: null })).status).toBe(400)
+    expect((await api.put(`${BASE}/${inDevice.scanner._id}`).send({ deviceName: null })).status).toBe(400)
+  })
+
+  it("routes a batch by alias with configured direction/hostel and parses the supplied day-first date", async () => {
+    const res = await push([punch("m1"), punch("m2", "230001025")])
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ status: "success", code: 200, message: "Attendance data processed successfully" })
+    const entries = await fetchEntries()
+    const entryIn = entries.find((entry) => entryUserId(entry) === String(studentIn._id))
+    const entryOut = entries.find((entry) => entryUserId(entry) === String(studentOut._id))
+    expect(entryIn.status).toBe("Checked In")
+    expect(entryOut.status).toBe("Checked Out")
+    expect(String(entryIn.hostelId?._id ?? entryIn.hostelId)).toBe(String(inDevice.scanner.hostelId))
+    expect(String(entryOut.hostelId?._id ?? entryOut.hostelId)).toBe(String(outDevice.scanner.hostelId))
+    expect(entryIn.dateAndTime).toBe(new Date("2026-10-06T14:04:17").toISOString())
+    expect(entryOut.dateAndTime).toBe(new Date("2026-10-06T14:04:17").toISOString())
+  })
+
+  it("checks credentials against the named device rather than the first username match", async () => {
+    expect((await push([punch("m3")])).status).toBe(401)
+    expect((await push([punch("m3", "UNKNOWN")], otherPasswordDevice)).status).toBe(200)
+    expect((await push([punch("m1")], { ...shared, username: "wrong-user" })).status).toBe(401)
+    expect((await push([punch("m1")], { ...shared, password: "wrong-password" })).status).toBe(401)
+    expect((await (await anon()).post(`${BASE}/scan`).set(shared.username, shared.password).send([punch("m1")])).status).toBe(401)
+  })
+
+  it("rejects unknown, missing, inactive and unauthorized aliases before writing any records", async () => {
+    const before = (await fetchEntries()).length
+    const valid = punch("m1", "230001024", "07-10-2026 15:00:00")
+    expect((await push([valid, punch("unknown")])).status).toBe(401)
+    expect((await push([valid, { EMP_CODE: "230001025", PUNCH_DATETIME: "06-10-2026 14:04:17" }])).status).toBe(400)
+    expect((await push([valid, punch("m3")])).status).toBe(401)
+    expect((await push([])).status).toBe(400)
+    expect((await push([valid, null])).status).toBe(400)
+    const api = await as(admin)
+    expect((await api.put(`${BASE}/${outDevice.scanner._id}`).send({ isActive: false })).status).toBe(200)
+    expect((await push([valid, punch("m2")])).status).toBe(401)
+    expect((await fetchEntries()).length).toBe(before)
+    expect((await api.put(`${BASE}/${outDevice.scanner._id}`).send({ isActive: true })).status).toBe(200)
+  })
+
+  it("skips impossible calendar dates without saving entries", async () => {
+    const before = (await fetchEntries()).length
+    expect((await push([punch("m1", "230001024", "31-02-2026 14:04:17")])).status).toBe(200)
+    expect((await fetchEntries()).length).toBe(before)
+  })
+
+  it("requires a device name on ping when credentials are shared", async () => {
+    const api = await anon()
+    const header = basicHeader(shared.username, shared.password)
+    expect((await api.get(`${BASE}/ping`).set("Authorization", header)).status).toBe(400)
+    const res = await api.get(`${BASE}/ping?deviceName=m2`).set("Authorization", header)
+    expect(res.status).toBe(200)
+    expect(res.body.scanner.name).toBe(outDevice.scanner.name)
+    expect(res.body.scanner.direction).toBe("out")
+  })
+
+  it("configures an existing scanner as ZKTeco while retaining credentials", async () => {
+    const api = await as(admin)
+    const legacy = await createScanner(api, { name: "Existing Device", type: "hostel-gate", direction: "in" })
+    // Provider-less scanners retain their previous payload auto-detection until configured.
+    expect((await push([punch("legacy-alias", "UNKNOWN")], legacy)).status).toBe(200)
+    const res = await api.put(`${BASE}/${legacy.scanner._id}`).send({ provider: "zkteco", deviceName: "converted-device" })
+    expect(res.status).toBe(200)
+    expect(res.body.data.username).toBe(legacy.username)
+    expect((await push([punch("converted-device", "UNKNOWN")], legacy)).status).toBe(200)
+    expect((await api.put(`${BASE}/${legacy.scanner._id}`).send({ deviceName: "m1" })).status).toBe(409)
+    expect((await api.put(`${BASE}/${legacy.scanner._id}`).send({ deviceName: "" })).status).toBe(400)
+  })
+
+  it("sets shared credentials on an existing ZKTeco device", async () => {
+    const api = await as(admin)
+    const device = await createScanner(api, { name: "Generated Device", provider: "zkteco", deviceName: "generated-device", type: "hostel-gate", direction: "in" })
+    const res = await api.put(`${BASE}/${device.scanner._id}`).send(shared)
+    expect(res.status).toBe(200)
+    expect(res.body.data.username).toBe(shared.username)
+    expect((await push([punch("generated-device", "UNKNOWN")])).status).toBe(200)
+  })
+
+  it("preserves Time Watch single-object custom-header processing", async () => {
+    const api = await as(admin)
+    const device = await createScanner(api, { name: "Time Watch", provider: "time-watch", type: "hostel-gate", direction: "in", hostelId: inDevice.scanner.hostelId })
+    const { user } = await allocateStudent({ rollNumber: "TIMEWATCH001" })
+    const res = await (await anon()).post(`${BASE}/scan`).set(device.username, device.password).send({ deviceID: "TW1", employeeID: "TIMEWATCH001", date: "2026-10-06", time: "09:15:00", modeofPunch: "Face" })
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ isSuccess: "Y", outputMessage: "Added Successfully" })
+    expect((await fetchEntries()).find((entry) => entryUserId(entry) === String(user._id))?.status).toBe("Checked In")
+    expect((await push([{ EMP_CODE: "TIMEWATCH001", PUNCH_DATETIME: "2026-10-06 10:00:00" }], device)).status).toBe(400)
+    expect((await push([punch("m1")], device)).status).toBe(401)
+    expect((await api.post(BASE).send(config("collision", { username: device.username }))).status).toBe(409)
   })
 })

@@ -60,14 +60,24 @@ export const scannerQueries = {
     return withScannerRefs(
       FaceScanner.findOne({
         isActive: true,
+        provider: { $ne: "zkteco" },
         username: new RegExp(`^${escapeRegExp(username)}$`, "i"),
       })
     )
   },
 
-  /** All active scanners, hostel+caterer populated, HYDRATED (header-auth scan). */
+  /** Active Time Watch/legacy scanners, populated and hydrated for header auth. */
   async findActiveScanners() {
-    return withScannerRefs(FaceScanner.find({ isActive: true }))
+    return withScannerRefs(FaceScanner.find({ isActive: true, provider: { $ne: "zkteco" } }))
+  },
+
+  /** ZKTeco identity is the exact terminal alias, independently of credentials. */
+  async findActiveZktecoScannersByDeviceNames(deviceNames) {
+    return withScannerRefs(FaceScanner.find({ isActive: true, provider: "zkteco", deviceName: { $in: deviceNames } }))
+  },
+
+  async findScannersByUsername(username) {
+    return FaceScanner.find({ username: new RegExp(`^${escapeRegExp(username)}$`, "i") })
   },
 
   /** Count scanners matching a filter (dashboard tallies). */
