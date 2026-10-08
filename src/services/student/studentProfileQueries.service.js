@@ -17,6 +17,21 @@ import { StudentProfile } from "../../models/index.js"
 const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 export const studentProfileQueries = {
+  /** Batch identity + current hostel/room enrichment for caterer rosters. */
+  async findDiningStudentDetailsByUserIds(userIds) {
+    return StudentProfile.find({ userId: { $in: userIds } })
+      .select("userId rollNumber department degree batch currentRoomAllocation")
+      .populate("userId", "name email profileImage")
+      .populate({
+        path: "currentRoomAllocation",
+        select: "hostelId roomId",
+        populate: [
+          { path: "hostelId", select: "name" },
+          { path: "roomId", select: "roomNumber unitId", populate: { path: "unitId", select: "unitNumber" } },
+        ],
+      })
+      .lean()
+  },
   // ==================== chunk: campus-life ====================
 
   /** One profile by userId, HYDRATED. Options: { select, lean, session }. */

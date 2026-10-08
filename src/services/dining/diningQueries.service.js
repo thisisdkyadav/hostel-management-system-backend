@@ -145,6 +145,27 @@ export const diningQueries = {
 
   // ---- DiningRebate ----
 
+  /** Database-side search, status-independent counts, and pagination. */
+  async findCatererRebatePage(filter, { search = "", status = "all", skip = 0, limit = 20 } = {}) {
+    const pipeline = [{ $match: filter }]
+    if (search) {
+      const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      pipeline.push(
+        { $lookup: { from: "users", localField: "studentUserId", foreignField: "_id", as: "studentUser" } },
+        { $match: { $or: [{ rollNumber: { $regex: pattern, $options: "i" } }, { "studentUser.name": { $regex: pattern, $options: "i" } }] } },
+      )
+    }
+    pipeline.push({ $facet: {
+      counts: [{ $group: { _id: "$status", count: { $sum: 1 } } }],
+      entries: [
+        ...(status === "all" ? [] : [{ $match: { status } }]),
+        { $sort: { startDate: -1, createdAt: -1, _id: -1 } },
+        { $skip: skip }, { $limit: limit }, { $project: { _id: 1 } },
+      ],
+    } })
+    return (await DiningRebate.aggregate(pipeline))[0]
+  },
+
   /** Rebates by filter. Options: { select, lean, sort }. */
   async findRebates(filter = {}, { select, lean, sort } = {}) {
     let query = DiningRebate.find(filter)
@@ -193,6 +214,14 @@ export const diningQueries = {
   },
 
   // ---- DiningMealVerification ----
+
+  /** Bulk scan summaries for historical calendars (no identity population). */
+  async findVerifications(filter = {}, { select, sort } = {}) {
+    let query = DiningMealVerification.find(filter)
+    if (select) query = query.select(select)
+    if (sort) query = query.sort(sort)
+    return query.lean()
+  },
 
   /** One verification by id, with the canonical populate. Options: { lean }. */
   async findVerificationByIdPopulated(id, { lean } = {}) {

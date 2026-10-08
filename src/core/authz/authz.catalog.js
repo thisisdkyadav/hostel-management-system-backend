@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 19
+export const AUTHZ_CATALOG_VERSION = 21
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -49,7 +49,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.maintenance.internAccommodation", "Intern & Student Accommodation (H4)", ["/maintenance/intern-accommodation"]),
   route("route.gymkhana.internAccommodation", "Intern & Student Accommodation (H4)", ["/gymkhana/intern-accommodation"]),
   route("route.superAdmin.internAccommodation", "Intern & Student Accommodation (H4)", ["/super-admin/intern-accommodation"]),
-  route("route.dining.internAccommodation", "Intern & Student Accommodation (H4)", ["/caterer/intern-accommodation", "/dining-office/intern-accommodation"]),
+  route("route.dining.internAccommodation", "Intern & Student Accommodation (H4)", ["/dining-office/intern-accommodation"]),
   // Admin
   route("route.admin.dashboard", "Admin Dashboard", [
     "/admin",
@@ -220,6 +220,8 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.caterer.dashboard", "Caterer Dashboard", ["/caterer"]),
   route("route.caterer.students", "Caterer Students", ["/caterer/students"]),
   route("route.caterer.mealVerification", "Caterer Meal Verification", ["/caterer/meal-verification"]),
+  route("route.caterer.mealRecords", "Caterer Meal Records", ["/caterer/meal-records"]),
+  route("route.caterer.rebates", "Caterer Rebates", ["/caterer/rebates"]),
 
   // Dining — Office sub-role
   route("route.diningOffice.dashboard", "Dining Office Dashboard", ["/dining-office"]),
@@ -275,7 +277,6 @@ export const AUTHZ_ROUTE_KEYS_BY_SUBROLE = {
     "route.dining.media",
   ],
   [DINING_SUBROLES.CATERER]: [
-    "route.dining.internAccommodation",
     ...AUTHZ_ROUTE_KEYS.filter((key) => key.startsWith("route.caterer.")),
     "route.dining.media",
   ],

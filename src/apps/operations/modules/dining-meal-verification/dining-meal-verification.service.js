@@ -134,7 +134,7 @@ const serializeAvailableStudent = ({ allocation, verificationStateByStudentId = 
   }
 }
 
-const serializeVerification = (verification = {}) => ({
+export const serializeVerification = (verification = {}) => ({
   id: verification._id || verification.id,
   periodId: verification.periodId?._id || verification.periodId || null,
   catererId: verification.catererId?._id || verification.catererId || null,
