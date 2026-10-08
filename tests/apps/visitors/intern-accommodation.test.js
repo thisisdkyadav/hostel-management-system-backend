@@ -17,7 +17,7 @@ const base = "/api/v1/intern-accommodation"
 const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10)
 const academic = (extra) =>
   seed.createUser({ role: "Academics", email: `h4-faculty-${Date.now()}-${Math.random()}@iiti.ac.in`, ...extra })
-const requester = () => seed.student({ email: `h4-requester-${Date.now()}-${Math.random()}@iiti.ac.in` })
+const requester = () => academic()
 const student = (extra) => ({
   name: "Intern One",
   gender: "Female",
@@ -98,11 +98,13 @@ describe("H4 notification recovery", () => {
 })
 
 describe("H4 eligibility, batches and review", () => {
-  it("requires login and IIT requester/faculty; permits external intern emails", async () => {
+  it("requires login and IIT Academics requester/faculty; permits external intern emails", async () => {
     expect((await (await anon()).get(`${base}/requests`)).status).toBe(401)
     const faculty = await academic(),
       api = await as(await requester())
-    const outsideApi = await as(await seed.student())
+    expect((await api.get(`${base}/options`)).body.data.canCreate).toBe(true)
+    const outsideApi = await as(await academic({ email: `outside-requester-${Date.now()}@example.com` }))
+    expect((await outsideApi.get(`${base}/options`)).body.data.canCreate).toBe(false)
     expect(
       (await outsideApi.post(`${base}/batches`).send({ label: "X", facultyUserId: faculty._id, students: [student()] }))
         .status,
@@ -125,7 +127,44 @@ describe("H4 eligibility, batches and review", () => {
           .send({ revision: 0, action: "approve", confirmPayer: true })
       ).status,
     ).toBe(403)
-    expect((await api.get(`/api/v1/accommodation/requests/${r._id}`)).status).toBe(404)
+    const guestApi = await as(await seed.student())
+    expect((await guestApi.get(`/api/v1/accommodation/requests/${r._id}`)).status).toBe(404)
+  })
+  it.each([
+    { role: "Student", subRole: null },
+    { role: "Admin", subRole: "Chief Warden Office" },
+    { role: "Admin", subRole: "Chief Warden" },
+    { role: "Admin", subRole: "Accountant" },
+    { role: "Admin", subRole: "HCU" },
+    { role: "Super Admin", subRole: null },
+    { role: "Warden", subRole: null },
+    { role: "Associate Warden", subRole: null },
+    { role: "Hostel Supervisor", subRole: null },
+    { role: "Hostel Gate", subRole: null },
+    { role: "Security", subRole: null },
+    { role: "Maintenance Staff", subRole: null },
+    { role: "Gymkhana", subRole: "President Gymkhana" },
+    { role: "Dining", subRole: "Office" },
+    { role: "Dining", subRole: "Caterer" },
+  ])("blocks $role ($subRole) from creating requests and drafts even with an IIT email", async ({ role, subRole }) => {
+    const faculty = await academic()
+    const user = await seed.createUser({ role, subRole, email: `blocked-${Date.now()}-${Math.random()}@iiti.ac.in` })
+    const api = await as(user)
+    const options = await api.get(`${base}/options`)
+    const blockedFromH4 = role === "Dining" && subRole === "Caterer"
+    expect(options.status).toBe(blockedFromH4 ? 403 : 200)
+    if (!blockedFromH4) expect(options.body.data.canCreate).toBe(false)
+    for (const draft of [false, true]) {
+      const result = await api.post(`${base}/batches`).send({
+        label: "Blocked non-Academics request",
+        facultyUserId: String(faculty._id),
+        students: [student()],
+        draft,
+      })
+      expect(result.status).toBe(403)
+      expect(result.body.success).toBe(false)
+      if (!blockedFromH4) expect(result.body.message).toContain("Only IIT Indore Academics users")
+    }
   })
   it("creates student-level records atomically and selected Academics creators can recommend", async () => {
     const f = await academic(),

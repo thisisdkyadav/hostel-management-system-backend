@@ -215,7 +215,7 @@ export const h4Service = {
       hostels: isDesk(u)
         ? hostels.map((h) => ({ _id: h._id, name: h.name, type: h.type }))
         : hostels.filter((h) => scope.includes(String(h._id))).map((h) => ({ _id: h._id, name: h.name, type: h.type })),
-      canCreate: institutional(u.email),
+      canCreate: u.role === "Academics" && institutional(u.email),
       canRecommend: u.role === "Academics" && institutional(u.email),
       role: u.role,
       subRole: u.subRole,
@@ -316,7 +316,8 @@ export const h4Service = {
   },
   async createBatch(body, user) {
     const u = await freshUser(user)
-    if (!u || !institutional(u.email)) return forbidden("An IIT Indore requester email is required")
+    if (!u || u.role !== "Academics" || !institutional(u.email))
+      return forbidden("Only IIT Indore Academics users can create H4 requests")
     const faculty = await facultyFor(body.facultyUserId)
     if (!faculty) return badRequest("Select an IIT Indore Academics user as faculty")
     const rows = body.students
