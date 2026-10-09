@@ -18,6 +18,12 @@ const STUDENT_POPULATE = {
 }
 
 export const allocationQueries = {
+  /** All period/caterer rosters for insights, in one read. */
+  async findAllocationRostersByPeriods(periodIds) {
+    return DiningAllocation.find({ periodId: { $in: periodIds } })
+      .select("periodId catererId studentUserId")
+      .lean()
+  },
   /** Bulk roster summaries for caterer calendars, without per-period reads. */
   async findCatererAllocationsByPeriods(catererId, periodIds) {
     return DiningAllocation.find({ catererId, periodId: { $in: periodIds } })

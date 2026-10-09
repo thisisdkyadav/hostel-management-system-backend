@@ -215,6 +215,59 @@ export const diningQueries = {
 
   // ---- DiningMealVerification ----
 
+  /** First verified arrivals, as rows rather than a facet array: realistic
+   * windows can exceed MongoDB's 16 MB per-document limit. timezone matches
+   * Node's server-local calendar, including DST.
+   */
+  async aggregateDiningInsightFirstScans({ from, to, timezone }) {
+    return DiningMealVerification.aggregate([
+      { $match: { status: "verified", scannedAt: { $gte: from, $lt: to } } },
+      { $sort: { scannedAt: 1, createdAt: 1, _id: 1 } },
+      { $group: {
+        _id: {
+          date: { $dateToString: { date: "$scannedAt", format: "%Y-%m-%d", timezone } },
+          mealSlotKey: "$mealSlotKey", catererId: "$catererId", studentId: "$studentUserId",
+        },
+        scannedAt: { $first: "$scannedAt" }, source: { $first: "$source" },
+        minute: { $first: { $add: [
+          { $multiply: [{ $hour: { date: "$scannedAt", timezone } }, 60] },
+          { $minute: { date: "$scannedAt", timezone } },
+        ] } },
+        scans: { $sum: 1 },
+      } },
+    ]).allowDiskUse(true)
+  },
+
+  /** Small aggregate facets for issues, the raw clock-minute record, and
+   * current-period history (needed for neverScanned beyond the window).
+   */
+  async aggregateDiningInsightAttempts({ from, to, timezone, currentPeriodIds }) {
+    const windowMatch = { scannedAt: { $gte: from, $lt: to } }
+    const historyMatch = { periodId: { $in: currentPeriodIds }, status: "verified" }
+    return (await DiningMealVerification.aggregate([
+      { $match: { $or: [windowMatch, historyMatch] } },
+      { $facet: {
+        everScanned: [
+          { $match: historyMatch },
+          { $group: { _id: "$studentUserId" } },
+        ],
+        clockMinutes: [
+          { $match: { ...windowMatch, status: "verified" } },
+          { $group: { _id: { $dateTrunc: { date: "$scannedAt", unit: "minute", timezone } }, scans: { $sum: 1 } } },
+          { $sort: { scans: -1, _id: 1 } },
+          { $limit: 1 },
+        ],
+        issues: [
+          { $match: { ...windowMatch, status: { $ne: "verified" } } },
+          { $group: { _id: {
+            date: { $dateToString: { date: "$scannedAt", format: "%Y-%m-%d", timezone } },
+            catererId: "$catererId", status: "$status",
+          }, count: { $sum: 1 } } },
+        ],
+      } },
+    ]).allowDiskUse(true))[0]
+  },
+
   /** Bulk scan summaries for historical calendars (no identity population). */
   async findVerifications(filter = {}, { select, sort } = {}) {
     let query = DiningMealVerification.find(filter)

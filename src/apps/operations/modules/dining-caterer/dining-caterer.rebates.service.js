@@ -43,7 +43,7 @@ const loadCalendar = async (caterer, from, to, { populate = false } = {}) => {
 }
 
 const uniqueStudents = (rebates) => [...new Map(rebates.map((rebate) => [idOf(rebate.studentUserId), rebate])).values()]
-const calendarDay = (calendar, date) => {
+export const calendarDay = (calendar, date) => {
   // Latest startDate wins; _id provides a stable tie-break for identical starts.
   const period = calendar.periods.find((period) => dayKey(period.startDate) <= date && dayKey(period.endDate) >= date)
   const periodId = period ? idOf(period) : null
