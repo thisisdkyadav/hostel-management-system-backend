@@ -73,6 +73,7 @@ export const h4Access = {
     }
     if (access.user.external === "intern" || access.user.email === r.applicantEmail) {
       data.h4.messPayment = r.h4.messPayment ? payment(r.h4.messPayment) : null
+      data.h4.caterer = r.h4.caterer ? { name: r.h4.caterer.name } : null
     }
     return success(data)
   },

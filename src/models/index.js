@@ -82,6 +82,7 @@ export * from './authz/index.js'
 export { default as AccommodationBatch } from './accommodation/AccommodationBatch.model.js'
 export { default as AccommodationReservation } from './accommodation/AccommodationReservation.model.js'
 export { default as AccommodationNotification } from './accommodation/AccommodationNotification.model.js'
+export { default as AccommodationDigest } from './accommodation/AccommodationDigest.model.js'
 export * from './action-link/index.js'
 
 // Generic audit-log models

@@ -4,6 +4,8 @@ const schema = new mongoose.Schema(
     requestId: { type: mongoose.Schema.Types.ObjectId, ref: "AccommodationRequest", required: true, unique: true },
     revision: { type: Number, default: 0 },
     pending: { type: Boolean, default: true },
+    // Set by bulk actions: internal recipients get one AccommodationDigest instead.
+    internalDigest: { type: Boolean, default: false },
     attempts: { type: Number, default: 0 },
     nextAttemptAt: { type: Date, default: Date.now },
     leaseUntil: { type: Date, default: null },

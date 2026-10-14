@@ -5,6 +5,7 @@ import { seed } from "../../helpers/seed.js"
 import { createHostel, createRoom } from "../../helpers/seed/operations.js"
 import { seedHostelSupervisorProfile } from "../../helpers/seed/admin-sw.js"
 import { registerH4Proof } from "../../helpers/seed/h4.js"
+import { catererFixture } from "../../helpers/seed/dining-caterer.js"
 
 beforeAll(setupTestDb)
 afterAll(teardownTestDb)
@@ -163,9 +164,20 @@ describe("H4 academic categories and separate payments", () => {
     const retry = await external.post(`${internPath}/payment`).send({ revision: r.h4.revision, paymentType: "mess", utr: "999999999999", paidAt: ymd(), screenshotFileRef: "mess-proof" })
     expect(retry.status).toBe(200)
     r = (await api.get(`${base}/requests/${r._id}`)).body.data
-    r = await action(accounts, r, "verify", { action: "verify", paymentType: "mess" })
+    // Verifying mess needs a dining caterer; the student is told where to collect the mess card.
+    const [{ caterer }, { caterer: other }] = [await catererFixture(), await catererFixture()]
+    expect((await accounts.get(`${base}/options`)).body.data.caterers.some((c) => String(c._id) === String(caterer._id))).toBe(true)
+    expect((await accounts.post(`${base}/requests/${r._id}/verify`).send({ revision: r.h4.revision, action: "verify", paymentType: "mess" })).status).toBe(400)
+    r = await action(accounts, r, "verify", { action: "verify", paymentType: "mess", catererId: caterer._id })
     expect(r.status).toBe("Payment Verified")
+    expect(r.h4.caterer.name).toBe(caterer.name)
+    expect((await api.post(`${base}/requests/${r._id}/caterer`).send({ revision: r.h4.revision, catererId: other._id })).status).toBe(403)
+    r = await action(accounts, r, "caterer", { catererId: other._id })
+    expect(r.h4.caterer.name).toBe(other.name)
+    expect((await external.get(internPath)).body.data.h4.caterer.name).toBe(other.name)
     const studentEmail = (await h4Notifications.messages(r)).find((m) => m.to === r.applicantEmail)
+    expect(studentEmail.body).toContain(`Mess caterer: <strong>${other.name}</strong>`)
+    expect(studentEmail.body).toContain("hostel office")
     expect(studentEmail.body).toContain("Mess payment received: ₹250.00")
     expect(studentEmail.body).toContain("Accommodation payment received: ₹118.00")
     expect(studentEmail.attachments).toHaveLength(0)

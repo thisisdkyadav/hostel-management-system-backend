@@ -11,6 +11,7 @@ import { accommodationQueries as queries } from "../../../../services/accommodat
 import { accommodationOwner as owner } from "../../../../services/accommodation/accommodationOwner.service.js"
 import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
+import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { computeNights, emptyQuote, getAccommodationConfig } from "../accommodation/accommodation.quote.js"
 import { getH4Config } from "./h4.config.js"
 import { accommodationService } from "../accommodation/accommodation.service.js"
@@ -75,7 +76,7 @@ const stayInput = (input = {}) => {
   if ((toDate - fromDate) / 86400000 > 366) return { error: "A stay can be at most 366 days" }
   return { fromDate, toDate, checkInTime: "00:00", checkOutTime: "00:00", earlyCheckInHours: 0, lateCheckOutHours: 0, purpose: clean(input.purpose, 1000) }
 }
-const validateStudent = (s, draft = false) => {
+const validateStudent = (s, draft = false, keepFrom = null) => {
   if (!s || typeof s !== "object" || Array.isArray(s)) return "Student details are required"
   if (draft) {
     if (s.gender && !["Male", "Female", "Other"].includes(s.gender)) return "Select gender"
@@ -96,7 +97,8 @@ const validateStudent = (s, draft = false) => {
   const stay = stayInput(s.stay)
   if (stay.error) return stay.error
   if (!draft && !stay.purpose) return "Enter the reason for stay"
-  if (!draft && stay.fromDate < new Date(instituteDay())) return "Start date cannot be in the past"
+  if (!draft && stay.fromDate < new Date(instituteDay()) && +stay.fromDate !== +keepFrom)
+    return "Start date cannot be in the past"
   return null
 }
 const facultyFor = async (id) => {
@@ -148,8 +150,8 @@ const routeSubmission = (r, u, selfRecommend) => {
 }
 const approvalStage = (r) => r.h4.amendment?.stage || r.currentStage
 const changeRow = (r) => r.scheduleChanges.id(r.h4.amendment?.changeId)
-const notifyResult = async (result) => {
-  if (result.success) await h4Notifications.handoff(result.data)
+const notifyResult = async (result, digest = false) => {
+  if (result.success) await h4Notifications.handoff(result.data, { digest })
   return result
 }
 
@@ -207,7 +209,11 @@ export const h4Service = {
         : []
     const scope = await hostelScope(u)
     const config = isOffice(u) ? await getH4Config() : null
+    const caterers = isAccounts(u)
+      ? await diningQueries.findCaterers({ isArchived: { $ne: true } }, { select: "name", lean: true, sort: { name: 1 } })
+      : []
     return success({
+      caterers,
       faculty,
       hostels: isDesk(u)
         ? hostels.map((h) => ({ _id: h._id, name: h.name, type: h.type }))
@@ -267,7 +273,7 @@ export const h4Service = {
       })
     }
     const page = Math.max(1, parseInt(params.page) || 1),
-      limit = Math.max(1, Math.min(100, parseInt(params.limit) || 25))
+      limit = Math.max(1, Math.min(500, parseInt(params.limit) || 25))
     const filter = { $and: conditions }
     const [items, total] = await Promise.all([
       queries.listH4(filter, { skip: (page - 1) * limit, limit }),
@@ -301,6 +307,26 @@ export const h4Service = {
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit), hasMore: page * limit < total },
     })
   },
+  // Desk header counts. Gate check-in/out is optional, so presence follows the
+  // stay dates: an approved stay whose start date has arrived is "active" until
+  // its end date. Pending = everything still open that is not staying yet.
+  async stats(user) {
+    const u = await freshUser(user)
+    if (!isDesk(u)) return forbidden()
+    const today = new Date(instituteDay())
+    const review = [S.SUBMITTED, S.PENDING_FA_RECOMMENDATION, S.PENDING_CWO_CAPACITY, S.PENDING_CW_APPROVAL, S.RETURNED_TO_STUDENT]
+    const approved = [
+      S.CW_APPROVED, S.PAYMENT_REQUESTED, S.PAYMENT_DEFERRED, S.PAYMENT_SUBMITTED, S.PAYMENT_VERIFIED,
+      S.HOSTEL_ALLOTTED, S.ROOMS_ASSIGNED, S.CHECKED_IN,
+    ]
+    return success(
+      await queries.h4GenderStats({
+        pending: { $or: [{ status: { $in: review } }, { status: { $in: approved }, "stay.fromDate": { $gt: today } }] },
+        active: { status: { $in: approved }, "stay.fromDate": { $lte: today }, "stay.toDate": { $gt: today } },
+        total: { status: { $ne: S.DRAFT } },
+      }),
+    )
+  },
   async get(id, user) {
     if (!validId(id)) return badRequest("Invalid request ID")
     const r = await queries.findH4ById(id, { lean: true })
@@ -333,6 +359,7 @@ export const h4Service = {
         emails.add(key)
       }
     }
+    const digest = rows.length > 1
     const result = await withTransaction(async (session) => {
       const batch = await owner.createBatch(
         { creatorUserId: u._id, facultyUserId: faculty._id },
@@ -352,19 +379,78 @@ export const h4Service = {
         if (body.draft === true) audit(r, u, "Draft saved", S.DRAFT)
         else routeSubmission(r, u, body.recommend === true)
         await owner.persist(r, { session })
-        if (r.status !== S.DRAFT) await owner.queueH4Notification(r._id, r.h4.revision, { session })
+        if (r.status !== S.DRAFT) await owner.queueH4Notification(r._id, r.h4.revision, { session, digest })
         items.push(r.toObject())
       }
       return created({ batch, items })
     })
-    for (const r of result.data.items) if (r.status !== S.DRAFT) await h4Notifications.handoff(r)
+    const sent = result.data.items.filter((r) => r.status !== S.DRAFT)
+    for (const r of sent) await h4Notifications.handoff(r, { digest })
+    if (digest && sent.length) await owner.queueH4Digest(sent.map((r) => r._id), `${u.name} submitted ${sent.length} requests`)
+    return result
+  },
+  // CW Office corrects details at any open stage without restarting approvals.
+  // Once charges are issued, dates/faculty/payer are tied to the bill and room
+  // reservation, so those move only through the date-change flow.
+  async officeEdit(id, body, user) {
+    let resend = false
+    const result = await mutate(
+      id,
+      body,
+      user,
+      async (r, u) => {
+        if (!isOffice(u)) return forbidden()
+        if (r.status === S.DRAFT || isClosed(r)) return badRequest("This request can no longer be edited")
+        const s = body.student
+        const error = validateStudent(s, false, r.stay.fromDate)
+        if (error) return badRequest(error)
+        const faculty = await facultyFor(body.facultyUserId || r.h4.facultyUserId)
+        if (!faculty) return badRequest("Select an eligible faculty")
+        const stay = stayInput(s.stay)
+        const facultyChanged = String(faculty._id) !== String(r.h4.facultyUserId)
+        const payerChanged = s.payerType !== r.h4.payer.type
+        const datesChanged = +stay.fromDate !== +r.stay.fromDate || +stay.toDate !== +r.stay.toDate
+        if (r.allotment?.hostelId && (facultyChanged || payerChanged || datesChanged))
+          return badRequest("Charges are issued: dates, faculty and payer are locked. Use a date change for new dates.")
+        const before = {
+          name: r.applicantName, email: r.applicantEmail, mobile: r.applicantPhone, gender: r.h4.gender,
+          category: r.h4.category, institute: r.h4.institute, address: r.h4.instituteAddress, course: r.h4.course,
+          department: r.h4.department, purpose: r.stay.purpose, payerEmail: r.h4.payer.email,
+        }
+        const verified = { verifiedBy: r.h4.payer.verifiedBy, verifiedAt: r.h4.payer.verifiedAt }
+        const quote = r.quote
+        applyStudent(r, s, faculty)
+        // The payer stays confirmed; a CW Office change of payer is its own confirmation.
+        if (verified.verifiedAt)
+          Object.assign(r.h4.payer, facultyChanged || payerChanged ? { verifiedBy: u._id, verifiedAt: new Date() } : verified)
+        if (r.allotment?.hostelId) r.quote = quote
+        else r.quote = emptyQuote({ persons: 1, nights: r.nights })
+        const after = {
+          name: r.applicantName, email: r.applicantEmail, mobile: r.applicantPhone, gender: r.h4.gender,
+          category: r.h4.category, institute: r.h4.institute, address: r.h4.instituteAddress, course: r.h4.course,
+          department: r.h4.department, purpose: r.stay.purpose, payerEmail: r.h4.payer.email,
+        }
+        const changed = Object.keys(before).filter((k) => before[k] !== after[k])
+        if (facultyChanged) changed.push("faculty")
+        if (payerChanged) changed.push("payer")
+        if (datesChanged) changed.push("dates")
+        if (!changed.length) return badRequest("Nothing changed")
+        resend = before.email !== after.email || before.payerEmail !== after.payerEmail || facultyChanged
+        audit(r, u, `Details corrected by CW Office: ${changed.join(", ")}`)
+      },
+      { notify: false },
+    )
+    if (result.success && resend) {
+      await h4Notifications.invalidateAccess(id)
+      await h4Notifications.handoff(result.data)
+    }
     return result
   },
   async edit(id, body, user) {
+    if (isOffice(await freshUser(user))) return this.officeEdit(id, body, user)
     const result = await mutate(id, body, user, async (r, u) => {
-      if (!(isCreator(r, u) || isOffice(u))) return forbidden()
-      if (!PRE_REVIEW.includes(r.status) && !(isOffice(u) && BEFORE_PAYMENT.includes(r.status)))
-        return badRequest("Use a date-change request for an approved stay")
+      if (!isCreator(r, u)) return forbidden()
+      if (!PRE_REVIEW.includes(r.status)) return badRequest("Use a date-change request for an approved stay")
       const error = validateStudent(body.student, body.draft === true)
       if (error) return badRequest(error)
       const faculty = await facultyFor(u.role === "Academics" && academicCategory(u) === "personal" ? u._id : body.facultyUserId)
@@ -381,7 +467,7 @@ export const h4Service = {
     if (result.success) await h4Notifications.invalidateAccess(id)
     return notifyResult(result)
   },
-  async decision(id, body, user, stage) {
+  async decision(id, body, user, stage, { digest = false } = {}) {
     const result = await mutate(id, body, user, async (r, u, session) => {
       if (stage === "faculty" ? !isFaculty(r, u) : stage === "office" ? !isOffice(u) : !isChief(u)) return forbidden()
       if (approvalStage(r) !== stage || isClosed(r)) return badRequest("This request is no longer in your queue")
@@ -484,9 +570,9 @@ export const h4Service = {
           { faculty: S.PENDING_CWO_CAPACITY, office: S.PENDING_CW_APPROVAL, chief: S.CW_APPROVED }[stage],
         )
       }
-    })
+    }, { digest })
     if (result.success && isClosed(result.data)) await h4Notifications.invalidateAccess(id)
-    return notifyResult(result)
+    return notifyResult(result, digest)
   },
   async batchDecision(body, user) {
     if (
@@ -496,10 +582,11 @@ export const h4Service = {
       body.requests.length > 100
     )
       return badRequest("Select between 1 and 100 requests")
+    const digest = body.requests.length > 1
     const results = []
     for (const row of body.requests) {
       try {
-        const response = await this.decision(row.id, { ...body, revision: row.revision, batch: true }, user, body.stage)
+        const response = await this.decision(row.id, { ...body, revision: row.revision, batch: true }, user, body.stage, { digest })
         results.push({
           id: row.id,
           success: response.success,
@@ -509,6 +596,12 @@ export const h4Service = {
       } catch (e) {
         results.push({ id: row.id, success: false, message: "Could not save this request. Refresh and retry." })
       }
+    }
+    const done = results.filter((r) => r.success)
+    if (digest && done.length) {
+      const who = { faculty: "Faculty", office: "CW Office", chief: "Chief Warden" }[body.stage]
+      const what = { approve: body.stage === "chief" ? "approved" : "recommended", request_modification: "returned for changes", reject: "rejected" }[body.action]
+      await owner.queueH4Digest(done.map((r) => r.id), `${who} ${what} ${done.length} requests`)
     }
     return success({ results })
   },

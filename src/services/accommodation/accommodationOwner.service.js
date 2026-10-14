@@ -18,12 +18,23 @@
  * persist() is a plain save.
  */
 
-import { AccommodationRequest, AccommodationType, InvoiceCounter, AccommodationBatch, AccommodationReservation, AccommodationNotification } from "../../models/index.js"
+import { AccommodationRequest, AccommodationType, InvoiceCounter, AccommodationBatch, AccommodationReservation, AccommodationNotification, AccommodationDigest } from "../../models/index.js"
 
 export const accommodationOwner = {
-  async queueH4Notification(requestId, revision, { session } = {}) {
+  async queueH4Notification(requestId, revision, { session, digest = false } = {}) {
     return AccommodationNotification.findOneAndUpdate({ requestId },
-      { $max: { revision }, $set: { pending: true, nextAttemptAt: new Date(), attempts: 0 } }, { upsert: true, returnDocument: "after", session })
+      { $max: { revision }, $set: { pending: true, internalDigest: digest, nextAttemptAt: new Date(), attempts: 0 } }, { upsert: true, returnDocument: "after", session })
+  },
+  async queueH4Digest(requestIds, note) {
+    return AccommodationDigest.create({ requestIds, note })
+  },
+  async claimH4Digest() {
+    return AccommodationDigest.findOneAndUpdate({ pending: true, nextAttemptAt: { $lte: new Date() }, $or: [{ leaseUntil: null }, { leaseUntil: { $lte: new Date() } }] },
+      { $set: { leaseUntil: new Date(Date.now() + 10 * 60000) }, $inc: { attempts: 1 } }, { sort: { nextAttemptAt: 1 }, returnDocument: "after" }).lean()
+  },
+  async completeH4Digest(job, error = "") {
+    return AccommodationDigest.updateOne({ _id: job._id, leaseUntil: job.leaseUntil },
+      { $set: { pending: !!error && job.attempts < 8, leaseUntil: null, lastError: error, nextAttemptAt: new Date(Date.now() + Math.min(3600000, 60000 * 2 ** Math.min(job.attempts, 6))) } })
   },
   async claimH4Notification() {
     return AccommodationNotification.findOneAndUpdate({ pending: true, nextAttemptAt: { $lte: new Date() }, $or: [{ leaseUntil: null }, { leaseUntil: { $lte: new Date() } }] },

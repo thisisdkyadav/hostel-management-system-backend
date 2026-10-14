@@ -54,27 +54,39 @@ export const h4Notifications = {
     }
     return `${base}/intern-accommodation/access/${rawToken}`
   },
-  async handoff(r) {
+  async handoff(r, { digest = false } = {}) {
     if (!r?.h4 || r.status === S.DRAFT) return
-    await owner.queueH4Notification(r._id, r.h4.revision)
+    await owner.queueH4Notification(r._id, r.h4.revision, { digest })
   },
-  async messages(r) {
+  // Institute-side recipients (queues + creator). Bulk actions send these one
+  // digest instead of an email per student; interns and payers always get their own.
+  async internal(r) {
     const recipients = []
     const stage = r.h4.amendment?.stage || r.currentStage
     if (stage === "faculty")
-      recipients.push({ email: r.h4.facultyEmail, link: roleLink(r, "academics"), label: "Review and confirm payer" })
+      recipients.push({ email: r.h4.facultyEmail, role: "academics", label: "Review and confirm payer" })
     if (stage === "office")
       for (const email of await chiefWardenOfficeEmails())
-        recipients.push({ email, link: roleLink(r, "admin"), label: "Check accommodation availability" })
+        recipients.push({ email, role: "admin", label: "Check accommodation availability" })
     if (stage === "chief")
       for (const email of await chiefWardenEmails())
-        recipients.push({ email, link: roleLink(r, "admin"), label: "Review H4 request" })
+        recipients.push({ email, role: "admin", label: "Review H4 request" })
+    if (r.status === S.CW_APPROVED && !r.allotment?.hostelId)
+      for (const email of await chiefWardenOfficeEmails())
+        recipients.push({ email, role: "admin", label: "Issue charges" })
     if (r.payment?.status === "Submitted" || r.h4.messPayment?.status === "Submitted" || r.additionalPayments?.some((p) => p.status === "Submitted"))
       for (const email of await accountantEmails())
-        recipients.push({ email, link: roleLink(r, "admin"), label: "Verify accommodation / mess payment" })
+        recipients.push({ email, role: "admin", label: "Verify accommodation / mess payment" })
     if (r.status === S.PAYMENT_VERIFIED)
       for (const email of await supervisorsForHostel(r.allotment?.hostelId))
-        recipients.push({ email, link: roleLink(r, "hostel-supervisor"), label: "Assign room" })
+        recipients.push({ email, role: "hostel-supervisor", label: "Assign room" })
+    recipients.push({ email: r.h4.creatorEmail, role: "academics", label: "" })
+    return recipients
+  },
+  async messages(r, { skipInternal = false } = {}) {
+    const recipients = skipInternal
+      ? []
+      : (await this.internal(r)).map((x) => ({ email: x.email, link: x.label ? roleLink(r, x.role) : "", label: x.label }))
     const published = !!r.allotment?.hostelId && ![S.REJECTED, S.CANCELLED].includes(r.status)
     if (
       published &&
@@ -106,7 +118,6 @@ export const h4Notifications = {
         { email: r.h4.payer.email, link: "", label: "" },
       )
     }
-    recipients.push({ email: r.h4.creatorEmail, link: "", label: "" })
     const messages = []
     const unique = new Map()
     for (const recipient of recipients) {
@@ -125,7 +136,7 @@ export const h4Notifications = {
       messages.push({
         to: recipient.email,
         subject: `H4 · ${r.applicantName} · ${r.h4.amendment?.stage ? "Date change review" : r.status}`,
-        body: `<p><strong>${esc(r.applicantName)}</strong></p><p>${esc(r.status)}${r.h4.amendment?.stage ? " · Date change pending" : ""}</p><p>Stay: ${esc(new Date(r.stay.fromDate).toISOString().slice(0, 10))} to ${esc(new Date(r.stay.toDate).toISOString().slice(0, 10))}</p>${published ? `<p>Accommodation ${r.payment?.status === "Verified" ? "payment received" : "payable"}: ₹${(r.payment?.status === "Verified" ? r.payment.amount : amount).toFixed(2)} · Payer: ${esc(r.h4.payer.name)}</p>${recipient.email === r.applicantEmail && r.h4.messPayment ? `<p>Mess ${r.h4.messPayment.status === "Verified" ? "payment received" : "payment"}: ₹${Number(r.h4.messPayment.amount || 0).toFixed(2)} · ${esc(r.h4.messPayment.status)}. Paid by the student. ${r.h4.messPayment.paymentLink && r.h4.messPayment.status !== "Verified" ? `<a href="${esc(r.h4.messPayment.paymentLink)}">Pay mess charges</a>` : ""}</p>` : ""}<p>The invoice covers hostel accommodation only and is issued after checkout. Mess payment confirmation is provided in this email.</p>` : ""}${published && recipient.email === r.h4.payer.email && r.payment.remarks ? `<p>${esc(r.payment.remarks)}</p>` : ""}${links}${expires ? "<p>External access links expire in 30 days.</p>" : ""}`,
+        body: `<p><strong>${esc(r.applicantName)}</strong></p><p>${esc(r.status)}${r.h4.amendment?.stage ? " · Date change pending" : ""}</p><p>Stay: ${esc(new Date(r.stay.fromDate).toISOString().slice(0, 10))} to ${esc(new Date(r.stay.toDate).toISOString().slice(0, 10))}</p>${published ? `<p>Accommodation ${r.payment?.status === "Verified" ? "payment received" : "payable"}: ₹${(r.payment?.status === "Verified" ? r.payment.amount : amount).toFixed(2)} · Payer: ${esc(r.h4.payer.name)}</p>${recipient.email === r.applicantEmail && r.h4.messPayment ? `<p>Mess ${r.h4.messPayment.status === "Verified" ? "payment received" : "payment"}: ₹${Number(r.h4.messPayment.amount || 0).toFixed(2)} · ${esc(r.h4.messPayment.status)}. Paid by the student. ${r.h4.messPayment.paymentLink && r.h4.messPayment.status !== "Verified" ? `<a href="${esc(r.h4.messPayment.paymentLink)}">Pay mess charges</a>` : ""}</p>` : ""}${recipient.email === r.applicantEmail && r.h4.caterer ? `<p>Mess caterer: <strong>${esc(r.h4.caterer.name)}</strong>. Collect your mess card and other details from the hostel office.</p>` : ""}<p>The invoice covers hostel accommodation only and is issued after checkout. Mess payment confirmation is provided in this email.</p>` : ""}${published && recipient.email === r.h4.payer.email && r.payment.remarks ? `<p>${esc(r.payment.remarks)}</p>` : ""}${links}${expires ? "<p>External access links expire in 30 days.</p>" : ""}`,
         attachments:
           r.invoice?.generatedAt && [S.CHECKED_OUT, S.INVOICED].includes(r.status) && recipient.email === r.h4.payer.email
             ? [
@@ -140,11 +151,62 @@ export const h4Notifications = {
     }
     return messages
   },
-  async deliver(r) {
+  async digestMessages(job) {
+    const requests = await queries.listH4({ _id: { $in: job.requestIds } }, { limit: job.requestIds.length })
+    const byEmail = new Map()
+    for (const r of requests)
+      for (const x of await this.internal(r)) {
+        if (!x.email) continue
+        if (!byEmail.has(x.email)) byEmail.set(x.email, { role: x.role, groups: new Map() })
+        const entry = byEmail.get(x.email)
+        if (x.label) entry.role = x.role
+        const label = x.label || "Updated"
+        if (!entry.groups.has(label)) entry.groups.set(label, new Map())
+        entry.groups.get(label).set(String(r._id), r)
+      }
+    return [...byEmail].map(([email, { role, groups }]) => {
+      // A request waiting on this recipient is listed only under that action.
+      const updated = groups.get("Updated")
+      if (updated)
+        for (const [label, rows] of groups) if (label !== "Updated") for (const id of rows.keys()) updated.delete(id)
+      if (updated && !updated.size) groups.delete("Updated")
+      const sections = [...groups]
+        .sort(([a], [b]) => (a === "Updated") - (b === "Updated"))
+        .map(
+          ([label, rows]) =>
+            `<p><strong>${esc(label)} (${rows.size})</strong></p><ul>${[...rows.values()]
+              .map(
+                (r) =>
+                  `<li>${esc(r.applicantName)} · ${esc(r.h4.gender || "")} · ${esc(new Date(r.stay.fromDate).toISOString().slice(0, 10))} to ${esc(new Date(r.stay.toDate).toISOString().slice(0, 10))} · ${esc(r.status)}</li>`,
+              )
+              .join("")}</ul>`,
+        )
+        .join("")
+      return {
+        to: email,
+        subject: `H4 · ${requests.length} intern requests · ${job.note}`,
+        body: `<p>${esc(job.note)}.</p>${sections}<p><a href="${esc(`${base}/${role}/intern-accommodation`)}">Open intern accommodation</a></p>`,
+      }
+    })
+  },
+  async deliverDigest(job) {
+    const failures = []
+    try {
+      for (const message of await this.digestMessages(job)) {
+        const result = await emailService.sendCustomEmail(message)
+        if (!result?.success) failures.push(result?.error || "Email delivery failed")
+      }
+    } catch (e) {
+      console.error("H4 digest failed:", e.message)
+      failures.push(e.message)
+    }
+    return failures.join("; ")
+  },
+  async deliver(r, { skipInternal = false } = {}) {
     let failure = ""
     try {
       const failures = []
-      for (const message of await this.messages(r)) {
+      for (const message of await this.messages(r, { skipInternal })) {
         const result = await emailService.sendCustomEmail(message)
         if (!result?.success) failures.push(result?.error || "Email delivery failed")
       }
@@ -165,12 +227,18 @@ export const h4Notifications = {
       if (!job) break
       try {
         const r = await queries.findH4ById(job.requestId, { lean: true })
-        const failure = r && r.status !== S.DRAFT ? await this.deliver(r) : ""
+        const failure = r && r.status !== S.DRAFT ? await this.deliver(r, { skipInternal: job.internalDigest }) : ""
         await owner.completeH4Notification(job, failure)
         count++
       } catch (e) {
         await owner.completeH4Notification(job, "Delivery worker failed; retry pending")
       }
+    }
+    for (let i = 0; i < limit; i++) {
+      const job = await owner.claimH4Digest()
+      if (!job) break
+      await owner.completeH4Digest(job, await this.deliverDigest(job))
+      count++
     }
     return count
   },

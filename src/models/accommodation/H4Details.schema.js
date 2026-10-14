@@ -48,6 +48,19 @@ export const H4DetailsSchema = new mongoose.Schema(
     accommodationAmountOverridden: { type: Boolean, default: false },
     mess: { type: String, enum: ["with", "without"], default: "without" },
     messPayment: { type: MessPaymentSchema, default: null },
+    // Dining caterer chosen by Accounts when the mess payment is verified.
+    caterer: {
+      type: new mongoose.Schema(
+        {
+          catererId: { type: mongoose.Schema.Types.ObjectId, ref: "Caterer", required: true },
+          name: str,
+          assignedBy: id,
+          assignedAt: { type: Date, default: null },
+        },
+        { _id: false },
+      ),
+      default: null,
+    },
     proofRefs: { type: [String], default: [] },
     amendment: {
       changeId: { type: mongoose.Schema.Types.ObjectId, default: null },

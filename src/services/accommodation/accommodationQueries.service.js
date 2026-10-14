@@ -40,6 +40,17 @@ export const accommodationQueries = {
     return AccommodationRequest.find({ ...filter, typeKey: "intern" }).sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).lean()
   },
   async countH4(filter = {}) { return AccommodationRequest.countDocuments({ ...filter, typeKey: "intern" }) },
+  // Per-gender counts for the desk header: one { gender: count } map per
+  // named filter. Gender falls back to the first guest for older requests.
+  async h4GenderStats(filters) {
+    const gender = { $ifNull: [{ $cond: [{ $eq: ["$h4.gender", ""] }, null, "$h4.gender"] }, { $first: "$guests.gender" }] }
+    const facet = Object.fromEntries(Object.entries(filters).map(([key, filter]) => [key, [
+      { $match: filter },
+      { $group: { _id: { $ifNull: [gender, "Unknown"] }, n: { $sum: 1 } } },
+    ]]))
+    const [rows] = await AccommodationRequest.aggregate([{ $match: { typeKey: "intern" } }, { $facet: facet }])
+    return Object.fromEntries(Object.entries(rows).map(([key, list]) => [key, Object.fromEntries(list.map((r) => [r._id, r.n]))]))
+  },
   async findReservations({ roomIds, hostelId, from, to, excludeRequestId, session } = {}) {
     const filter = { active: true, from: { $lt: new Date(to) }, to: { $gt: new Date(from) } }
     if (roomIds) filter.roomId = { $in: roomIds }

@@ -79,7 +79,7 @@ export const withHostelLocks = async (ids, task) => {
 }
 // Every H4 mutation checks the client revision inside the transaction. Email,
 // token creation and PDF storage run after commit, never inside retried callbacks.
-export const mutate = async (id, body, user, change, { notify = true } = {}) => {
+export const mutate = async (id, body, user, change, { notify = true, digest = false } = {}) => {
   if (!validId(id)) return badRequest("Invalid request ID")
   if (!Number.isInteger(body?.revision)) return badRequest("Refresh the request before saving")
   const result = await withLock(`lock:h4:request:${id}`, 30, async () => {
@@ -98,7 +98,7 @@ export const mutate = async (id, body, user, change, { notify = true } = {}) => 
         if (failure?.success === false) return failure
         r.h4.revision += 1
         await owner.persist(r, { session })
-        if (notify && r.status !== S.DRAFT) await owner.queueH4Notification(r._id, r.h4.revision, { session })
+        if (notify && r.status !== S.DRAFT) await owner.queueH4Notification(r._id, r.h4.revision, { session, digest })
         return success(r.toObject())
       }),
     )

@@ -1,5 +1,7 @@
 import { success, badRequest, forbidden, notFound } from "../../../../services/base/index.js"
 import { accommodationQueries as queries } from "../../../../services/accommodation/accommodationQueries.service.js"
+import { accommodationOwner as owner } from "../../../../services/accommodation/accommodationOwner.service.js"
+import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { buildQuoteFromGuestCharges, getAccommodationConfig } from "../accommodation/accommodation.quote.js"
 import {
@@ -29,12 +31,41 @@ const openPayment = (r, body) =>
     : body.paymentType && body.paymentType !== "accommodation"
       ? null
       : body.additionalPaymentId ? r.additionalPayments.id(body.additionalPaymentId) : r.payment
-const notify = async (result) => {
-  if (result.success) await h4Notifications.handoff(result.data)
+// Mess interns eat with a dining caterer; Accounts picks it when the mess
+// payment is confirmed. Re-sending the current caterer is a no-op.
+const assignCaterer = async (r, u, catererId) => {
+  if (!catererId && r.h4.caterer) return null
+  if (!validId(catererId)) return badRequest("Select a caterer")
+  if (String(r.h4.caterer?.catererId) === String(catererId)) return null
+  const caterer = await diningQueries.findCatererById(catererId, { select: "name isArchived", lean: true })
+  if (!caterer || caterer.isArchived) return badRequest("Select an active caterer")
+  r.h4.caterer = { catererId: caterer._id, name: caterer.name, assignedBy: u._id, assignedAt: new Date() }
+  audit(r, u, `Mess caterer assigned: ${caterer.name}`)
+  return null
+}
+const notify = async (result, digest = false) => {
+  if (result.success) await h4Notifications.handoff(result.data, { digest })
   return result
 }
 export const h4Payments = {
-  async offer(id, body, user) {
+  async batchOffer(body, user) {
+    if (!Array.isArray(body.requests) || !body.requests.length || body.requests.length > 100)
+      return badRequest("Select between 1 and 100 requests")
+    const digest = body.requests.length > 1
+    const results = []
+    for (const row of body.requests) {
+      try {
+        const response = await this.offer(row?.id, { ...row, revision: row?.revision }, user, { digest })
+        results.push({ id: row?.id, success: response.success, message: response.message || (response.success ? "Saved" : "Failed"), statusCode: response.statusCode })
+      } catch (e) {
+        results.push({ id: row?.id, success: false, message: "Could not save this request. Refresh and retry." })
+      }
+    }
+    const done = results.filter((r) => r.success)
+    if (digest && done.length) await owner.queueH4Digest(done.map((r) => r.id), `CW Office issued charges for ${done.length} requests`)
+    return success({ results })
+  },
+  async offer(id, body, user, { digest = false } = {}) {
     const [config, visitorConfig] = await Promise.all([getH4Config(), getAccommodationConfig()])
     const result = await mutate(id, body, user, async (r, u, session) => {
       if (!isOffice(u)) return forbidden()
@@ -104,9 +135,9 @@ export const h4Payments = {
           : "Hostel, mess and accommodation charges issued to intern and payer",
         paid(r) ? S.PAYMENT_VERIFIED : S.PAYMENT_REQUESTED,
       )
-    })
+    }, { digest })
     if (result.success) result.message = "Charges saved. Payment emails queued for delivery."
-    return notify(result)
+    return notify(result, digest)
   },
   async submit(id, body, user) {
     const result = await mutate(id, body, user, (r, u) => {
@@ -158,13 +189,17 @@ export const h4Payments = {
     })
   },
   async verify(id, body, user) {
-    const result = await mutate(id, body, user, (r, u) => {
+    const result = await mutate(id, body, user, async (r, u) => {
       if (!isAccounts(u)) return forbidden()
       if (r.status === S.CANCELLED || r.status === S.INVOICED) return badRequest("This financial record is closed")
       const p = openPayment(r, body)
       if (!p || p.status !== "Submitted") return badRequest("Select a submitted payment")
       if (!["verify", "reject"].includes(body.action)) return badRequest("Choose verify or reject")
       if (body.action === "reject" && !clean(body.reason)) return badRequest("Enter a rejection reason")
+      if (body.action === "verify" && body.paymentType === "mess") {
+        const failure = await assignCaterer(r, u, body.catererId)
+        if (failure) return failure
+      }
       p.status = body.action === "verify" ? "Verified" : "Rejected"
       p.note = clean(body.reason)
       p.verifiedBy = u._id
@@ -187,7 +222,7 @@ export const h4Payments = {
     return notify(result)
   },
   async settle(id, body, user) {
-    const result = await mutate(id, body, user, (r, u) => {
+    const result = await mutate(id, body, user, async (r, u) => {
       if (!isAccounts(u)) return forbidden()
       if (r.status === S.CANCELLED || r.status === S.INVOICED || r.invoice?.generatedAt)
         return badRequest("This financial record is closed")
@@ -195,6 +230,10 @@ export const h4Payments = {
       if (!p || !p.amount || !clean(body.reason)) return badRequest("Select a payment and enter an accounts note")
       if (!["mark_paid", "mark_unpaid", "correct"].includes(body.action))
         return badRequest("Choose a valid accounts action")
+      if (body.action === "mark_paid" && body.paymentType === "mess") {
+        const failure = await assignCaterer(r, u, body.catererId)
+        if (failure) return failure
+      }
       if (body.action !== "mark_unpaid") {
         if (body.action === "correct" && !["Submitted", "Verified"].includes(p.status))
           return badRequest("Payment details can only be corrected after collection")
@@ -216,6 +255,17 @@ export const h4Payments = {
       )
     })
     if (result.success) await h4Service.ensureInvoice(id)
+    return notify(result)
+  },
+  async caterer(id, body, user) {
+    const result = await mutate(id, body, user, async (r, u) => {
+      if (!isAccounts(u)) return forbidden()
+      if (r.h4.mess !== "with") return badRequest("This stay is without mess")
+      if ([S.CANCELLED, S.REJECTED, S.INVOICED].includes(r.status)) return badRequest("This request is closed")
+      if (!validId(body.catererId)) return badRequest("Select a caterer")
+      if (String(r.h4.caterer?.catererId) === String(body.catererId)) return badRequest("This caterer is already assigned")
+      return assignCaterer(r, u, body.catererId)
+    })
     return notify(result)
   },
   async attachment(id, user, additionalPaymentId, paymentType) {
