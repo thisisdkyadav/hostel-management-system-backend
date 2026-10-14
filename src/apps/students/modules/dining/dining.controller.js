@@ -5,6 +5,7 @@ import {
   requestStudentDiningRebate,
   selectStudentDiningCaterer,
 } from './dining.service.js';
+import { getStudentDiningMeals } from './dining.meals.service.js';
 import { asyncHandler } from '../../../../utils/index.js';
 
 export const getDiningPortalState = asyncHandler(async (req, res) => {
@@ -45,6 +46,15 @@ export const createDiningRebate = asyncHandler(async (req, res) => {
 
 export const getDiningBilling = asyncHandler(async (req, res) => {
   const result = await listStudentDiningBilling(req.user._id);
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const getDiningMeals = asyncHandler(async (req, res) => {
+  const result = await getStudentDiningMeals(req.user._id);
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,
