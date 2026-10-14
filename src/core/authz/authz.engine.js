@@ -234,6 +234,13 @@ export const buildEffectiveAuthz = ({ role, subRole = null, override = {} }) => 
     }
   }
 
+  const h4Routes = { Academics: "route.academics.internAccommodation", "Hostel Supervisor": "route.hostelSupervisor.internAccommodation", "Hostel Gate": "route.hostelGate.internAccommodation" }
+  const h4Route = role === "Admin" && ["Chief Warden Office", "Chief Warden", "Accountant"].includes(subRole)
+    ? "route.admin.internAccommodation" : h4Routes[role]
+  for (const key of Object.keys(routeAccess)) {
+    if (key.endsWith(".internAccommodation") && key !== h4Route) routeAccess[key] = false
+  }
+
   const capabilityKeys = Object.keys(capabilities).filter((key) => key !== "*")
   for (const key of normalizedOverride.allowCapabilities) {
     if (key === "*") {

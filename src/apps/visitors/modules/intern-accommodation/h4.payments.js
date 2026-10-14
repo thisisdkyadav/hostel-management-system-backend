@@ -18,17 +18,24 @@ import {
 } from "./h4.helpers.js"
 import { h4Notifications } from "./h4.notifications.js"
 import { h4Service } from "./h4.service.js"
+import { getH4Config } from "./h4.config.js"
 
-const canPay = (r, u) => u.external === "payer" || isCreator(r, u) || (isFaculty(r, u) && r.h4.payer.type === "faculty")
+const canPay = (r, u, body) => body.paymentType === "mess"
+  ? u.external === "intern" || (u.external === "payer" && u.email === r.applicantEmail) || isCreator(r, u)
+  : u.external === "payer" || isCreator(r, u) || (isFaculty(r, u) && r.h4.payer.type === "faculty")
 const openPayment = (r, body) =>
-  body.additionalPaymentId ? r.additionalPayments.id(body.additionalPaymentId) : r.payment
+  body.paymentType === "mess"
+    ? body.additionalPaymentId ? null : r.h4.messPayment
+    : body.paymentType && body.paymentType !== "accommodation"
+      ? null
+      : body.additionalPaymentId ? r.additionalPayments.id(body.additionalPaymentId) : r.payment
 const notify = async (result) => {
   if (result.success) await h4Notifications.handoff(result.data)
   return result
 }
 export const h4Payments = {
   async offer(id, body, user) {
-    const config = await getAccommodationConfig()
+    const [config, visitorConfig] = await Promise.all([getH4Config(), getAccommodationConfig()])
     const result = await mutate(id, body, user, async (r, u, session) => {
       if (!isOffice(u)) return forbidden()
       if (r.status !== S.CW_APPROVED || !r.h4.payer.verifiedAt)
@@ -37,40 +44,52 @@ export const h4Payments = {
       const hostel = await hostelQueries.findHostelById(body.hostelId, { session })
       if (!hostel || hostel.isArchived) return badRequest("Select an active hostel")
       if (!["with", "without"].includes(body.mess)) return badRequest("Choose with or without mess")
-      const paymentLink = clean(body.paymentLink, 2048)
-      if (paymentLink) {
-        try {
-          if (!["http:", "https:"].includes(new URL(paymentLink).protocol))
-            return badRequest("Enter a valid payment portal URL")
-        } catch {
-          return badRequest("Enter a valid payment portal URL")
-        }
-      }
-      if (body.price === "" || body.price == null || body.gstPercentage == null || body.gstPercentage === "")
-        return badRequest("Enter accommodation price and GST")
-      if (
-        Number(body.price) > 10000000 ||
-        !Number.isFinite(Number(body.gstPercentage)) ||
-        Number(body.gstPercentage) < 0 ||
-        Number(body.gstPercentage) > 100
-      )
-        return badRequest("Enter a valid price and GST percentage")
+      const paymentLink = config.accommodationPaymentLink
+      const messPaymentLink = config.messPaymentLink
+      const days = r.nights
+      const rate = (raw, fallback) => raw == null ? fallback : raw === "" ? NaN : Number(raw)
+      const accommodationDailyRate = rate(body.accommodationDailyRate, config.accommodationDailyRate)
+      const messDailyRate = body.mess === "with" ? rate(body.messDailyRate, config.messDailyRate) : 0
+      if ([accommodationDailyRate, messDailyRate].some((n) => !Number.isFinite(n) || n < 0 || n > 10000000))
+        return badRequest("Enter valid daily charges")
+      const accommodationCalculatedAmount = Math.round(accommodationDailyRate * days * 100) / 100
+      const messCalculatedAmount = Math.round(messDailyRate * days * 100) / 100
+      const price = rate(body.price, accommodationCalculatedAmount)
+      const messAmount = body.mess === "with" ? rate(body.messAmount, messCalculatedAmount) : 0
+      if ([price, messAmount].some((n) => !Number.isFinite(n) || n < 0 || n > 10000000))
+        return badRequest("Enter valid total charges")
+      const gstPercentage = config.gstPercentage
       const quote = buildQuoteFromGuestCharges({
         guests: r.guests,
         nights: r.nights,
-        guestCharges: [{ guestIndex: 0, price: body.price, gstPercentage: body.gstPercentage }],
+        guestCharges: [{ guestIndex: 0, price, gstPercentage }],
       })
       if (quote.error) return badRequest(quote.error)
       if (quote.total === 0 && !clean(body.reason))
         return badRequest("Enter a reason for waiving accommodation charges")
       r.quote = quote
+      r.h4.accommodationDailyRate = accommodationDailyRate
+      r.h4.accommodationChargeDays = days
+      r.h4.accommodationCalculatedAmount = accommodationCalculatedAmount
+      r.h4.accommodationAmountOverridden = price !== accommodationCalculatedAmount
       r.h4.mess = body.mess
+      r.h4.messPayment = body.mess === "with" ? {
+        dailyRate: messDailyRate,
+        days,
+        calculatedAmount: messCalculatedAmount,
+        amountOverridden: messAmount !== messCalculatedAmount,
+        amount: Math.round(messAmount * 100) / 100,
+        status: messAmount === 0 ? "Verified" : "Pending",
+        paymentLink: messPaymentLink,
+        verifiedBy: messAmount === 0 ? u._id : null,
+        verifiedAt: messAmount === 0 ? new Date() : null,
+      } : null
       r.allotment = { hostelId: hostel._id, allottedBy: u._id, allottedAt: new Date() }
       r.guestAllotments = [{ guestIndex: 0, hostelId: hostel._id }]
       r.payment = {
         amount: quote.total,
         status: quote.total === 0 ? "Verified" : "Pending",
-        qrRef: config.defaultPaymentQR,
+        qrRef: visitorConfig.defaultPaymentQR,
         paymentLink,
         remarks: clean(body.remarks, 1000),
         verifiedBy: quote.total === 0 ? u._id : null,
@@ -83,14 +102,15 @@ export const h4Payments = {
         quote.total === 0
           ? `Accommodation charge waived: ${clean(body.reason)}`
           : "Hostel, mess and accommodation charges issued to intern and payer",
-        quote.total === 0 ? S.PAYMENT_VERIFIED : S.PAYMENT_REQUESTED,
+        paid(r) ? S.PAYMENT_VERIFIED : S.PAYMENT_REQUESTED,
       )
     })
+    if (result.success) result.message = "Charges saved. Payment emails queued for delivery."
     return notify(result)
   },
   async submit(id, body, user) {
     const result = await mutate(id, body, user, (r, u) => {
-      if (!canPay(r, u)) return forbidden()
+      if (!canPay(r, u, body)) return forbidden()
       if ([S.REJECTED, S.CANCELLED, S.INVOICED].includes(r.status) || r.h4.amendment?.stage)
         return badRequest("This request cannot accept payment proof now")
       const payment = openPayment(r, body)
@@ -110,7 +130,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `Payment proof submitted${u.external ? " by payer" : " through an IIT requester"}`,
+        `${body.paymentType === "mess" ? "Mess payment" : "Payment"} proof submitted${u.external ? " by payer" : " through an IIT requester"}`,
         !body.additionalPaymentId && [S.PAYMENT_REQUESTED, S.PAYMENT_DEFERRED, S.PAYMENT_SUBMITTED].includes(r.status)
           ? S.PAYMENT_SUBMITTED
           : r.status,
@@ -120,7 +140,7 @@ export const h4Payments = {
   },
   async defer(id, body, user) {
     return mutate(id, body, user, (r, u) => {
-      if (!canPay(r, u)) return forbidden()
+      if (!canPay(r, u, body)) return forbidden()
       if ([S.REJECTED, S.CANCELLED, S.INVOICED].includes(r.status)) return badRequest("The financial record is closed")
       if (r.h4.amendment?.stage) return badRequest("Complete the pending date change first")
       const p = openPayment(r, body)
@@ -132,7 +152,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        "Payment deferred; room assignment still requires verification",
+        `${body.paymentType === "mess" ? "Mess payment" : "Payment"} deferred; room assignment still requires verification`,
         body.additionalPaymentId || operational ? r.status : S.PAYMENT_DEFERRED,
       )
     })
@@ -153,7 +173,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `Payment ${body.action === "verify" ? "verified" : `rejected: ${clean(body.reason)}`}`,
+        `${body.paymentType === "mess" ? "Mess payment" : "Payment"} ${body.action === "verify" ? "verified" : `rejected: ${clean(body.reason)}`}`,
         operational
           ? r.status
           : paid(r)
@@ -191,21 +211,21 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `Accounts ${body.action}: ${clean(body.reason)}`,
+        `Accounts ${body.paymentType === "mess" ? "mess " : ""}${body.action}: ${clean(body.reason)}`,
         operational || body.action === "correct" ? r.status : paid(r) ? S.PAYMENT_VERIFIED : S.PAYMENT_REQUESTED,
       )
     })
     if (result.success) await h4Service.ensureInvoice(id)
     return notify(result)
   },
-  async attachment(id, user, additionalPaymentId) {
+  async attachment(id, user, additionalPaymentId, paymentType) {
     if (!validId(id)) return badRequest("Invalid request ID")
     const result = await h4Service.get(id, user)
     if (!result.success) return result
     const r = result.data
     // Gate and supervisors only need stay information, never payment screenshots.
     if (!(isCreator(r, user) || isFaculty(r, user) || isOffice(user) || isAccounts(user))) return forbidden()
-    const p = additionalPaymentId ? r.additionalPayments.find((p) => String(p._id) === additionalPaymentId) : r.payment
+    const p = paymentType === "mess" ? r.h4.messPayment : additionalPaymentId ? r.additionalPayments.find((p) => String(p._id) === additionalPaymentId) : r.payment
     if (!p?.screenshotFileRef) return notFound("Payment proof")
     const { fileAccessService } = await import("../../../../services/storage/file-access.service.js")
     return success(await fileAccessService.getBuffer(p.screenshotFileRef))

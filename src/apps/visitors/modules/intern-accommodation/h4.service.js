@@ -12,7 +12,7 @@ import { accommodationOwner as owner } from "../../../../services/accommodation/
 import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { computeNights, emptyQuote, getAccommodationConfig } from "../accommodation/accommodation.quote.js"
-import { resolveStayTimes } from "../accommodation/accommodation.stay.js"
+import { getH4Config } from "./h4.config.js"
 import { accommodationService } from "../accommodation/accommodation.service.js"
 import { buildInvoiceModel, renderInvoicePdf } from "../accommodation/accommodation.invoice-pdf.js"
 import { buildInvoiceExportExcel, invoiceExportRows } from "../accommodation/accommodation.invoice-export.js"
@@ -23,6 +23,7 @@ import { h4Notifications } from "./h4.notifications.js"
 import { getHostelGuestAvailability } from "../accommodation/accommodation.availability.js"
 import {
   S,
+  academicCategory,
   validId,
   institutional,
   clean,
@@ -72,9 +73,7 @@ const stayInput = (input = {}) => {
   )
     return { error: "Enter valid calendar dates" }
   if ((toDate - fromDate) / 86400000 > 366) return { error: "A stay can be at most 366 days" }
-  const times = resolveStayTimes(input)
-  if (times.error) return times
-  return { fromDate, toDate, ...times, purpose: clean(input.purpose, 1000) }
+  return { fromDate, toDate, checkInTime: "00:00", checkOutTime: "00:00", earlyCheckInHours: 0, lateCheckOutHours: 0, purpose: clean(input.purpose, 1000) }
 }
 const validateStudent = (s, draft = false) => {
   if (!s || typeof s !== "object" || Array.isArray(s)) return "Student details are required"
@@ -82,8 +81,6 @@ const validateStudent = (s, draft = false) => {
     if (s.gender && !["Male", "Female", "Other"].includes(s.gender)) return "Select gender"
     if (s.category && !["intern", "unregistered-student"].includes(s.category)) return "Select student category"
     if (s.payerType && !["intern", "faculty"].includes(s.payerType)) return "Select who pays"
-    const times = resolveStayTimes(s.stay || {})
-    if (times.error) return times.error
     for (const k of ["fromDate", "toDate"])
       if (s.stay?.[k] && !Number.isFinite(+new Date(s.stay[k]))) return "Enter a valid date"
     return null
@@ -104,8 +101,8 @@ const validateStudent = (s, draft = false) => {
 }
 const facultyFor = async (id) => {
   if (!validId(id)) return null
-  const u = await userQueries.findUserById(id, { select: "name email role", lean: true })
-  return u?.role === "Academics" && institutional(u.email) ? u : null
+  const u = await userQueries.findUserById(id, { select: "name email role academicCategory", lean: true })
+  return u?.role === "Academics" && academicCategory(u) === "personal" && institutional(u.email) ? u : null
 }
 const applyStudent = (r, s, faculty, draft = false) => {
   r.applicantName = clean(s.name, 120)
@@ -116,7 +113,7 @@ const applyStudent = (r, s, faculty, draft = false) => {
     ? {
         fromDate: s.stay?.fromDate || undefined,
         toDate: s.stay?.toDate || undefined,
-        ...resolveStayTimes(s.stay || {}),
+        checkInTime: "00:00", checkOutTime: "00:00", earlyCheckInHours: 0, lateCheckOutHours: 0,
         purpose: clean(s.stay?.purpose, 1000),
       }
     : stayInput(s.stay)
@@ -177,8 +174,8 @@ export const h4Service = {
         hostelId: h._id,
         from,
         to,
-        checkInTime: r.stay.checkInTime,
-        checkOutTime: r.stay.checkOutTime,
+        checkInTime: "00:00",
+        checkOutTime: "00:00",
         excludeRequestId: r._id,
       })
       const reservations = await queries.findReservations({
@@ -201,7 +198,7 @@ export const h4Service = {
     const u = await freshUser(user)
     if (!u) return forbidden()
     const faculty = await userQueries.findUsers(
-      { role: "Academics", email: /@iiti\.ac\.in$/i },
+      { role: "Academics", academicCategory: { $ne: "office" }, email: /@iiti\.ac\.in$/i },
       { select: "name email", lean: true, sort: { name: 1 } },
     )
     const hostels =
@@ -209,14 +206,16 @@ export const h4Service = {
         ? await hostelQueries.findNonArchivedHostelsSorted()
         : []
     const scope = await hostelScope(u)
-    const config = isOffice(u) ? await getAccommodationConfig() : null
+    const config = isOffice(u) ? await getH4Config() : null
     return success({
       faculty,
       hostels: isDesk(u)
         ? hostels.map((h) => ({ _id: h._id, name: h.name, type: h.type }))
         : hostels.filter((h) => scope.includes(String(h._id))).map((h) => ({ _id: h._id, name: h.name, type: h.type })),
       canCreate: u.role === "Academics" && institutional(u.email),
-      canRecommend: u.role === "Academics" && institutional(u.email),
+      canRecommend: u.role === "Academics" && academicCategory(u) === "personal" && institutional(u.email),
+      academicCategory: academicCategory(u),
+      defaultFacultyUserId: u.role === "Academics" && academicCategory(u) === "personal" ? String(u._id) : null,
       role: u.role,
       subRole: u.subRole,
       config,
@@ -237,7 +236,7 @@ export const h4Service = {
     if (params.queue === "chief")
       conditions.push({ $or: [{ currentStage: "chief" }, { "h4.amendment.stage": "chief" }] })
     if (params.queue === "payments")
-      conditions.push({ $or: [{ "payment.status": "Submitted" }, { "additionalPayments.status": "Submitted" }] })
+      conditions.push({ $or: [{ "payment.status": "Submitted" }, { "h4.messPayment.status": "Submitted" }, { "additionalPayments.status": "Submitted" }] })
     if (params.queue === "rooms")
       conditions.push({
         status: S.PAYMENT_VERIFIED,
@@ -318,11 +317,10 @@ export const h4Service = {
     const u = await freshUser(user)
     if (!u || u.role !== "Academics" || !institutional(u.email))
       return forbidden("Only IIT Indore Academics users can create H4 requests")
-    const faculty = await facultyFor(body.facultyUserId)
+    const faculty = await facultyFor(academicCategory(u) === "personal" ? u._id : body.facultyUserId)
     if (!faculty) return badRequest("Select an IIT Indore Academics user as faculty")
     const rows = body.students
     if (!Array.isArray(rows) || !rows.length || rows.length > 100) return badRequest("Add between 1 and 100 students")
-    if (!clean(body.label, 120)) return badRequest("Enter a batch title")
     if (body.recommend === true && (u.role !== "Academics" || String(u._id) !== String(faculty._id)))
       return forbidden("Only the selected faculty can submit and recommend")
     const emails = new Set()
@@ -337,7 +335,7 @@ export const h4Service = {
     }
     const result = await withTransaction(async (session) => {
       const batch = await owner.createBatch(
-        { label: clean(body.label, 120), creatorUserId: u._id, facultyUserId: faculty._id },
+        { creatorUserId: u._id, facultyUserId: faculty._id },
         { session },
       )
       const items = []
@@ -346,7 +344,7 @@ export const h4Service = {
           typeKey: "intern",
           requesterUserId: u._id,
           status: S.DRAFT,
-          h4: { batchId: batch._id, batchLabel: batch.label, creatorName: u.name, creatorEmail: u.email },
+          h4: { batchId: batch._id, creatorName: u.name, creatorEmail: u.email },
           timeline: [],
         })
         applyStudent(r, s, faculty, body.draft === true)
@@ -369,7 +367,7 @@ export const h4Service = {
         return badRequest("Use a date-change request for an approved stay")
       const error = validateStudent(body.student, body.draft === true)
       if (error) return badRequest(error)
-      const faculty = await facultyFor(body.facultyUserId)
+      const faculty = await facultyFor(u.role === "Academics" && academicCategory(u) === "personal" ? u._id : body.facultyUserId)
       if (!faculty) return badRequest("Select an eligible faculty")
       if (body.recommend === true && !isFaculty({ h4: { facultyUserId: faculty._id } }, u))
         return forbidden("Only the selected faculty can recommend")
@@ -672,7 +670,7 @@ export const h4Service = {
         async (request, _, session) => {
           if (![S.ROOMS_ASSIGNED, S.CHECKED_IN].includes(request.status)) return badRequest("Already closed")
           const end = new Date(
-            `${new Date(request.stay.toDate).toISOString().slice(0, 10)}T${request.stay.checkOutTime || "11:00"}:00+05:30`,
+            `${new Date(request.stay.toDate).toISOString().slice(0, 10)}T00:00:00+05:30`,
           )
           if (end > new Date()) return badRequest("Stay has not ended")
           await owner.releaseReservation(request._id, "Stay ended", { session })

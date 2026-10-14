@@ -32,6 +32,9 @@ export const h4Access = {
     const payment = (p) => ({
       _id: p._id,
       amount: p.amount,
+      dailyRate: p.dailyRate,
+      days: p.days,
+      amountOverridden: p.amountOverridden,
       status: p.status,
       label: p.label,
       utr: p.utr,
@@ -68,6 +71,9 @@ export const h4Access = {
       data.invoice = r.invoice?.generatedAt ? { number: r.invoice.number, generatedAt: r.invoice.generatedAt } : null
       data.hasQr = !!r.payment.qrRef
     }
+    if (access.user.external === "intern" || access.user.email === r.applicantEmail) {
+      data.h4.messPayment = r.h4.messPayment ? payment(r.h4.messPayment) : null
+    }
     return success(data)
   },
   async upload(id, file, user, revision) {
@@ -75,7 +81,7 @@ export const h4Access = {
     const r = await queries.findH4ById(id, { lean: true })
     if (!r) return notFound("H4 request")
     const u = user.external ? user : await freshUser(user)
-    if (!u || !(u.external === "payer" || isCreator(r, u) || (isFaculty(r, u) && r.h4.payer.type === "faculty")))
+    if (!u || !(u.external === "payer" || (u.external === "intern" && r.h4.messPayment) || isCreator(r, u) || (isFaculty(r, u) && r.h4.payer.type === "faculty")))
       return forbidden()
     if ([S.DRAFT, S.REJECTED, S.CANCELLED, S.INVOICED].includes(r.status) || !r.allotment?.hostelId)
       return badRequest("There is no published accommodation bill")

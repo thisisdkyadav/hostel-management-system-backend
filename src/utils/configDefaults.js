@@ -27,6 +27,10 @@ export const defaultConfigs = {
     value: { visitorPaymentLink: "" },
     description: "System-wide settings for the hostel management system",
   },
+  internAccommodation: {
+    value: { accommodationPaymentLink: "", messPaymentLink: "", gstPercentage: 0, accommodationDailyRate: 0, messDailyRate: 0 },
+    description: "Intern accommodation: payment links, GST and daily accommodation/mess rates.",
+  },
   accommodation: {
     value: {
       // Uploaded QR image fileRef shown to students (no payment link).

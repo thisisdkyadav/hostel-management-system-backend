@@ -15,6 +15,12 @@ export async function setupTestDb() {
     connecting = mongoose.connect(env.MONGO_URI, { dbName: undefined })
     await connecting
   }
+  // Never wipe a real database. Running vitest from backend/ instead of backend/tests/
+  // skips vitest.config.js, so MONGO_URI falls back to backend/.env (the dev database).
+  const dbName = mongoose.connection.db.databaseName
+  if (!dbName.startsWith("hms_integration_tests")) {
+    throw new Error(`Refusing to drop "${dbName}": integration tests only run against hms_integration_tests*. Run vitest from backend/tests.`)
+  }
   // Clean slate: drop everything (collections AND indexes).
   const collections = await mongoose.connection.db.collections()
   for (const c of collections) {
@@ -34,6 +40,8 @@ export async function teardownTestDb() {
 export async function flushTestSessions() {
   const { default: Redis } = await import("ioredis")
   const { env } = await import("../../src/config/env.config.js")
+  // Same guard as setupTestDb: only ever flush the integration-test session prefix.
+  if (!String(env.REDIS_SESSION_PREFIX || "").startsWith("itest")) return
   const redis = new Redis(env.REDIS_URL)
   const keys = await redis.keys(`${env.REDIS_SESSION_PREFIX}*`)
   if (keys.length > 0) await redis.del(...keys)

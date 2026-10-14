@@ -43,7 +43,7 @@ export const upload = call((req) => h4Access.upload(id(req), req.file, req.user,
 export const resend = call((req) => h4Access.resend(id(req), req.body, req.user))
 export const invoice = file((req) => h4Service.invoice(id(req), req.user))
 export const qr = file((req) => h4Access.requestQr(id(req), req.user))
-export const proof = file((req) => h4Payments.attachment(id(req), req.user, req.query.additionalPaymentId))
+export const proof = file((req) => h4Payments.attachment(id(req), req.user, req.query.additionalPaymentId, req.query.paymentType))
 export const exportInvoices = file((req) => h4Service.exportInvoices(req.query, req.user))
 export const publicView = call((req) => h4Access.view(req.h4Access))
 export const publicInvoice = file((req) => h4Access.invoice(req.h4Access))

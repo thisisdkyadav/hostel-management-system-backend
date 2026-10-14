@@ -1,7 +1,7 @@
 import mongoose from "mongoose"
 const schema = new mongoose.Schema(
   {
-    label: { type: String, trim: true, maxlength: 120, required: true },
+    label: { type: String, trim: true, maxlength: 120, default: "" },
     creatorUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     facultyUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   },

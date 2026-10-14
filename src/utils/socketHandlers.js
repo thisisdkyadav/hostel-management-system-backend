@@ -37,6 +37,7 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
       socket.userName = user.name
       socket.hostelId = user.hostel?._id || null
       socket.catererId = null
+      socket.isDiningOffice = user.role === "Dining" && user.subRole === "Office"
 
       if (user.role === "Dining" && user.subRole === "Caterer") {
         const caterer = await diningQueries.findOneCaterer({ userId: user._id, isArchived: false }, { select: "_id", lean: true })
@@ -87,6 +88,11 @@ export const setupSocketHandlers = (io, sessionMiddleware) => {
       // Join caterer room for dining scanner/live meal verification updates
       if (socket.catererId) {
         socket.join(`caterer:${socket.catererId}`)
+      }
+
+      // Wardens and hall supervisors watch every caterer's scans
+      if (socket.isDiningOffice) {
+        socket.join("dining-office")
       }
 
       // Join user-specific room

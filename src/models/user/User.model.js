@@ -89,6 +89,11 @@ const UserSchema = new mongoose.Schema(
       ],
       default: null,
     },
+    academicCategory: {
+      type: String,
+      enum: ["personal", "office"],
+      default: function () { return this.role === "Academics" ? "personal" : undefined },
+    },
     authz: {
       type: UserAuthzSchema,
       default: undefined,

@@ -17,7 +17,7 @@ const base = "/api/v1/intern-accommodation"
 const ymd = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10)
 const academic = (extra) =>
   seed.createUser({ role: "Academics", email: `h4-faculty-${Date.now()}-${Math.random()}@iiti.ac.in`, ...extra })
-const requester = () => academic()
+const requester = () => academic({ academicCategory: "office" })
 const student = (extra) => ({
   name: "Intern One",
   gender: "Female",
@@ -151,7 +151,7 @@ describe("H4 eligibility, batches and review", () => {
     const user = await seed.createUser({ role, subRole, email: `blocked-${Date.now()}-${Math.random()}@iiti.ac.in` })
     const api = await as(user)
     const options = await api.get(`${base}/options`)
-    const blockedFromH4 = role === "Dining" && subRole === "Caterer"
+    const blockedFromH4 = !["Hostel Supervisor", "Hostel Gate"].includes(role) && !(role === "Admin" && ["Chief Warden Office", "Chief Warden", "Accountant"].includes(subRole))
     expect(options.status).toBe(blockedFromH4 ? 403 : 200)
     if (!blockedFromH4) expect(options.body.data.canCreate).toBe(false)
     for (const draft of [false, true]) {
@@ -254,7 +254,7 @@ describe("H4 eligibility, batches and review", () => {
 })
 
 describe("H4 rooms, payments, stay and invoice", () => {
-  it("uses exact arrival/departure times and blocks H2 edits into H4 reservations", async () => {
+  it("uses date-only room windows and blocks H2 edits into H4 reservations", async () => {
     const f = await academic(),
       api = await as(f),
       desk = await desks(),
@@ -293,7 +293,7 @@ describe("H4 rooms, payments, stay and invoice", () => {
       (await getGuestRoomAvailability({ ...window, checkInTime: "09:00" })).some(
         (r) => String(r.roomId) === String(room._id),
       ),
-    ).toBe(false)
+    ).toBe(true)
     const h2 = await seedH2RoomBooking({
       userId: f._id,
       hostelId: hostel._id,
@@ -303,7 +303,7 @@ describe("H4 rooms, payments, stay and invoice", () => {
     })
     const edited = await desk.office
       .post(`/api/v1/accommodation/requests/${h2._id}/office-edit`)
-      .send({ stay: { fromDate: ymd(10), toDate: ymd(12), checkInTime: "09:00" } })
+      .send({ stay: { fromDate: ymd(9), toDate: ymd(12), checkInTime: "09:00" } })
     expect(edited.status, JSON.stringify(edited.body)).toBe(400)
     expect(edited.body.message).toContain("overlapping H4 reservation")
     let next = await approved(api, f, desk, {
@@ -321,7 +321,9 @@ describe("H4 rooms, payments, stay and invoice", () => {
     })
     const adjacent = (await supervisor.post(`${base}/requests/${next._id}/room-check`).send({ roomNumber: "701" })).body
       .data
-    expect(adjacent.warnings).toHaveLength(0)
+    // Intern arrival starts at midnight; the H2 guest departs at 11:00 that day.
+    expect(adjacent.warnings.some((w) => w.kind === "guest")).toBe(true)
+    expect(adjacent.warnings.some((w) => w.kind === "intern")).toBe(false)
   })
   it("closes an unpaid stay independently and invoices only after late payment verification", async () => {
     const f = await academic(),
@@ -370,18 +372,8 @@ describe("H4 rooms, payments, stay and invoice", () => {
       desk = await desks(),
       hostel = await createHostel()
     let r = await approved(api, f, desk)
-    expect(
-      (
-        await desk.office.post(`${base}/requests/${r._id}/offer`).send({
-          revision: r.h4.revision,
-          hostelId: hostel._id,
-          mess: "without",
-          price: 200,
-          gstPercentage: 0,
-          paymentLink: "javascript:alert(1)",
-        })
-      ).status,
-    ).toBe(400)
+    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { accommodationPaymentLink: "javascript:alert(1)" } })).status).toBe(400)
+    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { accommodationPaymentLink: "https://payments.example.com/accommodation" } })).status).toBe(200)
     r = await action(desk.office, r, "offer", {
       hostelId: hostel._id,
       mess: "without",
@@ -535,7 +527,8 @@ describe("H4 rooms, payments, stay and invoice", () => {
     const { user: sup } = await seedHostelSupervisorProfile({ hostels: [hostel], activeHostel: hostel })
     const supervisor = await as(sup)
     let r = await approved(api, f, desk, { recommend: true, students: [student({ payerType: "faculty" })] })
-    r = await action(desk.office, r, "offer", { hostelId: hostel._id, mess: "with", price: 1000, gstPercentage: 18 })
+    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { gstPercentage: 18 } })).status).toBe(200)
+    r = await action(desk.office, r, "offer", { hostelId: hostel._id, mess: "with", messAmount: 0, price: 1000 })
     expect(r.payment.amount).toBe(1180)
     expect(
       (await supervisor.post(`${base}/requests/${r._id}/assign`).send({ revision: r.h4.revision, roomNumber: "401" }))

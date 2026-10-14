@@ -414,6 +414,7 @@ const rowsGroupedByHostel = ({
   nights,
   hostelName,
   hostelNameByGuestIndex,
+  tariffDivisor = 1,
 }) => {
   const claimed = new Set()
   const groups = []
@@ -449,7 +450,7 @@ const rowsGroupedByHostel = ({
       from: sheetDate(stay.fromDate),
       to: sheetDate(stay.toDate),
       days: nights,
-      tariff: money(tariff),
+      tariff: money(tariff / tariffDivisor),
       gst: money(group.gstAmount),
       total: money(group.total),
     }
@@ -520,6 +521,7 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
         nights,
         hostelName,
         hostelNameByGuestIndex,
+        tariffDivisor: request?.typeKey === "intern" ? request.h4?.accommodationChargeDays || 1 : 1,
       })
     : guests.length
       ? [{

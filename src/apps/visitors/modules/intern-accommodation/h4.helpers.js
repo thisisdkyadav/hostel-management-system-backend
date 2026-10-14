@@ -25,15 +25,17 @@ export const parsePaidAt = (value, now = new Date()) => {
   return parsed <= now ? parsed : null
 }
 export const isCreator = (r, u) => String(r.requesterUserId) === String(u?._id)
+export const academicCategory = (u) => u?.academicCategory === "office" ? "office" : "personal"
 export const isFaculty = (r, u) =>
-  u?.role === "Academics" && institutional(u.email) && String(r.h4.facultyUserId) === String(u._id)
+  u?.role === "Academics" && academicCategory(u) === "personal" && institutional(u.email) && String(r.h4.facultyUserId) === String(u._id)
 export const isOffice = (u) => u?.role === "Admin" && u.subRole === "Chief Warden Office"
 export const isChief = (u) => u?.role === "Admin" && u.subRole === "Chief Warden"
 export const isAccounts = (u) => u?.role === "Admin" && u.subRole === "Accountant"
 export const isDesk = (u) => isOffice(u) || isChief(u) || isAccounts(u)
 export const isClosed = (r) => [S.CANCELLED, S.REJECTED, S.CHECKED_OUT, S.INVOICED].includes(r.status)
 export const paid = (r) =>
-  r.payment?.status === "Verified" && (r.additionalPayments || []).every((p) => p.status === "Verified")
+  r.payment?.status === "Verified" && (r.additionalPayments || []).every((p) => p.status === "Verified") &&
+  (!r.h4?.messPayment || r.h4.messPayment.status === "Verified")
 export const audit = (r, u, note, status = r.status) => {
   r.status = status
   r.stageDeadlineAt = null // H4 requires an explicit Chief Warden decision.
@@ -68,7 +70,7 @@ export const scopeFilter = async (u) => {
 }
 export const freshUser = async (u) => {
   if (!u?._id) return null
-  return userQueries.findUserById(u._id, { lean: true, select: "name email role subRole" })
+  return userQueries.findUserById(u._id, { lean: true, select: "name email role subRole academicCategory" })
 }
 export const withHostelLocks = async (ids, task) => {
   const keys = [...new Set(ids.filter(validId).map(String))].sort()

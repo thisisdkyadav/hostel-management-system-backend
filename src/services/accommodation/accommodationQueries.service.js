@@ -56,7 +56,7 @@ export const accommodationQueries = {
     }), session).select("applicantName guests status stay").lean()
   },
   async findH4Ended() {
-    return AccommodationRequest.find({ typeKey: "intern", status: { $in: [ACCOMMODATION_STATUS.ROOMS_ASSIGNED, ACCOMMODATION_STATUS.CHECKED_IN] }, "stay.toDate": { $lt: new Date() } }).select("_id").lean()
+    return AccommodationRequest.find({ typeKey: "intern", status: { $in: [ACCOMMODATION_STATUS.ROOMS_ASSIGNED, ACCOMMODATION_STATUS.CHECKED_IN] }, "stay.toDate": { $lte: new Date(new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })) } }).select("_id").lean()
   },
   async findH4AwaitingInvoice() {
     return AccommodationRequest.find({ typeKey: "intern", status: ACCOMMODATION_STATUS.CHECKED_OUT,

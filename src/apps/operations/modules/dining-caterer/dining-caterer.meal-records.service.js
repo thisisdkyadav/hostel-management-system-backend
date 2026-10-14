@@ -4,25 +4,34 @@ import { badRequest, success } from "../../../../services/base/index.js"
 import { serializeVerification } from "../dining-meal-verification/dining-meal-verification.service.js"
 import {
   idOf, dayKey, shiftDay, dayBounds, dayKeys, localDay, validateQuery, validateRange,
-  getCatererScope, getPeriodScope, mealSlots, mealState, serializeCaterer,
+  getDiningScope, getPeriodScope, catererMatch, mealSlots, mealState, serializeCaterer,
   serializePeriod, studentDetails, serializeStudent,
 } from "./dining-caterer.service.js"
 
+const rosterFor = (period, caterer) => (caterer
+  ? allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id)
+  : allocationQueries.findAllocationsByPeriod(period._id))
+
 export const getMealRecordOptions = async ({ user, query = {} }) => {
-  const { caterer, error } = await getCatererScope(user, query)
+  const { caterer, oversight, error } = await getDiningScope(user, query)
   if (error) return error
   const now = new Date()
   const today = dayKey(now)
-  const periods = await diningQueries.findPeriods({ catererIds: caterer._id }, { lean: true, sort: { startDate: -1, _id: -1 } })
+  const [periods, caterers] = await Promise.all([
+    diningQueries.findPeriods(caterer ? { catererIds: caterer._id } : {}, { lean: true, sort: { startDate: -1, _id: -1 } }),
+    oversight ? diningQueries.findCaterers({}, { lean: true, sort: { name: 1 } }) : null,
+  ])
   const current = periods.find((period) => !period.isArchived && dayKey(period.startDate) <= today && dayKey(period.endDate) >= today)
   const currentMeal = current && mealSlots(current).find((slot) => mealState(today, slot, now) === "serving")
   return success({
-    caterer: serializeCaterer(caterer), today,
+    caterer: caterer ? serializeCaterer(caterer) : null, today,
     currentPeriodId: current ? idOf(current) : null,
     currentMealSlotKey: currentMeal?.key || null,
+    ...(oversight ? { caterers: caterers.map((item) => ({ ...serializeCaterer(item), isArchived: Boolean(item.isArchived) })) } : {}),
     periods: periods.map((period) => ({
       ...serializePeriod(period), isArchived: Boolean(period.isArchived),
       isCurrent: idOf(period) === idOf(current), mealSlots: mealSlots(period),
+      ...(oversight ? { catererIds: (period.catererIds || []).map(idOf) } : {}),
     })),
   })
 }
@@ -44,12 +53,12 @@ export const getMealRecordOverview = async ({ user, query }) => {
   const keys = dayKeys(from, to)
   const slots = mealSlots(period)
   const [allocations, scans, rebates] = await Promise.all([
-    allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id),
+    rosterFor(period, caterer),
     diningQueries.findVerifications({
-      catererId: caterer._id, periodId: period._id, status: "verified",
+      ...catererMatch(caterer), periodId: period._id, status: "verified",
       scannedAt: { $gte: localDay(from), $lt: localDay(shiftDay(to, 1)) },
     }, { select: "studentUserId mealSlotKey scannedAt" }),
-    diningQueries.findRebates({ catererId: caterer._id, periodId: period._id, status: "approved", dateKeys: { $in: keys } }, { lean: true }),
+    diningQueries.findRebates({ ...catererMatch(caterer), periodId: period._id, status: "approved", dateKeys: { $in: keys } }, { lean: true }),
   ])
   const roster = new Set(allocations.map((row) => idOf(row.studentUserId)))
   const rebatedByDay = new Map(keys.map((key) => [key, new Set()]))
@@ -73,8 +82,14 @@ export const getMealRecordOverview = async ({ user, query }) => {
   })
 }
 
-export const getMealRecords = async ({ user, query }) => {
-  const { caterer, period, error } = await getPeriodScope(user, query)
+/**
+ * One meal service. Caterers get their kitchen; admin and the dining office get
+ * every caterer (or one, with ?catererId), plus a per-caterer breakdown and each
+ * student's caterer. `light` skips the roster and the issue list: just the counts
+ * and arrival times, for screens that poll often.
+ */
+const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
+  const { caterer, oversight, period, error } = await getPeriodScope(user, query)
   if (error) return error
   const validation = validateQuery(query, { required: ["date", "mealSlotKey"] })
   if (validation) return validation
@@ -83,18 +98,23 @@ export const getMealRecords = async ({ user, query }) => {
   const slot = mealSlots(period).find((candidate) => candidate.key === mealSlotKey)
   if (!slot) return badRequest("mealSlotKey must exist in the dining period")
   const state = mealState(date, slot)
-  const scanFilter = { catererId: caterer._id, periodId: period._id, mealSlotKey, scannedAt: dayBounds(date) }
-  const [allocations, scans, rebates, issueScans] = await Promise.all([
-    allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id),
+  const scanFilter = { ...catererMatch(caterer), periodId: period._id, mealSlotKey, scannedAt: dayBounds(date) }
+  const issueFilter = { ...scanFilter, status: { $ne: "verified" } }
+  const [allocations, scans, rebates, issueScans, catererDocs] = await Promise.all([
+    rosterFor(period, caterer),
     diningQueries.findVerifications(scanFilter, {
-      select: "studentUserId status source scannedAt", sort: { scannedAt: 1, createdAt: 1, _id: 1 },
+      select: "studentUserId catererId status source scannedAt", sort: { scannedAt: 1, createdAt: 1, _id: 1 },
     }),
-    diningQueries.findRebates({ catererId: caterer._id, periodId: period._id, status: "approved", dateKeys: date }, { lean: true, sort: { createdAt: 1, _id: 1 } }),
-    diningQueries.findVerificationsPopulated({ ...scanFilter, status: { $ne: "verified" } }, {
-      lean: true, sort: { scannedAt: -1, createdAt: -1, _id: -1 }, limit: 200,
-    }),
+    diningQueries.findRebates({ ...catererMatch(caterer), periodId: period._id, status: "approved", dateKeys: date }, { lean: true, sort: { createdAt: 1, _id: 1 } }),
+    light
+      ? diningQueries.findVerifications(issueFilter, { select: "catererId" })
+      : diningQueries.findVerificationsPopulated(issueFilter, { lean: true, sort: { scannedAt: -1, createdAt: -1, _id: -1 }, limit: 200 }),
+    oversight
+      ? diningQueries.findCaterers({ _id: { $in: caterer ? [caterer._id] : period.catererIds } }, { lean: true, sort: { name: 1 } })
+      : null,
   ])
-  const profiles = await studentDetails(allocations.map((row) => row.studentUserId))
+  const profiles = light ? new Map() : await studentDetails(allocations.map((row) => row.studentUserId))
+  const catererById = new Map((catererDocs || []).map((item) => [idOf(item), { id: idOf(item), name: item.name }]))
   const attempts = new Map()
   for (const scan of scans) {
     const id = idOf(scan.studentUserId)
@@ -108,33 +128,90 @@ export const getMealRecords = async ({ user, query }) => {
     const id = idOf(rebate.studentUserId)
     if (!rebateByStudent.has(id)) rebateByStudent.set(id, rebate)
   }
-  const students = allocations.map((allocation) => {
+  const statusOf = (attempt, rebate) => (attempt?.first ? "verified" : rebate ? "on-rebate" : state === "ended" ? "missed" : "pending")
+  const rows = allocations.map((allocation) => {
     const id = idOf(allocation.studentUserId)
-    const attempt = attempts.get(id)
-    const rebate = rebateByStudent.get(id)
+    return { allocation, attempt: attempts.get(id), rebate: rebateByStudent.get(id) }
+  })
+  const onRebateCount = rows.filter((row) => row.rebate).length
+  // Historical attendance survives allocation changes, as in the overview.
+  // Roster statuses and expected/missed/pending counts use current allocations.
+  const verified = [...attempts.values()].filter((attempt) => attempt.first)
+  const issueCount = issueScans.length
+  const countOf = (status) => rows.filter((row) => statusOf(row.attempt, row.rebate) === status).length
+  const summary = {
+    allocatedCount: rows.length, onRebateCount, expectedCount: Math.max(0, rows.length - onRebateCount),
+    verifiedCount: verified.length,
+    missedCount: countOf("missed"),
+    pendingCount: countOf("pending"),
+    manualCount: verified.filter((attempt) => attempt.first.source === "manual").length,
+    faceCount: verified.filter((attempt) => attempt.first.source === "face-scanner").length,
+    issueCount,
+  }
+
+  // Every caterer in scope, busiest kitchen first; scans count where they were made.
+  const caterers = oversight
+    ? [...catererById.values()].map((item) => {
+      const mine = rows.filter((row) => idOf(row.allocation.catererId) === item.id)
+      const away = mine.filter((row) => row.rebate).length
+      const ate = verified.filter((attempt) => idOf(attempt.first.catererId) === item.id)
+      return {
+        ...item, allocatedCount: mine.length, onRebateCount: away, expectedCount: Math.max(0, mine.length - away),
+        verifiedCount: ate.length,
+        missedCount: mine.filter((row) => statusOf(row.attempt, row.rebate) === "missed").length,
+        pendingCount: mine.filter((row) => statusOf(row.attempt, row.rebate) === "pending").length,
+        manualCount: ate.filter((attempt) => attempt.first.source === "manual").length,
+        faceCount: ate.filter((attempt) => attempt.first.source === "face-scanner").length,
+        issueCount: issueScans.filter((scan) => idOf(scan.catererId) === item.id).length,
+      }
+    }).sort((a, b) => b.expectedCount - a.expectedCount || a.name.localeCompare(b.name))
+    : undefined
+
+  const head = {
+    caterer: caterer ? serializeCaterer(caterer) : null, period: serializePeriod(period), date, mealSlot: slot, mealState: state,
+    summary, ...(caterers ? { caterers } : {}),
+  }
+  if (light) {
+    const arrivals = verified.map(({ first }) => ({ studentId: idOf(first.studentUserId), catererId: idOf(first.catererId) || null, at: first.scannedAt }))
+    return success({ ...head, arrivals })
+  }
+  const students = rows.map(({ allocation, attempt, rebate }) => {
+    const id = idOf(allocation.studentUserId)
     return {
       allocationId: idOf(allocation), student: serializeStudent(profiles.get(id), allocation),
-      status: attempt?.first ? "verified" : rebate ? "on-rebate" : state === "ended" ? "missed" : "pending",
+      ...(oversight ? { caterer: catererById.get(idOf(allocation.catererId)) || null } : {}),
+      status: statusOf(attempt, rebate),
       verifiedAt: attempt?.first?.scannedAt || null, verificationSource: attempt?.first?.source || null,
       attemptCount: attempt?.count || 0,
       rebate: rebate ? { id: idOf(rebate), startDate: rebate.startDate, endDate: rebate.endDate, dayCount: rebate.dayCount, type: rebate.type } : null,
     }
   }).sort((a, b) => a.student.rollNumber.localeCompare(b.student.rollNumber))
-  const onRebateCount = students.filter((student) => student.rebate).length
-  // Historical attendance survives allocation changes, as in the overview.
-  // Roster statuses and expected/missed/pending counts use current allocations.
-  const verified = [...attempts.values()].filter((attempt) => attempt.first)
-  const issues = issueScans.map(serializeVerification)
+  return success({ ...head, students, issues: issueScans.map(serializeVerification) })
+}
+
+export const getMealRecords = (args) => buildMealRecord(args)
+
+/** Counts only, for the live screen: no roster, no issue list. */
+export const getMealPulse = (args) => buildMealRecord(args, { light: true })
+
+/**
+ * The latest scans of a day (optionally one meal, optionally one caterer), newest
+ * first, each with the student's room and the caterer it was scanned at.
+ */
+export const getMealFeed = async ({ user, query = {} }) => {
+  const { caterer, error } = await getDiningScope(user, query)
+  if (error) return error
+  const date = query.date || dayKey()
+  const limit = Number(query.limit || 100)
+  const filter = { ...catererMatch(caterer), scannedAt: dayBounds(date), ...(query.mealSlotKey ? { mealSlotKey: query.mealSlotKey } : {}) }
+  const scans = await diningQueries.findVerificationsPopulated(filter, { lean: true, sort: { scannedAt: -1, createdAt: -1, _id: -1 }, limit })
+  const profiles = await studentDetails(scans.map((scan) => scan.studentUserId).filter(Boolean))
   return success({
-    caterer: serializeCaterer(caterer), period: serializePeriod(period), date, mealSlot: slot, mealState: state,
-    summary: {
-      allocatedCount: students.length, onRebateCount, expectedCount: Math.max(0, students.length - onRebateCount),
-      verifiedCount: verified.length,
-      missedCount: students.filter((student) => student.status === "missed").length,
-      pendingCount: students.filter((student) => student.status === "pending").length,
-      manualCount: verified.filter((attempt) => attempt.first.source === "manual").length,
-      faceCount: verified.filter((attempt) => attempt.first.source === "face-scanner").length,
-      issueCount: issues.length,
-    }, students, issues,
+    date,
+    entries: scans.map((scan) => {
+      const entry = serializeVerification(scan)
+      const profile = scan.studentUserId ? profiles.get(idOf(scan.studentUserId)) : null
+      return profile ? { ...entry, student: serializeStudent(profile, { rollNumber: scan.rollNumber }) } : entry
+    }),
   })
 }

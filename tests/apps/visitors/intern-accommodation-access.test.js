@@ -9,7 +9,7 @@ afterAll(teardownTestDb)
 const base = "/api/v1/intern-accommodation"
 const routeKey = "route.dining.internAccommodation"
 
-describe("H4 Dining access", () => {
+describe("H4 workflow role access", () => {
   it("denies Caterer access, including sessions cached before the permission change", async () => {
     const user = await seed.createUser({ role: "Dining", subRole: "Caterer" })
     const current = await as(user)
@@ -33,18 +33,22 @@ describe("H4 Dining access", () => {
     }
   })
 
-  it("retains Dining Office viewing and Academics creation permissions", async () => {
-    const office = await as(await seed.createUser({ role: "Dining", subRole: "Office" }))
-    const options = await office.get(`${base}/options`)
-    expect(options.status).toBe(200)
-    expect(options.body.data.canCreate).toBe(false)
-    expect((await office.get(`${base}/requests`)).status).toBe(200)
-
-    const academics = await as(
-      await seed.createUser({ role: "Academics", email: "h4-academic-access@iiti.ac.in" }),
-    )
-    const academicOptions = await academics.get(`${base}/options`)
-    expect(academicOptions.status).toBe(200)
-    expect(academicOptions.body.data.canCreate).toBe(true)
+  it("denies unrelated roles even with cached or explicitly granted H4 permissions", async () => {
+    for (const [role, subRole] of [["Student", null], ["Warden", null], ["Associate Warden", null], ["Dining", "Office"], ["Admin", "HCU"], ["Admin", null], ["Super Admin", null], ["Security", null], ["Maintenance Staff", null], ["Gymkhana", "President Gymkhana"]]) {
+      const user = await seed.createUser({ role, subRole })
+      const api = await as(user, { userData: { authz: { override: { allowRoutes: [routeKey] }, effective: { catalogVersion: 21, routeAccess: { [routeKey]: true, "route.admin.internAccommodation": true, "route.student.internAccommodation": true } } } } })
+      expect((await api.get(`${base}/options`)).status, `${role} ${subRole}`).toBe(403)
+      expect((await api.get(`${base}/requests`)).status).toBe(403)
+      expect((await api.post(`${base}/batches`).send({})).status).toBe(403)
+    }
+  })
+  it("retains access for every role involved in the workflow", async () => {
+    for (const [role, subRole] of [["Academics", null], ["Admin", "Chief Warden Office"], ["Admin", "Chief Warden"], ["Admin", "Accountant"], ["Hostel Supervisor", null], ["Hostel Gate", null]]) {
+      const api = await as(await seed.createUser({ role, subRole, email: `h4-${Math.random()}@iiti.ac.in` }))
+      const options = await api.get(`${base}/options`)
+      expect(options.status, `${role} ${subRole}`).toBe(200)
+      expect(options.body.data.canCreate).toBe(role === "Academics")
+      expect((await api.get(`${base}/requests`)).status).toBe(200)
+    }
   })
 })

@@ -325,16 +325,19 @@ class AdminService {
     return success(null, 201, 'Gymkhana user created successfully');
   }
 
-  async createAcademics({ email, password, name, subRole }) {
+  async createAcademics({ email, password, name, subRole, academicCategory = 'personal' }) {
     const normalizedEmail = normalizeOptionalText(email);
     const normalizedName = normalizeOptionalText(name);
 
-    if (!normalizedEmail || !normalizedName || !subRole) {
-      return badRequest('Email, name, and subRole are required');
+    if (!normalizedEmail || !normalizedName) {
+      return badRequest('Email and name are required');
     }
 
-    if (!ACADEMICS_SUBROLES.includes(subRole)) {
+    if (subRole && !ACADEMICS_SUBROLES.includes(subRole)) {
       return badRequest('Invalid Academics subRole');
+    }
+    if (!['personal', 'office'].includes(academicCategory)) {
+      return badRequest('Choose Personal or Office for the Academics category');
     }
 
     const existingUser = await userQueries.findUserByEmailCI(normalizedEmail);
@@ -353,7 +356,8 @@ class AdminService {
       name: normalizedName,
       email: normalizedEmail,
       role: ROLES.ACADEMICS,
-      subRole,
+      subRole: subRole || null,
+      academicCategory,
     };
 
     if (hashedPassword) {
@@ -412,8 +416,8 @@ class AdminService {
 
   async getAllAcademicsUsers() {
     const academicsUsers = await userQueries.findUsers(
-      { role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } },
-      { select: 'name email role subRole profileImage', lean: true }
+      { role: ROLES.ACADEMICS },
+      { select: 'name email role subRole academicCategory profileImage', lean: true }
     );
 
     const formattedUsers = academicsUsers
@@ -424,6 +428,7 @@ class AdminService {
         email: user.email,
         role: user.role,
         subRole: user.subRole || null,
+        academicCategory: user.academicCategory === 'office' ? 'office' : 'personal',
         profileImage: user.profileImage || null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -498,7 +503,7 @@ class AdminService {
     return success(null, 200, 'Gymkhana user updated successfully');
   }
 
-  async updateAcademics(id, { name, subRole }) {
+  async updateAcademics(id, { name, subRole, academicCategory }) {
     const updateData = {};
 
     if (name !== undefined) {
@@ -510,10 +515,17 @@ class AdminService {
     }
 
     if (subRole !== undefined) {
-      if (!ACADEMICS_SUBROLES.includes(subRole)) {
+      if (subRole && !ACADEMICS_SUBROLES.includes(subRole)) {
         return badRequest('Invalid Academics subRole');
       }
-      updateData.subRole = subRole;
+      updateData.subRole = subRole || null;
+    }
+
+    if (academicCategory !== undefined) {
+      if (!['personal', 'office'].includes(academicCategory)) {
+        return badRequest('Choose Personal or Office for the Academics category');
+      }
+      updateData.academicCategory = academicCategory;
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -521,7 +533,7 @@ class AdminService {
     }
 
     const updatedUser = await userOwner.findOneAndUpdateUser(
-      { _id: id, role: ROLES.ACADEMICS, subRole: { $in: ACADEMICS_SUBROLES } },
+      { _id: id, role: ROLES.ACADEMICS },
       updateData,
       { new: true, select: '_id', lean: true }
     );

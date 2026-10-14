@@ -1,6 +1,24 @@
 import mongoose from "mongoose"
 const id = { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
 const str = { type: String, trim: true, default: "" }
+const MessPaymentSchema = new mongoose.Schema({
+  dailyRate: { type: Number, default: 0 },
+  days: { type: Number, default: 0 },
+  calculatedAmount: { type: Number, default: 0 },
+  amountOverridden: { type: Boolean, default: false },
+  amount: { type: Number, default: 0 },
+  status: { type: String, enum: ["Pending", "Deferred", "Submitted", "Verified", "Rejected"], default: "Pending" },
+  paymentLink: str,
+  mode: { type: String, enum: ["now", "later", null], default: null },
+  screenshotFileRef: str,
+  utr: str,
+  paidAt: { type: Date, default: null },
+  submittedAt: { type: Date, default: null },
+  verifiedBy: id,
+  verifiedAt: { type: Date, default: null },
+  remarks: str,
+  note: str,
+}, { _id: false })
 export const H4DetailsSchema = new mongoose.Schema(
   {
     batchId: { type: mongoose.Schema.Types.ObjectId, ref: "AccommodationBatch", default: null },
@@ -24,7 +42,12 @@ export const H4DetailsSchema = new mongoose.Schema(
       verifiedBy: id,
       verifiedAt: { type: Date, default: null },
     },
+    accommodationDailyRate: { type: Number, default: 0 },
+    accommodationChargeDays: { type: Number, default: 0 },
+    accommodationCalculatedAmount: { type: Number, default: 0 },
+    accommodationAmountOverridden: { type: Boolean, default: false },
     mess: { type: String, enum: ["with", "without"], default: "without" },
+    messPayment: { type: MessPaymentSchema, default: null },
     proofRefs: { type: [String], default: [] },
     amendment: {
       changeId: { type: mongoose.Schema.Types.ObjectId, default: null },

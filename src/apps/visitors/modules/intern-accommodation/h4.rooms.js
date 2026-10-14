@@ -19,7 +19,7 @@ import {
 } from "./h4.helpers.js"
 import { getStayWindow } from "../accommodation/accommodation.stay.js"
 
-export const reservationPeriod = getStayWindow
+export const reservationPeriod = (stay) => getStayWindow({ ...stay, checkInTime: "00:00", checkOutTime: "00:00" })
 export const inspectRoom = async (r, body, u, { session, stay = r.stay } = {}) => {
   const hostelId = String(body.hostelId || r.allotment?.hostelId || "")
   if (!validId(hostelId) || hostelId !== String(r.allotment?.hostelId)) return forbidden("Use the allotted hostel")

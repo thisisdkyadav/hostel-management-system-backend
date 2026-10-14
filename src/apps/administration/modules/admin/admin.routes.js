@@ -154,6 +154,47 @@ router.post(
   updateBulkStudentHealth
 );
 
+// Operational dining pages are shared with the Dining Office (wardens and hall
+// supervisors), who hold the same route.admin.* keys. Registered above the
+// blanket Admin gate so they can reach them; caterer logins stay out.
+const diningStaff = [
+  authorizeRoles(['Admin', 'Dining']),
+  (req, res, next) => {
+    if (req.user?.role === 'Dining' && req.user?.subRole !== 'Office') {
+      return res.status(403).json({ success: false, message: 'You do not have access to this route' });
+    }
+    next();
+  },
+];
+
+// Dining caterer management
+router.get('/caterers', diningStaff, requireRouteAccess('route.admin.caterers'), getCaterers);
+router.post('/caterers', diningStaff, requireRouteAccess('route.admin.caterers'), createCaterer);
+router.put('/caterers/:id', diningStaff, requireRouteAccess('route.admin.caterers'), updateCaterer);
+router.put('/caterers/:id/archive', diningStaff, requireRouteAccess('route.admin.caterers'), updateCatererArchiveStatus);
+router.get('/dining-periods', diningStaff, requireRouteAccess('route.admin.diningPeriods'), getDiningPeriods);
+router.post('/dining-periods', diningStaff, requireRouteAccess('route.admin.diningPeriods'), createDiningPeriod);
+router.put('/dining-periods/:id', diningStaff, requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriod);
+router.put('/dining-periods/:id/archive', diningStaff, requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriodArchiveStatus);
+// Manual caterer-wise student allocation management (per period)
+router.get('/dining-periods/:id/allocations', diningStaff, requireRouteAccess('route.admin.diningPeriods'), getPeriodAllocations);
+router.post('/dining-periods/:id/allocations', diningStaff, requireRouteAccess('route.admin.diningPeriods'), assignStudentAllocation);
+router.post('/dining-periods/:id/allocations/bulk', diningStaff, requireRouteAccess('route.admin.diningPeriods'), bulkAssignAllocations);
+router.post('/dining-periods/:id/allocations/reconcile', diningStaff, requireRouteAccess('route.admin.diningPeriods'), reconcileAllocations);
+router.delete('/dining-periods/:id/allocations/:studentUserId', diningStaff, requireRouteAccess('route.admin.diningPeriods'), removeStudentAllocation);
+
+router.get('/dining-rebates', diningStaff, requireRouteAccess('route.admin.diningPeriods'), getDiningRebateRequests);
+router.put('/dining-rebates/:id/approve', diningStaff, requireRouteAccess('route.admin.diningPeriods'), approveDiningRebateRequest);
+router.put('/dining-rebates/:id/reject', diningStaff, requireRouteAccess('route.admin.diningPeriods'), rejectDiningRebateRequest);
+
+// Dining billing management
+router.get('/dining-billing-periods', diningStaff, requireRouteAccess('route.admin.diningBilling'), getDiningBillingPeriods);
+router.post('/dining-billing-periods', diningStaff, requireRouteAccess('route.admin.diningBilling'), createDiningBillingPeriod);
+router.put('/dining-billing-periods/:id', diningStaff, requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriod);
+router.put('/dining-billing-periods/:id/archive', diningStaff, requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriodArchiveStatus);
+router.get('/dining-billing-periods/:id/accounts', diningStaff, requireRouteAccess('route.admin.diningBilling'), getDiningBillingAccounts);
+router.post('/dining-billing-periods/:id/accounts/bulk', diningStaff, requireRouteAccess('route.admin.diningBilling'), bulkUpdateDiningBillingAccounts);
+
 // Admin-only routes
 router.use(authorizeRoles(['Admin']));
 
@@ -171,34 +212,6 @@ router.get('/profile', requireRouteAccess('route.admin.profile'), (req, res) => 
 router.get('/hostels', requireRouteAccess('route.admin.hostels'), getHostels);
 router.post('/hostel', requireRouteAccess('route.admin.hostels'), addHostel);
 router.put('/hostel/:id', requireRouteAccess('route.admin.hostels'), updateHostel);
-
-// Dining caterer management
-router.get('/caterers', requireRouteAccess('route.admin.caterers'), getCaterers);
-router.post('/caterers', requireRouteAccess('route.admin.caterers'), createCaterer);
-router.put('/caterers/:id', requireRouteAccess('route.admin.caterers'), updateCaterer);
-router.put('/caterers/:id/archive', requireRouteAccess('route.admin.caterers'), updateCatererArchiveStatus);
-router.get('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), getDiningPeriods);
-router.post('/dining-periods', requireRouteAccess('route.admin.diningPeriods'), createDiningPeriod);
-router.put('/dining-periods/:id', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriod);
-router.put('/dining-periods/:id/archive', requireRouteAccess('route.admin.diningPeriods'), updateDiningPeriodArchiveStatus);
-// Manual caterer-wise student allocation management (per period)
-router.get('/dining-periods/:id/allocations', requireRouteAccess('route.admin.diningPeriods'), getPeriodAllocations);
-router.post('/dining-periods/:id/allocations', requireRouteAccess('route.admin.diningPeriods'), assignStudentAllocation);
-router.post('/dining-periods/:id/allocations/bulk', requireRouteAccess('route.admin.diningPeriods'), bulkAssignAllocations);
-router.post('/dining-periods/:id/allocations/reconcile', requireRouteAccess('route.admin.diningPeriods'), reconcileAllocations);
-router.delete('/dining-periods/:id/allocations/:studentUserId', requireRouteAccess('route.admin.diningPeriods'), removeStudentAllocation);
-
-router.get('/dining-rebates', requireRouteAccess('route.admin.diningPeriods'), getDiningRebateRequests);
-router.put('/dining-rebates/:id/approve', requireRouteAccess('route.admin.diningPeriods'), approveDiningRebateRequest);
-router.put('/dining-rebates/:id/reject', requireRouteAccess('route.admin.diningPeriods'), rejectDiningRebateRequest);
-
-// Dining billing management
-router.get('/dining-billing-periods', requireRouteAccess('route.admin.diningBilling'), getDiningBillingPeriods);
-router.post('/dining-billing-periods', requireRouteAccess('route.admin.diningBilling'), createDiningBillingPeriod);
-router.put('/dining-billing-periods/:id', requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriod);
-router.put('/dining-billing-periods/:id/archive', requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriodArchiveStatus);
-router.get('/dining-billing-periods/:id/accounts', requireRouteAccess('route.admin.diningBilling'), getDiningBillingAccounts);
-router.post('/dining-billing-periods/:id/accounts/bulk', requireRouteAccess('route.admin.diningBilling'), bulkUpdateDiningBillingAccounts);
 
 router.get('/dining-office', requireRouteAccess('route.admin.diningOffice'), getAllDiningOfficeStaff);
 router.post('/dining-office', requireRouteAccess('route.admin.diningOffice'), createDiningOfficeStaff);

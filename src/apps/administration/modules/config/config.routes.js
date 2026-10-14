@@ -27,7 +27,7 @@ const ACCOMMODATION_SETTINGS_SUBROLES = [
 ];
 
 const requireAccommodationSettingsAccess = (req, res, next) => {
-  if (req.params.key !== 'accommodation') return next();
+  if (!['accommodation', 'internAccommodation'].includes(req.params.key)) return next();
   if (!ACCOMMODATION_SETTINGS_SUBROLES.includes(req?.user?.subRole)) {
     return res.status(403).json({
       success: false,

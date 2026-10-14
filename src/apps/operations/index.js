@@ -34,6 +34,7 @@ import diningMealVerificationRoutes from './modules/dining-meal-verification/din
 import diningCatererRoutes from './modules/dining-caterer/index.js';
 import diningInsightsRoutes from './modules/dining-insights/index.js';
 import diningOfficeRoutes from './modules/dining-office/dining-office.routes.js';
+import diningOversightRoutes from './modules/dining-oversight/index.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import statsRoutes from './modules/stats/stats.routes.js';
 
@@ -53,6 +54,7 @@ router.use('/dining-meal-verification', diningMealVerificationRoutes);
 router.use('/dining-caterer', diningCatererRoutes);
 router.use('/dining-insights', diningInsightsRoutes);
 router.use('/dining-office', diningOfficeRoutes);
+router.use('/dining-oversight', diningOversightRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/stats', statsRoutes);
 

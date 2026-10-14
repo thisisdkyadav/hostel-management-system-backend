@@ -3,23 +3,22 @@ import multer from "multer"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { routeGuard } from "../../../../lib/api-kit/index.js"
 import { asyncHandler } from "../../../../utils/index.js"
+import { freshUser, isDesk } from "./h4.helpers.js"
 import { resolveAccess } from "./h4.access.js"
 import * as ctrl from "./h4.controller.js"
 
 export const H4_ROUTE_KEYS = {
-  Student: "route.student.internAccommodation",
   Academics: "route.academics.internAccommodation",
   Admin: "route.admin.internAccommodation",
   "Hostel Supervisor": "route.hostelSupervisor.internAccommodation",
   "Hostel Gate": "route.hostelGate.internAccommodation",
-  Warden: "route.warden.internAccommodation",
-  "Associate Warden": "route.associateWarden.internAccommodation",
-  Security: "route.security.internAccommodation",
-  "Maintenance Staff": "route.maintenance.internAccommodation",
-  Gymkhana: "route.gymkhana.internAccommodation",
-  "Super Admin": "route.superAdmin.internAccommodation",
-  Dining: "route.dining.internAccommodation",
 }
+const requireH4Role = asyncHandler(async (req, res, next) => {
+  const user = await freshUser(req.user)
+  if (!user || !(isDesk(user) || ["Academics", "Hostel Supervisor", "Hostel Gate"].includes(user.role)))
+    return res.status(403).json({ success: false, message: "Intern accommodation is restricted to the responsible offices and hostel staff" })
+  return next()
+})
 const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 1 } }).single(
   "image",
@@ -41,7 +40,7 @@ router.post("/access/:token/schedule", access, ctrl.publicSchedule)
 router.post("/access/:token/proof", access, upload, ctrl.publicUpload)
 router.get("/access/:token/invoice", access, ctrl.publicInvoice)
 router.get("/access/:token/qr", access, ctrl.publicQr)
-router.use(authenticate, routeGuard(H4_ROUTE_KEYS).access)
+router.use(authenticate, requireH4Role, routeGuard(H4_ROUTE_KEYS).access)
 router.get("/options", ctrl.options)
 router.get("/requests", ctrl.list)
 router.post("/batches", ctrl.create)

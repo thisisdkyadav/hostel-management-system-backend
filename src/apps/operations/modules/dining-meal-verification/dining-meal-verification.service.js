@@ -170,7 +170,7 @@ export const emitDiningMealVerificationEvent = async (verification) => {
       timestamp: new Date(),
     }
 
-    io.to("role:Admin").to("role:Super Admin").emit("dining-meal-verification:new", payload)
+    io.to("role:Admin").to("role:Super Admin").to("dining-office").emit("dining-meal-verification:new", payload)
     if (populated?.catererId?._id || populated?.catererId) {
       io.to(`caterer:${populated.catererId._id || populated.catererId}`).emit("dining-meal-verification:new", payload)
     }

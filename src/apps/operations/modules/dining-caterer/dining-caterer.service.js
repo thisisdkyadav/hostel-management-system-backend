@@ -91,13 +91,37 @@ export const getCatererScope = async (user, query = {}, validation = {}) => {
   return { caterer, error }
 }
 
+const isCatererLogin = (user) => user?.role === "Dining" && user?.subRole === "Caterer"
+
+/**
+ * Caterer logins only ever see their own kitchen. Admin and the dining office
+ * (gated by the oversight router) see every caterer, or one picked with ?catererId;
+ * then `caterer` is null for "all caterers" and `oversight` is true.
+ */
+export const getDiningScope = async (user, query = {}, validation = {}) => {
+  if (isCatererLogin(user)) return getCatererScope(user, query, validation)
+  const { catererId } = query
+  if (catererId !== undefined && (typeof catererId !== "string" || !/^[a-f\d]{24}$/i.test(catererId))) {
+    return { error: badRequest("catererId must be a valid ObjectId") }
+  }
+  const error = validateQuery(query, validation)
+  if (error) return { error }
+  if (!catererId) return { caterer: null, oversight: true }
+  const caterer = await diningQueries.findCatererById(catererId, { lean: true })
+  if (!caterer) return { error: notFound("Caterer") }
+  return { caterer, oversight: true }
+}
+
+/** Mongo match for the scope: one caterer, or every caterer. */
+export const catererMatch = (caterer) => (caterer ? { catererId: caterer._id } : {})
+
 export const getPeriodScope = async (user, query) => {
-  const scope = await getCatererScope(user, query, { required: ["periodId"] })
+  const scope = await getDiningScope(user, query, { required: ["periodId"] })
   if (scope.error) return scope
   const period = await diningQueries.findPeriodById(query.periodId, { lean: true })
   if (!period) return { error: notFound("Dining period") }
-  if (!period.catererIds.some((id) => idOf(id) === idOf(scope.caterer))) {
-    return { error: badRequest("periodId must belong to this caterer") }
+  if (scope.caterer && !period.catererIds.some((id) => idOf(id) === idOf(scope.caterer))) {
+    return { error: badRequest(scope.oversight ? "periodId must include this caterer" : "periodId must belong to this caterer") }
   }
   return { ...scope, period }
 }

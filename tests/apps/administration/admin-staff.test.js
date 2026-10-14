@@ -452,10 +452,26 @@ describe("academics users", () => {
     subRole: "HOD",
   })
 
-  it("400 when subRole missing / invalid", async () => {
-    const missing = await adminApi.post(`${BASE}/academics`).send({ name: "A", email: emailFor("academics") })
+  it("manages Office and Personal categories independently of HOD", async () => {
+    const p = { name: "Academic office", email: emailFor("academic-office"), academicCategory: "office" }
+    expect((await adminApi.post(`${BASE}/academics`).send(p)).status).toBe(201)
+    let entry = byEmail((await adminApi.get(`${BASE}/academics`)).body, p.email)
+    expect(entry.academicCategory).toBe("office")
+    expect(entry.subRole).toBeNull()
+    expect((await adminApi.put(`${BASE}/academics/${entry.id}`).send({ academicCategory: "personal" })).status).toBe(200)
+    entry = byEmail((await adminApi.get(`${BASE}/academics`)).body, p.email)
+    expect(entry.academicCategory).toBe("personal")
+    expect((await adminApi.put(`${BASE}/academics/${entry.id}`).send({ academicCategory: "admin" })).status).toBe(400)
+    expect((await adminApi.post(`${BASE}/academics`).send({ ...p, email: emailFor("bad-category"), academicCategory: "admin" })).status).toBe(400)
+    const personal = { name: "Professor", email: emailFor("personal") }
+    expect((await adminApi.post(`${BASE}/academics`).send(personal)).status).toBe(201)
+    expect(byEmail((await adminApi.get(`${BASE}/academics`)).body, personal.email).academicCategory).toBe("personal")
+  })
+
+  it("400 when identity is missing or subRole is invalid", async () => {
+    const missing = await adminApi.post(`${BASE}/academics`).send({ name: "A" })
     expect(missing.status).toBe(400)
-    expect(missing.body.message).toMatch(/Email, name, and subRole are required/i)
+    expect(missing.body.message).toMatch(/Email and name are required/i)
 
     const bad = await adminApi.post(`${BASE}/academics`).send({ ...payload(), subRole: "Dean" })
     expect(bad.status).toBe(400)

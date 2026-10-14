@@ -17,6 +17,8 @@ import {
   validateCategoryDefinitionsInput,
 } from '../../../student-affairs/modules/events/category-definitions.utils.js';
 
+import { validateH4Config } from "../../../visitors/modules/intern-accommodation/h4.config.js";
+
 const ACADEMIC_HOLIDAYS_KEY = "academicHolidays"
 const STUDENT_BATCHES_KEY = "studentBatches"
 const STUDENT_GROUPS_KEY = "studentGroups"
@@ -193,7 +195,11 @@ class ConfigService {
 
     let normalizedValue = value
     let previousConfig = null
-    if (key === ACADEMIC_HOLIDAYS_KEY) {
+    if (key === "internAccommodation") {
+      const normalized = validateH4Config(value)
+      if (normalized.error) return badRequest(normalized.error)
+      normalizedValue = normalized.value
+    } else if (key === ACADEMIC_HOLIDAYS_KEY) {
       const normalizedHolidays = normalizeAcademicHolidays(value)
       if (!normalizedHolidays.success) {
         return badRequest(normalizedHolidays.message)
