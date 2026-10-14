@@ -1,6 +1,7 @@
 import { asyncHandler } from "../../../../utils/index.js"
 import { getMealFeed, getMealPulse, getMealRecordOptions, getMealRecordOverview, getMealRecords } from "./dining-caterer.meal-records.service.js"
 import { getRebateOverview, getRebateDay, getRebates } from "./dining-caterer.rebates.service.js"
+import { getDailyReport } from "./dining-caterer.daily-report.service.js"
 
 export const mealRecordOptions = asyncHandler(async (req, res) => {
   const result = await getMealRecordOptions({ user: req.user, query: req.query })
@@ -32,5 +33,9 @@ export const rebateDay = asyncHandler(async (req, res) => {
 })
 export const rebates = asyncHandler(async (req, res) => {
   const result = await getRebates({ user: req.user, query: req.query })
+  res.status(result.statusCode).json({ success: result.success, message: result.message, data: result.data })
+})
+export const dailyReport = asyncHandler(async (req, res) => {
+  const result = await getDailyReport({ user: req.user, query: req.query })
   res.status(result.statusCode).json({ success: result.success, message: result.message, data: result.data })
 })

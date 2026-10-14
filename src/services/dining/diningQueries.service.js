@@ -283,6 +283,21 @@ export const diningQueries = {
     return query
   },
 
+  /** Students with at least one verified meal matching the filter (any caterer unless filtered). */
+  async distinctVerifiedStudents(filter = {}) {
+    return DiningMealVerification.distinct("studentUserId", { ...filter, status: "verified" })
+  },
+
+  /** Each roll number's latest verified meal before `before`, via the rollNumber/scannedAt index. */
+  async aggregateLastVerifiedByRollNumbers(rollNumbers, before) {
+    if (!rollNumbers.length) return []
+    return DiningMealVerification.aggregate([
+      { $match: { rollNumber: { $in: rollNumbers }, status: "verified", scannedAt: { $lt: before } } },
+      { $sort: { scannedAt: -1 } },
+      { $group: { _id: "$rollNumber", scannedAt: { $first: "$scannedAt" }, mealSlotName: { $first: "$mealSlotName" } } },
+    ])
+  },
+
   /** Verifications by filter, with the canonical populate. Options: { sort, skip, limit, lean }. */
   async findVerificationsPopulated(filter = {}, { sort, skip, limit, lean } = {}) {
     let query = populateVerification(DiningMealVerification.find(filter))

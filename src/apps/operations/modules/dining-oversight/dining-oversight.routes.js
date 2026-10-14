@@ -2,7 +2,7 @@ import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
 import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
-import { mealFeed, mealPulse, mealRecordOptions, mealRecordOverview, mealRecords } from "../dining-caterer/dining-caterer.controller.js"
+import { dailyReport, mealFeed, mealPulse, mealRecordOptions, mealRecordOverview, mealRecords } from "../dining-caterer/dining-caterer.controller.js"
 
 /**
  * The caterer meal-record views across every caterer, for Admin and the Dining
@@ -25,4 +25,5 @@ router.get("/meal-records/overview", mealRecordOverview)
 router.get("/meal-records/pulse", mealPulse)
 router.get("/meal-records", mealRecords)
 router.get("/feed", mealFeed)
+router.get("/daily-report", dailyReport)
 export default router

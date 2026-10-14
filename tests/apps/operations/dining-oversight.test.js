@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
-import { DiningPeriod } from "../../../src/models/index.js"
+import { DiningAllocation, DiningPeriod } from "../../../src/models/index.js"
 import { catererFixture, periodFixture, studentFixture, scanFixture, rebateFixture, roomFixture, shift, keyFor } from "../../helpers/seed/dining-caterer.js"
 
 beforeAll(setupTestDb)
 afterAll(teardownTestDb)
 const base = "/api/v1/dining-oversight"
-const routes = ["/meal-records/options", "/meal-records/overview", "/meal-records/pulse", "/meal-records", "/feed"]
+const routes = ["/meal-records/options", "/meal-records/overview", "/meal-records/pulse", "/meal-records", "/feed", "/daily-report"]
 const ok = (res) => {
   expect(res.status, JSON.stringify(res.body)).toBe(200)
   expect(res.body.success).toBe(true)
@@ -181,5 +181,57 @@ describe("admin dining pages — dining office", () => {
     const api = await as(await office())
     expect((await api.get("/api/v1/admin/dining-office")).status).toBe(403)
     expect((await api.get("/api/v1/admin/wardens")).status).toBe(403)
+  })
+})
+
+describe("dining oversight — daily report", () => {
+  it("counts each caterer's day: assigned, away, expected, and who ate each meal", async () => {
+    const f = await sharedFixture()
+    const [s1, s2, s3] = f.students
+    await scanFixture(f.fa, s1)
+    await scanFixture(f.fa, s1, { time: "13:00:00" })
+    await rebateFixture(f.fa, s2)
+    await scanFixture(f.fb, s3)
+    await scanFixture(f.fb, null, { status: "not-allocated" })
+    const data = ok(await (await as(await office())).get(base + "/daily-report").query({ date: f.date, periodId: String(f.period._id) }))
+    expect(data.period.id).toBe(String(f.period._id))
+    expect(data.periods.map((item) => item.id)).toContain(String(f.period._id))
+    expect(data.mealSlots.map((slot) => [slot.key, slot.state])).toEqual([["all-day", "ended"], ["lunch", "ended"]])
+    const [alpha, beta] = [f.a, f.b].map((x) => data.caterers.find((row) => row.id === String(x.caterer._id)))
+    expect(alpha).toMatchObject({ allocatedCount: 2, onRebateCount: 1, expectedCount: 1, ateAnyCount: 1, ateNothingCount: 0, issueCount: 0 })
+    expect(alpha.meals).toEqual({ "all-day": { verifiedCount: 1, notEatenCount: 0 }, lunch: { verifiedCount: 0, notEatenCount: 1 } })
+    expect(beta).toMatchObject({ allocatedCount: 1, expectedCount: 1, ateAnyCount: 1, issueCount: 1 })
+    expect(data.totals).toMatchObject({ allocatedCount: 3, onRebateCount: 1, expectedCount: 2, ateAnyCount: 2, ateNothingCount: 0, issueCount: 1 })
+    expect(data.totals.meals["all-day"]).toEqual({ verifiedCount: 2, notEatenCount: 0 })
+    const narrowed = ok(await (await as(await seed.admin())).get(base + "/daily-report").query({ date: f.date, periodId: String(f.period._id), catererId: String(f.b.caterer._id) }))
+    expect(narrowed.caterers.map((row) => row.id)).toEqual([String(f.b.caterer._id)])
+    expect(narrowed.totals.allocatedCount).toBe(1)
+  })
+
+  it("lists students on no rebate who have not eaten for the chosen days", async () => {
+    const f = await sharedFixture()
+    const [s1, s2, s3] = f.students
+    await DiningAllocation.collection.updateMany({ periodId: f.period._id }, { $set: { createdAt: new Date(`${shift(f.today, -15)}T00:00:00`) } })
+    const late = await studentFixture(f.period, f.a.caterer, "Dev Late", "D")
+    await scanFixture(f.fa, s1, { date: shift(f.today, -2) })
+    await scanFixture(f.fa, s2, { date: shift(f.today, -5) })
+    await rebateFixture(f.fb, s3, { from: shift(f.today, -1) })
+    const api = await as(await office())
+    const data = ok(await api.get(base + "/daily-report").query({ days: "3", periodId: String(f.period._id) }))
+    expect(data.checkOn).toMatchObject({ from: shift(f.today, -3), to: shift(f.today, -1), available: true })
+    expect(data.checkOn.students.map((row) => row.student.name)).toEqual(["Bilal Two"])
+    expect(data.checkOn.students[0]).toMatchObject({ caterer: { id: String(f.a.caterer._id) }, lastMealName: "All Day", daysWithoutMeal: 4 })
+    expect(data.checkOn.students.some((row) => row.student.id === String(late.user._id))).toBe(false)
+    const longer = ok(await api.get(base + "/daily-report").query({ days: "2", periodId: String(f.period._id), catererId: String(f.b.caterer._id) }))
+    expect(longer.checkOn.students).toEqual([])
+  })
+
+  it("validates days and reports a day with no dining period", async () => {
+    const api = await as(await office())
+    expect((await api.get(base + "/daily-report").query({ days: "4" })).status).toBe(400)
+    expect((await api.get(base + "/daily-report").query({ date: "nope" })).status).toBe(400)
+    expect((await api.get(base + "/daily-report").query({ periodId: "nope" })).status).toBe(400)
+    const data = ok(await api.get(base + "/daily-report").query({ date: "2001-01-01" }))
+    expect(data).toMatchObject({ period: null, periods: [], caterers: [], checkOn: null })
   })
 })
