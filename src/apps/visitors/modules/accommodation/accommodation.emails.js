@@ -7,6 +7,9 @@ import { emailService } from "../../../../services/email/index.js"
 import env from "../../../../config/env.config.js"
 import { ACCOMMODATION_STATUS } from "../../../../models/accommodation/AccommodationRequest.model.js"
 
+const escapeHtml = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c])
+
 const money = (n) => `Rs. ${(Number(n) || 0).toFixed(2)}`
 
 /** Soft labels for students — avoid "approve/approved" before hostel allotment. */
@@ -168,12 +171,18 @@ export const sendStaffQueueEmail = async ({ to = [], heading, action, request, s
 
   const who = student?.name || request?.applicantName || "A student"
   const rollNumber = student?.rollNumber ? ` (${student.rollNumber})` : ""
+  const academic = [student?.degree, student?.department].filter(Boolean).join(" · ")
   const body = `
     <p>${heading}</p>
+    <table style="border-collapse:collapse;margin-bottom:8px">
     ${row("Student", `${who}${rollNumber}`)}
+    ${row("Programme", academic)}
+    ${row("Email", student?.email || request?.applicantEmail)}
+    ${row("Phone", student?.phone || request?.applicantPhone)}
     ${row("Guests", request?.persons ?? (request?.guests?.length || 0))}
     ${row("Stay", `${formatDate(request?.stay?.fromDate)} to ${formatDate(request?.stay?.toDate)}`)}
     ${request?.stay?.purpose ? row("Purpose", request.stay.purpose) : ""}
+    </table>
     ${extra}
     <p><strong>Action needed:</strong> ${action}</p>
     ${ctaButton(staffQueueLink(), "Open the queue")}`
@@ -184,6 +193,15 @@ export const sendStaffQueueEmail = async ({ to = [], heading, action, request, s
     body,
   })
 }
+
+/** Current vs requested dates for a postpone / extend request (staff email body). */
+export const scheduleChangeHtml = ({ type, currentFrom, currentTo, requestedFromDate, requestedToDate, reason }) => `
+    <p style="margin-bottom:4px"><strong>Date change requested (${type === "postpone" ? "postpone" : "extend"})</strong></p>
+    <table style="border-collapse:collapse;margin-bottom:8px">
+    ${row("Current stay", `${formatDate(currentFrom)} to ${formatDate(currentTo)}`)}
+    ${row("Requested stay", `${formatDate(requestedFromDate)} to ${formatDate(requestedToDate)}`)}
+    ${row("Reason", escapeHtml(reason))}
+    </table>`
 
 export const sendStudentDecisionEmail = async ({ to, studentName, status, reason, requestId }) => {
   if (!to) return

@@ -214,6 +214,16 @@ const withLockRetry = async (key, ttlSeconds, task, { attempts = 6, delayMs = 15
   return LOCK_NOT_ACQUIRED
 }
 
+/** Requester's student profile for staff emails; null when not a student (e.g. intern bookings). */
+const requesterStudent = async (request) => {
+  if (!request?.requesterUserId) return null
+  try {
+    return (await studentProfileQueries.getFullStudentData(request.requesterUserId)) || null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Page the desk that now owns the request. Fire-and-forget: a notification
  * failure must never roll back the transition that caused it.
@@ -222,7 +232,9 @@ const notifyStaff = (resolveRecipients, payload) => {
   Promise.resolve()
     .then(async () => {
       const to = await resolveRecipients()
-      await accommodationEmails.sendStaffQueueEmail({ to, ...payload })
+      if (!to?.length) return
+      const student = payload.student || (await requesterStudent(payload.request))
+      await accommodationEmails.sendStaffQueueEmail({ to, ...payload, student })
     })
     .catch((error) => console.error("Accommodation staff notification failed:", error.message))
 }
@@ -598,6 +610,9 @@ export const accommodationService = {
     }
     if (query.status) filter.status = query.status
     if (query.queue === "chiefWarden") filter.status = ACCOMMODATION_STATUS.PENDING_CW_APPROVAL
+    if (query.scheduleChange === SCHEDULE_CHANGE_STATUS.PENDING) {
+      filter["scheduleChanges.status"] = SCHEDULE_CHANGE_STATUS.PENDING
+    }
 
     const total = await accommodationQueries.countRequests(filter)
     const items = await accommodationQueries.listRequests(filter, {
@@ -1760,7 +1775,14 @@ export const accommodationService = {
           : "A student requested to extend the guest stay end date.",
       action: "Review date change",
       request,
-      extra: `<p>Requested: ${dayKey(requestedFromDate)} → ${dayKey(requestedToDate)}. Reason: ${reason}</p>`,
+      extra: accommodationEmails.scheduleChangeHtml({
+        type,
+        currentFrom,
+        currentTo,
+        requestedFromDate,
+        requestedToDate,
+        reason,
+      }),
     })
     return success(request, 200, "Date-change request submitted to Chief Warden Office")
   },
