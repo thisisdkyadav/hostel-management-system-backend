@@ -624,6 +624,10 @@ router.get(
   eventsController.getEvents
 )
 
+// Export uses the same role and route access as the corresponding detail view.
+router.get("/mega-occurrences/:occurrenceId/export", authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]), ...megaEventsViewAccess, eventsController.exportMegaOccurrence)
+router.get("/:id/export", authorizeRoles([...ROLE_GROUPS.CAN_APPROVE_EVENTS]), ...eventsViewAccess, eventsController.exportEvent)
+
 // Get event by ID
 router.get(
   "/:id",

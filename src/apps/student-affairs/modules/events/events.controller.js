@@ -4,6 +4,7 @@
  */
 
 import { asyncHandler, sendRawResponse } from "../../../../utils/index.js"
+import { eventExportService } from "./event-export.service.js"
 import { calendarService } from "./calendar.service.js"
 import { proposalService } from "./proposal.service.js"
 import { expenseService } from "./expense.service.js"
@@ -685,4 +686,14 @@ export const getEntityAuditHistory = asyncHandler(async (req, res) => {
     limit: req.query.limit,
   })
   sendRawResponse(res, result)
+})
+
+export const exportEvent = asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store")
+  sendRawResponse(res, await eventExportService.export(req.params.id))
+})
+
+export const exportMegaOccurrence = asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store")
+  sendRawResponse(res, await eventExportService.export(req.params.occurrenceId, { mega: true }))
 })

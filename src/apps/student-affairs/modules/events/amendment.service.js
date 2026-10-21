@@ -164,7 +164,7 @@ class AmendmentService {
         return badRequest(budgetCapValidation.message)
       }
 
-      await gymkhanaEventOwner.createEvent({
+      const createdEvent = await gymkhanaEventOwner.createEvent({
         calendarId: amendment.calendarId,
         title: amendment.proposedChanges.title,
         category: amendment.proposedChanges.category,
@@ -174,6 +174,7 @@ class AmendmentService {
         description: amendment.proposedChanges.description,
         status: "upcoming",
       })
+      amendment.eventId = createdEvent._id
     }
 
     amendment.status = AMENDMENT_STATUS.APPROVED
