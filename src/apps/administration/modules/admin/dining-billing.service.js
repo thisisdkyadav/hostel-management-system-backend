@@ -160,7 +160,7 @@ const serializeBillingPeriod = (billingPeriod, summary = null) => {
  * Loads every participating student (union of accounts ∪ allocations) for a
  * billing period and computes their derived charges/balance.
  */
-const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()) => {
+export const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()) => {
   const diningPeriods = getContainedPeriods(billingPeriod);
   const periodIds = diningPeriods.map((p) => p._id);
 

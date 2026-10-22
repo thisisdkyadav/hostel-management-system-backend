@@ -13,6 +13,7 @@ import { success } from "../../../../services/base/index.js"
 import { getCurrentMealScope } from "../dining-meal-verification/dining-meal-verification.service.js"
 import { getBillingPeriods } from "../../../administration/modules/admin/dining-billing.service.js"
 import { normalizeDay, getDayKey } from "../../../../services/dining/dining-rebate.service.js"
+import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100
@@ -102,7 +103,7 @@ export const getDiningOfficeDashboard = async () => {
         startDate: period.startDate,
         endDate: period.endDate,
         dailyRate: Number(period.dailyRate || 0),
-        mealSlots: period.mealSlots || [],
+        mealSlots: resolveMealSlotsForDay(period, now),
         currentMealSlot: mealSlot?.name || null,
       }
       : null,

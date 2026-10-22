@@ -39,6 +39,13 @@ export const billingQueries = {
       .lean()
   },
 
+  /** Billing (mess fee) periods containing any of these dining periods, populated — billing cycles. */
+  async findBillingPeriodsByDiningPeriods(diningPeriodIds) {
+    return DiningBillingPeriod.find({ diningPeriodIds: { $in: diningPeriodIds } })
+      .populate(DINING_PERIODS_POPULATE)
+      .lean()
+  },
+
   /** Active billing periods by id (populated) — student billing overview. */
   async findActiveBillingPeriodsByIds(ids) {
     return DiningBillingPeriod.find({ _id: { $in: ids }, isArchived: false })

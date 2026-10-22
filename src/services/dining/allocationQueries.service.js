@@ -64,6 +64,21 @@ export const allocationQueries = {
     return DiningAllocation.countDocuments({ periodId, catererId })
   },
 
+  /** Allocation counts per (period, caterer) — billing-cycle list. */
+  async countAllocationsByPeriodsAndCaterer(periodIds) {
+    return DiningAllocation.aggregate([
+      { $match: { periodId: { $in: periodIds } } },
+      { $group: { _id: { periodId: "$periodId", catererId: "$catererId" }, count: { $sum: 1 } } },
+    ])
+  },
+
+  /** One period's allocations with caterer — billing-cycle detail. */
+  async findCycleAllocations(periodId) {
+    return DiningAllocation.find({ periodId })
+      .select("studentUserId studentProfileId rollNumber catererId selectedAt")
+      .lean()
+  },
+
   /** Lean allocation summaries across periods (billing charge derivation). */
   async findAllocationSummariesByPeriods(periodIds) {
     return DiningAllocation.find({ periodId: { $in: periodIds } })

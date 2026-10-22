@@ -45,7 +45,7 @@ export const getDailyReport = async ({ user, query = {} }) => {
   }
   if (!period) return success({ ...head, period: null, mealSlots: [], caterers: [], totals: null, checkOn: null })
 
-  const slots = mealSlots(period).map((slot) => ({ ...slot, state: mealState(date, slot) }))
+  const slots = mealSlots(period, date).map((slot) => ({ ...slot, state: mealState(date, slot) }))
   const allEnded = slots.length > 0 && slots.every((slot) => slot.state === "ended")
   const periodStart = dayKey(period.startDate)
 

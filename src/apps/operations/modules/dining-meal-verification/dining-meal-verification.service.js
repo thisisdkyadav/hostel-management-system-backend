@@ -1,3 +1,4 @@
+import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
 import mongoose from "mongoose"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
@@ -70,7 +71,7 @@ const isTimeInsideSlot = (date, slot) => {
 }
 
 const getMealSlotForDate = (period, date) => {
-  const slots = Array.isArray(period?.mealSlots) ? period.mealSlots : []
+  const slots = period ? resolveMealSlotsForDay(period, date) : []
   const slot = slots.find((candidate) => isTimeInsideSlot(date, candidate))
   if (!slot) return null
 
@@ -502,7 +503,7 @@ export const getDiningMealVerificationContext = async ({ user = null } = {}) => 
         id: currentPeriod._id,
         startDate: currentPeriod.startDate,
         endDate: currentPeriod.endDate,
-        mealSlots: currentPeriod.mealSlots || [],
+        mealSlots: resolveMealSlotsForDay(currentPeriod, now),
         currentMealSlot,
         isCatererInPeriod: isCatererInCurrentPeriod,
         caterers: Array.isArray(currentPeriod.catererIds)
@@ -587,7 +588,7 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
       id: period._id,
       startDate: period.startDate,
       endDate: period.endDate,
-      mealSlots: period.mealSlots || [],
+      mealSlots: resolveMealSlotsForDay(period, now),
     },
     currentMealSlot: mealSlot,
     students,

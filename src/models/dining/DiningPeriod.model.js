@@ -25,6 +25,16 @@ const DiningPeriodSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Scheduled one-shot email to eligible students announcing the
+    // registration window. notificationSentAt is set when the job claims it.
+    notificationAt: {
+      type: Date,
+      default: null,
+    },
+    notificationSentAt: {
+      type: Date,
+      default: null,
+    },
     catererIds: {
       type: [mongoose.Schema.Types.ObjectId],
       ref: "Caterer",
@@ -77,6 +87,25 @@ const DiningPeriodSchema = new mongoose.Schema(
         { name: "Lunch", startTime: "12:00", endTime: "15:00" },
         { name: "Dinner", startTime: "19:00", endTime: "22:00" },
       ],
+    },
+    // Per-day meal timing overrides on top of mealSlots (see services/dining/mealSchedule.js).
+    weekSchedule: {
+      type: [
+        {
+          weekday: { type: Number, min: 0, max: 6, required: true },
+          slots: [{ _id: false, name: String, startTime: String, endTime: String, closed: { type: Boolean, default: false } }],
+        },
+      ],
+      default: [],
+    },
+    dateSchedule: {
+      type: [
+        {
+          date: { type: String, required: true },
+          slots: [{ _id: false, name: String, startTime: String, endTime: String, closed: { type: Boolean, default: false } }],
+        },
+      ],
+      default: [],
     },
     dailyRate: {
       type: Number,
@@ -133,6 +162,7 @@ DiningPeriodSchema.index({ isArchived: 1, startDate: -1 })
 DiningPeriodSchema.index({ catererIds: 1 })
 DiningPeriodSchema.index({ allocationStartAt: 1, allocationEndAt: 1, isArchived: 1 })
 DiningPeriodSchema.index({ eligibilityMode: 1 })
+DiningPeriodSchema.index({ notificationAt: 1, notificationSentAt: 1 })
 
 DiningPeriodSchema.virtual("id").get(function () {
   return this._id

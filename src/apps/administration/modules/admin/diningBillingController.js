@@ -12,6 +12,7 @@ import {
   getBillingPeriods,
   updateBillingPeriod,
 } from './dining-billing.service.js';
+import { getBillingCycle, getBillingCycles } from './dining-billing-cycles.service.js';
 
 const respond = (res, result) => {
   if (!result.success) {
@@ -56,5 +57,15 @@ export const bulkUpdateDiningBillingAccounts = asyncHandler(async (req, res) => 
     entries: req.body?.entries,
     performedBy: req.user?._id,
   });
+  respond(res, result);
+});
+
+export const getDiningBillingCycles = asyncHandler(async (req, res) => {
+  const result = await getBillingCycles();
+  respond(res, result);
+});
+
+export const getDiningBillingCycle = asyncHandler(async (req, res) => {
+  const result = await getBillingCycle(req.params.id);
   respond(res, result);
 });

@@ -39,6 +39,8 @@ import {
   bulkUpdateDiningBillingAccounts,
   createDiningBillingPeriod,
   getDiningBillingAccounts,
+  getDiningBillingCycles,
+  getDiningBillingCycle,
   getDiningBillingPeriods,
   updateDiningBillingPeriod,
   updateDiningBillingPeriodArchiveStatus,
@@ -192,6 +194,8 @@ router.get('/dining-billing-periods', diningStaff, requireRouteAccess('route.adm
 router.post('/dining-billing-periods', diningStaff, requireRouteAccess('route.admin.diningBilling'), createDiningBillingPeriod);
 router.put('/dining-billing-periods/:id', diningStaff, requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriod);
 router.put('/dining-billing-periods/:id/archive', diningStaff, requireRouteAccess('route.admin.diningBilling'), updateDiningBillingPeriodArchiveStatus);
+router.get('/dining-billing-cycles', diningStaff, requireRouteAccess('route.admin.diningBilling'), getDiningBillingCycles);
+router.get('/dining-billing-cycles/:id', diningStaff, requireRouteAccess('route.admin.diningBilling'), getDiningBillingCycle);
 router.get('/dining-billing-periods/:id/accounts', diningStaff, requireRouteAccess('route.admin.diningBilling'), getDiningBillingAccounts);
 router.post('/dining-billing-periods/:id/accounts/bulk', diningStaff, requireRouteAccess('route.admin.diningBilling'), bulkUpdateDiningBillingAccounts);
 

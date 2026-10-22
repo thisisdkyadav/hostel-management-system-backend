@@ -63,6 +63,23 @@ export const diningOwner = {
     return query
   },
 
+  /**
+   * Atomically claim one period whose registration notification is due
+   * (sets notificationSentAt). Safe across instances: only one claimer wins.
+   */
+  async claimDueNotificationPeriod(now = new Date()) {
+    return DiningPeriod.findOneAndUpdate(
+      {
+        notificationAt: { $ne: null, $lte: now },
+        notificationSentAt: null,
+        isArchived: false,
+        registrationEnabled: { $ne: false },
+      },
+      { $set: { notificationSentAt: now } },
+      { new: true, sort: { notificationAt: 1 } }
+    ).lean()
+  },
+
   // ---- DiningMealVerification ----
 
   /** Create a meal-verification record. */

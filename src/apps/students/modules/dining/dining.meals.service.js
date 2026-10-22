@@ -105,7 +105,7 @@ export const getStudentDiningMeals = async (userId) => {
     period: { id: idOf(period), startDate: periodStart, endDate: dayKey(period.endDate) },
     caterer: allocation.catererId?.name ? { id: idOf(allocation.catererId), name: allocation.catererId.name } : null,
     mealSlots: slots,
-    todayMeals: slots.map((slot) => ({ ...slot, state: mealState(today, slot, now), ...mealFor(today, slot) })),
+    todayMeals: mealSlots(period, today).map((slot) => ({ ...slot, state: mealState(today, slot, now), ...mealFor(today, slot) })),
     days,
     summary,
   });

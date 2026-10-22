@@ -22,7 +22,7 @@ export const getMealRecordOptions = async ({ user, query = {} }) => {
     oversight ? diningQueries.findCaterers({}, { lean: true, sort: { name: 1 } }) : null,
   ])
   const current = periods.find((period) => !period.isArchived && dayKey(period.startDate) <= today && dayKey(period.endDate) >= today)
-  const currentMeal = current && mealSlots(current).find((slot) => mealState(today, slot, now) === "serving")
+  const currentMeal = current && mealSlots(current, today).find((slot) => mealState(today, slot, now) === "serving")
   return success({
     caterer: caterer ? serializeCaterer(caterer) : null, today,
     currentPeriodId: current ? idOf(current) : null,

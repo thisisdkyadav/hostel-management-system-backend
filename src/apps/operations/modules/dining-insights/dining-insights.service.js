@@ -259,7 +259,7 @@ export const getDiningInsightsOverview = async ({ query = {} } = {}) => {
   return success({
     generatedAt: now.toISOString(), today, from, to: today, days, timezone,
     totals: { caterers: caterers.filter((caterer) => currentCatererIds.has(idOf(caterer))).length, allocatedStudents: allocatedStudents.size, todayOnRebate: todayRebated.size, pendingRebates: rebates.filter((rebate) => rebate.status === "pending").length, currentPeriod: current ? { id: idOf(current), startDate: dayKey(current.startDate), endDate: dayKey(current.endDate) } : null },
-    mealSlots: slots, currentMealSlotKey: current ? mealSlots(current).find((slot) => mealState(today, slot, now) === "serving")?.key || null : null,
+    mealSlots: slots, currentMealSlotKey: current ? mealSlots(current, today).find((slot) => mealState(today, slot, now) === "serving")?.key || null : null,
     peaks, weekdayHeat, daily, caterers: catererRows, rebateForecast,
     scanner: { verified, issues, bySource }, students,
     records: { busiestMeal, busiestMinute: scanSummary.clockMinutes[0] ? { at: scanSummary.clockMinutes[0]._id.toISOString(), scans: scanSummary.clockMinutes[0].scans } : null, bestAttendedMeal: rankedMeals[0] || null, leastAttendedMeal: rankedMeals.at(-1) || null },

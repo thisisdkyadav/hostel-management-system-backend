@@ -82,6 +82,37 @@ const normalizeMealSlots = (values = []) => {
     .filter((slot) => slot.name || slot.startTime || slot.endTime);
 };
 
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+// Keeps only overrides for known meals. Weekday entries equal to the default are
+// dropped; date entries are kept since they may undo a weekday change.
+const normalizeDaySlots = (slots = [], baseSlots = [], { dropUnchanged = true } = {}) => {
+  const baseByName = new Map(baseSlots.map((slot) => [slot.name.toLowerCase(), slot]));
+  return (Array.isArray(slots) ? slots : [])
+    .map((slot) => {
+      const base = baseByName.get(String(slot?.name || '').trim().toLowerCase());
+      if (!base) return null;
+      const closed = Boolean(slot.closed);
+      const startTime = String(slot.startTime || base.startTime).trim();
+      const endTime = String(slot.endTime || base.endTime).trim();
+      if (dropUnchanged && !closed && startTime === base.startTime && endTime === base.endTime) return null;
+      return { name: base.name, startTime, endTime, closed };
+    })
+    .filter(Boolean);
+};
+
+const normalizeWeekSchedule = (values = [], baseSlots = []) => (
+  (Array.isArray(values) ? values : [])
+    .map((entry) => ({ weekday: Number(entry?.weekday), slots: normalizeDaySlots(entry?.slots, baseSlots) }))
+    .filter((entry) => Number.isInteger(entry.weekday) && entry.weekday >= 0 && entry.weekday <= 6 && entry.slots.length > 0)
+);
+
+const normalizeDateSchedule = (values = [], baseSlots = []) => (
+  (Array.isArray(values) ? values : [])
+    .map((entry) => ({ date: String(entry?.date || '').trim(), slots: normalizeDaySlots(entry?.slots, baseSlots, { dropUnchanged: false }) }))
+    .filter((entry) => DATE_KEY_PATTERN.test(entry.date) && entry.slots.length > 0)
+);
+
 const normalizeRebateSettings = (value = {}) => {
   const numberOrDefault = (rawValue, fallback) => {
     const numeric = Number(rawValue);
@@ -173,6 +204,8 @@ const serializePeriod = (period, activeStudentCount = 0) => {
     registrationEnabled: period.registrationEnabled !== false,
     allocationStartAt: period.allocationStartAt,
     allocationEndAt: period.allocationEndAt,
+    notificationAt: period.notificationAt || null,
+    notificationSentAt: period.notificationSentAt || null,
     catererIds: rawCatererIds,
     caterers,
     catererCapacities,
@@ -180,6 +213,8 @@ const serializePeriod = (period, activeStudentCount = 0) => {
     eligibilityMode: period.eligibilityMode,
     eligibleRollNumbers,
     mealSlots,
+    weekSchedule: normalizeWeekSchedule(period.weekSchedule, mealSlots),
+    dateSchedule: normalizeDateSchedule(period.dateSchedule, mealSlots),
     rebateSettings,
     dailyRate: Math.max(0, Number(period.dailyRate || 0)),
     eligibleStudentCount: period.eligibilityMode === ELIGIBILITY_MODE_ALL_ACTIVE
@@ -199,6 +234,7 @@ class DiningPeriodService {
     const endDate = payload.endDate ? new Date(payload.endDate) : null;
     const allocationStartAt = payload.allocationStartAt ? new Date(payload.allocationStartAt) : null;
     const allocationEndAt = payload.allocationEndAt ? new Date(payload.allocationEndAt) : null;
+    const notificationAt = payload.notificationAt ? new Date(payload.notificationAt) : null;
     const rawCatererIds = normalizeObjectIds(payload.catererIds);
     let catererCapacities = normalizeCatererCapacities(payload.catererCapacities);
     const catererIds = rawCatererIds.length > 0
@@ -207,6 +243,8 @@ class DiningPeriodService {
     const eligibilityMode = String(payload.eligibilityMode || ELIGIBILITY_MODE_ALL_ACTIVE).trim();
     const eligibleRollNumbers = normalizeRollNumbers(payload.eligibleRollNumbers);
     const mealSlots = normalizeMealSlots(payload.mealSlots);
+    const weekSchedule = normalizeWeekSchedule(payload.weekSchedule, mealSlots);
+    const dateSchedule = normalizeDateSchedule(payload.dateSchedule, mealSlots);
     const rebateSettings = normalizeRebateSettings(payload.rebateSettings);
     const dailyRate = Math.max(0, Number(payload.dailyRate || 0));
     // Optional: when disabled the period has no self-registration window and the
@@ -223,6 +261,12 @@ class DiningPeriodService {
       }
       if (allocationStartAt > allocationEndAt) {
         return { error: 'Allocation start time must be before or equal to allocation end time' };
+      }
+      if (notificationAt && Number.isNaN(notificationAt.getTime())) {
+        return { error: 'Invalid notification date and time' };
+      }
+      if (notificationAt && notificationAt > allocationEndAt) {
+        return { error: 'Notification time must be before the allocation end time' };
       }
     }
 
@@ -248,6 +292,13 @@ class DiningPeriodService {
     ));
     if (duplicateMealSlotName) {
       return { error: 'Meal verification slot names must be unique within a period' };
+    }
+
+    const invalidDaySlot = [...weekSchedule, ...dateSchedule]
+      .flatMap((entry) => entry.slots)
+      .find((slot) => !slot.closed && (!TIME_PATTERN.test(slot.startTime) || !TIME_PATTERN.test(slot.endTime)));
+    if (invalidDaySlot) {
+      return { error: `Day-specific timing for ${invalidDaySlot.name} must be valid HH:mm start/end time` };
     }
 
     if (rebateSettings.shortTermMinApplicationDays > rebateSettings.shortTermMaxContinuousDays) {
@@ -350,9 +401,12 @@ class DiningPeriodService {
         registrationEnabled,
         allocationStartAt: registrationEnabled ? allocationStartAt : null,
         allocationEndAt: registrationEnabled ? allocationEndAt : null,
+        notificationAt: registrationEnabled ? notificationAt : null,
         catererIds,
         catererCapacities,
         mealSlots,
+        weekSchedule,
+        dateSchedule,
         rebateSettings,
         dailyRate,
         eligibilityMode,
@@ -419,7 +473,14 @@ class DiningPeriodService {
       return badRequest(error.message || 'Unable to create caterer logins for selected caterers');
     }
 
-    await diningOwner.updatePeriodById(periodId, validation.data, { new: false, runValidators: true });
+    // Re-arm the scheduled notification when its time changes.
+    const previousNotificationAt = existingPeriod.notificationAt ? new Date(existingPeriod.notificationAt).getTime() : null;
+    const nextNotificationAt = validation.data.notificationAt ? validation.data.notificationAt.getTime() : null;
+    const updates = previousNotificationAt === nextNotificationAt
+      ? validation.data
+      : { ...validation.data, notificationSentAt: null };
+
+    await diningOwner.updatePeriodById(periodId, updates, { new: false, runValidators: true });
 
     // The update rewrote catererCapacities using allocatedCount from a prior
     // read; recompute the seat counters from the actual allocation rows so a

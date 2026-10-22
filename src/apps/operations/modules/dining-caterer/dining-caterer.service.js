@@ -1,6 +1,7 @@
 import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { badRequest, notFound } from "../../../../services/base/index.js"
+import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
 
 export const idOf = (value) => String(value?._id || value || "")
 export const serializeCaterer = (caterer) => ({ id: idOf(caterer), name: caterer.name, email: caterer.email })
@@ -126,7 +127,8 @@ export const getPeriodScope = async (user, query) => {
   return { ...scope, period }
 }
 
-export const mealSlots = (period) => (period.mealSlots || []).map((slot) => ({
+// With a day ("YYYY-MM-DD"), returns that day's timings (closed meals omitted).
+export const mealSlots = (period, day) => (day ? resolveMealSlotsForDay(period, day) : period.mealSlots || []).map((slot) => ({
   key: String(slot.name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
   name: slot.name,
   startTime: slot.startTime,

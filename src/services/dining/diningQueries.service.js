@@ -269,6 +269,40 @@ export const diningQueries = {
   },
 
   /** Bulk scan summaries for historical calendars (no identity population). */
+  /** Per-period verification tallies (billing-cycle list): status counts + distinct verified eaters. */
+  async aggregateVerificationStatsByPeriods(periodIds) {
+    return DiningMealVerification.aggregate([
+      { $match: { periodId: { $in: periodIds } } },
+      { $group: {
+        _id: "$periodId",
+        verified: { $sum: { $cond: [{ $eq: ["$status", "verified"] }, 1, 0] } },
+        issues: { $sum: { $cond: [{ $eq: ["$status", "verified"] }, 0, 1] } },
+        eaters: { $addToSet: { $cond: [{ $eq: ["$status", "verified"] }, "$studentUserId", "$$REMOVE"] } },
+      } },
+      { $project: { verified: 1, issues: 1, eaterCount: { $size: "$eaters" } } },
+    ]).allowDiskUse(true)
+  },
+
+  /** One period's verified meals per student x day x meal (billing-cycle detail). */
+  async aggregateCycleMeals(periodId, timezone) {
+    return DiningMealVerification.aggregate([
+      { $match: { periodId, status: "verified" } },
+      { $group: {
+        _id: {
+          studentUserId: "$studentUserId",
+          date: { $dateToString: { date: "$scannedAt", format: "%Y-%m-%d", timezone } },
+          mealSlotKey: "$mealSlotKey",
+        },
+      } },
+      { $project: { _id: 0, studentUserId: "$_id.studentUserId", date: "$_id.date", mealSlotKey: "$_id.mealSlotKey" } },
+    ]).allowDiskUse(true)
+  },
+
+  /** Count of non-verified scan attempts in one period. */
+  async countCycleIssues(periodId) {
+    return DiningMealVerification.countDocuments({ periodId, status: { $ne: "verified" } })
+  },
+
   async findVerifications(filter = {}, { select, sort } = {}) {
     let query = DiningMealVerification.find(filter)
     if (select) query = query.select(select)

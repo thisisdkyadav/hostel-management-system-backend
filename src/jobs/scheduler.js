@@ -12,6 +12,7 @@ import { withLock } from "../services/lock/distributedLock.js"
 import { accommodationService } from "../apps/visitors/modules/accommodation/accommodation.service.js"
 import { h4Service } from "../apps/visitors/modules/intern-accommodation/h4.service.js"
 import { h4Notifications } from "../apps/visitors/modules/intern-accommodation/h4.notifications.js"
+import { sendDueDiningPeriodNotifications } from "../apps/administration/modules/admin/dining-period-notification.service.js"
 
 const HOUR_MS = 60 * 60 * 1000
 const STARTUP_DELAY_MS = 30 * 1000
@@ -71,7 +72,10 @@ export const startJobScheduler = () => {
   tickTimer = setInterval(() => {
     runHourlyJobs().catch(() => {})
   }, HOUR_MS)
-  notificationTimer = setInterval(() => h4Notifications.drain().catch(error => console.error("[scheduler] H4 notification delivery failed:", error.message)), 60000)
+  notificationTimer = setInterval(() => {
+    h4Notifications.drain().catch(error => console.error("[scheduler] H4 notification delivery failed:", error.message))
+    sendDueDiningPeriodNotifications().catch(error => console.error("[scheduler] dining period notifications failed:", error.message))
+  }, 60000)
   console.log("⏰ Job scheduler started")
 }
 

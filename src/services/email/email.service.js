@@ -396,6 +396,50 @@ class EmailService {
   }
 
   /**
+   * Send ONE email to many recipients as a group: recipients go in BCC (hidden
+   * from each other) so the provider counts it as a single message. Gmail caps
+   * recipients per message (~500), so very large lists are split into
+   * as few messages as possible.
+   * @returns {Promise<{success: boolean, sent: number, failed: number, messages: number, errors: string[]}>}
+   */
+  async sendGroupEmail({ recipients = [], subject, html, text, batchSize = 450 }) {
+    const unique = [...new Set(recipients.map((value) => String(value || '').trim()).filter(Boolean))];
+    if (unique.length === 0) return { success: true, sent: 0, failed: 0, messages: 0, errors: [] };
+
+    if (!this.isConfigured || !this.singleTransporterEntry) {
+      return { success: false, sent: 0, failed: unique.length, messages: 0, errors: ['Email service not configured'] };
+    }
+
+    const sender = env.smtp.sendAs || env.smtp.from;
+    const shouldRedirectInDevelopment = env.isDevelopment && Boolean(env.smtp.developmentRedirectTo);
+    const results = { sent: 0, failed: 0, messages: 0, errors: [] };
+
+    for (let index = 0; index < unique.length; index += batchSize) {
+      const batch = unique.slice(index, index + batchSize);
+      try {
+        const result = await this.queueEmailSend(() => this.singleTransporterEntry.transporter.sendMail({
+          from: sender,
+          replyTo: sender,
+          to: shouldRedirectInDevelopment ? env.smtp.developmentRedirectTo : sender,
+          bcc: shouldRedirectInDevelopment ? undefined : batch,
+          subject: shouldRedirectInDevelopment ? `[dev: ${batch.length} BCC recipients] ${subject}` : subject,
+          html,
+          text: text || this.stripHtml(html),
+        }));
+        results.sent += batch.length;
+        results.messages += 1;
+        logger.info('Group email sent', { subject, recipients: batch.length, messageId: result.messageId });
+      } catch (error) {
+        results.failed += batch.length;
+        results.errors.push(error.message);
+        logger.error('Failed to send group email', { subject, recipients: batch.length, error: error.message });
+      }
+    }
+
+    return { success: results.failed === 0, ...results };
+  }
+
+  /**
    * Send custom email with template styling
    * @param {Object} options - Email options
    * @param {string|string[]} options.to - Recipient email(s)
