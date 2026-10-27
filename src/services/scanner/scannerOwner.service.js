@@ -52,6 +52,11 @@ export const scannerOwner = {
 
   async syncAccountScannerIndexes() {
     await ScannerAccount.createIndexes()
+    // Legacy deployments carry a UNIQUE username_1; ZKTeco scanners have no username, so it
+    // must become the schema's plain index (Time Watch uniqueness is the partial index).
+    const legacyUsername = (await FaceScanner.collection.indexes()).find((index) =>
+      index.name === "username_1" && index.unique)
+    if (legacyUsername) await FaceScanner.collection.dropIndex(legacyUsername.name)
     // Build the replacement before removing the old global alias constraint.
     await FaceScanner.createIndexes()
     const indexes = await FaceScanner.collection.indexes()

@@ -44,6 +44,8 @@ try {
   const indexes = await scannerQueries.scannerIndexes()
   const oldAliases = indexes.filter((index) => index.unique && Object.keys(index.key).length === 1 && index.key.deviceName === 1)
   console.log(`Global unique deviceName indexes: ${oldAliases.map((index) => index.name).join(", ") || "absent"}`)
+  const legacyUsername = indexes.find((index) => index.name === "username_1" && index.unique)
+  console.log(`Legacy unique username index: ${legacyUsername ? "username_1 (will be replaced by a non-unique index)" : "absent"}`)
   if (apply) {
     for (const group of groups.values()) {
       const latest = group[0]
