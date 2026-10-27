@@ -30,7 +30,7 @@ export * from './attendance/index.js'
 // Expenditure Models (Student Affairs)
 export * from './expenditure/index.js'
 
-// Scanner Models
+// Scanner Models (FaceScanner, ScannerAccount, ApiClient)
 export * from './scanner/index.js'
 
 // Task Models

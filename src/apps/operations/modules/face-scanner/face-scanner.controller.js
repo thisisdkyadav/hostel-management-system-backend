@@ -1,3 +1,4 @@
+import * as scannerAccountService from "./scanner-account.service.js"
 import * as faceScannerService from "./face-scanner.service.js"
 import { asyncHandler } from "../../../../utils/index.js"
 
@@ -6,7 +7,7 @@ import { asyncHandler } from "../../../../utils/index.js"
  * POST /api/face-scanner
  */
 export const createFaceScanner = asyncHandler(async (req, res) => {
-  const { name, type, direction, hostelId, catererId, provider, deviceName, username, password } = req.body
+  const { name, type, direction, hostelId, catererId, isActive, provider, deviceName, accountId, username, password, passwordHash } = req.body
 
   if (!name || !type || !direction) {
     return res.status(400).json({
@@ -23,19 +24,22 @@ export const createFaceScanner = asyncHandler(async (req, res) => {
     catererId,
     provider,
     deviceName,
+    accountId,
+    isActive,
+    passwordHash,
     username,
     password,
   })
 
   res.status(201).json({
     success: true,
-    message: "Scanner created successfully. Save the credentials - the password will not be shown again.",
+    message: scanner.provider === "zkteco" ? "Scanner created successfully" : "Scanner created successfully. Save the credentials - the password will not be shown again.",
     data: {
       scanner,
-      credentials: {
+      ...(scanner.provider === "zkteco" ? {} : { credentials: {
         username: scanner.username,
         password: plainPassword,
-      },
+      } }),
     },
   })
 })
@@ -78,7 +82,7 @@ export const getFaceScannerById = asyncHandler(async (req, res) => {
  * PUT /api/face-scanner/:id
  */
 export const updateFaceScanner = asyncHandler(async (req, res) => {
-  const { name, type, direction, hostelId, catererId, isActive, provider, deviceName, username, password } = req.body
+  const { name, type, direction, hostelId, catererId, isActive, provider, deviceName, accountId, username, password, passwordHash } = req.body
 
   const scanner = await faceScannerService.updateScanner(req.params.id, {
     name,
@@ -89,6 +93,8 @@ export const updateFaceScanner = asyncHandler(async (req, res) => {
     isActive,
     provider,
     deviceName,
+    accountId,
+    passwordHash,
     username,
     password,
   })
@@ -166,3 +172,23 @@ export const testScannerAuth = asyncHandler(async (req, res) => {
     scanner: req.scanner,
   })
 })
+
+// Account services return ServiceResponse; keep the module's existing wire envelope.
+const sendAccountResponse = (res, result) => res.status(result.statusCode).json({
+  success: result.success,
+  ...(result.message ? { message: result.message } : {}),
+  data: result.data,
+})
+
+export const getScannerAccounts = asyncHandler(async (req, res) =>
+  sendAccountResponse(res, await scannerAccountService.getAccounts()))
+export const getScannerAccountById = asyncHandler(async (req, res) =>
+  sendAccountResponse(res, await scannerAccountService.getAccount(req.params.id)))
+export const createScannerAccount = asyncHandler(async (req, res) =>
+  sendAccountResponse(res, await scannerAccountService.createAccount(req.body)))
+export const updateScannerAccount = asyncHandler(async (req, res) =>
+  sendAccountResponse(res, await scannerAccountService.updateAccount(req.params.id, req.body)))
+export const deleteScannerAccount = asyncHandler(async (req, res) =>
+  sendAccountResponse(res, await scannerAccountService.deleteAccount(req.params.id)))
+export const regenerateScannerAccountPassword = asyncHandler(async (req, res) =>
+  sendAccountResponse(res, await scannerAccountService.regenerateAccountPassword(req.params.id)))

@@ -2,7 +2,7 @@
  * Scanner Queries Service
  * -----------------------
  * The single READ surface for the Scanner domain — the `ApiClient` and
- * `FaceScanner` collections. The super-admin service, the face-scanner service,
+ * `FaceScanner` / `ScannerAccount` collections. The super-admin service, the face-scanner service,
  * and the scanner-auth middleware read through these instead of importing the
  * models, so the collections are touched only inside `src/services/scanner/`
  * (writes live in scannerOwner.service.js).
@@ -14,7 +14,7 @@
  *    (the auth middleware reads `passwordHash` for bcrypt.compare, so NOT lean).
  */
 
-import { ApiClient, FaceScanner } from "../../models/index.js"
+import { ApiClient, FaceScanner, ScannerAccount } from "../../models/index.js"
 
 const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -23,6 +23,28 @@ const withScannerRefs = (query) =>
   query.populate("hostelId", "name type").populate("catererId", "name email")
 
 export const scannerQueries = {
+  async listAccounts() {
+    return ScannerAccount.find().select("-passwordHash").sort({ createdAt: -1 }).lean()
+  },
+
+  async findAccountById(id, { session } = {}) {
+    return ScannerAccount.findById(id).select("-passwordHash").session(session || null).lean()
+  },
+
+  // Only authentication and credential collision checks request a hydrated account.
+  async findAccountByUsername(username, { session } = {}) {
+    return ScannerAccount.findOne({ username }).collation({ locale: "en", strength: 2 }).session(session || null)
+  },
+
+  async listUnmigratedZktecoScanners() {
+    return FaceScanner.find({ provider: "zkteco", accountId: null }).sort({ updatedAt: -1, _id: -1 }).lean()
+  },
+
+  async scannerIndexes() {
+    try { return await FaceScanner.collection.indexes() }
+    catch (err) { if (err.codeName === "NamespaceNotFound") return []; throw err }
+  },
+
   // ==================== ApiClient ====================
 
   /** All API clients (bare find, no sort — as before). */
@@ -38,13 +60,15 @@ export const scannerQueries = {
   // ==================== FaceScanner ====================
 
   /** Admin list of scanners (filtered), hostel+caterer populated, newest first, LEAN. */
-  async listScanners(query) {
-    return withScannerRefs(FaceScanner.find(query)).sort({ createdAt: -1 }).lean()
+  async listScanners(query, { hidePasswordHash = false } = {}) {
+    const find = FaceScanner.find(query)
+    if (hidePasswordHash) find.select("-passwordHash")
+    return withScannerRefs(find).populate("accountId", "name username isActive").sort({ createdAt: -1 }).lean()
   },
 
   /** One scanner by id, hostel+caterer populated, LEAN (admin detail). */
   async findScannerByIdPopulatedLean(id) {
-    return withScannerRefs(FaceScanner.findById(id)).lean()
+    return withScannerRefs(FaceScanner.findById(id)).populate("accountId", "name username isActive").lean()
   },
 
   /** One scanner by id, HYDRATED (regen-password: mutate-then-save). */
@@ -71,9 +95,9 @@ export const scannerQueries = {
     return withScannerRefs(FaceScanner.find({ isActive: true, provider: { $ne: "zkteco" } }))
   },
 
-  /** ZKTeco identity is the exact terminal alias, independently of credentials. */
-  async findActiveZktecoScannersByDeviceNames(deviceNames) {
-    return withScannerRefs(FaceScanner.find({ isActive: true, provider: "zkteco", deviceName: { $in: deviceNames } }))
+  /** ZKTeco identity is the exact terminal alias scoped to its authenticated account. */
+  async findActiveZktecoScannersByDeviceNames(deviceNames, accountId) {
+    return withScannerRefs(FaceScanner.find({ isActive: true, provider: "zkteco", accountId, deviceName: { $in: deviceNames } }))
   },
 
   async findScannersByUsername(username) {

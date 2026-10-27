@@ -1,9 +1,9 @@
 /**
  * Scanner Owner Service
  * ---------------------
- * The single WRITE surface for the entire Scanner domain — both the `ApiClient`
- * (external API clients) and `FaceScanner` (face-scanner devices) collections.
- * Per the domain-ownership rule, these two models are mutated ONLY inside
+ * The single WRITE surface for the entire Scanner domain — the `ApiClient`
+ * (external API clients), `FaceScanner` (devices), and `ScannerAccount` collections.
+ * Per the domain-ownership rule, these models are mutated ONLY inside
  * `src/services/scanner/`; the super-admin service (ApiClient), the
  * face-scanner service, and the scanner-auth middleware (FaceScanner) route
  * every write through here (reads live in scannerQueries.service.js).
@@ -19,7 +19,7 @@
  *    can keep its fire-and-forget `.catch()` (must never block a scan).
  */
 
-import { ApiClient, FaceScanner } from "../../models/index.js"
+import { ApiClient, FaceScanner, ScannerAccount } from "../../models/index.js"
 
 // Populate chain shared by the FaceScanner reads/writes that return a device
 // with its linked hostel + caterer (name/type, name/email).
@@ -27,6 +27,41 @@ const withScannerRefs = (query) =>
   query.populate("hostelId", "name type").populate("catererId", "name email")
 
 export const scannerOwner = {
+  async createAccount(data, { session } = {}) {
+    if (session) return (await ScannerAccount.create([data], { session }))[0]
+    return ScannerAccount.create(data)
+  },
+
+  async updateAccountById(id, updates) {
+    return ScannerAccount.findByIdAndUpdate(id, { ...updates, updatedAt: new Date() }, { returnDocument: "after", runValidators: true })
+  },
+
+  async deleteAccountById(id) {
+    return ScannerAccount.findByIdAndDelete(id)
+  },
+
+  touchAccountLastActive(id) {
+    return ScannerAccount.findByIdAndUpdate(id, { lastActiveAt: new Date() })
+  },
+
+  async migrateScannersToAccount(scanners, accountId, { session } = {}) {
+    return FaceScanner.updateMany({ _id: { $in: scanners.map((s) => s._id) }, accountId: null }, {
+      $set: { accountId }, $unset: { username: 1, passwordHash: 1 },
+    }, { session })
+  },
+
+  async syncAccountScannerIndexes() {
+    await ScannerAccount.createIndexes()
+    // Build the replacement before removing the old global alias constraint.
+    await FaceScanner.createIndexes()
+    const indexes = await FaceScanner.collection.indexes()
+    for (const index of indexes) {
+      if (index.unique && Object.keys(index.key).length === 1 && index.key.deviceName === 1) {
+        await FaceScanner.collection.dropIndex(index.name)
+      }
+    }
+  },
+
   // ==================== ApiClient ====================
 
   /** Create an API client. Throws on error (caller maps 11000 → 409). */

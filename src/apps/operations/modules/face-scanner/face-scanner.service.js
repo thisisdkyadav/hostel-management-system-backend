@@ -20,7 +20,7 @@ const validateProvider = (provider, deviceName) => {
   }
 }
 
-const validateCredentials = async (provider, username, password, excludeId) => {
+export const validateCredentials = async (username, password, excludeId) => {
   if (typeof username !== "string" || !username.trim() || username.includes(":")) {
     throw new AppError("Username must be non-empty and cannot contain a colon", 400)
   }
@@ -28,9 +28,23 @@ const validateCredentials = async (provider, username, password, excludeId) => {
     throw new AppError("Password must contain between 1 and 72 bytes", 400)
   }
   const existing = await scannerQueries.findScannersByUsername(username.trim())
-  if (existing.some((scanner) => String(scanner._id) !== String(excludeId) &&
-    (provider !== "zkteco" || scanner.provider !== "zkteco"))) {
+  if (existing.some((scanner) => scanner.provider !== "zkteco")) {
     throw new AppError("This username is already used by a Time Watch or legacy scanner", 409)
+  }
+  const account = await scannerQueries.findAccountByUsername(username.trim())
+  if (account && String(account._id) !== String(excludeId)) {
+    throw new AppError("This username is already used by a scanner account", 409)
+  }
+}
+
+const requireAccount = async (accountId) => {
+  if (!accountId) throw new AppError("Account is required for ZKTeco", 400)
+  if (!(await scannerQueries.findAccountById(accountId))) throw new AppError("Scanner account not found", 400)
+}
+
+const rejectDeviceCredentials = (data) => {
+  if (data.username !== undefined || data.password !== undefined || data.passwordHash !== undefined) {
+    throw new AppError("Credentials belong to the scanner's account", 400)
   }
 }
 
@@ -62,19 +76,24 @@ export const createScanner = async (data) => {
   const { name, type, direction, hostelId, catererId, provider, deviceName } = data
   validateProvider(provider, deviceName)
 
-  // Generate credentials
-  const generated = generateSecureCredentials()
-  const hasCredentials = data.username !== undefined || data.password !== undefined
-  if (hasCredentials && provider !== "zkteco") {
-    throw new AppError("Custom credentials are supported for ZKTeco only", 400)
+  let username, password, passwordHash
+  if (provider === "zkteco") {
+    rejectDeviceCredentials(data)
+    await requireAccount(data.accountId)
+  } else {
+    if (data.username !== undefined || data.password !== undefined) {
+      throw new AppError("Custom credentials are supported for ZKTeco only", 400)
+    }
+    const generated = generateSecureCredentials()
+    username = generated.username
+    password = generated.password
+    await validateCredentials(username, password)
+    passwordHash = await hashPassword(password)
   }
-  const username = hasCredentials ? data.username : generated.username
-  const password = hasCredentials ? data.password : generated.password
-  await validateCredentials(provider, username, password)
-  const passwordHash = await hashPassword(password)
 
   const scanner = await scannerOwner.createScanner({
-    username: username.trim(),
+    username,
+    accountId: provider === "zkteco" ? data.accountId : undefined,
     passwordHash,
     provider,
     deviceName: provider === "zkteco" ? deviceName.trim() : undefined,
@@ -83,6 +102,7 @@ export const createScanner = async (data) => {
     direction,
     hostelId: type === "hostel-gate" ? hostelId || null : null,
     catererId: type === "dining-meal" ? catererId || null : null,
+    ...(typeof data.isActive === "boolean" ? { isActive: data.isActive } : {}),
   })
 
   // Return scanner with plain password (shown only once)
@@ -101,6 +121,7 @@ export const getAllScanners = async (filters = {}) => {
   const query = {}
 
   if (filters.type) query.type = filters.type
+  if (filters.accountId) query.accountId = filters.accountId
   if (filters.provider) query.provider = filters.provider
   if (filters.direction) query.direction = filters.direction
   if (filters.hostelId) query.hostelId = filters.hostelId
@@ -123,7 +144,7 @@ export const getScannerById = async (id) => {
 }
 
 /**
- * Update scanner settings and optional ZKTeco credentials.
+ * Update scanner settings, including ZKTeco account membership.
  * @param {string} id - Scanner ID
  * @param {Object} data - Update data
  * @returns {Promise<Object|null>}
@@ -136,18 +157,28 @@ export const updateScanner = async (id, data) => {
   validateProvider(nextProvider, deviceName === undefined ? current.deviceName : deviceName)
 
   const updateData = {}
+  if (current.provider === "zkteco" && nextProvider !== "zkteco") {
+    throw new AppError("Create a new scanner to switch from ZKTeco to Time Watch", 400)
+  }
   if (provider !== undefined) updateData.provider = provider
-  if (nextProvider === "zkteco" && deviceName !== undefined) updateData.deviceName = deviceName.trim()
-  if (provider === "time-watch") updateData.$unset = { deviceName: 1 }
-  if (username !== undefined || password !== undefined) {
-    if (nextProvider !== "zkteco") throw new AppError("Custom credentials are supported for ZKTeco only", 400)
-    await validateCredentials(nextProvider, username, password, id)
-    updateData.username = username.trim()
-    updateData.passwordHash = await hashPassword(password)
-  } else if (provider === "time-watch") {
-    const existing = await scannerQueries.findScannersByUsername(current.username)
-    if (existing.some((scanner) => String(scanner._id) !== String(id))) {
-      throw new AppError("Time Watch requires a unique username. Configure a unique username before changing provider.", 409)
+  if (nextProvider === "zkteco") {
+    rejectDeviceCredentials(data)
+    const accountId = data.accountId === undefined ? current.accountId : data.accountId
+    await requireAccount(accountId)
+    updateData.accountId = accountId
+    if (deviceName !== undefined) updateData.deviceName = deviceName.trim()
+    updateData.$unset = { username: 1, passwordHash: 1 }
+  } else {
+    if (username !== undefined || password !== undefined) {
+      throw new AppError("Custom credentials are supported for ZKTeco only", 400)
+    }
+    if (provider === "time-watch") {
+      updateData.$unset = { deviceName: 1 }
+      const existing = await scannerQueries.findScannersByUsername(current.username)
+      const account = await scannerQueries.findAccountByUsername(current.username)
+      if (account || existing.some((scanner) => String(scanner._id) !== String(id))) {
+        throw new AppError("Time Watch requires a unique username. Configure a unique username before changing provider.", 409)
+      }
     }
   }
   if (name !== undefined) updateData.name = name
@@ -180,6 +211,8 @@ export const deleteScanner = async (id) => {
 export const regeneratePassword = async (id) => {
   const scanner = await scannerQueries.findScannerById(id)
   if (!scanner) return null
+
+  if (scanner.provider === "zkteco") throw new AppError("Credentials belong to the scanner's account", 400)
 
   const password = crypto.randomBytes(16).toString("base64url")
   const passwordHash = await hashPassword(password)

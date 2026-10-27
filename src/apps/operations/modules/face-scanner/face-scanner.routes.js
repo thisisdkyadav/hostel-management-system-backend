@@ -18,6 +18,12 @@ import {
   deleteFaceScanner,
   regeneratePassword,
   testScannerAuth,
+  getScannerAccounts,
+  getScannerAccountById,
+  createScannerAccount,
+  updateScannerAccount,
+  deleteScannerAccount,
+  regenerateScannerAccountPassword,
 } from './face-scanner.controller.js';
 import { processScan, ping } from './scanner-action.controller.js';
 
@@ -45,6 +51,14 @@ const guard = routeGuard({
 });
 
 router.use(guard.access);
+
+// Accounts must precede /:id; they share the existing session + role + route guard.
+router.get('/accounts', getScannerAccounts);
+router.get('/accounts/:id', getScannerAccountById);
+router.post('/accounts', createScannerAccount);
+router.put('/accounts/:id', updateScannerAccount);
+router.delete('/accounts/:id', deleteScannerAccount);
+router.post('/accounts/:id/regenerate-password', regenerateScannerAccountPassword);
 
 // CRUD operations for face scanners
 router.post('/', createFaceScanner);

@@ -80,6 +80,7 @@ const scannerData = (scanner) => ({
   name: scanner.name,
   provider: scanner.provider,
   deviceName: scanner.deviceName,
+  ...(scanner.accountId ? { accountId: scanner.accountId } : {}),
   type: scanner.type,
   direction: scanner.direction,
   hostelId: scanner.hostelId,
@@ -88,24 +89,21 @@ const scannerData = (scanner) => ({
 })
 
 /** Authenticate every named device before processing any punches in the batch. */
-const authenticateZkteco = async (req) => {
+const authenticateZkteco = async (req, account) => {
   const credentials = readBasicCredentials(req)
-  if (!credentials) return { status: 401, message: "Invalid credentials" }
+  if (!credentials || !account?.isActive || !(await bcrypt.compare(credentials.password, account.passwordHash))) {
+    return { status: 401, message: "Invalid credentials" }
+  }
   const records = Array.isArray(req.body) ? req.body : [req.body]
   const deviceNames = req.method === "GET"
     ? [req.query.deviceName]
     : records.map((record) => record?.TERMINAL_ALIAS)
   if (!deviceNames.length || deviceNames.some((name) => typeof name !== "string" || !name.trim())) {
-    return { status: 400, message: "Device name (TERMINAL_ALIAS) is required for every ZKTeco record" }
+    return { status: 401, message: "Unknown or inactive ZKTeco device" }
   }
   const names = [...new Set(deviceNames.map((name) => name.trim()))]
-  const scanners = await scannerQueries.findActiveZktecoScannersByDeviceNames(names)
+  const scanners = await scannerQueries.findActiveZktecoScannersByDeviceNames(names, account._id)
   if (scanners.length !== names.length) return { status: 401, message: "Unknown or inactive ZKTeco device" }
-  for (const scanner of scanners) {
-    if (credentials.username !== scanner.username || !(await bcrypt.compare(credentials.password, scanner.passwordHash))) {
-      return { status: 401, message: "Invalid credentials" }
-    }
-  }
   return { scanners }
 }
 
@@ -133,7 +131,7 @@ const tryHeaderAuth = async (req) => {
  * see incoming REST hits, the parsed body, headers, the recognised scanner (if
  * any), and whether auth passed. Never throws; telemetry must not block a scan.
  */
-const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner }) => {
+const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner, account }) => {
   try {
     getIO()
       .to("role:Admin")
@@ -156,6 +154,7 @@ const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner }) => {
               direction: scanner.direction,
             }
           : null,
+        ...(account ? { account: { id: String(account._id), name: account.name } } : {}),
         body: req.body ?? null,
         headers: { ...req.headers },
       })
@@ -171,7 +170,7 @@ const emitLiveScanEvent = (req, { authSuccess, authMethod, scanner }) => {
  * 1. HTTP Basic Auth — `Authorization: Basic base64(username:password)`
  * 2. Legacy custom header — header name = username, value = password
  *
- * ZKTeco punches resolve each TERMINAL_ALIAS before validating Basic credentials.
+ * ZKTeco authenticates its account once, then resolves every TERMINAL_ALIAS within it.
  * Time Watch and unconfigured legacy scanners retain their authentication paths.
  */
 export const authenticateScanner = async (req, res, next) => {
@@ -182,19 +181,21 @@ export const authenticateScanner = async (req, res, next) => {
     const records = Array.isArray(req.body) ? req.body : [req.body]
     const hasDeviceName = records.some((record) => record && typeof record === "object" && "TERMINAL_ALIAS" in record)
     const credentials = readBasicCredentials(req)
-    const basicScanner = await tryBasicAuth(req)
-    const authenticatedScanner = basicScanner || (await tryHeaderAuth(req))
+    const account = credentials ? await scannerQueries.findAccountByUsername(credentials.username) : null
+    const basicScanner = account ? null : await tryBasicAuth(req)
+    const authenticatedScanner = account ? null : basicScanner || (await tryHeaderAuth(req))
     const legacyScanner = authenticatedScanner && !authenticatedScanner.provider
     // A ZKTeco-only username must never fall back to legacy routing when alias is missing.
     const namedAuth = (hasDeviceName && !legacyScanner) || req.query.deviceName !== undefined ||
-      (credentials && (await scannerQueries.findScannersByUsername(credentials.username)).some((scanner) => scanner.provider === "zkteco"))
+      Boolean(account)
 
     if (namedAuth) {
-      const result = await authenticateZkteco(req)
-      emitLiveScanEvent(req, { authSuccess: Boolean(result.scanners), authMethod: "basic", scanner: result.scanners?.[0] })
+      const result = await authenticateZkteco(req, account)
+      emitLiveScanEvent(req, { authSuccess: Boolean(result.scanners), authMethod: "basic", scanner: result.scanners?.[0], account })
       if (!result.scanners) return res.status(result.status).json({ isSuccess: "N", outputMessage: result.message })
       req.scannersByDeviceName = new Map(result.scanners.map((scanner) => [scanner.deviceName, scannerData(scanner)]))
       req.scanner = scannerData(result.scanners[0])
+      scannerOwner.touchAccountLastActive(account._id).catch((err) => console.error("Error updating account lastActiveAt:", err))
       for (const scanner of result.scanners) {
         scannerOwner.touchScannerLastActive(scanner._id).catch((err) => console.error("Error updating scanner lastActiveAt:", err))
       }

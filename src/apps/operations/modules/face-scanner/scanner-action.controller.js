@@ -108,7 +108,7 @@ const mapEasyTimeProRecord = (record, scanner) => {
   else if (modeofAttn === "OUT") direction = "out"
 
   return {
-    deviceID: terminalSn || scanner.username || "unknown",
+    deviceID: terminalSn || scanner.deviceName || scanner.username || "unknown",
     deviceSerialno: terminalSn,
     employeeID,
     date,

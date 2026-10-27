@@ -13,8 +13,9 @@ const models = async () => import("../../../src/models/index.js")
 
 /** Rebuild scanner indexes after setupTestDb drops the collections. */
 export async function createScannerIndexes() {
-  const { FaceScanner } = await models()
+  const { FaceScanner, ScannerAccount } = await models()
   await FaceScanner.createIndexes()
+  await ScannerAccount.createIndexes()
 }
 
 /**
