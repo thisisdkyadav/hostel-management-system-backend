@@ -160,4 +160,34 @@ describe("sim allocation owner (atomicCapacityInc)", () => {
     expect(after.catererCapacities[0].allocatedCount).toBe(seats)
     expect(await SimDiningAllocation.countDocuments({ periodId: period._id })).toBe(seats)
   })
+  it("allowMove:false refuses a second pick, even when two first picks race", async () => {
+    const { caterer, other, period } = await seedPeriod({ maxStudentCount: 50, extraCaterer: true })
+    const student = studentArgs(900)
+
+    // Two tabs confirm different caterers at the same moment.
+    const results = await Promise.all(
+      [caterer._id, other._id, caterer._id, other._id].map((catererId) =>
+        owner.assignStudent({ periodId: period._id, catererId, allowMove: false, ...student })
+      )
+    )
+    const assigned = results.filter((r) => r.ok && r.status === "assigned")
+    expect(assigned.length).toBe(1)
+    expect(results.some((r) => r.ok && r.status === "moved")).toBe(false)
+    expect(results.every((r) => r.ok || r.reason === "already-allocated")).toBe(true)
+
+    const rows = await SimDiningAllocation.find({ periodId: period._id, studentUserId: student.studentUserId }).lean()
+    expect(rows.length).toBe(1)
+    const after = await SimDiningPeriod.findById(period._id).lean()
+    const total = after.catererCapacities.reduce((sum, c) => sum + c.allocatedCount, 0)
+    expect(total).toBe(1)
+    const winner = after.catererCapacities.find((c) => c.allocatedCount === 1)
+    expect(String(winner.catererId)).toBe(String(rows[0].catererId))
+
+    // A later different pick is refused; the same pick stays idempotent.
+    const loserId = String(rows[0].catererId) === String(caterer._id) ? other._id : caterer._id
+    const again = await owner.assignStudent({ periodId: period._id, catererId: loserId, allowMove: false, ...student })
+    expect(again).toMatchObject({ ok: false, reason: "already-allocated" })
+    const same = await owner.assignStudent({ periodId: period._id, catererId: rows[0].catererId, allowMove: false, ...student })
+    expect(same).toMatchObject({ ok: true, status: "unchanged" })
+  })
 })

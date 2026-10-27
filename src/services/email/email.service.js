@@ -396,43 +396,73 @@ class EmailService {
   }
 
   /**
-   * Send ONE email to many recipients as a group: recipients go in BCC (hidden
-   * from each other) so the provider counts it as a single message. Gmail caps
-   * recipients per message (~500), so very large lists are split into
-   * as few messages as possible.
-   * @returns {Promise<{success: boolean, sent: number, failed: number, messages: number, errors: string[]}>}
+   * Send one email to many recipients in BCC (hidden from each other).
+   * Google Workspace accepts at most 100 recipients per message over SMTP and
+   * silently rejects the rest, so batches are 99 BCC + our own address in To.
+   * Batches rotate across every configured SMTP account (each account also has
+   * a daily recipient cap), and a batch that fails outright is retried once on
+   * the next account. Per-recipient rejections reported by the server count as
+   * failed — a message being accepted does not mean every address was.
+   * @returns {Promise<{success: boolean, sent: number, failed: number, messages: number, errors: string[], failedRecipients: string[]}>}
    */
-  async sendGroupEmail({ recipients = [], subject, html, text, batchSize = 450 }) {
+  async sendGroupEmail({ recipients = [], subject, html, text, batchSize = 99 }) {
     const unique = [...new Set(recipients.map((value) => String(value || '').trim()).filter(Boolean))];
-    if (unique.length === 0) return { success: true, sent: 0, failed: 0, messages: 0, errors: [] };
+    const empty = { sent: 0, failed: 0, messages: 0, errors: [], failedRecipients: [] };
+    if (unique.length === 0) return { success: true, ...empty };
 
-    if (!this.isConfigured || !this.singleTransporterEntry) {
-      return { success: false, sent: 0, failed: unique.length, messages: 0, errors: ['Email service not configured'] };
+    if (!this.isConfigured || this.multiTransporters.length === 0) {
+      return { success: false, ...empty, failed: unique.length, failedRecipients: unique, errors: ['Email service not configured'] };
     }
 
     const sender = env.smtp.sendAs || env.smtp.from;
     const shouldRedirectInDevelopment = env.isDevelopment && Boolean(env.smtp.developmentRedirectTo);
-    const results = { sent: 0, failed: 0, messages: 0, errors: [] };
+    const results = { ...empty };
+    const attemptsPerBatch = Math.min(2, this.multiTransporters.length);
+
+    const sendBatch = (entry, batch) => this.queueEmailSend(() => entry.transporter.sendMail({
+      from: sender,
+      replyTo: sender,
+      to: shouldRedirectInDevelopment ? env.smtp.developmentRedirectTo : sender,
+      bcc: shouldRedirectInDevelopment ? undefined : batch,
+      subject: shouldRedirectInDevelopment ? `[dev: ${batch.length} BCC recipients] ${subject}` : subject,
+      html,
+      text: text || this.stripHtml(html),
+    }), { deliveryMode: 'multi' });
 
     for (let index = 0; index < unique.length; index += batchSize) {
       const batch = unique.slice(index, index + batchSize);
-      try {
-        const result = await this.queueEmailSend(() => this.singleTransporterEntry.transporter.sendMail({
-          from: sender,
-          replyTo: sender,
-          to: shouldRedirectInDevelopment ? env.smtp.developmentRedirectTo : sender,
-          bcc: shouldRedirectInDevelopment ? undefined : batch,
-          subject: shouldRedirectInDevelopment ? `[dev: ${batch.length} BCC recipients] ${subject}` : subject,
-          html,
-          text: text || this.stripHtml(html),
-        }));
-        results.sent += batch.length;
-        results.messages += 1;
-        logger.info('Group email sent', { subject, recipients: batch.length, messageId: result.messageId });
-      } catch (error) {
+      let lastError = null;
+      let delivered = false;
+
+      for (let attempt = 0; attempt < attemptsPerBatch && !delivered; attempt += 1) {
+        const entry = this.getTransporterEntry('multi');
+        try {
+          const result = await sendBatch(entry, batch);
+          const rejectedSet = new Set(
+            (shouldRedirectInDevelopment ? [] : result.rejected || []).map((address) => String(address).toLowerCase())
+          );
+          const rejected = batch.filter((address) => rejectedSet.has(address.toLowerCase()));
+          results.sent += batch.length - rejected.length;
+          results.failed += rejected.length;
+          results.failedRecipients.push(...rejected);
+          results.messages += 1;
+          delivered = true;
+          if (rejected.length > 0) {
+            results.errors.push(`${rejected.length} recipient(s) rejected via ${entry.user}`);
+          }
+          logger.info('Group email sent', {
+            subject, account: entry.user, recipients: batch.length, rejected: rejected.length, messageId: result.messageId,
+          });
+        } catch (error) {
+          lastError = error;
+          logger.error('Failed to send group email batch', { subject, account: entry.user, recipients: batch.length, attempt, error: error.message });
+        }
+      }
+
+      if (!delivered) {
         results.failed += batch.length;
-        results.errors.push(error.message);
-        logger.error('Failed to send group email', { subject, recipients: batch.length, error: error.message });
+        results.failedRecipients.push(...batch);
+        results.errors.push(lastError?.message || 'Unknown send error');
       }
     }
 

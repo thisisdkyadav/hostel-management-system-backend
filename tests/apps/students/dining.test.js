@@ -122,6 +122,7 @@ describe("POST /select + portal state transitions", () => {
   let studentApi
   let otherApi
   let inactiveApi
+  let lateApi
   let catererA
   let catererB
 
@@ -131,7 +132,7 @@ describe("POST /select + portal state transitions", () => {
     catererB = await createCaterer({ name: "Select B" })
     await createDiningPeriod({
       eligibilityMode: "custom",
-      eligibleRollNumbers: ["SEL001", "SEL002", "SEL003"],
+      eligibleRollNumbers: ["SEL001", "SEL002", "SEL003", "SEL006"],
       catererIds: [catererA._id, catererB._id],
       catererCapacities: [
         { catererId: catererA._id, maxStudentCount: 1, allocatedCount: 0 },
@@ -148,6 +149,9 @@ describe("POST /select + portal state transitions", () => {
     studentApi = await as(s1)
     otherApi = await as(s2)
     inactiveApi = await as(s3)
+    const s6 = await seed.student()
+    await createStudentProfile({ userId: s6._id, rollNumber: "SEL006" })
+    lateApi = await as(s6)
   })
 
   it("rejects an invalid caterer id with 400", async () => {
@@ -191,29 +195,31 @@ describe("POST /select + portal state transitions", () => {
     expect(res.body.message).toBe("This caterer is already selected")
   })
 
-  it("moves the student to another caterer and releases the old seat", async () => {
+  it("refuses switching caterer once a choice is confirmed (409) and keeps the seat", async () => {
     const res = await studentApi.post(`${BASE}/select`).send({ catererId: String(catererA._id) })
-    expect(res.status).toBe(200)
-    expect(res.body.message).toBe("Caterer selected successfully")
-    expect(res.body.data.status).toBe("moved")
-    expect(String(res.body.data.catererId)).toBe(String(catererA._id))
+    expect(res.status).toBe(409)
+    expect(res.body.message).toBe("You have already chosen a caterer for this period")
 
     const portal = await studentApi.get(`${BASE}/portal`)
+    expect(portal.body.data.activeAllocationPeriod.selectedAllocation.catererId).toBe(String(catererB._id))
     const capacities = portal.body.data.activeAllocationPeriod.catererCapacities
     const capA = capacities.find((e) => e.catererId === String(catererA._id))
     const capB = capacities.find((e) => e.catererId === String(catererB._id))
-    expect(capA.allocatedCount).toBe(1)
-    expect(capB.allocatedCount).toBe(0)
+    expect(capA.allocatedCount).toBe(0)
+    expect(capB.allocatedCount).toBe(1)
   })
 
   it("refuses a full caterer with 400 but allows the other one", async () => {
-    // Caterer A now holds 1/1 seats; the second student must be refused...
-    const full = await otherApi.post(`${BASE}/select`).send({ catererId: String(catererA._id) })
+    // The second student takes Caterer A's only seat...
+    const first = await otherApi.post(`${BASE}/select`).send({ catererId: String(catererA._id) })
+    expect(first.status).toBe(200)
+
+    // ...so the next student is refused A but can take the open caterer.
+    const full = await lateApi.post(`${BASE}/select`).send({ catererId: String(catererA._id) })
     expect(full.status).toBe(400)
     expect(full.body.message).toBe("This caterer is full. Please select another caterer.")
 
-    // ...but can take the open caterer.
-    const ok = await otherApi.post(`${BASE}/select`).send({ catererId: String(catererB._id) })
+    const ok = await lateApi.post(`${BASE}/select`).send({ catererId: String(catererB._id) })
     expect(ok.status).toBe(200)
     expect(ok.body.message).toBe("Caterer selected successfully")
   })
@@ -243,6 +249,10 @@ describe("POST /select + portal state transitions", () => {
     expect(res.status).toBe(403)
     expect(res.body.success).toBe(false)
     expect(res.body.message).toBe("You are not eligible for this dining allocation period")
+
+    // The portal must not offer a choice the server will refuse.
+    const portal = await inactiveApi.get(`${BASE}/portal`)
+    expect(portal.body.data.canSelect).toBe(false)
   })
 
   it("hides the period entirely from students not on the eligibility list", async () => {

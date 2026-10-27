@@ -163,7 +163,7 @@ const releaseSeat = async ({ periodId, catererId, session }) => {
   )
 }
 
-const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, rollNumber, catererId, force }) => {
+const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, rollNumber, catererId, force, allowMove = true }) => {
   const session = await mongoose.startSession()
   let result = null
   try {
@@ -173,6 +173,13 @@ const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, ro
 
       if (existing && String(existing.catererId) === String(catererId)) {
         result = { ok: true, status: "unchanged", allocation: existing.toObject() }
+        return
+      }
+
+      // Student self-select is final once confirmed: a second request (another
+      // tab, a double submit with a different pick) must not silently move them.
+      if (existing && !allowMove) {
+        result = { ok: false, reason: "already-allocated", allocation: existing.toObject() }
         return
       }
 
@@ -210,8 +217,11 @@ return {
    * student is already on that caterer. Race-safe: the allocation row and the
    * caterer seat counter change together in one transaction, and the seat is
    * capacity-guarded unless `force` is passed.
+   * Pass `allowMove: false` to refuse moving an existing allocation (reason
+   * 'already-allocated'); the check runs inside the transaction, so it also
+   * holds when two first-time requests race.
    * Returns { ok:true, status:'assigned'|'moved'|'unchanged', allocation } or
-   * { ok:false, reason } (reasons: full | caterer-not-in-period | period-not-found | contention).
+   * { ok:false, reason } (reasons: full | caterer-not-in-period | period-not-found | contention | already-allocated).
    */
   async assignStudent(args) {
     // A concurrent first-time create for the same (periodId, studentUserId)

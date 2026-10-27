@@ -1,7 +1,8 @@
 /**
  * Dining Period Notification
  * Sends the scheduled "registration window" email for dining periods whose
- * notificationAt has passed. One group (BCC) email per period.
+ * notificationAt has passed. Sent as BCC batches across the SMTP accounts
+ * (see emailService.sendGroupEmail).
  */
 
 import { env } from '../../../../config/env.config.js';
@@ -43,6 +44,9 @@ export const sendDueDiningPeriodNotifications = async () => {
       const { subject, html } = buildEmail(period);
       const result = await emailService.sendGroupEmail({ recipients, subject, html });
       console.log(`[scheduler] dining period ${period._id} notification: ${result.sent} sent, ${result.failed} failed in ${result.messages} message(s)`);
+      if (result.failedRecipients.length > 0) {
+        console.error(`[scheduler] dining period ${period._id} notification not delivered to:`, result.failedRecipients.join(', '));
+      }
     } catch (error) {
       console.error(`[scheduler] dining period ${period._id} notification failed:`, error?.message || error);
     }

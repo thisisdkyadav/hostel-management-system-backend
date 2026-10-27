@@ -9,6 +9,7 @@ import {
   notFound,
   badRequest,
   forbidden,
+  conflict,
 } from '../../../../services/base/index.js';
 import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
@@ -214,7 +215,13 @@ export const getStudentDiningPortalState = async (userId) => {
     : null;
 
   return success({
-    canSelect: Boolean(activeAllocationPeriod && !activeAllocation),
+    // Mirrors selectStudentDiningCaterer's checks so the UI never offers a
+    // choice the server will refuse (e.g. an inactive profile).
+    canSelect: Boolean(
+      activeAllocationPeriod
+      && !activeAllocation
+      && isStudentEligibleForPeriod(activeAllocationPeriod, profile)
+    ),
     currentPeriod: serializePortalPeriod({
       period: currentPeriod,
       allocation: currentPeriod ? allocationByPeriod.get(String(currentPeriod._id)) : null,
@@ -261,9 +268,13 @@ export const selectStudentDiningCaterer = async (userId, catererId) => {
     rollNumber: profile.rollNumber,
     catererId,
     force: false,
+    allowMove: false,
   });
 
   if (!result.ok) {
+    if (result.reason === 'already-allocated') {
+      return conflict('You have already chosen a caterer for this period');
+    }
     const messageByReason = {
       full: 'This caterer is full. Please select another caterer.',
       'caterer-not-in-period': 'Selected caterer is not available in this period',
