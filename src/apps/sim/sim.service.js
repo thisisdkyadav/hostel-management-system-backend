@@ -10,6 +10,7 @@ import { profilesSelfService } from '../students/modules/profiles-self/profiles-
 import { getSessionRedisClient } from '../../services/session/redisSessionClient.js';
 import { simDiningQueries } from './simDiningQueries.service.js';
 import { simAllocationOwner, simDiningOwner } from './simDiningOwner.service.js';
+import { coversDayFilter } from '../../services/dining/periodDay.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
@@ -171,7 +172,7 @@ export const getSimPortalState = async (userId) => {
   const eligiblePeriodFilter = getEligibilityFilterForProfile(profile);
   const [currentPeriod, activeAllocationPeriod, upcomingAllocationPeriod] = await Promise.all([
     simDiningQueries.findOnePeriod(
-      { ...eligiblePeriodFilter, startDate: { $lte: now }, endDate: { $gte: now } },
+      { ...eligiblePeriodFilter, ...coversDayFilter(now) },
       { populate: { path: 'catererIds', select: 'name email' }, sort: { endDate: 1, startDate: 1 }, lean: true },
     ),
     simDiningQueries.findOnePeriod(

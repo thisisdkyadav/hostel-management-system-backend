@@ -11,7 +11,9 @@ import {
   createDiningAllocation,
   createBillingPeriod,
   createBillingAccount,
+  archiveLiveDiningPeriods,
 } from "../../helpers/seed/students.js"
+import { periodDay } from "../../../src/services/dining/periodDay.js"
 
 const BASE = "/api/v1/students/dining"
 
@@ -706,5 +708,88 @@ describe("GET /billing", () => {
     expect(bill.clearance).toBe(bill.balance >= 0 ? "cleared" : "dues")
     expect(bill.perPeriod).toHaveLength(1)
     expect(bill.perPeriod[0].periodId).toBe(String(period._id))
+  })
+})
+
+describe("period dates, stale confirmations and upcoming allocations", () => {
+  const DAY = 24 * 60 * 60 * 1000
+  let caterer
+
+  beforeAll(async () => {
+    await archiveLiveDiningPeriods()
+    caterer = await createCaterer({ name: "Edge Mess" })
+  })
+
+  const studentWithRoll = async (rollNumber) => {
+    const user = await seed.student()
+    const profile = await createStudentProfile({ userId: user._id, rollNumber })
+    return { user, profile, api: await as(user) }
+  }
+
+  it("still treats a period as current on its final date (date-only end)", async () => {
+    const { user, profile, api } = await studentWithRoll("EDG001")
+    const today = periodDay(new Date())
+    const period = await createDiningPeriod({
+      startDate: new Date(today.getTime() - 5 * DAY),
+      endDate: today,
+      registrationEnabled: false,
+      allocationStartAt: null,
+      allocationEndAt: null,
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["EDG001"],
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 1 }],
+    })
+    await createDiningAllocation({
+      periodId: period._id, studentUserId: user._id, studentProfileId: profile._id, rollNumber: "EDG001", catererId: caterer._id,
+    })
+
+    const res = await api.get(`${BASE}/portal`)
+    expect(res.status).toBe(200)
+    expect(String(res.body.data.currentPeriod?.id)).toBe(String(period._id))
+    expect(String(res.body.data.currentPeriod.selectedAllocation.catererId)).toBe(String(caterer._id))
+  })
+
+  it("refuses a confirmation for a period that is no longer the open one (409)", async () => {
+    const { api } = await studentWithRoll("EDG002")
+    const open = await createDiningPeriod({
+      startDate: utcDay(20),
+      endDate: utcDay(25),
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["EDG002"],
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 0 }],
+    })
+
+    const stale = await api.post(`${BASE}/select`).send({ catererId: String(caterer._id), periodId: "000000000000000000000000" })
+    expect(stale.status).toBe(409)
+    expect(stale.body.message).toBe("This dining period is no longer open for choosing. Please refresh and try again.")
+
+    const ok = await api.post(`${BASE}/select`).send({ catererId: String(caterer._id), periodId: String(open._id) })
+    expect(ok.status).toBe(200)
+    expect(String(ok.body.data.periodId)).toBe(String(open._id))
+  })
+
+  it("keeps an upcoming allocation visible after its choice window has closed", async () => {
+    const { user, profile, api } = await studentWithRoll("EDG003")
+    const future = await createDiningPeriod({
+      startDate: utcDay(40),
+      endDate: utcDay(50),
+      allocationStartAt: new Date(Date.now() - 3 * DAY),
+      allocationEndAt: new Date(Date.now() - 2 * DAY),
+      eligibilityMode: "custom",
+      eligibleRollNumbers: ["EDG003"],
+      catererIds: [caterer._id],
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 1 }],
+    })
+    await createDiningAllocation({
+      periodId: future._id, studentUserId: user._id, studentProfileId: profile._id, rollNumber: "EDG003", catererId: caterer._id,
+    })
+
+    const res = await api.get(`${BASE}/portal`)
+    expect(res.status).toBe(200)
+    expect(res.body.data.activeAllocationPeriod).toBeNull()
+    expect(String(res.body.data.allocatedUpcomingPeriod?.id)).toBe(String(future._id))
+    expect(String(res.body.data.allocatedUpcomingPeriod.selectedAllocation.catererId)).toBe(String(caterer._id))
   })
 })

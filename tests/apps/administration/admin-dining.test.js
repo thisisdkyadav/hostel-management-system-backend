@@ -19,6 +19,7 @@ import {
   createCaterer,
   createDiningPeriod,
   createDiningAllocation,
+  archiveLiveDiningPeriods,
 } from "../../helpers/seed/students.js"
 
 const BASE = "/api/v1/admin"
@@ -595,6 +596,7 @@ describe("period allocations", () => {
   let student2UserId // ADM002
 
   beforeAll(async () => {
+    await archiveLiveDiningPeriods()
     catererA = await createCaterer({ name: "Alloc A Mess" })
     catererB = await createCaterer({ name: "Alloc B Mess" })
     const created = await adminApi
@@ -1332,6 +1334,7 @@ describe("dining period date validation and overlap rules", () => {
   })
 
   it("equal start/end (single-day period) is accepted at the boundary", async () => {
+    await archiveLiveDiningPeriods()
     const res = await adminApi
       .post(`${BASE}/dining-periods`)
       .send(manualPeriodPayload({ caterers: [caterer], startDate: utcDay(21), endDate: utcDay(21) }))
@@ -1342,10 +1345,8 @@ describe("dining period date validation and overlap rules", () => {
     expect(dayKey(row.startDate)).toBe(dayKey(row.endDate))
   })
 
-  // SUSPECTED BUG (missing constraint): nothing prevents two active periods
-  // from overlapping in time while sharing the same caterer, so a student
-  // could be double-charged for the same days across both periods.
-  it("overlapping periods sharing a caterer are both created — no overlap enforcement (documents current behavior)", async () => {
+  it("rejects a period whose dining dates overlap another live period", async () => {
+    await archiveLiveDiningPeriods()
     const shared = await createCaterer({ name: "Overlap Mess" })
     const first = await adminApi.post(`${BASE}/dining-periods`).send(
       manualPeriodPayload({ caterers: [shared], startDate: utcDay(30), endDate: utcDay(40) }),
@@ -1355,8 +1356,59 @@ describe("dining period date validation and overlap rules", () => {
     const second = await adminApi.post(`${BASE}/dining-periods`).send(
       manualPeriodPayload({ caterers: [shared], startDate: utcDay(35), endDate: utcDay(45) }),
     )
-    expect(second.status).toBe(201)
-    expect(String(second.body.data.id)).not.toBe(String(first.body.data.id))
+    expect(second.status).toBe(400)
+    expect(second.body.message).toMatch(/^Dining dates overlap another period/)
+
+    // Back-to-back (ends on day 40, next starts day 41) is fine.
+    const next = await adminApi.post(`${BASE}/dining-periods`).send(
+      manualPeriodPayload({ caterers: [shared], startDate: utcDay(41), endDate: utcDay(45) }),
+    )
+    expect(next.status).toBe(201)
+
+    // Editing a period onto another's dates is refused too.
+    const edit = await adminApi.put(`${BASE}/dining-periods/${next.body.data.id}`).send(
+      manualPeriodPayload({ caterers: [shared], startDate: utcDay(40), endDate: utcDay(45) }),
+    )
+    expect(edit.status).toBe(400)
+  })
+
+  it("rejects overlapping caterer choice windows even when dining dates don't overlap", async () => {
+    await archiveLiveDiningPeriods()
+    const caterer = await createCaterer({ name: "Window Mess" })
+    const hour = 60 * 60 * 1000
+    const withWindow = (startDate, endDate, fromH, toH) => ({
+      ...manualPeriodPayload({ caterers: [{ _id: caterer._id, max: 100000 }], startDate, endDate }),
+      registrationEnabled: true,
+      allocationStartAt: new Date(Date.now() + fromH * hour).toISOString(),
+      allocationEndAt: new Date(Date.now() + toH * hour).toISOString(),
+    })
+    const first = await adminApi.post(`${BASE}/dining-periods`).send(withWindow(utcDay(60), utcDay(70), 1, 48))
+    expect(first.body.message).toBe("Dining period created successfully")
+
+    const clash = await adminApi.post(`${BASE}/dining-periods`).send(withWindow(utcDay(71), utcDay(80), 24, 72))
+    expect(clash.status).toBe(400)
+    expect(clash.body.message).toMatch(/^Caterer choice window overlaps/)
+
+    const after = await adminApi.post(`${BASE}/dining-periods`).send(withWindow(utcDay(71), utcDay(80), 48, 72))
+    expect(after.status).toBe(201)
+  })
+
+  it("refuses to unarchive a period that would overlap a live one", async () => {
+    await archiveLiveDiningPeriods()
+    const caterer = await createCaterer({ name: "Unarchive Mess" })
+    const old = await adminApi.post(`${BASE}/dining-periods`).send(
+      manualPeriodPayload({ caterers: [caterer], startDate: utcDay(90), endDate: utcDay(95) }),
+    )
+    expect(old.status).toBe(201)
+    await archiveLiveDiningPeriods()
+    const live = await adminApi.post(`${BASE}/dining-periods`).send(
+      manualPeriodPayload({ caterers: [caterer], startDate: utcDay(92), endDate: utcDay(99) }),
+    )
+    expect(live.status).toBe(201)
+
+    const unarchive = await adminApi.put(`${BASE}/dining-periods/${old.body.data.id}/archive`).send({ status: false })
+    expect(unarchive.status).toBe(400)
+    expect(unarchive.body.message).toMatch(/^Cannot unarchive: dining dates overlap/)
   })
 })
 
@@ -1365,6 +1417,7 @@ describe("caterer archive-then-assign flow", () => {
   let caterer
 
   beforeAll(async () => {
+    await archiveLiveDiningPeriods()
     caterer = await createCaterer({ name: "Archive Flow Mess" })
     const created = await adminApi
       .post(`${BASE}/dining-periods`)
@@ -1408,6 +1461,7 @@ describe("bulk allocation duplicate-row handling", () => {
   let caterer
 
   beforeAll(async () => {
+    await archiveLiveDiningPeriods()
     caterer = await createCaterer({ name: "Bulk Dup Mess" })
     const created = await adminApi
       .post(`${BASE}/dining-periods`)
@@ -1456,6 +1510,7 @@ describe("reconcile idempotency on consistent data", () => {
   let caterer
 
   beforeAll(async () => {
+    await archiveLiveDiningPeriods()
     caterer = await createCaterer({ name: "Reconcile Clean Mess" })
     const created = await adminApi
       .post(`${BASE}/dining-periods`)
@@ -1505,6 +1560,7 @@ describe("billing accounts bulk with mixed valid/invalid rows", () => {
   let studentUserId
 
   beforeAll(async () => {
+    await archiveLiveDiningPeriods()
     const student = await seed.student()
     await createStudentProfile({ userId: student._id, rollNumber: "BILMIX01" })
     studentUserId = String(student._id)

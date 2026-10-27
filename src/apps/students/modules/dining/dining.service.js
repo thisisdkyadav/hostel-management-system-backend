@@ -15,6 +15,7 @@ import { diningQueries } from '../../../../services/dining/diningQueries.service
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
+import { coversDayFilter, periodDay } from '../../../../services/dining/periodDay.js';
 import {
   createStudentDiningRebate,
   getStudentDiningRebates,
@@ -160,12 +161,11 @@ export const getStudentDiningPortalState = async (userId) => {
 
   const now = new Date();
   const eligiblePeriodFilter = getEligibilityFilterForProfile(profile);
-  const [currentPeriod, activeAllocationPeriod, upcomingAllocationPeriod] = await Promise.all([
+  const [currentPeriod, activeAllocationPeriod, upcomingAllocationPeriod, futurePeriods] = await Promise.all([
     diningQueries.findOnePeriod(
       {
         ...eligiblePeriodFilter,
-        startDate: { $lte: now },
-        endDate: { $gte: now },
+        ...coversDayFilter(now),
       },
       {
         populate: { path: 'catererIds', select: 'name email' },
@@ -198,12 +198,23 @@ export const getStudentDiningPortalState = async (userId) => {
         lean: true,
       }
     ),
+    // Service hasn't started yet, whatever its window state: a choice made in
+    // a window that has since closed must stay visible until the period runs.
+    diningQueries.findPeriods(
+      { ...eligiblePeriodFilter, startDate: { $gt: periodDay(now) } },
+      {
+        populate: { path: 'catererIds', select: 'name email' },
+        sort: { startDate: 1 },
+        lean: true,
+      }
+    ),
   ]);
 
   const periodIds = [
     currentPeriod?._id,
     activeAllocationPeriod?._id,
     upcomingAllocationPeriod?._id,
+    ...futurePeriods.map((period) => period._id),
   ].filter(Boolean);
   const uniquePeriodIds = [...new Set(periodIds.map((periodId) => String(periodId)))];
   const allocations = uniquePeriodIds.length > 0
@@ -213,6 +224,7 @@ export const getStudentDiningPortalState = async (userId) => {
   const activeAllocation = activeAllocationPeriod
     ? allocationByPeriod.get(String(activeAllocationPeriod._id))
     : null;
+  const allocatedFuturePeriod = futurePeriods.find((period) => allocationByPeriod.has(String(period._id))) || null;
 
   return success({
     // Mirrors selectStudentDiningCaterer's checks so the UI never offers a
@@ -238,15 +250,22 @@ export const getStudentDiningPortalState = async (userId) => {
       period: activeAllocationPeriod,
       allocation: activeAllocation,
     }),
+    allocatedUpcomingPeriod: serializePortalPeriod({
+      period: allocatedFuturePeriod,
+      allocation: allocatedFuturePeriod ? allocationByPeriod.get(String(allocatedFuturePeriod._id)) : null,
+    }),
     message: activeAllocationPeriod
       ? 'Dining allocation is open'
       : 'No dining allocation period is open right now',
   });
 };
 
-export const selectStudentDiningCaterer = async (userId, catererId) => {
+export const selectStudentDiningCaterer = async (userId, catererId, periodId = null) => {
   if (!mongoose.Types.ObjectId.isValid(catererId)) {
     return badRequest('Invalid caterer selected');
+  }
+  if (periodId && !mongoose.Types.ObjectId.isValid(periodId)) {
+    return badRequest('Invalid dining period');
   }
 
   const profile = await getStudentProfileForUser(userId);
@@ -254,6 +273,12 @@ export const selectStudentDiningCaterer = async (userId, catererId) => {
 
   const period = await getStudentVisiblePeriod(profile);
   if (!period) return badRequest('No dining allocation period is open right now');
+
+  // The student confirmed against the period they were shown; if that one is
+  // no longer the open one (closed, archived, edited), don't book another.
+  if (periodId && String(period._id) !== String(periodId)) {
+    return conflict('This dining period is no longer open for choosing. Please refresh and try again.');
+  }
 
   if (!isStudentEligibleForPeriod(period, profile)) {
     return forbidden('You are not eligible for this dining allocation period');

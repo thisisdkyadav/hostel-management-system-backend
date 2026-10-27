@@ -228,6 +228,41 @@ const serializePeriod = (period, activeStudentCount = 0) => {
   };
 };
 
+const formatPeriodDate = (value) => new Date(value).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+/**
+ * Non-archived periods may not overlap: neither their service dates (which
+ * period a meal belongs to must be unambiguous) nor their student choice
+ * windows (a student must only ever have one open choice). Service dates are
+ * inclusive calendar days; windows are instants, so back-to-back is allowed.
+ */
+const findPeriodOverlapError = async ({ startDate, endDate, registrationEnabled, allocationStartAt, allocationEndAt, excludeId = null }) => {
+  const notSelf = excludeId ? { _id: { $ne: excludeId } } : {};
+  const dateClash = await diningQueries.findOnePeriod(
+    { ...notSelf, isArchived: false, startDate: { $lte: endDate }, endDate: { $gte: startDate } },
+    { lean: true, select: 'startDate endDate' }
+  );
+  if (dateClash) {
+    return `Dining dates overlap another period (${formatPeriodDate(dateClash.startDate)} – ${formatPeriodDate(dateClash.endDate)})`;
+  }
+
+  if (!registrationEnabled || !allocationStartAt || !allocationEndAt) return null;
+  const windowClash = await diningQueries.findOnePeriod(
+    {
+      ...notSelf,
+      isArchived: false,
+      registrationEnabled: { $ne: false },
+      allocationStartAt: { $lt: allocationEndAt },
+      allocationEndAt: { $gt: allocationStartAt },
+    },
+    { lean: true, select: 'startDate endDate' }
+  );
+  if (windowClash) {
+    return `Caterer choice window overlaps the window of another period (${formatPeriodDate(windowClash.startDate)} – ${formatPeriodDate(windowClash.endDate)})`;
+  }
+  return null;
+};
+
 class DiningPeriodService {
   async validatePeriodPayload(payload = {}, existingPeriod = null) {
     const startDate = payload.startDate ? new Date(payload.startDate) : null;
@@ -394,6 +429,11 @@ class DiningPeriodService {
       return { error: 'Total caterer capacity must be greater than the eligible student count' };
     }
 
+    const overlapError = await findPeriodOverlapError({
+      startDate, endDate, registrationEnabled, allocationStartAt, allocationEndAt, excludeId: existingPeriod?._id,
+    });
+    if (overlapError) return { error: overlapError };
+
     return {
       data: {
         startDate,
@@ -480,12 +520,20 @@ class DiningPeriodService {
       ? validation.data
       : { ...validation.data, notificationSentAt: null };
 
-    await diningOwner.updatePeriodById(periodId, updates, { new: false, runValidators: true });
-
-    // The update rewrote catererCapacities using allocatedCount from a prior
-    // read; recompute the seat counters from the actual allocation rows so a
-    // concurrent self-select isn't clobbered by this edit.
-    await allocationOwner.reconcileAllocatedCounts(periodId);
+    // The capacity checks above used a read that may already be stale; the
+    // owner re-checks them against the actual allocation rows and writes the
+    // edit in one transaction, so a booking that lands meanwhile can't oversell.
+    const applied = await allocationOwner.applyPeriodUpdate(periodId, updates);
+    if (!applied.ok) {
+      const messageByReason = {
+        'period-not-found': 'Dining period not found',
+        'caterer-has-allocations': 'Caterers with existing student allocations cannot be removed from this period',
+        'below-allocated': 'Caterer capacity cannot be lower than its current allocated student count',
+      };
+      return applied.reason === 'period-not-found'
+        ? notFound('Dining period')
+        : badRequest(messageByReason[applied.reason] || 'Unable to update dining period');
+    }
 
     const updatedPeriod = await diningQueries.findPeriodById(periodId, {
       populate: { path: 'catererIds', select: 'name email' },
@@ -496,6 +544,15 @@ class DiningPeriodService {
   }
 
   async changeArchiveStatus(periodId, status) {
+    if (!status) {
+      const period = await diningQueries.findPeriodById(periodId, { lean: true });
+      if (!period) return notFound('Dining period');
+      const overlapError = await findPeriodOverlapError({
+        ...period, registrationEnabled: period.registrationEnabled !== false, excludeId: period._id,
+      });
+      if (overlapError) return badRequest(`Cannot unarchive: ${overlapError.charAt(0).toLowerCase()}${overlapError.slice(1)}`);
+    }
+
     const updatedPeriod = await diningOwner.updatePeriodById(
       periodId,
       { isArchived: Boolean(status) },

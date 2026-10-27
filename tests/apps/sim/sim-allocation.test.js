@@ -190,4 +190,33 @@ describe("sim allocation owner (atomicCapacityInc)", () => {
     const same = await owner.assignStudent({ periodId: period._id, catererId: rows[0].catererId, allowMove: false, ...student })
     expect(same).toMatchObject({ ok: true, status: "unchanged" })
   })
+  it("a period edit racing bookings never oversells and keeps counters true", async () => {
+    const { caterer, period } = await seedPeriod({ maxStudentCount: 5 })
+    // Every edit carries a stale counter (0) — the owner must ignore it.
+    const edit = () =>
+      owner.applyPeriodUpdate(period._id, {
+        catererCapacities: [{ catererId: caterer._id, maxStudentCount: 5, allocatedCount: 0 }],
+      })
+    const results = await Promise.all([
+      ...Array.from({ length: 12 }, (_, i) =>
+        owner.assignStudent({ periodId: period._id, catererId: caterer._id, ...studentArgs(500 + i) })
+      ),
+      edit(), edit(), edit(), edit(),
+    ])
+    const assigned = results.filter((r) => r.ok && r.status === "assigned")
+    expect(assigned.length).toBe(5)
+
+    const rows = await SimDiningAllocation.countDocuments({ periodId: period._id })
+    const after = await SimDiningPeriod.findById(period._id).lean()
+    expect(rows).toBe(5)
+    expect(after.catererCapacities[0].allocatedCount).toBe(5)
+
+    // Lowering below the real count, or dropping a caterer with students, is refused.
+    const lower = await owner.applyPeriodUpdate(period._id, {
+      catererCapacities: [{ catererId: caterer._id, maxStudentCount: 4, allocatedCount: 0 }],
+    })
+    expect(lower).toMatchObject({ ok: false, reason: "below-allocated" })
+    const drop = await owner.applyPeriodUpdate(period._id, { catererCapacities: [] })
+    expect(drop).toMatchObject({ ok: false, reason: "caterer-has-allocations" })
+  })
 })

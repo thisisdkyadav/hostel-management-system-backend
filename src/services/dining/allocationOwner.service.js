@@ -263,6 +263,60 @@ return {
   },
 
   /**
+   * Apply a period edit (`updates`, including a full `catererCapacities`
+   * array) without racing student bookings. In one transaction: count the
+   * actual allocation rows, refuse to drop a caterer that has students or to
+   * set a capacity below its current count, and write the edit with counters
+   * taken from those rows. Every booking also writes the period document, so a
+   * booking that lands mid-edit causes a write conflict and the edit re-runs
+   * on fresh counts.
+   * Returns { ok:true } or { ok:false, reason:'period-not-found'|'caterer-has-allocations'|'below-allocated' }.
+   */
+  async applyPeriodUpdate(periodId, updates) {
+    const session = await mongoose.startSession()
+    let result = null
+    try {
+      await session.withTransaction(async () => {
+        const exists = await DiningPeriod.exists({ _id: periodId }).session(session)
+        if (!exists) {
+          result = { ok: false, reason: "period-not-found" }
+          return
+        }
+
+        const counts = await DiningAllocation.aggregate([
+          { $match: { periodId: toObjectId(periodId) } },
+          { $group: { _id: "$catererId", count: { $sum: 1 } } },
+        ]).session(session)
+        const countByCaterer = new Map(counts.map((row) => [String(row._id), row.count]))
+
+        let next = updates
+        if (Array.isArray(updates.catererCapacities)) {
+          const kept = new Set(updates.catererCapacities.map((entry) => String(entry.catererId)))
+          if ([...countByCaterer.keys()].some((catererId) => !kept.has(catererId))) {
+            result = { ok: false, reason: "caterer-has-allocations" }
+            return
+          }
+          const catererCapacities = updates.catererCapacities.map((entry) => ({
+            ...entry,
+            allocatedCount: countByCaterer.get(String(entry.catererId)) || 0,
+          }))
+          if (catererCapacities.some((entry) => entry.allocatedCount > Number(entry.maxStudentCount || 0))) {
+            result = { ok: false, reason: "below-allocated" }
+            return
+          }
+          next = { ...updates, catererCapacities }
+        }
+
+        await DiningPeriod.updateOne({ _id: periodId }, next, { session, runValidators: true })
+        result = { ok: true }
+      })
+    } finally {
+      await session.endSession()
+    }
+    return result || { ok: false, reason: "unknown" }
+  },
+
+  /**
    * Recompute every caterer's allocatedCount from the ground-truth allocation
    * rows for a period. Fixes any drift and is safe to call after a period edit
    * that rewrote catererCapacities. Returns { ok, changed, caterers }.

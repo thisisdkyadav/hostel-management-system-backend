@@ -125,10 +125,25 @@ export async function createAllocation({
 export async function createCaterer({ name, email } = {}) {
   const { Caterer } = await models()
   const n = unique()
-  return Caterer.create({
+  const caterer = new Caterer({
     name: name ?? `Caterer ${n}`,
     email: email ?? `caterer-${n}@hms.test`,
   })
+  // No login yet: leave userId ABSENT. The schema default is null, and the
+  // unique sparse userId index only skips missing values, so a second
+  // login-less caterer with userId:null would collide. (Production always
+  // creates the login first.)
+  caterer.set("userId", undefined)
+  return caterer.save()
+}
+
+/**
+ * Archive every live dining period. Periods may not overlap (dates or choice
+ * windows), so a suite that needs its own "current" period clears the way.
+ */
+export async function archiveLiveDiningPeriods() {
+  const { DiningPeriod } = await models()
+  await DiningPeriod.updateMany({ isArchived: false }, { $set: { isArchived: true } })
 }
 
 /**
@@ -269,6 +284,7 @@ export default {
   createAllocation,
   createCaterer,
   createDiningPeriod,
+  archiveLiveDiningPeriods,
   createDiningAllocation,
   createBillingPeriod,
   createBillingAccount,

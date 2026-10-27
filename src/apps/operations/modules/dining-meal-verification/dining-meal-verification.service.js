@@ -1,4 +1,5 @@
 import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
+import { coversDayFilter } from "../../../../services/dining/periodDay.js"
 import mongoose from "mongoose"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
@@ -87,8 +88,7 @@ const getActiveDiningPeriodForDate = (date = new Date(), { lean = false } = {}) 
   diningQueries.findOnePeriod(
     {
       isArchived: false,
-      startDate: { $lte: date },
-      endDate: { $gte: date },
+      ...coversDayFilter(date),
     },
     { lean }
   )
@@ -486,8 +486,7 @@ export const getDiningMealVerificationContext = async ({ user = null } = {}) => 
   const currentPeriod = await diningQueries.findOnePeriod(
     {
       isArchived: false,
-      startDate: { $lte: now },
-      endDate: { $gte: now },
+      ...coversDayFilter(now),
     },
     { lean: true, populate: [{ path: "catererIds", select: "name email" }] }
   )

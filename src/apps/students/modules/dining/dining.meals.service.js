@@ -7,6 +7,7 @@
 import { success, notFound } from '../../../../services/base/index.js';
 import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
+import { coversDayFilter } from '../../../../services/dining/periodDay.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import {
   idOf, dayKey, shiftDay, dayKeys, localDay, mealSlots, mealState,
@@ -17,7 +18,7 @@ export const HISTORY_DAYS = 14;
 /** The period running today in which this student has a caterer. */
 const currentAllocation = async (userId, now) => {
   const periods = await diningQueries.findPeriods(
-    { isArchived: false, startDate: { $lte: now }, endDate: { $gte: now } },
+    { isArchived: false, ...coversDayFilter(now) },
     { lean: true, sort: { startDate: -1, _id: -1 } }
   );
   if (!periods.length) return null;

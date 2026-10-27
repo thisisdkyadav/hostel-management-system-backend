@@ -18,7 +18,7 @@ export const getDiningPortalState = asyncHandler(async (req, res) => {
 });
 
 export const selectDiningCaterer = asyncHandler(async (req, res) => {
-  const result = await selectStudentDiningCaterer(req.user._id, req.body?.catererId);
+  const result = await selectStudentDiningCaterer(req.user._id, req.body?.catererId, req.body?.periodId);
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,
