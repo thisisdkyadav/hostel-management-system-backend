@@ -392,6 +392,44 @@ describe("PUT /config/porCertificateTemplate (normalization branches)", () => {
   })
 })
 
+describe("PUT /config/diningRebate (long-term rebate form)", () => {
+  let adminApi
+
+  beforeAll(async () => {
+    adminApi = await as(await seed.admin())
+  })
+
+  it("GET returns the empty default", async () => {
+    const res = await adminApi.get(`${BASE}/diningRebate`)
+    expect(res.status).toBe(200)
+    expect(res.body.value).toEqual({ longTermFormRef: "", longTermFormName: "" })
+  })
+
+  it("400 for a non-object value or a non-media ref", async () => {
+    let res = await adminApi.put(`${BASE}/diningRebate`).send({ value: "nope" })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/diningRebate must be an object/i)
+
+    res = await adminApi.put(`${BASE}/diningRebate`).send({ value: { longTermFormRef: "https://evil.example/x.pdf" } })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/longTermFormRef/i)
+  })
+
+  it("stores a trimmed media ref + name, and clearing the ref clears the name", async () => {
+    let res = await adminApi
+      .put(`${BASE}/diningRebate`)
+      .send({ value: { longTermFormRef: " media://abc123 ", longTermFormName: "  Rebate form.pdf ", extra: 1 } })
+    expect(res.status).toBe(200)
+    let get = await adminApi.get(`${BASE}/diningRebate`)
+    expect(get.body.value).toEqual({ longTermFormRef: "media://abc123", longTermFormName: "Rebate form.pdf" })
+
+    res = await adminApi.put(`${BASE}/diningRebate`).send({ value: { longTermFormRef: "", longTermFormName: "x" } })
+    expect(res.status).toBe(200)
+    get = await adminApi.get(`${BASE}/diningRebate`)
+    expect(get.body.value).toEqual({ longTermFormRef: "", longTermFormName: "" })
+  })
+})
+
 describe("repeated PUTs on the same key (double update)", () => {
   let adminApi
 

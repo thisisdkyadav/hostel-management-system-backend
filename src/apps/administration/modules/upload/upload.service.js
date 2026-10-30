@@ -282,6 +282,38 @@ class UploadService {
     });
   }
 
+  async uploadDiningRebateFormTemplate({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');
+
+    const sizeValidation = validateSize(file, TEN_MB);
+    if (!sizeValidation.ok) return sizeValidation;
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'dining-rebate-form-template',
+      actorId: userId,
+      actorRole: 'Admin',
+      entityHint: 'dining-rebate',
+    });
+  }
+
+  async uploadDiningRebateForm({ userId, file }) {
+    const mimeValidation = sanitizeMimeMatch(file, MIXED_MIME_TYPES);
+    if (!mimeValidation.ok) return errorResult(400, 'Only PDF or image files are allowed');
+
+    const sizeValidation = validateSize(file, TEN_MB);
+    if (!sizeValidation.ok) return sizeValidation;
+
+    return this._uploadWithPolicy({
+      file,
+      policy: 'dining-rebate-form',
+      actorId: userId,
+      actorRole: 'Student',
+      entityHint: String(userId || ''),
+    });
+  }
+
   async uploadPorDocumentPDF({ userId, file }) {
     const mimeValidation = sanitizeMimeMatch(file, PDF_MIME_TYPES);
     if (!mimeValidation.ok) return errorResult(400, 'Only PDF files are allowed');

@@ -1,5 +1,15 @@
 import mongoose from "mongoose"
 
+// Filled long-term rebate form uploaded by the student (storage policy dining-rebate-forms).
+const DiningRebateFormSchema = new mongoose.Schema(
+  {
+    ref: { type: String, required: true, trim: true },
+    name: { type: String, trim: true, default: "" },
+    uploadedAt: { type: Date, default: null },
+  },
+  { _id: false }
+)
+
 const DiningRebateSchema = new mongoose.Schema(
   {
     requestGroupId: {
@@ -72,6 +82,10 @@ const DiningRebateSchema = new mongoose.Schema(
       type: String,
       trim: true,
       default: "",
+    },
+    form: {
+      type: DiningRebateFormSchema,
+      default: null,
     },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,

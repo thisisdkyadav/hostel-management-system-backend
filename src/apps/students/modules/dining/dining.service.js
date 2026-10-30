@@ -18,6 +18,7 @@ import { allocationQueries } from '../../../../services/dining/allocationQueries
 import { coversDayFilter, periodDay } from '../../../../services/dining/periodDay.js';
 import {
   createStudentDiningRebate,
+  previewStudentDiningRebate,
   getStudentDiningRebates,
 } from '../../../../services/dining/dining-rebate.service.js';
 import { getStudentDiningBilling } from '../../../administration/modules/admin/dining-billing.service.js';
@@ -360,6 +361,10 @@ export const requestStudentDiningRebate = async (userId, payload = {}) => (
   createStudentDiningRebate({ userId, payload })
 );
 
+export const previewStudentDiningRebateRequest = async (userId, payload = {}) => (
+  previewStudentDiningRebate({ userId, payload })
+);
+
 export const listStudentDiningRebates = async (userId) => (
   getStudentDiningRebates({ userId })
 );
@@ -372,6 +377,7 @@ export default {
   getStudentDiningPortalState,
   selectStudentDiningCaterer,
   requestStudentDiningRebate,
+  previewStudentDiningRebateRequest,
   listStudentDiningRebates,
   listStudentDiningBilling,
 };

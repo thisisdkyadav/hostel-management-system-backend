@@ -266,6 +266,39 @@ describe("media resolution against a storage stub", () => {
       expect(res.status).toBe(200)
     })
 
+    it("dining-rebate-form-templates are open to every authenticated caller", async () => {
+      const admin = await seed.admin()
+      const student = await seed.student()
+      files.set(REF_A, {
+        policy: "dining-rebate-form-templates",
+        actorId: String(admin._id),
+        actorRole: "Admin",
+        entityHint: "dining-rebate",
+      })
+      const api = await as(student)
+      expect((await api.get(`${BASE}/resolve`).query({ ref: REF_A })).status).toBe(200)
+    })
+
+    it("dining-rebate-forms: uploader, Admin and Dining Office only (not other students / caterers)", async () => {
+      const owner = await seed.student()
+      const other = await seed.student()
+      const admin = await seed.admin()
+      const office = await seed.createUser({ role: "Dining", subRole: "Office" })
+      const caterer = await seed.createUser({ role: "Dining", subRole: "Caterer" })
+      files.set(REF_A, {
+        policy: "dining-rebate-forms",
+        actorId: String(owner._id),
+        actorRole: "Student",
+        entityHint: String(owner._id),
+      })
+      const statusFor = async (user) => (await (await as(user)).get(`${BASE}/resolve`).query({ ref: REF_A })).status
+      expect(await statusFor(owner)).toBe(200)
+      expect(await statusFor(admin)).toBe(200)
+      expect(await statusFor(office)).toBe(200)
+      expect(await statusFor(other)).toBe(403)
+      expect(await statusFor(caterer)).toBe(403)
+    })
+
     it("?redirect=1 answers 302 with a Location header instead of JSON", async () => {
       const student = await seed.student()
       files.set(REF_A, {

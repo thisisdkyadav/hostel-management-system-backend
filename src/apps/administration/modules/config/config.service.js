@@ -11,6 +11,7 @@ import { MIXED_BATCH_SCOPE_KEY, normalizeStudentBatchesConfig } from '../../../.
 import { success, notFound, badRequest, error } from '../../../../services/base/index.js';
 import { configOwner } from '../../../../services/config/configOwner.service.js';
 import { configQueries } from '../../../../services/config/configQueries.service.js';
+import { isMediaRef } from '../../../../services/storage/file-ref.service.js';
 import {
   GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY,
   normalizeCalendarCategoryDefinitions,
@@ -26,6 +27,7 @@ const DEGREES_KEY = "degrees"
 const DEPARTMENTS_KEY = "departments"
 const GYMKHANA_EVENT_CATEGORIES_KEY = GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY
 const POR_CERTIFICATE_TEMPLATE_KEY = "porCertificateTemplate"
+const DINING_REBATE_KEY = "diningRebate"
 const CERTIFICATE_FONT_FAMILIES = ["Helvetica", "Times", "Courier"]
 const YEAR_KEY_REGEX = /^\d{4}$/
 
@@ -59,6 +61,25 @@ const normalizePorCertificateTemplate = (value) => {
         border: theme.border !== false,
       },
       signatories,
+    },
+  }
+}
+
+const normalizeDiningRebateConfig = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { success: false, message: "diningRebate must be an object" }
+  }
+
+  const longTermFormRef = String(value.longTermFormRef || "").trim()
+  if (longTermFormRef && !isMediaRef(longTermFormRef)) {
+    return { success: false, message: "longTermFormRef must be an uploaded file reference" }
+  }
+
+  return {
+    success: true,
+    value: {
+      longTermFormRef,
+      longTermFormName: longTermFormRef ? String(value.longTermFormName || "").trim().slice(0, 200) : "",
     },
   }
 }
@@ -231,6 +252,12 @@ class ConfigService {
         return badRequest(validation.message)
       }
       normalizedValue = normalizeCalendarCategoryDefinitions(value)
+    } else if (key === DINING_REBATE_KEY) {
+      const normalizedDiningRebate = normalizeDiningRebateConfig(value)
+      if (!normalizedDiningRebate.success) {
+        return badRequest(normalizedDiningRebate.message)
+      }
+      normalizedValue = normalizedDiningRebate.value
     } else if (key === POR_CERTIFICATE_TEMPLATE_KEY) {
       const normalizedTemplate = normalizePorCertificateTemplate(value)
       if (!normalizedTemplate.success) {

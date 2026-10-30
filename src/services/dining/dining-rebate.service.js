@@ -4,6 +4,9 @@ import { studentProfileQueries } from "../student/studentProfileQueries.service.
 import { allocationQueries } from "./allocationQueries.service.js"
 import { diningOwner } from "./diningOwner.service.js"
 import { diningQueries } from "./diningQueries.service.js"
+import { configQueries } from "../config/configQueries.service.js"
+import { fileAccessService } from "../storage/file-access.service.js"
+import { isMediaRef } from "../storage/file-ref.service.js"
 import { badRequest, notFound, success } from "../base/index.js"
 
 const APPROVED_STATUS = "approved"
@@ -20,6 +23,12 @@ const DEFAULT_REBATE_SETTINGS = {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
+
+const DINING_REBATE_CONFIG_KEY = "diningRebate"
+// Storage policy KEY (not the upload policy name) recorded in file metadata.
+const REBATE_FORM_STORAGE_POLICY = "dining-rebate-forms"
+const FORM_REQUIRED_MESSAGE = "Please upload the filled long-term rebate form"
+const INVALID_FORM_MESSAGE = "The rebate form must be a file you uploaded for this rebate request"
 
 export const normalizeDay = (value) => {
   const date = value instanceof Date ? value : new Date(value)
@@ -92,6 +101,15 @@ const serializePeriod = (period = null) => {
   }
 }
 
+const serializeRebateForm = (form = null) => {
+  if (!form?.ref) return null
+  return {
+    ref: form.ref,
+    name: form.name || "",
+    uploadedAt: form.uploadedAt || null,
+  }
+}
+
 export const serializeDiningRebate = (rebate = {}) => ({
   id: rebate._id || rebate.id,
   requestGroupId: rebate.requestGroupId,
@@ -110,6 +128,7 @@ export const serializeDiningRebate = (rebate = {}) => ({
   status: rebate.status,
   reason: rebate.reason || "",
   adminComment: rebate.adminComment || "",
+  form: serializeRebateForm(rebate.form),
   approvedAt: rebate.approvedAt,
   rejectedAt: rebate.rejectedAt,
   createdAt: rebate.createdAt,
@@ -278,6 +297,73 @@ const buildValidatedRebateSegments = async ({ userId, startDate, endDate, reason
   return { profile, segments }
 }
 
+/** The blank long-term rebate form configured by Admin, or null when none is set. */
+export const getLongTermRebateFormTemplate = async () => {
+  const config = await configQueries.findByKeyLean(DINING_REBATE_CONFIG_KEY)
+  const ref = String(config?.value?.longTermFormRef || "").trim()
+  if (!isMediaRef(ref)) return null
+  return { ref, name: String(config?.value?.longTermFormName || "").trim() }
+}
+
+const hasLongTermSegment = (segments = []) => segments.some((segment) => segment.type === LONG_TERM_TYPE)
+
+/**
+ * Validate the student's filled form: it must be a media ref this student uploaded
+ * under the dining-rebate-forms storage policy. Returns { form } or { response }.
+ */
+const validateSubmittedRebateForm = async ({ userId, form }) => {
+  const ref = String(form?.ref || "").trim()
+  if (!isMediaRef(ref)) return { response: badRequest(INVALID_FORM_MESSAGE) }
+
+  let meta
+  try {
+    meta = await fileAccessService.getMetadata(ref)
+  } catch {
+    return { response: badRequest(INVALID_FORM_MESSAGE) }
+  }
+
+  if (meta?.policy !== REBATE_FORM_STORAGE_POLICY || String(meta?.actorId || "") !== String(userId)) {
+    return { response: badRequest(INVALID_FORM_MESSAGE) }
+  }
+
+  return {
+    form: {
+      ref,
+      name: String(form?.name || "").trim().slice(0, 200),
+      uploadedAt: new Date(),
+    },
+  }
+}
+
+const serializePreviewSegment = (segment) => ({
+  periodId: segment.periodId,
+  startDate: segment.startDate,
+  endDate: segment.endDate,
+  dayCount: segment.dayCount,
+  type: segment.type,
+  status: segment.status,
+})
+
+/** Dry run of createStudentDiningRebate: same validation, nothing saved. */
+export const previewStudentDiningRebate = async ({ userId, payload = {} }) => {
+  const validation = await buildValidatedRebateSegments({
+    userId,
+    startDate: payload.startDate,
+    endDate: payload.endDate,
+  })
+
+  if (validation.response) return validation.response
+
+  const hasLongTerm = hasLongTermSegment(validation.segments)
+  const template = hasLongTerm ? await getLongTermRebateFormTemplate() : null
+
+  return success({
+    segments: validation.segments.map(serializePreviewSegment),
+    hasLongTerm,
+    formRequired: Boolean(hasLongTerm && template),
+  })
+}
+
 export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
   const validation = await buildValidatedRebateSegments({
     userId,
@@ -288,10 +374,26 @@ export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
 
   if (validation.response) return validation.response
 
+  // Short-term-only requests ignore `form`. Long-term requests require it when
+  // a blank template is configured; a supplied form is always validated.
+  let form = null
+  if (hasLongTermSegment(validation.segments)) {
+    const hasForm = Boolean(String(payload.form?.ref || "").trim())
+    if (!hasForm) {
+      const template = await getLongTermRebateFormTemplate()
+      if (template) return badRequest(FORM_REQUIRED_MESSAGE)
+    } else {
+      const formValidation = await validateSubmittedRebateForm({ userId, form: payload.form })
+      if (formValidation.response) return formValidation.response
+      form = formValidation.form
+    }
+  }
+
   const requestGroupId = crypto.randomUUID()
   const created = await diningOwner.insertRebates(
     validation.segments.map((segment) => ({
       ...segment,
+      form: segment.type === LONG_TERM_TYPE ? form : null,
       requestGroupId,
     }))
   )
@@ -317,7 +419,9 @@ export const getStudentDiningRebates = async ({ userId }) => {
     { sort: { startDate: -1, createdAt: -1 }, limit: 100, lean: true },
   )
 
-  return success({ rebates: rebates.map(serializeDiningRebate) })
+  const longTermForm = await getLongTermRebateFormTemplate()
+
+  return success({ rebates: rebates.map(serializeDiningRebate), longTermForm })
 }
 
 export const getAdminDiningRebates = async ({ status = "" } = {}) => {
@@ -459,6 +563,8 @@ export const getApprovedRebateStudentIdsForDay = async ({ periodId, catererId, d
 
 export default {
   createStudentDiningRebate,
+  previewStudentDiningRebate,
+  getLongTermRebateFormTemplate,
   getStudentDiningRebates,
   getAdminDiningRebates,
   approveDiningRebate,

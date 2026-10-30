@@ -3,6 +3,7 @@ import {
   listStudentDiningBilling,
   listStudentDiningRebates,
   requestStudentDiningRebate,
+  previewStudentDiningRebateRequest,
   selectStudentDiningCaterer,
 } from './dining.service.js';
 import { getStudentDiningMeals } from './dining.meals.service.js';
@@ -38,6 +39,15 @@ export const getDiningRebates = asyncHandler(async (req, res) => {
 
 export const createDiningRebate = asyncHandler(async (req, res) => {
   const result = await requestStudentDiningRebate(req.user._id, req.body || {});
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const previewDiningRebate = asyncHandler(async (req, res) => {
+  const result = await previewStudentDiningRebateRequest(req.user._id, req.body || {});
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,

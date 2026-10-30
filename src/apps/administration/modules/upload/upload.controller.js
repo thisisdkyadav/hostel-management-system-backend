@@ -267,6 +267,38 @@ export const uploadPorDocumentPDF = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Upload the blank long-term dining rebate form (Admin settings)
+ */
+export const uploadDiningRebateFormTemplate = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadDiningRebateFormTemplate({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
+ * Upload a student's filled long-term dining rebate form (PDF or image)
+ */
+export const uploadDiningRebateForm = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadDiningRebateForm({
+    userId: req.user?._id,
+    file: getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});
+
+/**
  * Attach one insurance PDF to the student named in the file.
  * Same handler as POST /admin/insurance-providers/student-document.
  */

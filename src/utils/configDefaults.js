@@ -61,6 +61,14 @@ export const defaultConfigs = {
     ],
     description: "Global Gymkhana event categories used across calendars, budgets, and related workflows.",
   },
+  diningRebate: {
+    value: {
+      longTermFormRef: "",
+      longTermFormName: "",
+    },
+    description:
+      "Dining rebate settings: the blank long-term rebate form (media ref + display name). When set, students must upload the filled form with every long-term rebate request.",
+  },
   porCertificateTemplate: {
     value: {
       eyebrow: "Indian Institute of Technology Indore",

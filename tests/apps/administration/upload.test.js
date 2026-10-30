@@ -131,6 +131,8 @@ describe("upload — auth wall", () => {
     ["post", "/api/v1/upload/election-nomination-document"],
     ["post", "/api/v1/upload/por-document-pdf"],
     ["post", "/api/v1/upload/insurance-pdf"],
+    ["post", "/api/v1/upload/dining-rebate-form-template"],
+    ["post", "/api/v1/upload/dining-rebate-form"],
   ]
   it("401 on every route without a session", async () => {
     const api = await anon()
@@ -370,6 +372,50 @@ describe("upload — insurance PDF", () => {
     expect(res.body.rollNumber).toBe(rollNumber)
     expect(res.body.documentRef).toMatch(/^media:\/\/stub\//)
     expect(received[before].policy).toBe("insurance-pdf")
+  })
+})
+
+describe("upload — dining rebate forms", () => {
+  it("blank template: Admin only, PDF only, hits the template policy", async () => {
+    const adminApi = await as(await seed.admin())
+    const before = received.length
+    let res = await adminApi
+      .post("/api/v1/upload/dining-rebate-form-template")
+      .attach("document", pdf(), "rebate-form.pdf")
+    expect(res.status).toBe(200)
+    expectStoragePayload(res.body)
+    expect(received[before].policy).toBe("dining-rebate-form-template")
+
+    res = await adminApi.post("/api/v1/upload/dining-rebate-form-template").attach("document", png(), "x.png")
+    expect(res.status).toBe(400)
+
+    const studentApi = await as(await seed.student())
+    expect(
+      (await studentApi.post("/api/v1/upload/dining-rebate-form-template").attach("document", pdf(), "a.pdf")).status
+    ).toBe(403)
+  })
+
+  it("filled form: Student only, PDF or image, entityHint is the student", async () => {
+    const student = await seed.student()
+    const api = await as(student)
+    let before = received.length
+    let res = await api.post("/api/v1/upload/dining-rebate-form").attach("document", pdf(), "filled.pdf")
+    expect(res.status).toBe(200)
+    expectStoragePayload(res.body)
+    expect(received[before].policy).toBe("dining-rebate-form")
+    expect(received[before].actorRole).toBe("Student")
+    expect(received[before].entityHint).toBe(String(student._id))
+
+    before = received.length
+    res = await api.post("/api/v1/upload/dining-rebate-form").attach("document", png(), "filled.png")
+    expect(res.status).toBe(200)
+    expect(received[before].policy).toBe("dining-rebate-form")
+
+    res = await api.post("/api/v1/upload/dining-rebate-form").attach("document", TEXT_BYTES, "x.txt")
+    expect(res.status).toBe(400)
+
+    const adminApi = await as(await seed.admin())
+    expect((await adminApi.post("/api/v1/upload/dining-rebate-form").attach("document", pdf(), "a.pdf")).status).toBe(403)
   })
 })
 

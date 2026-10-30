@@ -24,6 +24,8 @@ import {
   uploadOverallBestPerformerProofPDF,
   uploadPorDocumentPDF,
   uploadInsurancePdf,
+  uploadDiningRebateFormTemplate,
+  uploadDiningRebateForm,
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -58,6 +60,20 @@ const guardPor = routeGuard(
 const guardInsurancePdf = routeGuard(
   {
     [ROLES.ADMIN]: 'route.admin.students',
+  },
+  { onUnmapped: 'allow' }
+);
+
+const guardDiningRebateFormTemplate = routeGuard(
+  {
+    [ROLES.ADMIN]: 'route.admin.settings',
+  },
+  { onUnmapped: 'allow' }
+);
+
+const guardDiningRebateForm = routeGuard(
+  {
+    [ROLES.STUDENT]: 'route.student.dining',
   },
   { onUnmapped: 'allow' }
 );
@@ -233,6 +249,22 @@ router.post(
   guardInsurancePdf(['Admin']),
   handleElectionNominationUpload,
   uploadInsurancePdf
+);
+
+// Blank long-term dining rebate form (Admin settings)
+router.post(
+  '/dining-rebate-form-template',
+  guardDiningRebateFormTemplate(['Admin']),
+  handleElectionNominationUpload,
+  uploadDiningRebateFormTemplate
+);
+
+// Student's filled long-term dining rebate form (PDF or image)
+router.post(
+  '/dining-rebate-form',
+  guardDiningRebateForm(['Student']),
+  handleElectionNominationUpload,
+  uploadDiningRebateForm
 );
 
 export default router;

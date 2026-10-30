@@ -1,4 +1,4 @@
-import { ROLES } from '../../../../core/constants/roles.constants.js';
+import { ROLES, DINING_SUBROLES } from '../../../../core/constants/roles.constants.js';
 import { success, badRequest, forbidden, notFound, error } from '../../../../services/base/index.js';
 import { fileAccessService } from '../../../../services/storage/file-access.service.js';
 import { isMediaRef } from '../../../../services/storage/file-ref.service.js';
@@ -23,7 +23,7 @@ const HOSTEL_SCOPED_ROLES = new Set([
   ROLES.HOSTEL_GATE,
 ]);
 
-const OPEN_TO_AUTHENTICATED = new Set(['profile-images', 'lost-and-found']);
+const OPEN_TO_AUTHENTICATED = new Set(['profile-images', 'lost-and-found', 'dining-rebate-form-templates']);
 const EVENT_POLICIES = new Set([
   'event-proposal-docs',
   'event-chief-guest-docs',
@@ -44,6 +44,7 @@ const HOSTEL_STAFF_STUDENT_DOCS = new Set([
 ]);
 const DISCO_POLICIES = new Set(['disco-process-docs']);
 const SIGNATURE_POLICIES = new Set(['signature-images']);
+const DINING_REBATE_FORM_POLICY = 'dining-rebate-forms';
 
 const toId = (value) => {
   if (!value) return '';
@@ -125,6 +126,16 @@ const canViewMedia = async (user, meta, fileRef) => {
         // Invalid actor id must not fail the whole resolve.
       }
     }
+  }
+
+  // Filled long-term rebate forms: the uploading student (handled above), admins
+  // (handled above) and the Dining Office who verifies them. Caterers never see them.
+  if (
+    policy === DINING_REBATE_FORM_POLICY &&
+    user.role === ROLES.DINING &&
+    user.subRole === DINING_SUBROLES.OFFICE
+  ) {
+    return true;
   }
 
   if (user.role === ROLES.GYMKHANA && GYMKHANA_POLICIES.has(policy)) {

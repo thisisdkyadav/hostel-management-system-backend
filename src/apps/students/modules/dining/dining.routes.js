@@ -7,6 +7,7 @@ import {
   getDiningPortalState,
   getDiningRebates,
   getDiningTags,
+  previewDiningRebate,
   selectDiningCaterer,
 } from './dining.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
@@ -22,6 +23,7 @@ router.use(requireRouteAccess('route.student.dining'));
 router.get('/portal', getDiningPortalState);
 router.post('/select', selectDiningCaterer);
 router.get('/rebates', getDiningRebates);
+router.post('/rebates/preview', previewDiningRebate);
 router.post('/rebates', createDiningRebate);
 router.get('/billing', getDiningBilling);
 router.get('/meals', getDiningMeals);
