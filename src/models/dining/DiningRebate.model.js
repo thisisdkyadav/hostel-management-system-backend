@@ -18,15 +18,18 @@ const DiningRebateSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    // LEGACY: rebates are standalone date ranges now. New rows leave these null;
+    // old rows keep them but nothing reads them. Attribution to a period/caterer
+    // is derived from the student's allocation (services/dining/rebateScope.js).
     periodId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "DiningPeriod",
-      required: true,
+      default: null,
     },
     catererId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Caterer",
-      required: true,
+      default: null,
     },
     studentUserId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -114,6 +117,7 @@ const DiningRebateSchema = new mongoose.Schema(
 DiningRebateSchema.index({ studentUserId: 1, periodId: 1, status: 1 })
 DiningRebateSchema.index({ periodId: 1, catererId: 1, status: 1 })
 DiningRebateSchema.index({ dateKeys: 1, status: 1 })
+DiningRebateSchema.index({ studentUserId: 1, status: 1, dateKeys: 1 })
 DiningRebateSchema.index({ status: 1, createdAt: -1 })
 
 DiningRebateSchema.virtual("id").get(function () {

@@ -116,6 +116,21 @@ export const allocationQueries = {
       .populate(CATERER_POPULATE)
       .lean()
   },
+
+  /** Many students' allocations across many periods, caterer name populated — rebate placements (one read per list). */
+  async findAllocationsByUsersAndPeriods(studentUserIds, periodIds) {
+    if (!studentUserIds?.length || !periodIds?.length) return []
+    return DiningAllocation.find({ studentUserId: { $in: studentUserIds }, periodId: { $in: periodIds } })
+      .select("periodId studentUserId catererId")
+      .populate({ path: "catererId", select: "name" })
+      .lean()
+  },
+
+  /** The studentUserIds allocated to one caterer in a period — rebate attribution. */
+  async findStudentUserIdsByPeriodAndCaterer(periodId, catererId) {
+    const rows = await DiningAllocation.find({ periodId, catererId }).select("studentUserId").lean()
+    return rows.map((row) => row.studentUserId)
+  },
 }
 
 export default allocationQueries

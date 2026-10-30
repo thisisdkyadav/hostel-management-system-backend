@@ -14,6 +14,7 @@ import { studentProfileQueries } from '../../../../services/student/studentProfi
 import { listDayKeys, normalizeDay } from '../../../../services/dining/dining-rebate.service.js';
 import { resolveMealSlotsForDay } from '../../../../services/dining/mealSchedule.js';
 import { loadBillingPeriodAccounts } from './dining-billing.service.js';
+import { allocationScopes, clipRebate, rebateScopeFilter } from '../../../../services/dining/rebateScope.js';
 
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100;
 const idOf = (value) => String(value?._id || value || '');
@@ -109,12 +110,16 @@ export const getBillingCycles = async () => {
   if (!periods.length) return success([]);
 
   const periodIds = periods.map((period) => period._id);
-  const [allocationCounts, verificationStats, rebates, feePeriods] = await Promise.all([
+  const [allocationCounts, verificationStats, rosterRows, feePeriods] = await Promise.all([
     allocationQueries.countAllocationsByPeriodsAndCaterer(periodIds),
     diningQueries.aggregateVerificationStatsByPeriods(periodIds),
-    diningQueries.findRebates({ periodId: { $in: periodIds }, status: { $in: ['approved', 'pending'] } }, { select: 'periodId studentUserId status dateKeys', lean: true }),
+    allocationQueries.findAllocationSummariesByPeriods(periodIds),
     billingQueries.findBillingPeriodsByDiningPeriods(periodIds),
   ]);
+  // Rebates are standalone: each period gets its allocated students' rebates, clipped to its days.
+  const scopes = allocationScopes(periods, rosterRows);
+  const rebateFilter = rebateScopeFilter(scopes, { status: ['approved', 'pending'] });
+  const rebates = rebateFilter ? await diningQueries.findRebates(rebateFilter, { select: 'studentUserId status dateKeys', lean: true }) : [];
 
   const allocationsByPeriod = new Map();
   allocationCounts.forEach(({ _id, count }) => {
@@ -123,12 +128,14 @@ export const getBillingCycles = async () => {
     allocationsByPeriod.get(periodKey).set(idOf(_id.catererId), count);
   });
   const statsByPeriod = new Map(verificationStats.map((row) => [idOf(row._id), row]));
-  const rebatesByPeriod = rebates.reduce((map, rebate) => {
-    const key = idOf(rebate.periodId);
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(rebate);
-    return map;
-  }, new Map());
+  const rebatesByPeriod = new Map(scopes.map((scope) => {
+    const students = new Set(scope.studentUserIds.map(idOf));
+    const own = rebates
+      .filter((rebate) => students.has(idOf(rebate.studentUserId)))
+      .map((rebate) => clipRebate(rebate, scope.fromKey, scope.toKey))
+      .filter((rebate) => rebate.dayCount > 0);
+    return [scope.periodId, own];
+  }));
 
   const today = normalizeDay(new Date());
   return success(periods.map((period) => {
@@ -150,13 +157,17 @@ export const getBillingCycle = async (periodId) => {
   if (!period) return notFound('Dining period');
 
   const objectId = period._id;
-  const [allocations, meals, issues, rebates, feePeriods] = await Promise.all([
+  const [allocations, meals, issues, feePeriods] = await Promise.all([
     allocationQueries.findCycleAllocations(objectId),
     diningQueries.aggregateCycleMeals(objectId, TIMEZONE),
     diningQueries.countCycleIssues(objectId),
-    diningQueries.findRebates({ periodId: objectId }, { select: 'studentUserId status dateKeys', lean: true }),
     billingQueries.findBillingPeriodsByDiningPeriods([objectId]),
   ]);
+  // Rebates (any status) of the allocated students, clipped to this period's days.
+  const [scope] = allocationScopes([period], allocations.map((row) => ({ periodId: objectId, studentUserId: row.studentUserId })));
+  const rebateFilter = rebateScopeFilter([scope]);
+  const rebates = (rebateFilter ? await diningQueries.findRebates(rebateFilter, { select: 'studentUserId status dateKeys', lean: true }) : [])
+    .map((rebate) => clipRebate(rebate, scope.fromKey, scope.toKey));
 
   const today = normalizeDay(new Date());
   const userIds = [...new Set([...allocations.map((row) => idOf(row.studentUserId)), ...meals.map((row) => idOf(row.studentUserId))])].filter(Boolean);

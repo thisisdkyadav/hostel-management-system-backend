@@ -3,6 +3,7 @@ import { allocationQueries } from "../../../../services/dining/allocationQueries
 import { badRequest, success } from "../../../../services/base/index.js"
 import { serializeVerification } from "../dining-meal-verification/dining-meal-verification.service.js"
 import { loadScanTags, loadTagContext } from "../../../../services/dining/tagResolve.js"
+import { rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 import {
   idOf, dayKey, shiftDay, dayBounds, dayKeys, localDay, validateQuery, validateRange,
   getDiningScope, getPeriodScope, catererMatch, mealSlots, mealState, serializeCaterer,
@@ -12,6 +13,12 @@ import {
 const rosterFor = (period, caterer) => (caterer
   ? allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id)
   : allocationQueries.findAllocationsByPeriod(period._id))
+
+/** Approved rebates of these allocated students touching [fromKey, toKey] (days inside their period). */
+const findRosterRebates = (allocations, fromKey, toKey, { sort } = {}) => {
+  const filter = rebateScopeFilter([{ studentUserIds: allocations.map((row) => row.studentUserId), fromKey, toKey }], { status: "approved" })
+  return filter ? diningQueries.findRebates(filter, { lean: true, ...(sort ? { sort } : {}) }) : []
+}
 
 export const getMealRecordOptions = async ({ user, query = {} }) => {
   const { caterer, oversight, error } = await getDiningScope(user, query)
@@ -53,14 +60,15 @@ export const getMealRecordOverview = async ({ user, query }) => {
   if (from > to) return badRequest("Date range must overlap the dining period")
   const keys = dayKeys(from, to)
   const slots = mealSlots(period)
-  const [allocations, scans, rebates] = await Promise.all([
+  const [allocations, scans] = await Promise.all([
     rosterFor(period, caterer),
     diningQueries.findVerifications({
       ...catererMatch(caterer), periodId: period._id, status: "verified",
       scannedAt: { $gte: localDay(from), $lt: localDay(shiftDay(to, 1)) },
     }, { select: "studentUserId mealSlotKey scannedAt" }),
-    diningQueries.findRebates({ ...catererMatch(caterer), periodId: period._id, status: "approved", dateKeys: { $in: keys } }, { lean: true }),
   ])
+  // Rebates count for the roster's students on the range's days (already inside the period).
+  const rebates = await findRosterRebates(allocations, from, to)
   const roster = new Set(allocations.map((row) => idOf(row.studentUserId)))
   const tagContext = await loadTagContext({ periods: [period], fromKey: from, toKey: to, studentUserIds: [...roster] })
   const rebatedByDay = new Map(keys.map((key) => [key, new Set()]))
@@ -103,12 +111,11 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
   const state = mealState(date, slot)
   const scanFilter = { ...catererMatch(caterer), periodId: period._id, mealSlotKey, scannedAt: dayBounds(date) }
   const issueFilter = { ...scanFilter, status: { $ne: "verified" } }
-  const [allocations, scans, rebates, issueScans, catererDocs] = await Promise.all([
+  const [allocations, scans, issueScans, catererDocs] = await Promise.all([
     rosterFor(period, caterer),
     diningQueries.findVerifications(scanFilter, {
       select: "studentUserId catererId status source scannedAt", sort: { scannedAt: 1, createdAt: 1, _id: 1 },
     }),
-    diningQueries.findRebates({ ...catererMatch(caterer), periodId: period._id, status: "approved", dateKeys: date }, { lean: true, sort: { createdAt: 1, _id: 1 } }),
     light
       ? diningQueries.findVerifications(issueFilter, { select: "catererId" })
       : diningQueries.findVerificationsPopulated(issueFilter, { lean: true, sort: { scannedAt: -1, createdAt: -1, _id: -1 }, limit: 200 }),
@@ -116,6 +123,7 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
       ? diningQueries.findCaterers({ _id: { $in: caterer ? [caterer._id] : period.catererIds } }, { lean: true, sort: { name: 1 } })
       : null,
   ])
+  const rebates = await findRosterRebates(allocations, date, date, { sort: { createdAt: 1, _id: 1 } })
   const [profiles, tagContext] = light
     ? [new Map(), null]
     : await Promise.all([

@@ -3,6 +3,7 @@ import mongoose from "mongoose"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
+import { DiningAllocation } from "../../../src/models/index.js"
 import { fixture, catererFixture, periodFixture, studentFixture, removeAllocationFixture, scanFixture, rebateFixture, roomFixture, shift, keyFor } from "../../helpers/seed/dining-caterer.js"
 
 beforeAll(setupTestDb)
@@ -235,6 +236,8 @@ describe("dining caterer — rebates", () => {
     await rebateFixture(f, alpha, { from: f.today, status: "rejected" })
     await rebateFixture(f, beta, { from: shift(f.today, -10) })
     const archived = await periodFixture(f.caterer, shift(f.today, -60), shift(f.today, -30), { isArchived: true })
+    // Rebates count where the student is allocated: alpha also ate here in the archived period.
+    await DiningAllocation.create({ periodId: archived._id, catererId: f.caterer._id, studentUserId: alpha.user._id, studentProfileId: alpha.profile._id, rollNumber: alpha.profile.rollNumber })
     await rebateFixture({ ...f, period: archived }, alpha, { from: shift(f.today, -40) })
     const outsider = await fixture()
     await rebateFixture(outsider, outsider.students[0], { from: f.today })

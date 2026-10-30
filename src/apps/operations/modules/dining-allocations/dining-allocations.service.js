@@ -16,6 +16,7 @@ import { getDayKey, listDayKeys, normalizeDay } from "../../../../services/dinin
 import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
 import { periodDay } from "../../../../services/dining/periodDay.js"
 import { loadTagContext } from "../../../../services/dining/tagResolve.js"
+import { clipRebate, periodKeyRange, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 import { loadBillingPeriodAccounts } from "../../../administration/modules/admin/dining-billing.service.js"
 import { dayKey, getDiningScope, getPeriodScope, idOf, mealSlots, serializeCaterer, serializeStudent, studentDetails } from "../dining-caterer/dining-caterer.service.js"
 
@@ -129,6 +130,12 @@ export const getAllocationPeriods = async ({ user, query = {} }) => {
   })
 }
 
+/** Rebates (any status) of the allocated students that touch this period's days; standalone, so never by periodId. */
+const findPeriodRebates = (period, allocations) => {
+  const filter = rebateScopeFilter([{ studentUserIds: allocations.map((row) => row.studentUserId), ...periodKeyRange(period, getDayKey) }])
+  return filter ? diningQueries.findRebates(filter, { select: "studentUserId status dateKeys", lean: true }) : []
+}
+
 const emptyRebates = () => ({ approvedDays: 0, elapsedDays: 0, pending: 0, rejected: 0, keys: new Set() })
 
 export const getAllocationRoster = async ({ user, query = {} }) => {
@@ -155,9 +162,7 @@ export const getAllocationRoster = async ({ user, query = {} }) => {
   const [profiles, meals, rebates, feeAccounts, tagContext] = await Promise.all([
     studentDetails(userIds),
     phase === "upcoming" || !userIds.length ? [] : diningQueries.aggregateCycleMeals(period._id, TIMEZONE),
-    userIds.length
-      ? diningQueries.findRebates({ periodId: period._id, studentUserId: { $in: allocations.map((row) => row.studentUserId) } }, { select: "studentUserId status dateKeys", lean: true })
-      : [],
+    findPeriodRebates(period, allocations),
     activeFee ? loadBillingPeriodAccounts(activeFee) : null,
     // Allocation tags of this period + standalone tags overlapping its days.
     loadTagContext({ periods: [period], fromKey: getDayKey(period.startDate), toKey: getDayKey(period.endDate), studentUserIds: userIds }),
@@ -180,6 +185,7 @@ export const getAllocationRoster = async ({ user, query = {} }) => {
 
   const rebatesByUser = new Map()
   rebates.forEach((rebate) => {
+    rebate = clipRebate(rebate, getDayKey(period.startDate), getDayKey(period.endDate))
     const key = idOf(rebate.studentUserId)
     if (!rebatesByUser.has(key)) rebatesByUser.set(key, emptyRebates())
     const entry = rebatesByUser.get(key)

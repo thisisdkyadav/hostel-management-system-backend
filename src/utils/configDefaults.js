@@ -1,5 +1,6 @@
 import { configOwner } from "../services/config/configOwner.service.js"
 import { configQueries } from "../services/config/configQueries.service.js"
+import { DEFAULT_REBATE_RULES } from "../services/dining/rebateRules.js"
 
 // Default configuration values
 export const defaultConfigs = {
@@ -63,11 +64,12 @@ export const defaultConfigs = {
   },
   diningRebate: {
     value: {
+      ...DEFAULT_REBATE_RULES,
       longTermFormRef: "",
       longTermFormName: "",
     },
     description:
-      "Dining rebate settings: the blank long-term rebate form (media ref + display name). When set, students must upload the filled form with every long-term rebate request.",
+      "Dining rebate settings: the global short-term rules (max days per dining period, max continuous days, min days per request, min advance days) and the blank long-term rebate form (media ref + display name). When the form is set, students must upload the filled form with every long-term rebate request.",
   },
   porCertificateTemplate: {
     value: {

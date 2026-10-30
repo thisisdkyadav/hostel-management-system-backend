@@ -107,7 +107,7 @@ describe("GET /portal", () => {
     expect(period).toBeTruthy()
     expect(period.allocationStatus).toBe("Open")
     expect(period.caterers.map((c) => c.name).sort()).toEqual(["Alpha Mess", "Beta Mess"])
-    expect(period.rebateSettings).toBeTruthy()
+    expect(period.rebateSettings).toBeNull() // rules come from GET /rebates now
     expect(period.selectedAllocation).toBeNull()
 
     const capacities = period.catererCapacities
@@ -319,17 +319,21 @@ describe("dining rebates", () => {
     expect(inverted.body.message).toBe("Rebate start date must be before or equal to end date")
   })
 
-  it("POST /rebates rejects dates without a configured dining period", async () => {
+  it("POST /rebates accepts dates with no dining period yet (unplaced, no allocation needed)", async () => {
     const res = await studentApi
       .post(`${BASE}/rebates`)
-      .send({ startDate: utcDay(50), endDate: utcDay(51), reason: "Trip" })
-    expect(res.status).toBe(400)
-    expect(res.body.message).toBe("No dining period is configured for the selected dates")
+      .send({ startDate: utcDay(100), endDate: utcDay(101), reason: "Trip" })
+    expect(res.status).toBe(201)
+    expect(res.body.message).toBe("Short-term rebate approved")
+    const created = res.body.data.rebates[0]
+    expect(created).toMatchObject({ status: "approved", type: "short-term", dayCount: 2, placements: [], unplacedDayCount: 2 })
+    expect(created.periodId).toBeNull()
+    expect(created.catererId).toBeNull()
   })
 
-  it("POST /rebates requires a caterer allocation for the covered period", async () => {
+  it("POST /rebates accepts a period where the student has no allocation (caterer null)", async () => {
     // Dedicated period far from every other range so later tests are unaffected.
-    await createDiningPeriod({
+    const unallocated = await createDiningPeriod({
       eligibilityMode: "custom",
       eligibleRollNumbers: ["REB001"],
       startDate: utcDay(20),
@@ -338,10 +342,12 @@ describe("dining rebates", () => {
     const res = await studentApi
       .post(`${BASE}/rebates`)
       .send({ startDate: utcDay(21), endDate: utcDay(21), reason: "Family function" })
-    expect(res.status).toBe(400)
-    expect(res.body.message).toBe(
-      "Please select your caterer for the next dining period before requesting cross-period rebates"
-    )
+    expect(res.status).toBe(201)
+    const created = res.body.data.rebates[0]
+    expect(created.unplacedDayCount).toBe(0)
+    expect(created.placements).toEqual([
+      expect.objectContaining({ periodId: String(unallocated._id), caterer: null, dayCount: 1, dateKeys: [dayKey(utcDay(21))] }),
+    ])
   })
 
   it("POST /rebates enforces the advance-notice window", async () => {
@@ -433,12 +439,6 @@ describe("dining rebates", () => {
       eligibleRollNumbers: ["REB002"],
       startDate: utcDay(30),
       endDate: utcDay(40),
-      rebateSettings: {
-        shortTermMaxTotalDays: 2,
-        shortTermMaxContinuousDays: 3,
-        shortTermMinApplicationDays: 1,
-        shortTermMinAdvanceDays: 1,
-      },
     })
     const models = await import("../../../src/models/index.js")
     const profile = await models.StudentProfile.findOne({ userId: s._id })
@@ -456,38 +456,27 @@ describe("dining rebates", () => {
       studentUserId: s._id,
       studentProfileId: profile._id,
       rollNumber: "REB002",
-      startDate: utcDay(31),
-      endDate: utcDay(32),
-      dateKeys: [dayKey(utcDay(31)), dayKey(utcDay(32))],
-      dayCount: 2,
+      startDate: utcDay(30),
+      endDate: utcDay(38),
+      dateKeys: Array.from({ length: 9 }, (_, i) => dayKey(utcDay(30 + i))),
+      dayCount: 9,
       type: "short-term",
       status: "approved",
     })
 
+    // Global default: 10 short-term days per period; 9 used -> 2 more is too many.
     const api = await as(s)
     const second = await api
       .post(`${BASE}/rebates`)
-      .send({ startDate: utcDay(35), endDate: utcDay(35), reason: "One day too many" })
+      .send({ startDate: utcDay(39), endDate: utcDay(40), reason: "One day too many" })
     expect(second.status).toBe(400)
     expect(second.body.message).toContain("Short-term rebate limit exceeded")
-    expect(second.body.message).toContain("Available days: 0")
-  })
+    expect(second.body.message).toContain("Available days: 1")
 
-  it("rejects cross-period ranges where an allocation is missing", async () => {
-    // Second period covering +13..+14 WITHOUT an allocation; span both.
-    await createDiningPeriod({
-      eligibilityMode: "custom",
-      eligibleRollNumbers: ["REB001"],
-      startDate: utcDay(13),
-      endDate: utcDay(14),
-    })
-    const res = await studentApi
+    const ok = await api
       .post(`${BASE}/rebates`)
-      .send({ startDate: utcDay(12), endDate: utcDay(13), reason: "Spanning" })
-    expect(res.status).toBe(400)
-    expect(res.body.message).toBe(
-      "Please select your caterer for the next dining period before requesting cross-period rebates"
-    )
+      .send({ startDate: utcDay(40), endDate: utcDay(40), reason: "Exactly the last day" })
+    expect(ok.status).toBe(201)
   })
 
   it("rejects inactive students with 400", async () => {
@@ -507,16 +496,27 @@ describe("dining rebates", () => {
     expect(res.body.success).toBe(true)
     expect(res.body.data.rebates.length).toBeGreaterThanOrEqual(1)
 
-    const rebate = res.body.data.rebates.find((r) => r.dayCount === 2 && r.type === "short-term")
+    expect(res.body.data.rules).toEqual({
+      shortTermMaxTotalDays: 10,
+      shortTermMaxContinuousDays: 3,
+      shortTermMinApplicationDays: 1,
+      shortTermMinAdvanceDays: 2,
+      maxAdvanceMonths: 6,
+    })
+
+    // The API-created rebate (no legacy periodId) for days 11-12.
+    const rebate = res.body.data.rebates.find((r) => r.dateKeys.includes(dayKey(utcDay(11))) && r.periodId === null)
     expect(rebate).toBeTruthy()
     expect(rebate.rollNumber).toBe("REB001")
     expect(rebate.status).toBe("approved")
     expect(rebate.type).toBe("short-term")
     expect(rebate.dayCount).toBe(2)
     expect(rebate.dateKeys).toEqual([dayKey(utcDay(11)), dayKey(utcDay(12))])
-    expect(rebate.period.id).toBe(String(mainPeriod._id))
-    expect(rebate.caterer.id).toBe(String(caterer._id))
-    expect(rebate.caterer.name).toBe("Rebate Mess")
+    expect(rebate.period).toBeNull()
+    expect(rebate.caterer).toBeNull()
+    const placement = rebate.placements.find((p) => p.periodId === String(mainPeriod._id))
+    expect(placement).toMatchObject({ caterer: { id: String(caterer._id), name: "Rebate Mess" }, dayCount: 2 })
+    expect(rebate.unplacedDayCount).toBe(0)
     expect(rebate.studentUserId).toBe(String(student._id))
   })
 })

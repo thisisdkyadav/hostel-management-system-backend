@@ -55,7 +55,7 @@ export const getDiningInsightsOverview = async ({ query = {} } = {}) => {
     diningQueries.findRebates({ $or: [
       { status: "approved", dateKeys: { $in: rebateDates } },
       { status: "pending", dateKeys: { $elemMatch: { $gte: today } } },
-    ] }, { lean: true, select: "periodId catererId studentUserId dateKeys status" }),
+    ] }, { lean: true, select: "studentUserId dateKeys status" }),
   ])
   const contains = (period, date) => dayKey(period.startDate) <= date && dayKey(period.endDate) >= date
   const currentPeriods = periods.filter((period) => contains(period, today))
@@ -66,13 +66,31 @@ export const getDiningInsightsOverview = async ({ query = {} } = {}) => {
   ])
   const rosters = new Map()
   for (const row of allocations) addToSet(rosters, `${idOf(row.periodId)}:${idOf(row.catererId)}`, idOf(row.studentUserId))
+  // Rebates are standalone: a rebate day counts for the (period, caterer) the
+  // student is allocated to in the period covering that day.
+  const periodById = new Map(periods.map((period) => [idOf(period), period]))
+  const membershipsByStudent = new Map()
+  for (const row of allocations) {
+    const period = periodById.get(idOf(row.periodId))
+    if (!period) continue
+    const student = idOf(row.studentUserId)
+    if (!membershipsByStudent.has(student)) membershipsByStudent.set(student, [])
+    membershipsByStudent.get(student).push({ period, periodId: idOf(period), catererId: idOf(row.catererId) })
+  }
   const rebateByRosterDay = new Map()
+  const rebatesByRoster = new Map()
   for (const rebate of rebates) {
-    if (rebate.status !== "approved") continue
-    const rosterKey = `${idOf(rebate.periodId)}:${idOf(rebate.catererId)}`
     const student = idOf(rebate.studentUserId)
-    if (!rosters.get(rosterKey)?.has(student)) continue
-    for (const date of rebate.dateKeys) addToSet(rebateByRosterDay, `${rosterKey}:${date}`, student)
+    for (const membership of membershipsByStudent.get(student) || []) {
+      const days = rebate.dateKeys.filter((date) => contains(membership.period, date))
+      // Yesterday's rebate still marks "returning" on the period's first day.
+      if (!days.length && !rebate.dateKeys.includes(shiftDay(dayKey(membership.period.startDate), -1))) continue
+      const rosterKey = `${membership.periodId}:${membership.catererId}`
+      if (!rebatesByRoster.has(rosterKey)) rebatesByRoster.set(rosterKey, [])
+      rebatesByRoster.get(rosterKey).push(rebate)
+      if (rebate.status !== "approved") continue
+      for (const date of days) addToSet(rebateByRosterDay, `${rosterKey}:${date}`, student)
+    }
   }
   const currentCatererIds = new Set(currentPeriods.flatMap((period) => period.catererIds.map(idOf)))
   const windowCatererIds = new Set(windowPeriods.flatMap((period) => period.catererIds.map(idOf)))
@@ -80,13 +98,7 @@ export const getDiningInsightsOverview = async ({ query = {} } = {}) => {
   const calendars = new Map(caterers.map((caterer) => {
     const id = idOf(caterer)
     const ownPeriods = periods.filter((period) => period.catererIds.some((value) => idOf(value) === id))
-    const ownRebates = new Map()
-    for (const rebate of rebates) {
-      if (idOf(rebate.catererId) !== id) continue
-      const periodId = idOf(rebate.periodId)
-      if (!ownRebates.has(periodId)) ownRebates.set(periodId, [])
-      ownRebates.get(periodId).push(rebate)
-    }
+    const ownRebates = new Map(ownPeriods.map((period) => [idOf(period), rebatesByRoster.get(`${idOf(period)}:${id}`) || []]))
     return [id, { periods: ownPeriods, rosterByPeriod: new Map(ownPeriods.map((period) => [idOf(period), rosters.get(`${idOf(period)}:${id}`) || new Set()])), rebatesByPeriod: ownRebates }]
   }))
   const dayScope = (id, date) => {

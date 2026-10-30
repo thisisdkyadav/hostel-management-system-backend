@@ -36,6 +36,7 @@ describe("dining rebate forms (preview, long-term form, serialization)", () => {
   let studentApi
   let adminApi
   let period
+  let caterer
 
   // Storage metadata stub: refs map to { policy, actorId }.
   const files = new Map()
@@ -49,7 +50,7 @@ describe("dining rebate forms (preview, long-term form, serialization)", () => {
   beforeAll(async () => {
     student = await seed.student()
     const profile = await createStudentProfile({ userId: student._id, rollNumber: "RBF001" })
-    const caterer = await createCaterer({ name: "Form Mess" })
+    caterer = await createCaterer({ name: "Form Mess" })
     period = await createDiningPeriod({
       eligibilityMode: "custom",
       eligibleRollNumbers: ["RBF001"],
@@ -73,21 +74,27 @@ describe("dining rebate forms (preview, long-term form, serialization)", () => {
     expect(res.body.data.longTermForm).toBeNull()
   })
 
-  it("preview returns the short-term segment shape and saves nothing", async () => {
+  it("preview returns the short-term placement shape and saves nothing", async () => {
     const res = await studentApi.post(`${BASE}/rebates/preview`).send(range(5, 6))
     expect(res.status).toBe(200)
     expect(res.body.success).toBe(true)
     expect(res.body.data).toEqual({
-      segments: [
+      type: "short-term",
+      status: "approved",
+      dayCount: 2,
+      startDate: utcDay(5).toISOString(),
+      endDate: utcDay(6).toISOString(),
+      placements: [
         {
           periodId: String(period._id),
-          startDate: utcDay(5).toISOString(),
-          endDate: utcDay(6).toISOString(),
+          period: { id: String(period._id), startDate: utcDay(3).toISOString(), endDate: utcDay(80).toISOString() },
+          caterer: { id: String(caterer._id), name: "Form Mess" },
           dayCount: 2,
-          type: "short-term",
-          status: "approved",
+          usedShortTermDays: 0,
+          maxShortTermDays: 10,
         },
       ],
+      unplacedDayCount: 0,
       hasLongTerm: false,
       formRequired: false,
     })
@@ -103,7 +110,7 @@ describe("dining rebate forms (preview, long-term form, serialization)", () => {
 
     res = await studentApi.post(`${BASE}/rebates/preview`).send(range(200, 201))
     expect(res.status).toBe(400)
-    expect(res.body.message).toBe("No dining period is configured for the selected dates")
+    expect(res.body.message).toMatch(/at most 6 months ahead/)
   })
 
   it("long-term without a configured template: preview formRequired=false, create needs no form", async () => {
@@ -111,7 +118,8 @@ describe("dining rebate forms (preview, long-term form, serialization)", () => {
     expect(preview.status).toBe(200)
     expect(preview.body.data.hasLongTerm).toBe(true)
     expect(preview.body.data.formRequired).toBe(false)
-    expect(preview.body.data.segments[0]).toMatchObject({ type: "long-term", status: "pending", dayCount: 4 })
+    expect(preview.body.data).toMatchObject({ type: "long-term", status: "pending", dayCount: 4 })
+    expect(preview.body.data.placements[0]).toMatchObject({ dayCount: 4 })
 
     const res = await studentApi.post(`${BASE}/rebates`).send({ ...range(10, 13), reason: "No template yet" })
     expect(res.status).toBe(201)

@@ -98,7 +98,7 @@ const serializePortalPeriod = ({ period, allocation = null, tags }) => {
     allocationStatus: getAllocationStatus(period),
     caterers,
     catererCapacities,
-    rebateSettings: period.rebateSettings || null,
+    rebateSettings: null, // rebate rules are global now: GET /students/dining/rebates returns `rules`
     selectedAllocation: serializeAllocation(allocation),
     // Only on the period whose choice window is open: the yes/no questions
     // asked with the caterer choice.

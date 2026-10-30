@@ -455,7 +455,12 @@ describe("dining periods", () => {
   it("POST /dining-periods creates a manual-assignment period (201 envelope)", async () => {
     const res = await adminApi
       .post(`${BASE}/dining-periods`)
-      .send(manualPeriodPayload({ caterers: [catererX, catererY], dailyRate: 120 }))
+      .send(manualPeriodPayload({
+        caterers: [catererX, catererY],
+        dailyRate: 120,
+        // Ignored now (rules are global): this used to fail validation (min > max continuous).
+        rebateSettings: { shortTermMaxContinuousDays: 1, shortTermMinApplicationDays: 9 },
+      }))
     expect(res.status).toBe(201)
     expect(res.body.success).toBe(true)
     expect(res.body.message).toBe("Dining period created successfully")
@@ -475,7 +480,8 @@ describe("dining periods", () => {
     }
     expect(period.totalCapacity).toBe(10)
     expect(period.mealSlots.map((s) => s.name)).toEqual(["Dinner"])
-    expect(period.rebateSettings.shortTermMaxTotalDays).toBe(10)
+    // Rebate rules are global (config diningRebate); periods no longer carry them.
+    expect(period.rebateSettings).toBeNull()
     expect(period.eligibilityMode).toBe("all-active")
     periodId = period.id
   })
@@ -497,10 +503,12 @@ describe("dining periods", () => {
       caterers: [catererX, catererY],
       dailyRate: 150,
       endDate: utcDay(14),
+      rebateSettings: { shortTermMaxContinuousDays: 1, shortTermMinApplicationDays: 9 }, // ignored
     })
     payload.catererCapacities[1].maxStudentCount = 8
     const res = await adminApi.put(`${BASE}/dining-periods/${periodId}`).send(payload)
     expect(res.status).toBe(200)
+    expect(res.body.data.rebateSettings).toBeNull()
     expect(res.body.message).toBe("Dining period updated successfully")
     expect(res.body.data.dailyRate).toBe(150)
     expect(res.body.data.totalCapacity).toBe(13)
@@ -885,8 +893,14 @@ describe("dining rebate review", () => {
       expect(rebate.status).toBe("pending")
       expect(rebate.type).toBe("long-term")
       expect(rebate.rollNumber).toBe("ADMR001")
+      // legacy rows keep period/caterer; placements are the source of truth
       expect(rebate.period.id).toBeTruthy()
       expect(rebate.caterer.name).toBe("Review Mess")
+      // (other fixture periods may overlap these days too; the allocated one carries the caterer)
+      const placement = rebate.placements.find((p) => p.caterer?.name === "Review Mess")
+      expect(placement.period.id).toBe(String(rebate.period.id))
+      expect(placement.dayCount).toBe(rebate.dateKeys.length)
+      expect(rebate.unplacedDayCount).toBe(0)
     }
   })
 

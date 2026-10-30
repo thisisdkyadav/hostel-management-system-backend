@@ -6,6 +6,7 @@ import {
   mealSlots, mealState, serializeCaterer, serializePeriod, studentDetails, serializeStudent,
 } from "./dining-caterer.service.js"
 import { loadTagContext } from "../../../../services/dining/tagResolve.js"
+import { rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 
 export const CHECK_ON_DAYS = [2, 3, 5, 7, 14]
 const DEFAULT_CHECK_ON_DAYS = 3
@@ -56,7 +57,7 @@ export const getDailyReport = async ({ user, query = {} }) => {
   const checkWindow = windowFrom >= periodStart && windowTo <= dayKey(period.endDate)
   const windowKeys = checkWindow ? dayKeys(windowFrom, windowTo) : []
 
-  const [allocations, dayScans, rebates, catererDocs, ateInWindow] = await Promise.all([
+  const [allocations, dayScans, catererDocs, ateInWindow] = await Promise.all([
     caterer
       ? allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id)
       : allocationQueries.findAllocationsByPeriod(period._id),
@@ -64,16 +65,19 @@ export const getDailyReport = async ({ user, query = {} }) => {
       { ...catererMatch(caterer), periodId: period._id, scannedAt: dayBounds(date) },
       { select: "studentUserId catererId mealSlotKey status" },
     ),
-    diningQueries.findRebates(
-      { ...catererMatch(caterer), periodId: period._id, status: "approved", dateKeys: { $in: [date, ...windowKeys] } },
-      { lean: true, select: "studentUserId dateKeys" },
-    ),
     diningQueries.findCaterers({ _id: { $in: caterer ? [caterer._id] : period.catererIds } }, { lean: true, sort: { name: 1 } }),
     // A meal at any caterer counts: the student is eating, just somewhere else.
     checkWindow
       ? diningQueries.distinctVerifiedStudents({ scannedAt: { $gte: localDay(windowFrom), $lt: localDay(shiftDay(windowTo, 1)) } })
       : [],
   ])
+
+  // Rebates of the roster's students on `date` and the check-on window (both inside the period).
+  const rebateFilter = rebateScopeFilter([
+    { studentUserIds: allocations.map((row) => row.studentUserId), fromKey: date, toKey: date },
+    ...(windowKeys.length ? [{ studentUserIds: allocations.map((row) => row.studentUserId), fromKey: windowFrom, toKey: windowTo }] : []),
+  ], { status: "approved" })
+  const rebates = rebateFilter ? await diningQueries.findRebates(rebateFilter, { lean: true, select: "studentUserId dateKeys" }) : []
 
   const tagContext = await loadTagContext({
     periods: [period], fromKey: date, toKey: date, studentUserIds: allocations.map((row) => row.studentUserId),

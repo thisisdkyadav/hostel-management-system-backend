@@ -43,7 +43,7 @@ const populateVerification = (query) => {
  * profileImage — unlike the verification populate above).
  */
 const REBATE_POPULATE = [
-  { path: "periodId", select: "startDate endDate rebateSettings" },
+  { path: "periodId", select: "startDate endDate" },
   { path: "catererId", select: "name email" },
   {
     path: "studentProfileId",

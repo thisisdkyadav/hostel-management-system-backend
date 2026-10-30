@@ -12,6 +12,7 @@ import { success, notFound, badRequest, error } from '../../../../services/base/
 import { configOwner } from '../../../../services/config/configOwner.service.js';
 import { configQueries } from '../../../../services/config/configQueries.service.js';
 import { isMediaRef } from '../../../../services/storage/file-ref.service.js';
+import { resolveRebateRules, validateRebateRules } from '../../../../services/dining/rebateRules.js';
 import {
   GYMKHANA_EVENT_CATEGORIES_CONFIG_KEY,
   normalizeCalendarCategoryDefinitions,
@@ -65,9 +66,16 @@ const normalizePorCertificateTemplate = (value) => {
   }
 }
 
-const normalizeDiningRebateConfig = (value) => {
+// Rule numbers left out keep the stored value (else the default), so a save
+// that only sends the long-term form does not reset the rules.
+const normalizeDiningRebateConfig = (value, previousValue = {}) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { success: false, message: "diningRebate must be an object" }
+  }
+
+  const rules = validateRebateRules(value, previousValue)
+  if (rules.error) {
+    return { success: false, message: rules.error }
   }
 
   const longTermFormRef = String(value.longTermFormRef || "").trim()
@@ -78,6 +86,7 @@ const normalizeDiningRebateConfig = (value) => {
   return {
     success: true,
     value: {
+      ...rules.value,
       longTermFormRef,
       longTermFormName: longTermFormRef ? String(value.longTermFormName || "").trim().slice(0, 200) : "",
     },
@@ -187,13 +196,18 @@ class ConfigService {
         return notFound(`Configuration with key '${key}'`);
       }
 
+      // diningRebate rows saved before the global rules existed: fill the rule defaults in.
+      const value = key === DINING_REBATE_KEY && config.value && typeof config.value === 'object'
+        ? { ...config.value, ...resolveRebateRules(config.value) }
+        : config.value;
+
       if (valueOnly) {
-        return { success: true, statusCode: 200, data: config.value, valueOnly: true };
+        return { success: true, statusCode: 200, data: value, valueOnly: true };
       }
 
       return success({
         key: config.key,
-        value: config.value,
+        value,
         description: config.description,
         lastUpdated: config.lastUpdated
       });
@@ -253,7 +267,8 @@ class ConfigService {
       }
       normalizedValue = normalizeCalendarCategoryDefinitions(value)
     } else if (key === DINING_REBATE_KEY) {
-      const normalizedDiningRebate = normalizeDiningRebateConfig(value)
+      const previousDiningRebate = await configQueries.findByKeyLean(key)
+      const normalizedDiningRebate = normalizeDiningRebateConfig(value, previousDiningRebate?.value)
       if (!normalizedDiningRebate.success) {
         return badRequest(normalizedDiningRebate.message)
       }

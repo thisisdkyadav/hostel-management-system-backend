@@ -392,7 +392,14 @@ describe("PUT /config/porCertificateTemplate (normalization branches)", () => {
   })
 })
 
-describe("PUT /config/diningRebate (long-term rebate form)", () => {
+const REBATE_RULE_DEFAULTS = {
+  shortTermMaxTotalDays: 10,
+  shortTermMaxContinuousDays: 3,
+  shortTermMinApplicationDays: 1,
+  shortTermMinAdvanceDays: 2,
+}
+
+describe("PUT /config/diningRebate (rebate rules + long-term rebate form)", () => {
   let adminApi
 
   beforeAll(async () => {
@@ -402,7 +409,7 @@ describe("PUT /config/diningRebate (long-term rebate form)", () => {
   it("GET returns the empty default", async () => {
     const res = await adminApi.get(`${BASE}/diningRebate`)
     expect(res.status).toBe(200)
-    expect(res.body.value).toEqual({ longTermFormRef: "", longTermFormName: "" })
+    expect(res.body.value).toEqual({ ...REBATE_RULE_DEFAULTS, longTermFormRef: "", longTermFormName: "" })
   })
 
   it("400 for a non-object value or a non-media ref", async () => {
@@ -421,12 +428,50 @@ describe("PUT /config/diningRebate (long-term rebate form)", () => {
       .send({ value: { longTermFormRef: " media://abc123 ", longTermFormName: "  Rebate form.pdf ", extra: 1 } })
     expect(res.status).toBe(200)
     let get = await adminApi.get(`${BASE}/diningRebate`)
-    expect(get.body.value).toEqual({ longTermFormRef: "media://abc123", longTermFormName: "Rebate form.pdf" })
+    expect(get.body.value).toEqual({ ...REBATE_RULE_DEFAULTS, longTermFormRef: "media://abc123", longTermFormName: "Rebate form.pdf" })
 
     res = await adminApi.put(`${BASE}/diningRebate`).send({ value: { longTermFormRef: "", longTermFormName: "x" } })
     expect(res.status).toBe(200)
     get = await adminApi.get(`${BASE}/diningRebate`)
-    expect(get.body.value).toEqual({ longTermFormRef: "", longTermFormName: "" })
+    expect(get.body.value).toEqual({ ...REBATE_RULE_DEFAULTS, longTermFormRef: "", longTermFormName: "" })
+  })
+
+  it("validates the 4 rule numbers (integers + bounds + min ≤ max continuous)", async () => {
+    const bad = [
+      [{ shortTermMaxTotalDays: -1 }, /at least 0/],
+      [{ shortTermMaxTotalDays: 2.5 }, /whole number/],
+      [{ shortTermMaxContinuousDays: 0 }, /at least 1/],
+      [{ shortTermMinApplicationDays: 0 }, /at least 1/],
+      [{ shortTermMinAdvanceDays: -2 }, /at least 0/],
+      [{ shortTermMinAdvanceDays: "abc" }, /whole number/],
+      [{ shortTermMaxContinuousDays: 2, shortTermMinApplicationDays: 3 }, /cannot exceed/],
+    ]
+    for (const [value, message] of bad) {
+      const res = await adminApi.put(`${BASE}/diningRebate`).send({ value })
+      expect(res.status, JSON.stringify(value)).toBe(400)
+      expect(res.body.message).toMatch(message)
+    }
+  })
+
+  it("stores the rule numbers; a later save without them keeps them", async () => {
+    let res = await adminApi.put(`${BASE}/diningRebate`).send({
+      value: { shortTermMaxTotalDays: 12, shortTermMaxContinuousDays: "7", shortTermMinApplicationDays: 2, shortTermMinAdvanceDays: 0 },
+    })
+    expect(res.status).toBe(200)
+    const rules = { shortTermMaxTotalDays: 12, shortTermMaxContinuousDays: 7, shortTermMinApplicationDays: 2, shortTermMinAdvanceDays: 0 }
+    let get = await adminApi.get(`${BASE}/diningRebate`)
+    expect(get.body.value).toEqual({ ...rules, longTermFormRef: "", longTermFormName: "" })
+
+    res = await adminApi.put(`${BASE}/diningRebate`).send({ value: { longTermFormRef: "media://keep-rules", longTermFormName: "f.pdf" } })
+    expect(res.status).toBe(200)
+    get = await adminApi.get(`${BASE}/diningRebate`)
+    expect(get.body.value).toEqual({ ...rules, longTermFormRef: "media://keep-rules", longTermFormName: "f.pdf" })
+
+    // reset restores the defaults
+    res = await adminApi.post(`${BASE}/diningRebate/reset`)
+    expect(res.status).toBe(200)
+    get = await adminApi.get(`${BASE}/diningRebate`)
+    expect(get.body.value).toEqual({ ...REBATE_RULE_DEFAULTS, longTermFormRef: "", longTermFormName: "" })
   })
 })
 

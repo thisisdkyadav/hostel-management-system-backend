@@ -16,6 +16,7 @@ import { allocationQueries } from '../../../../services/dining/allocationQueries
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { listDayKeys, normalizeDay } from '../../../../services/dining/dining-rebate.service.js';
 import { billingOwner } from '../../../../services/dining/billingOwner.service.js';
+import { allocationScopes, keysInRange, rebateScopeFilter } from '../../../../services/dining/rebateScope.js';
 import { billingQueries } from '../../../../services/dining/billingQueries.service.js';
 
 const APPROVED_STATUS = 'approved';
@@ -157,6 +158,42 @@ const serializeBillingPeriod = (billingPeriod, summary = null) => {
 // ---------------------------------------------------------------------------
 
 /**
+ * Approved rebate day keys per student per dining period, by attribution:
+ * a student's rebate days count in a period they are allocated in, clipped to
+ * that period's days. Rebates are never looked up by periodId.
+ * Returns Map(studentUserId -> Map(periodId -> Set(dayKey))).
+ */
+const loadApprovedRebateKeys = async (diningPeriods, allocations) => {
+  const scopes = allocationScopes(diningPeriods, allocations);
+  const filter = rebateScopeFilter(scopes, { status: APPROVED_STATUS });
+  const result = new Map();
+  if (!filter) return result;
+  const rebates = await diningQueries.findRebates(filter, { select: 'studentUserId dateKeys', lean: true });
+  const rebatesByStudent = new Map();
+  rebates.forEach((rebate) => {
+    const key = String(rebate.studentUserId);
+    if (!rebatesByStudent.has(key)) rebatesByStudent.set(key, []);
+    rebatesByStudent.get(key).push(rebate);
+  });
+  const scopeByPeriod = new Map(scopes.map((scope) => [scope.periodId, scope]));
+  allocations.forEach((allocation) => {
+    const userId = String(allocation.studentUserId);
+    const periodId = String(allocation.periodId?._id || allocation.periodId);
+    const scope = scopeByPeriod.get(periodId);
+    if (!scope) return;
+    (rebatesByStudent.get(userId) || []).forEach((rebate) => {
+      const keys = keysInRange(rebate, scope.fromKey, scope.toKey);
+      if (!keys.length) return;
+      if (!result.has(userId)) result.set(userId, new Map());
+      const byPeriod = result.get(userId);
+      if (!byPeriod.has(periodId)) byPeriod.set(periodId, new Set());
+      keys.forEach((key) => byPeriod.get(periodId).add(key));
+    });
+  });
+  return result;
+};
+
+/**
  * Loads every participating student (union of accounts ∪ allocations) for a
  * billing period and computes their derived charges/balance.
  */
@@ -164,18 +201,14 @@ export const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()
   const diningPeriods = getContainedPeriods(billingPeriod);
   const periodIds = diningPeriods.map((p) => p._id);
 
-  const [allocations, rebates, accountDocs] = await Promise.all([
+  const [allocations, accountDocs] = await Promise.all([
     periodIds.length
       ? allocationQueries.findAllocationSummariesByPeriods(periodIds)
       : [],
-    periodIds.length
-      ? diningQueries.findRebates(
-          { periodId: { $in: periodIds }, status: APPROVED_STATUS },
-          { select: 'periodId studentUserId dateKeys', lean: true }
-        )
-      : [],
     billingQueries.findAccountsByPeriod(billingPeriod._id),
   ]);
+  // Rebates are standalone: approved days of each allocated student inside each period.
+  const rebateKeysByStudentPeriod = await loadApprovedRebateKeys(diningPeriods, allocations);
 
   const studentMap = new Map();
   const ensureStudent = (userId) => {
@@ -202,12 +235,8 @@ export const loadBillingPeriodAccounts = async (billingPeriod, asOf = new Date()
     if (allocation.studentProfileId) student.studentProfileId = allocation.studentProfileId;
   });
 
-  rebates.forEach((rebate) => {
-    const student = ensureStudent(rebate.studentUserId);
-    const periodId = String(rebate.periodId);
-    if (!student.rebateKeysByPeriod.has(periodId)) student.rebateKeysByPeriod.set(periodId, new Set());
-    const keySet = student.rebateKeysByPeriod.get(periodId);
-    (Array.isArray(rebate.dateKeys) ? rebate.dateKeys : []).forEach((key) => keySet.add(key));
+  rebateKeysByStudentPeriod.forEach((byPeriod, userId) => {
+    ensureStudent(userId).rebateKeysByPeriod = byPeriod;
   });
 
   accountDocs.forEach((account) => {
@@ -425,27 +454,18 @@ const computeStudentBillingForPeriod = async (billingPeriod, userId, asOf = new 
   const diningPeriods = getContainedPeriods(billingPeriod);
   const periodIds = diningPeriods.map((p) => p._id);
 
-  const [allocations, rebates, account] = await Promise.all([
+  const [allocations, account] = await Promise.all([
     periodIds.length
       ? allocationQueries.findAllocationPeriodIdsByUser(userId, periodIds)
-      : [],
-    periodIds.length
-      ? diningQueries.findRebates(
-          { studentUserId: userId, periodId: { $in: periodIds }, status: APPROVED_STATUS },
-          { select: 'periodId dateKeys', lean: true }
-        )
       : [],
     billingQueries.findAccountByPeriodAndUser(billingPeriod._id, userId),
   ]);
 
   const participatingPeriodIds = new Set(allocations.map((allocation) => String(allocation.periodId)));
-  const rebateKeysByPeriod = new Map();
-  rebates.forEach((rebate) => {
-    const periodId = String(rebate.periodId);
-    if (!rebateKeysByPeriod.has(periodId)) rebateKeysByPeriod.set(periodId, new Set());
-    const keySet = rebateKeysByPeriod.get(periodId);
-    (Array.isArray(rebate.dateKeys) ? rebate.dateKeys : []).forEach((key) => keySet.add(key));
-  });
+  const rebateKeysByPeriod = (await loadApprovedRebateKeys(
+    diningPeriods,
+    allocations.map((allocation) => ({ periodId: allocation.periodId, studentUserId: userId })),
+  )).get(String(userId)) || new Map();
 
   return computeAccountCharges({
     allocatedAmount: Number(account?.allocatedAmount || 0),

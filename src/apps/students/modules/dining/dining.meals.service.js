@@ -52,8 +52,9 @@ export const getStudentDiningMeals = async (userId) => {
       { rollNumber: profile.rollNumber, studentUserId: userId, scannedAt: { $gte: localDay(first), $lt: localDay(shiftDay(today, 1)) } },
       { select: 'mealSlotKey status scannedAt source', sort: { scannedAt: 1 } }
     ),
+    // Rebates are standalone: the student's own, on these days (all inside the current period).
     diningQueries.findRebates(
-      { studentUserId: userId, periodId: period._id, status: { $in: ['approved', 'pending'] }, dateKeys: { $in: keys } },
+      { studentUserId: userId, status: { $in: ['approved', 'pending'] }, dateKeys: { $in: keys } },
       { lean: true, select: 'status dateKeys' }
     ),
   ]);
