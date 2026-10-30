@@ -17,7 +17,7 @@ export const getDiningPeriods = asyncHandler(async (req, res) => {
 });
 
 export const createDiningPeriod = asyncHandler(async (req, res) => {
-  const result = await diningPeriodService.createDiningPeriod(req.body);
+  const result = await diningPeriodService.createDiningPeriod(req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ success: false, message: result.message });
@@ -31,7 +31,7 @@ export const createDiningPeriod = asyncHandler(async (req, res) => {
 });
 
 export const updateDiningPeriod = asyncHandler(async (req, res) => {
-  const result = await diningPeriodService.updateDiningPeriod(req.params.id, req.body);
+  const result = await diningPeriodService.updateDiningPeriod(req.params.id, req.body, req.user);
 
   if (!result.success) {
     return res.status(result.statusCode).json({ success: false, message: result.message });

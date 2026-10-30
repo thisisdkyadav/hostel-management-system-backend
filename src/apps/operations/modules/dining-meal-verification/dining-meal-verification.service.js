@@ -13,6 +13,7 @@ import {
   getApprovedRebateStudentIdsForDay,
   getCatererDiningRebateSummary,
 } from "../../../../services/dining/dining-rebate.service.js"
+import { loadScanTags, loadTagContext } from "../../../../services/dining/tagResolve.js"
 
 const VERIFIED_STATUS = "verified"
 const DUPLICATE_STATUS = "duplicate"
@@ -116,7 +117,7 @@ const serializeStudent = (profile = null) => {
   }
 }
 
-const serializeAvailableStudent = ({ allocation, verificationStateByStudentId = new Map() }) => {
+const serializeAvailableStudent = ({ allocation, verificationStateByStudentId = new Map(), tags = [] }) => {
   const profile = allocation?.studentProfileId && typeof allocation.studentProfileId === "object"
     ? allocation.studentProfileId
     : null
@@ -127,7 +128,7 @@ const serializeAvailableStudent = ({ allocation, verificationStateByStudentId = 
 
   return {
     allocationId: allocation?._id || allocation?.id,
-    student,
+    student: student ? { ...student, tags } : student,
     rollNumber: allocation?.rollNumber || student?.rollNumber || "",
     selectedAt: allocation?.selectedAt,
     isVerified: Boolean(verificationState.hasVerified),
@@ -162,12 +163,32 @@ export const serializeVerification = (verification = {}) => ({
   createdAt: verification.createdAt,
 })
 
+/**
+ * Serialize scans with the student's effective-yes dining tags for the scan's day
+ * (`student.tags`). One tag lookup for the whole batch.
+ */
+export const serializeVerificationsWithTags = async (verifications = []) => {
+  const tagsOf = await loadScanTags(verifications)
+  return verifications.map((verification) => {
+    const entry = serializeVerification(verification)
+    return entry.student ? { ...entry, student: { ...entry.student, tags: tagsOf(verification) } } : entry
+  })
+}
+
+/** One scan, re-read populated, serialized with tags. */
+const serializeRecordWithTags = async (record) => {
+  const populated = await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })
+  const [verification] = await serializeVerificationsWithTags([populated])
+  return verification
+}
+
 export const emitDiningMealVerificationEvent = async (verification) => {
   try {
     const io = getIO()
     const populated = await diningQueries.findVerificationByIdPopulated(verification._id, { lean: true })
+    const [serialized] = await serializeVerificationsWithTags([populated])
     const payload = {
-      verification: serializeVerification(populated),
+      verification: serialized,
       timestamp: new Date(),
     }
 
@@ -251,7 +272,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: UNKNOWN_STUDENT_STATUS,
     })
-    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[UNKNOWN_STUDENT_STATUS])
+    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[UNKNOWN_STUDENT_STATUS])
   }
 
   if (!period) {
@@ -265,7 +286,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: NO_ACTIVE_PERIOD_STATUS,
     })
-    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[NO_ACTIVE_PERIOD_STATUS])
+    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[NO_ACTIVE_PERIOD_STATUS])
   }
 
   const mealSlot = getMealSlotForDate(period, scannedAt)
@@ -281,7 +302,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: OUTSIDE_MEAL_TIME_STATUS,
     })
-    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[OUTSIDE_MEAL_TIME_STATUS])
+    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[OUTSIDE_MEAL_TIME_STATUS])
   }
 
   const allocation = await allocationQueries.findAllocation(
@@ -302,7 +323,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: NOT_ALLOCATED_STATUS,
     })
-    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[NOT_ALLOCATED_STATUS])
+    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[NOT_ALLOCATED_STATUS])
   }
 
   const expectedCatererId = allocation.catererId
@@ -320,7 +341,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: WRONG_CATERER_STATUS,
     })
-    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
+    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
   }
 
   const rebatedStudentIds = await getApprovedRebateStudentIdsForDay({
@@ -342,7 +363,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: ON_REBATE_STATUS,
     })
-    return success({ verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
+    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
   }
 
   const previousVerified = await diningQueries.findOneVerification({
@@ -372,7 +393,7 @@ const recordDiningMealAttempt = async ({
   })
 
   return success(
-    { verification: serializeVerification(await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })) },
+    { verification: await serializeRecordWithTags(record) },
     201,
     STATUS_MESSAGES[status],
   )
@@ -449,7 +470,7 @@ export const getDiningMealVerificationFeed = async ({
   ])
 
   return success({
-    entries: entries.map(serializeVerification),
+    entries: await serializeVerificationsWithTags(entries),
     pagination: {
       total,
       page: safePage,
@@ -576,9 +597,19 @@ export const getCurrentMealAvailableStudents = async ({ user = null } = {}) => {
     catererId: caterer._id,
     date: now,
   })
-  const students = allocations
+  const eating = allocations
     .filter((allocation) => !rebatedStudentIds.has(String(allocation.studentUserId?._id || allocation.studentUserId || "")))
-    .map((allocation) => serializeAvailableStudent({ allocation, verificationStateByStudentId }))
+  // Effective-yes tags of today (server-local day, as scans are bucketed).
+  const todayKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`
+  const tagContext = await loadTagContext({
+    periods: [period], fromKey: todayKey, toKey: todayKey,
+    studentUserIds: eating.map((allocation) => String(allocation.studentUserId?._id || allocation.studentUserId || "")).filter(Boolean),
+  })
+  const students = eating.map((allocation) => serializeAvailableStudent({
+    allocation,
+    verificationStateByStudentId,
+    tags: tagContext.yesTagsOn(String(allocation.studentUserId?._id || allocation.studentUserId || ""), todayKey, { periodId: period._id }),
+  }))
   const verifiedCount = students.filter((student) => student.isVerified).length
 
   return success({

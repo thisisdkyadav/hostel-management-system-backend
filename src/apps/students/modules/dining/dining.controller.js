@@ -6,6 +6,7 @@ import {
   selectStudentDiningCaterer,
 } from './dining.service.js';
 import { getStudentDiningMeals } from './dining.meals.service.js';
+import { answerStudentDiningTag, listStudentDiningTags } from './dining.tags.service.js';
 import { asyncHandler } from '../../../../utils/index.js';
 
 export const getDiningPortalState = asyncHandler(async (req, res) => {
@@ -18,7 +19,7 @@ export const getDiningPortalState = asyncHandler(async (req, res) => {
 });
 
 export const selectDiningCaterer = asyncHandler(async (req, res) => {
-  const result = await selectStudentDiningCaterer(req.user._id, req.body?.catererId, req.body?.periodId);
+  const result = await selectStudentDiningCaterer(req.user._id, req.body?.catererId, req.body?.periodId, req.body?.tagAnswers);
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,
@@ -55,6 +56,24 @@ export const getDiningBilling = asyncHandler(async (req, res) => {
 
 export const getDiningMeals = asyncHandler(async (req, res) => {
   const result = await getStudentDiningMeals(req.user._id);
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const getDiningTags = asyncHandler(async (req, res) => {
+  const result = await listStudentDiningTags(req.user._id);
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const answerDiningTag = asyncHandler(async (req, res) => {
+  const result = await answerStudentDiningTag(req.user._id, req.params.tagId, req.body || {});
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,

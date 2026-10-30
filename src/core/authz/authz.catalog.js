@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 22
+export const AUTHZ_CATALOG_VERSION = 24
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -66,6 +66,8 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.diningRebates", "Dining Rebates", ["/admin/dining-rebates"]),
   route("route.admin.diningBilling", "Dining Billing", ["/admin/dining-billing", "/admin/dining-billing/:billingPeriodId"]),
   route("route.admin.diningOffice", "Dining Office", ["/admin/dining-office"]),
+  route("route.admin.diningAllocations", "Dining Allocations", ["/admin/allocations"]),
+  route("route.admin.diningTags", "Dining Tags", ["/admin/dining-tags"]),
   route("route.admin.administrators", "Administrators", ["/admin/administrators"]),
   route("route.admin.wardens", "Wardens", ["/admin/wardens"]),
   route("route.admin.associateWardens", "Associate Wardens", ["/admin/associate-wardens"]),
@@ -218,7 +220,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
 
   // Dining — Caterer sub-role
   route("route.caterer.dashboard", "Caterer Dashboard", ["/caterer"]),
-  route("route.caterer.students", "Caterer Students", ["/caterer/students"]),
+  route("route.caterer.students", "Caterer Allocations", ["/caterer/allocations"]),
   route("route.caterer.mealVerification", "Caterer Meal Verification", ["/caterer/meal-verification"]),
   route("route.caterer.mealRecords", "Caterer Meal Records", ["/caterer/meal-records"]),
   route("route.caterer.rebates", "Caterer Rebates", ["/caterer/rebates"]),
@@ -265,6 +267,8 @@ export const DINING_OFFICE_ADMIN_ROUTE_KEYS = [
   "route.admin.diningPeriods",
   "route.admin.diningRebates",
   "route.admin.diningBilling",
+  "route.admin.diningAllocations",
+  "route.admin.diningTags",
 ]
 
 // For roles whose default route access depends on the sub-role (currently only

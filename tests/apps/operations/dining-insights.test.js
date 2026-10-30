@@ -120,7 +120,7 @@ describe("dining insights calculations", () => {
     expect(data.weekdayHeat.find((cell) => cell.weekday === todayWeekday && cell.mealSlotKey === "all-day")).toMatchObject({ attendanceRate: null, samples: 0 })
     expect(data.records).toEqual({ busiestMeal: { date: f.date, mealSlotKey: "all-day", verified: 2 }, busiestMinute: { at: new Date(`${f.date}T12:00:00`).toISOString(), scans: 3 }, bestAttendedMeal: { mealSlotKey: "all-day", attendanceRate: 2 / 23 }, leastAttendedMeal: { mealSlotKey: "evening", attendanceRate: 1 / 23 } })
     const catererData = ok(await (await as(f.user)).get("/api/v1/dining-caterer/meal-records/overview").query({ periodId: String(f.period._id), from: data.from, to: data.to }))
-    expect(data.daily.map((day) => ({ date: day.date, allocatedCount: day.allocated, onRebateCount: day.onRebate, expectedCount: day.expected, meals: Object.fromEntries(Object.entries(day.meals).map(([key, meal]) => [key, { verifiedCount: meal.verified }])) }))).toEqual(catererData.days)
+    expect(data.daily.map((day) => ({ date: day.date, allocatedCount: day.allocated, onRebateCount: day.onRebate, expectedCount: day.expected, meals: Object.fromEntries(Object.entries(day.meals).map(([key, meal]) => [key, { verifiedCount: meal.verified }])) }))).toEqual(catererData.days.map(({ tagCounts, ...day }) => day))
   })
   it("uses dateKeys for forecast coverage, starting/returning, pending students and pending request totals", async () => {
     const f = await insightsFixture()

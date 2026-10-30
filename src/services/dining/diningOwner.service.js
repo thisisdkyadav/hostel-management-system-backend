@@ -8,6 +8,7 @@
  */
 
 import { Caterer, DiningOfficeStaff, DiningPeriod, DiningMealVerification, DiningRebate } from "../../models/index.js"
+import { periodDay } from "./periodDay.js"
 
 export const diningOwner = {
   // ---- Caterer ----
@@ -78,6 +79,40 @@ export const diningOwner = {
       { $set: { notificationSentAt: now } },
       { new: true, sort: { notificationAt: 1 } }
     ).lean()
+  },
+
+  /**
+   * Atomically claim one period whose scheduled auto-allocation is due: marks
+   * autoAllocation.status 'running' so only one instance/call ever runs it.
+   * Never matches a period that already ran (status set), is archived, has no
+   * autoAllocationAt, or whose service dates have already ended.
+   */
+  async claimDueAutoAllocationPeriod(now = new Date()) {
+    return DiningPeriod.findOneAndUpdate(
+      {
+        isArchived: false,
+        autoAllocationAt: { $ne: null, $lte: now },
+        "autoAllocation.status": null,
+        endDate: { $gte: periodDay(now) },
+      },
+      { $set: { autoAllocation: { status: "running", startedAt: now } } },
+      { returnDocument: "after", sort: { autoAllocationAt: 1 } }
+    ).lean()
+  },
+
+  /**
+   * Record the outcome of a claimed auto-allocation run. `result` is
+   * { status:'completed'|'failed', completedAt, unallocatedBefore, assigned,
+   * leftOver, byCaterer:[{catererId, assigned}], error }; only provided keys are
+   * written, so startedAt from the claim is preserved.
+   */
+  async recordAutoAllocationResult(periodId, result = {}) {
+    const fields = ["status", "completedAt", "unallocatedBefore", "assigned", "leftOver", "byCaterer", "error"]
+    const $set = {}
+    fields.forEach((key) => {
+      if (result[key] !== undefined) $set[`autoAllocation.${key}`] = result[key]
+    })
+    return DiningPeriod.updateOne({ _id: periodId }, { $set })
   },
 
   // ---- DiningMealVerification ----

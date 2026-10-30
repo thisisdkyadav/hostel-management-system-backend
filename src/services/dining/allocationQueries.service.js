@@ -95,6 +95,16 @@ export const allocationQueries = {
     return DiningAllocation.find(filter).select("periodId").lean()
   },
 
+  /** Every allocation a student has had (optionally one caterer's), caterer populated — allocation history. */
+  async findAllocationHistoryByUser(studentUserId, { catererId } = {}) {
+    const filter = { studentUserId }
+    if (catererId) filter.catererId = catererId
+    return DiningAllocation.find(filter)
+      .select("periodId catererId selectedAt")
+      .populate(CATERER_POPULATE)
+      .lean()
+  },
+
   /** A student's allocations for a set of periods (rebate cross-period checks). */
   async findAllocationsByUserAndPeriods(studentUserId, periodIds) {
     return DiningAllocation.find({ studentUserId, periodId: { $in: periodIds } }).lean()

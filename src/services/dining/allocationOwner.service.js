@@ -163,7 +163,7 @@ const releaseSeat = async ({ periodId, catererId, session }) => {
   )
 }
 
-const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, rollNumber, catererId, force, allowMove = true }) => {
+const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, rollNumber, catererId, force, allowMove = true, afterWrite = null }) => {
   const session = await mongoose.startSession()
   let result = null
   try {
@@ -195,6 +195,7 @@ const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, ro
         existing.selectedAt = new Date()
         const saved = await existing.save({ session })
         await releaseSeat({ periodId, catererId: previousCatererId, session })
+        if (afterWrite) await afterWrite({ session })
         result = { ok: true, status: "moved", previousCatererId: String(previousCatererId), allocation: saved.toObject() }
         return
       }
@@ -203,6 +204,7 @@ const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, ro
         [{ periodId, studentUserId, studentProfileId, rollNumber, catererId, selectedAt: new Date() }],
         { session }
       )
+      if (afterWrite) await afterWrite({ session })
       result = { ok: true, status: "assigned", allocation: created[0].toObject() }
     })
   } finally {
@@ -220,6 +222,8 @@ return {
    * Pass `allowMove: false` to refuse moving an existing allocation (reason
    * 'already-allocated'); the check runs inside the transaction, so it also
    * holds when two first-time requests race.
+   * `afterWrite({ session })`, when given, runs inside the same transaction once
+   * the student is assigned or moved, so related writes commit with the seat.
    * Returns { ok:true, status:'assigned'|'moved'|'unchanged', allocation } or
    * { ok:false, reason } (reasons: full | caterer-not-in-period | period-not-found | contention | already-allocated).
    */

@@ -267,6 +267,19 @@ export const studentProfileQueries = {
     return query
   },
 
+  /**
+   * Active students eligible for a dining period (all-active, or custom roll
+   * list), lean `_id userId rollNumber`, sorted by roll number. Same rule as
+   * the student self-select eligibility check.
+   */
+  async findDiningEligibleStudents({ eligibilityMode, eligibleRollNumbers = [] } = {}) {
+    if (eligibilityMode !== "custom" && eligibilityMode !== "all-active") return []
+    const filter = eligibilityMode === "custom"
+      ? { status: "Active", rollNumber: { $in: eligibleRollNumbers } }
+      : { status: "Active" }
+    return StudentProfile.find(filter).select("_id userId rollNumber").sort({ rollNumber: 1 }).lean()
+  },
+
   /** One profile by case-insensitive exact roll number, userId (name/email/image) populated, NO select (meal verification). */
   async findByRollNumberCaseInsensitiveWithUserFull(rollNumber) {
     return StudentProfile.findOne({

@@ -80,8 +80,8 @@ describe("dining caterer — meal records", () => {
     await scanFixture(f, gamma, { catererId: outsider.caterer._id })
     const data = ok(await (await as(f.user)).get(base + "/meal-records/overview").query({ periodId: String(f.period._id), from: shift(f.date, -1), to: f.date }))
     expect(data.days).toEqual([
-      { date: shift(f.date, -1), allocatedCount: 4, onRebateCount: 0, expectedCount: 4, meals: { "all-day": { verifiedCount: 1 }, lunch: { verifiedCount: 0 } } },
-      { date: f.date, allocatedCount: 4, onRebateCount: 1, expectedCount: 3, meals: { "all-day": { verifiedCount: 1 }, lunch: { verifiedCount: 1 } } },
+      { date: shift(f.date, -1), allocatedCount: 4, onRebateCount: 0, expectedCount: 4, tagCounts: [], meals: { "all-day": { verifiedCount: 1 }, lunch: { verifiedCount: 0 } } },
+      { date: f.date, allocatedCount: 4, onRebateCount: 1, expectedCount: 3, tagCounts: [], meals: { "all-day": { verifiedCount: 1 }, lunch: { verifiedCount: 1 } } },
     ])
   })
   it("overview defaults to 14 days, clamps to the period, and returns zero counts for empty rosters", async () => {
@@ -115,7 +115,7 @@ describe("dining caterer — meal records", () => {
     await scanFixture(f, null, { status: "unknown-student", time: "12:04:00" })
     const data = ok(await (await as(f.user)).get(base + "/meal-records").query(mealQuery(f)))
     expect(data.mealState).toBe("ended")
-    expect(data.summary).toEqual({ allocatedCount: 4, onRebateCount: 1, expectedCount: 3, verifiedCount: 2, missedCount: 1, pendingCount: 0, manualCount: 1, faceCount: 1, issueCount: 3 })
+    expect(data.summary).toEqual({ allocatedCount: 4, onRebateCount: 1, expectedCount: 3, verifiedCount: 2, missedCount: 1, pendingCount: 0, manualCount: 1, faceCount: 1, issueCount: 3, tagCounts: [] })
     expect(data.students.map((row) => row.status)).toEqual(["verified", "on-rebate", "missed", "verified"])
     expect(data.students[0]).toMatchObject({ allocationId: String(alpha.allocation._id), verifiedAt: first.scannedAt.toISOString(), verificationSource: "face-scanner", attemptCount: 3, student: { id: String(alpha.user._id), profileId: String(alpha.profile._id), name: "Alpha Student", department: "CSE", degree: "B.Tech", batch: "2025", hostel: { id: String(hostel._id), name: hostel.name }, room: { displayRoom: "A-101" } } })
     expect(data.students[3].student.room).toEqual({ displayRoom: "101" })
@@ -158,7 +158,7 @@ describe("dining caterer — meal records", () => {
     const overview = ok(await api.get(base + "/meal-records/overview").query({ periodId: String(f.period._id), from: f.date, to: f.date }))
     const detail = ok(await api.get(base + "/meal-records").query(mealQuery(f)))
     expect(overview.days[0].meals["all-day"].verifiedCount).toBe(2)
-    expect(detail.summary).toEqual({ allocatedCount: 2, onRebateCount: 0, expectedCount: 2, verifiedCount: 2, missedCount: 2, pendingCount: 0, manualCount: 1, faceCount: 1, issueCount: 1 })
+    expect(detail.summary).toEqual({ allocatedCount: 2, onRebateCount: 0, expectedCount: 2, verifiedCount: 2, missedCount: 2, pendingCount: 0, manualCount: 1, faceCount: 1, issueCount: 1, tagCounts: [] })
     expect(detail.summary.verifiedCount).toBe(overview.days[0].meals["all-day"].verifiedCount)
     expect(detail.students.map((row) => row.student.id)).toEqual(f.students.slice(2).map((student) => String(student.user._id)))
     expect(detail.issues[0].student.id).toBe(String(alpha.user._id))
@@ -191,7 +191,7 @@ describe("dining caterer — rebates", () => {
     await rebateFixture(f, delta, { from: f.today, status: "rejected" })
     const api = await as(f.user)
     const data = ok(await api.get(base + "/rebates/overview").query({ from: f.today, to: shift(f.today, 3) }))
-    expect(data.days[0]).toEqual({ date: f.today, periodId: String(f.period._id), allocatedCount: 4, onRebateCount: 2, pendingCount: 1, expectedCount: 2, startingCount: 1, returningCount: 1 })
+    expect(data.days[0]).toEqual({ date: f.today, periodId: String(f.period._id), allocatedCount: 4, onRebateCount: 2, pendingCount: 1, expectedCount: 2, startingCount: 1, returningCount: 1, tagCounts: [] })
     expect(data.days[2]).toMatchObject({ onRebateCount: 1, returningCount: 1 })
     expect(data.days[3]).toMatchObject({ onRebateCount: 0, pendingCount: 0, returningCount: 1 })
     const day = ok(await api.get(base + "/rebates/day").query({ date: f.today }))
@@ -212,8 +212,8 @@ describe("dining caterer — rebates", () => {
     const data = ok(await api.get(base + "/rebates/overview"))
     expect(data).toMatchObject({ today: keyFor(), from: keyFor(), to: shift(keyFor(), 13) })
     expect(data.days).toHaveLength(14)
-    expect(data.days[0]).toEqual({ date: keyFor(), periodId: null, allocatedCount: 0, onRebateCount: 0, pendingCount: 0, expectedCount: 0, startingCount: 0, returningCount: 0 })
-    expect(ok(await api.get(base + "/rebates/day").query({ date: keyFor() }))).toEqual({ date: keyFor(), periodId: null, allocatedCount: 0, onRebateCount: 0, pendingCount: 0, expectedCount: 0, onRebate: [], pending: [], starting: [], returning: [] })
+    expect(data.days[0]).toEqual({ date: keyFor(), periodId: null, allocatedCount: 0, onRebateCount: 0, pendingCount: 0, expectedCount: 0, startingCount: 0, returningCount: 0, tagCounts: [] })
+    expect(ok(await api.get(base + "/rebates/day").query({ date: keyFor() }))).toEqual({ date: keyFor(), periodId: null, allocatedCount: 0, onRebateCount: 0, pendingCount: 0, expectedCount: 0, tagCounts: [], onRebate: [], pending: [], starting: [], returning: [] })
     expect(ok(await api.get(base + "/rebates"))).toEqual({ rebates: [], counts: { all: 0, approved: 0, pending: 0, rejected: 0 }, pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } })
   })
   it("uses the latest non-archived period for overlaps and supports past dates", async () => {

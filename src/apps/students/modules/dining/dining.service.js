@@ -21,6 +21,8 @@ import {
   getStudentDiningRebates,
 } from '../../../../services/dining/dining-rebate.service.js';
 import { getStudentDiningBilling } from '../../../administration/modules/admin/dining-billing.service.js';
+import { tagOwner } from '../../../../services/dining/tagOwner.service.js';
+import { getSelectionQuestions, validateSelectionAnswers } from './dining.tags.service.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
@@ -73,7 +75,7 @@ const serializeAllocation = (allocation = null) => {
   };
 };
 
-const serializePortalPeriod = ({ period, allocation = null }) => {
+const serializePortalPeriod = ({ period, allocation = null, tags }) => {
   if (!period) return null;
 
   const caterers = Array.isArray(period.catererIds)
@@ -90,11 +92,16 @@ const serializePortalPeriod = ({ period, allocation = null }) => {
     endDate: period.endDate,
     allocationStartAt: period.allocationStartAt,
     allocationEndAt: period.allocationEndAt,
+    // When set, students who haven't chosen by then are assigned automatically.
+    autoAllocationAt: period.autoAllocationAt || null,
     allocationStatus: getAllocationStatus(period),
     caterers,
     catererCapacities,
     rebateSettings: period.rebateSettings || null,
     selectedAllocation: serializeAllocation(allocation),
+    // Only on the period whose choice window is open: the yes/no questions
+    // asked with the caterer choice.
+    ...(tags ? { tags } : {}),
   };
 };
 
@@ -225,6 +232,7 @@ export const getStudentDiningPortalState = async (userId) => {
     ? allocationByPeriod.get(String(activeAllocationPeriod._id))
     : null;
   const allocatedFuturePeriod = futurePeriods.find((period) => allocationByPeriod.has(String(period._id))) || null;
+  const selectionTags = activeAllocationPeriod ? await getSelectionQuestions(activeAllocationPeriod._id) : undefined;
 
   return success({
     // Mirrors selectStudentDiningCaterer's checks so the UI never offers a
@@ -241,6 +249,7 @@ export const getStudentDiningPortalState = async (userId) => {
     activeAllocationPeriod: serializePortalPeriod({
       period: activeAllocationPeriod,
       allocation: activeAllocation,
+      tags: selectionTags,
     }),
     upcomingAllocationPeriod: serializePortalPeriod({
       period: upcomingAllocationPeriod,
@@ -249,6 +258,7 @@ export const getStudentDiningPortalState = async (userId) => {
     period: serializePortalPeriod({
       period: activeAllocationPeriod,
       allocation: activeAllocation,
+      tags: selectionTags,
     }),
     allocatedUpcomingPeriod: serializePortalPeriod({
       period: allocatedFuturePeriod,
@@ -260,7 +270,7 @@ export const getStudentDiningPortalState = async (userId) => {
   });
 };
 
-export const selectStudentDiningCaterer = async (userId, catererId, periodId = null) => {
+export const selectStudentDiningCaterer = async (userId, catererId, periodId = null, tagAnswers = []) => {
   if (!mongoose.Types.ObjectId.isValid(catererId)) {
     return badRequest('Invalid caterer selected');
   }
@@ -284,6 +294,10 @@ export const selectStudentDiningCaterer = async (userId, catererId, periodId = n
     return forbidden('You are not eligible for this dining allocation period');
   }
 
+  // Every live allocation tag of the period must be answered yes/no.
+  const tagCheck = await validateSelectionAnswers(period._id, tagAnswers);
+  if (tagCheck.error) return badRequest(tagCheck.error);
+
   // The seat counter + allocation row are updated atomically inside the owner
   // (capacity-guarded, race-safe); self-select never forces past a full caterer.
   const result = await allocationOwner.assignStudent({
@@ -294,6 +308,21 @@ export const selectStudentDiningCaterer = async (userId, catererId, periodId = n
     catererId,
     force: false,
     allowMove: false,
+    // Answers commit in the same transaction as the seat booking.
+    afterWrite: tagCheck.answers.length
+      ? ({ session }) =>
+          tagOwner.setStudentValues(
+            {
+              studentUserId: userId,
+              studentProfileId: profile._id,
+              rollNumber: profile.rollNumber,
+              answers: tagCheck.answers,
+              source: 'student',
+              updatedBy: userId,
+            },
+            { session }
+          )
+      : null,
   });
 
   if (!result.ok) {

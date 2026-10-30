@@ -15,6 +15,8 @@ import { studentProfileQueries } from '../../../../services/student/studentProfi
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { catererService } from './caterer.service.js';
 import { allocationOwner } from '../../../../services/dining/allocationOwner.service.js';
+import { tagOwner } from '../../../../services/dining/tagOwner.service.js';
+import { tagQueries } from '../../../../services/dining/tagQueries.service.js';
 
 const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
 const ELIGIBILITY_MODE_CUSTOM = 'custom';
@@ -138,6 +140,37 @@ const getExistingAllocatedCountByCaterer = (period) => {
   return allocatedCountByCaterer;
 };
 
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/**
+ * Server-local midnight starting the period's first service day. Period dates
+ * are stored as UTC midnight of the calendar day (see services/dining/periodDay.js),
+ * so the calendar day is read with UTC getters and re-anchored in local time.
+ */
+const getPeriodFirstDayStart = (startDate) => {
+  const d = new Date(startDate);
+  return new Date(`${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}T00:00:00`);
+};
+
+const toTime = (value) => (value ? new Date(value).getTime() : null);
+
+const serializeAutoAllocation = (run) => {
+  if (!run || !run.status) return null;
+  return {
+    status: run.status,
+    startedAt: run.startedAt || null,
+    completedAt: run.completedAt || null,
+    unallocatedBefore: Number(run.unallocatedBefore || 0),
+    assigned: Number(run.assigned || 0),
+    leftOver: Number(run.leftOver || 0),
+    byCaterer: (Array.isArray(run.byCaterer) ? run.byCaterer : []).map((entry) => ({
+      catererId: String(entry.catererId?._id || entry.catererId || ''),
+      assigned: Number(entry.assigned || 0),
+    })),
+    error: run.error || null,
+  };
+};
+
 const getPeriodStatus = (period) => {
   const now = new Date();
   const startDate = new Date(period.startDate);
@@ -169,7 +202,66 @@ const serializeCaterer = (caterer = {}) => ({
   email: caterer.email,
 });
 
-const serializePeriod = (period, activeStudentCount = 0) => {
+const MAX_PERIOD_TAGS = 20;
+
+/**
+ * Allocation (period) tags of the period form: [{ id?, name, question?, defaultValue }].
+ * Returns { tags } (normalized, ordered), { error }, or {} when the payload has
+ * no `tags` key (an edit then leaves the period's tags untouched). Ids must be
+ * tags of this period (`existingTags` = all of its period tags, archived too).
+ */
+const validatePeriodTags = (rawTags, existingTags = []) => {
+  if (rawTags === undefined) return {};
+  if (!Array.isArray(rawTags)) return { error: 'Tags must be a list' };
+  if (rawTags.length > MAX_PERIOD_TAGS) return { error: `At most ${MAX_PERIOD_TAGS} tags are allowed per period` };
+  const existingIds = new Set(existingTags.map((tag) => String(tag._id)));
+  const seenNames = new Set();
+  const seenIds = new Set();
+  const tags = [];
+  for (const raw of rawTags) {
+    const name = String(raw?.name ?? '').trim();
+    if (!name) return { error: 'Each tag needs a name' };
+    if (name.length > 60) return { error: `Tag name "${name.slice(0, 20)}…" must be at most 60 characters` };
+    const question = String(raw?.question ?? '').trim();
+    if (question.length > 200) return { error: `The question for tag "${name}" must be at most 200 characters` };
+    if (typeof raw?.defaultValue !== 'boolean') return { error: `Choose a default (yes or no) for tag "${name}"` };
+    const lower = name.toLowerCase();
+    if (seenNames.has(lower)) return { error: `Tag names must be unique within a period ("${name}")` };
+    seenNames.add(lower);
+    const id = raw?.id ? String(raw.id) : null;
+    if (id) {
+      if (!existingIds.has(id)) return { error: `Tag "${name}" does not belong to this period` };
+      if (seenIds.has(id)) return { error: `Tag "${name}" is listed twice` };
+      seenIds.add(id);
+    }
+    tags.push({ id, name, question, defaultValue: raw.defaultValue });
+  }
+  return { tags };
+};
+
+const serializePeriodTag = (tag, counts) => ({
+  id: String(tag._id),
+  name: tag.name,
+  question: tag.question || '',
+  defaultValue: tag.defaultValue ?? null,
+  counts: counts || { yes: 0, no: 0, answered: 0 },
+});
+
+/** Live period tags (with answer counts) of many periods, in two queries: Map(periodId -> [tag]). */
+const loadPeriodTags = async (periodIds = []) => {
+  const byPeriod = new Map(periodIds.map((id) => [String(id), []]));
+  if (!periodIds.length) return byPeriod;
+  const tags = await tagQueries.findPeriodTags(periodIds);
+  const counts = await tagQueries.countsByTag(tags.map((tag) => tag._id));
+  tags.forEach((tag) => {
+    const key = String(tag.periodId);
+    if (!byPeriod.has(key)) byPeriod.set(key, []);
+    byPeriod.get(key).push(serializePeriodTag(tag, counts.get(String(tag._id))));
+  });
+  return byPeriod;
+};
+
+const serializePeriod = (period, activeStudentCount = 0, tags = []) => {
   const caterers = Array.isArray(period.catererIds)
     ? period.catererIds.filter((item) => item && typeof item === 'object' && item.name).map(serializeCaterer)
     : [];
@@ -206,6 +298,8 @@ const serializePeriod = (period, activeStudentCount = 0) => {
     allocationEndAt: period.allocationEndAt,
     notificationAt: period.notificationAt || null,
     notificationSentAt: period.notificationSentAt || null,
+    autoAllocationAt: period.autoAllocationAt || null,
+    autoAllocation: serializeAutoAllocation(period.autoAllocation),
     catererIds: rawCatererIds,
     caterers,
     catererCapacities,
@@ -223,6 +317,7 @@ const serializePeriod = (period, activeStudentCount = 0) => {
     isArchived: Boolean(period.isArchived),
     status: getPeriodStatus(period),
     allocationStatus: getAllocationStatus(period),
+    tags,
     createdAt: period.createdAt,
     updatedAt: period.updatedAt,
   };
@@ -263,6 +358,16 @@ const findPeriodOverlapError = async ({ startDate, endDate, registrationEnabled,
   return null;
 };
 
+// A run still "running" this long after its claim is treated as dead.
+const AUTO_ALLOCATION_STALE_MS = 60 * 60 * 1000;
+
+const isAutoAllocationRearmable = (autoAllocation, now = Date.now()) => {
+  if (autoAllocation?.status === 'failed') return true;
+  if (autoAllocation?.status !== 'running') return false;
+  const startedAt = toTime(autoAllocation.startedAt);
+  return !startedAt || now - startedAt > AUTO_ALLOCATION_STALE_MS;
+};
+
 class DiningPeriodService {
   async validatePeriodPayload(payload = {}, existingPeriod = null) {
     const startDate = payload.startDate ? new Date(payload.startDate) : null;
@@ -282,6 +387,9 @@ class DiningPeriodService {
     const dateSchedule = normalizeDateSchedule(payload.dateSchedule, mealSlots);
     const rebateSettings = normalizeRebateSettings(payload.rebateSettings);
     const dailyRate = Math.max(0, Number(payload.dailyRate || 0));
+    const autoAllocationRaw = payload.autoAllocationAt;
+    const autoAllocationProvided = autoAllocationRaw !== undefined;
+    const autoAllocationAt = autoAllocationRaw ? new Date(autoAllocationRaw) : null;
     // Optional: when disabled the period has no self-registration window and the
     // admin assigns caterers manually. Backward-compatible default is enabled.
     const registrationEnabled = payload.registrationEnabled !== false;
@@ -308,6 +416,40 @@ class DiningPeriodService {
     if (startDate > endDate) {
       return { error: 'Start date must be before or equal to end date' };
     }
+
+    // Scheduled auto-allocation. Once it has completed (or is running) the time
+    // is locked; a failed run, or one stuck "running" past the stale window
+    // (process died mid-run), can be re-armed with a new time. Re-running is
+    // safe: already-allocated students are skipped. Omitting the field on an
+    // edit keeps whatever is stored.
+    const existingAutoAllocationTime = toTime(existingPeriod?.autoAllocationAt);
+    const autoAllocationRearmable = isAutoAllocationRearmable(existingPeriod?.autoAllocation);
+    const autoAllocationLocked = Boolean(existingPeriod?.autoAllocation?.status) && !autoAllocationRearmable;
+    let nextAutoAllocationAt = autoAllocationProvided ? autoAllocationAt : (existingPeriod?.autoAllocationAt || null);
+    if (autoAllocationProvided && autoAllocationAt && Number.isNaN(autoAllocationAt.getTime())) {
+      return { error: 'Invalid auto-allocation date and time' };
+    }
+    const autoAllocationChanged = autoAllocationProvided && toTime(autoAllocationAt) !== existingAutoAllocationTime;
+    if (autoAllocationLocked) {
+      if (autoAllocationChanged) {
+        return { error: 'Auto-allocation has already run for this period; its time can no longer be changed' };
+      }
+      nextAutoAllocationAt = existingPeriod.autoAllocationAt || null;
+    } else if (nextAutoAllocationAt) {
+      if (registrationEnabled && allocationEndAt && nextAutoAllocationAt <= allocationEndAt) {
+        return { error: 'Auto-allocation must be after the caterer choice window ends' };
+      }
+      if (nextAutoAllocationAt >= getPeriodFirstDayStart(startDate)) {
+        return { error: 'Auto-allocation must be before the dining period starts' };
+      }
+      // Only a new or changed time must be in the future, so editing other
+      // fields of a period whose stored time has passed is not blocked.
+      if ((!existingPeriod || autoAllocationChanged) && nextAutoAllocationAt <= new Date()) {
+        return { error: 'Auto-allocation time must be in the future' };
+      }
+    }
+    // A re-armed (or cleared) failed/stale run starts over with no result.
+    const resetAutoAllocation = autoAllocationRearmable && autoAllocationChanged;
 
     if (catererIds.length === 0) {
       return { error: 'Please select at least one caterer' };
@@ -442,6 +584,8 @@ class DiningPeriodService {
         allocationStartAt: registrationEnabled ? allocationStartAt : null,
         allocationEndAt: registrationEnabled ? allocationEndAt : null,
         notificationAt: registrationEnabled ? notificationAt : null,
+        autoAllocationAt: nextAutoAllocationAt,
+        ...(resetAutoAllocation ? { autoAllocation: null } : {}),
         catererIds,
         catererCapacities,
         mealSlots,
@@ -469,15 +613,19 @@ class DiningPeriodService {
       studentProfileQueries.countProfiles({ status: 'Active' }),
     ]);
 
-    return success(periods.map((period) => serializePeriod(period, activeStudentCount)));
+    const tagsByPeriod = await loadPeriodTags(periods.map((period) => period._id));
+    return success(periods.map((period) => serializePeriod(period, activeStudentCount, tagsByPeriod.get(String(period._id)) || [])));
   }
 
-  async createDiningPeriod(payload) {
+  async createDiningPeriod(payload, actor = null) {
     const validation = await this.validatePeriodPayload(payload);
 
     if (validation.error) {
       return badRequest(validation.error);
     }
+
+    const tagValidation = validatePeriodTags(payload?.tags);
+    if (tagValidation.error) return badRequest(tagValidation.error);
 
     try {
       await catererService.ensureCatererLogins(validation.data.catererIds);
@@ -486,15 +634,21 @@ class DiningPeriodService {
     }
 
     const period = await diningOwner.createPeriod(validation.data);
+    // Period creation is not transactional (diningOwner.createPeriod has no
+    // session); the tags were validated above, so this sync only persists.
+    if (tagValidation.tags?.length) {
+      await tagOwner.syncPeriodTags(period._id, tagValidation.tags, { actor });
+    }
     const populatedPeriod = await diningQueries.findPeriodById(period._id, {
       populate: { path: 'catererIds', select: 'name email' },
       lean: true,
     });
 
-    return success(serializePeriod(populatedPeriod, validation.data.eligibleStudentCount), 201, 'Dining period created successfully');
+    const tagsByPeriod = await loadPeriodTags([period._id]);
+    return success(serializePeriod(populatedPeriod, validation.data.eligibleStudentCount, tagsByPeriod.get(String(period._id)) || []), 201, 'Dining period created successfully');
   }
 
-  async updateDiningPeriod(periodId, payload) {
+  async updateDiningPeriod(periodId, payload, actor = null) {
     const existingPeriod = await diningQueries.findPeriodById(periodId, { lean: true });
 
     if (!existingPeriod) {
@@ -506,6 +660,11 @@ class DiningPeriodService {
     if (validation.error) {
       return badRequest(validation.error);
     }
+
+    const tagValidation = payload?.tags === undefined
+      ? {}
+      : validatePeriodTags(payload.tags, await tagQueries.findTags({ kind: 'period', periodId: existingPeriod._id }));
+    if (tagValidation.error) return badRequest(tagValidation.error);
 
     try {
       await catererService.ensureCatererLogins(validation.data.catererIds);
@@ -535,12 +694,20 @@ class DiningPeriodService {
         : badRequest(messageByReason[applied.reason] || 'Unable to update dining period');
     }
 
+    // The period write runs in allocationOwner's own transaction, which takes
+    // no callback; the tag sync gets its own transaction right after (inputs
+    // were fully validated above). `tags` omitted = leave tags untouched.
+    if (tagValidation.tags) {
+      await tagOwner.syncPeriodTags(periodId, tagValidation.tags, { actor });
+    }
+
     const updatedPeriod = await diningQueries.findPeriodById(periodId, {
       populate: { path: 'catererIds', select: 'name email' },
       lean: true,
     });
 
-    return success(serializePeriod(updatedPeriod, validation.data.eligibleStudentCount), 200, 'Dining period updated successfully');
+    const tagsByPeriod = await loadPeriodTags([updatedPeriod._id]);
+    return success(serializePeriod(updatedPeriod, validation.data.eligibleStudentCount, tagsByPeriod.get(String(updatedPeriod._id)) || []), 200, 'Dining period updated successfully');
   }
 
   async changeArchiveStatus(periodId, status) {
@@ -563,10 +730,13 @@ class DiningPeriodService {
       return notFound('Dining period');
     }
 
-    const activeStudentCount = await studentProfileQueries.countProfiles({ status: 'Active' });
+    const [activeStudentCount, tagsByPeriod] = await Promise.all([
+      studentProfileQueries.countProfiles({ status: 'Active' }),
+      loadPeriodTags([updatedPeriod._id]),
+    ]);
 
     return success(
-      serializePeriod(updatedPeriod, activeStudentCount),
+      serializePeriod(updatedPeriod, activeStudentCount, tagsByPeriod.get(String(updatedPeriod._id)) || []),
       200,
       updatedPeriod.isArchived ? 'Dining period archived successfully' : 'Dining period unarchived successfully',
     );

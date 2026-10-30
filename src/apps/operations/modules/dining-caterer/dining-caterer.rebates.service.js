@@ -3,6 +3,7 @@ import { diningQueries } from "../../../../services/dining/diningQueries.service
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { serializeDiningRebate } from "../../../../services/dining/dining-rebate.service.js"
 import { success } from "../../../../services/base/index.js"
+import { loadTagContext } from "../../../../services/dining/tagResolve.js"
 import {
   idOf, dayKey, shiftDay, dayKeys, validateRange, getCatererScope, getPeriodScope,
   serializeCaterer, studentDetails, serializeStudent,
@@ -18,7 +19,8 @@ const serializeRebate = (rebate, profile) => {
 /** One bulk query per collection for the entire calendar, including yesterday. */
 const loadCalendar = async (caterer, from, to, { populate = false } = {}) => {
   const periods = await diningQueries.findPeriods({ catererIds: caterer._id, isArchived: false }, { lean: true, sort: { startDate: -1, _id: -1 } })
-  const periodIds = periods.filter((period) => dayKey(period.startDate) <= to && dayKey(period.endDate) >= from).map((period) => period._id)
+  const inRange = periods.filter((period) => dayKey(period.startDate) <= to && dayKey(period.endDate) >= from)
+  const periodIds = inRange.map((period) => period._id)
   const filter = {
     catererId: caterer._id, periodId: { $in: periodIds }, status: { $in: ["approved", "pending"] },
     dateKeys: { $in: dayKeys(shiftDay(from, -1), to) },
@@ -39,7 +41,12 @@ const loadCalendar = async (caterer, from, to, { populate = false } = {}) => {
     if (!rebatesByPeriod.has(id)) rebatesByPeriod.set(id, [])
     rebatesByPeriod.get(id).push(rebate)
   }
-  return { periods, rosterByPeriod, rebatesByPeriod }
+  // One tag context for the whole calendar: headcount per tag on each day.
+  const tagContext = await loadTagContext({
+    periods: inRange, fromKey: from, toKey: to,
+    studentUserIds: allocations.map((allocation) => allocation.studentUserId),
+  })
+  return { periods, rosterByPeriod, rebatesByPeriod, tagContext }
 }
 
 const uniqueStudents = (rebates) => [...new Map(rebates.map((rebate) => [idOf(rebate.studentUserId), rebate])).values()]
@@ -54,9 +61,20 @@ export const calendarDay = (calendar, date) => {
   const starting = uniqueStudents(approved.filter((rebate) => rebate.dateKeys[0] === date))
   const yesterday = shiftDay(date, -1)
   const returning = uniqueStudents(approved.filter((rebate) => rebate.dateKeys.at(-1) === yesterday))
-  const allocatedCount = calendar.rosterByPeriod.get(periodId)?.size || 0
+  const roster = calendar.rosterByPeriod.get(periodId)
+  const allocatedCount = roster?.size || 0
+  // Expected eaters with each tag that applies today (calendars built without tags skip it).
+  let tagCounts
+  if (calendar.tagContext) {
+    const away = new Set(onRebate.map((rebate) => idOf(rebate.studentUserId)))
+    const expected = [...(roster || [])].filter((userId) => !away.has(userId))
+    tagCounts = calendar.tagContext.tagCountsOn(date, { periodId, userIds: expected })
+  }
   return {
-    counts: { date, periodId, allocatedCount, onRebateCount: onRebate.length, pendingCount: pending.length, expectedCount: Math.max(0, allocatedCount - onRebate.length) },
+    counts: {
+      date, periodId, allocatedCount, onRebateCount: onRebate.length, pendingCount: pending.length, expectedCount: Math.max(0, allocatedCount - onRebate.length),
+      ...(tagCounts ? { tagCounts } : {}),
+    },
     onRebate, pending, starting, returning,
   }
 }

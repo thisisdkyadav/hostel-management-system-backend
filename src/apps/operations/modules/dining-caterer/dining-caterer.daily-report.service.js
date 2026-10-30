@@ -5,6 +5,7 @@ import {
   idOf, dayKey, shiftDay, dayBounds, dayKeys, localDay, getDiningScope, catererMatch,
   mealSlots, mealState, serializeCaterer, serializePeriod, studentDetails, serializeStudent,
 } from "./dining-caterer.service.js"
+import { loadTagContext } from "../../../../services/dining/tagResolve.js"
 
 export const CHECK_ON_DAYS = [2, 3, 5, 7, 14]
 const DEFAULT_CHECK_ON_DAYS = 3
@@ -74,6 +75,12 @@ export const getDailyReport = async ({ user, query = {} }) => {
       : [],
   ])
 
+  const tagContext = await loadTagContext({
+    periods: [period], fromKey: date, toKey: date, studentUserIds: allocations.map((row) => row.studentUserId),
+  })
+  // Expected eaters with each tag that applies on `date` (every applicable tag, count may be 0).
+  const tagCountsOf = (userIds) => tagContext.tagCountsOn(date, { periodId: period._id, userIds })
+
   const awayToday = new Set()
   const awayInWindow = new Set()
   const windowSet = new Set(windowKeys)
@@ -111,6 +118,7 @@ export const getDailyReport = async ({ user, query = {} }) => {
       allocatedCount: roster.length, onRebateCount: away, expectedCount: expected,
       ateAnyCount, ateNothingCount: allEnded ? expected - ateAnyCount : null,
       issueCount: issues.get(id) || 0,
+      tagCounts: tagCountsOf(expectedIds),
       meals: Object.fromEntries(slots.map((slot) => {
         const verifiedCount = ate.get(`${id}:${slot.key}`)?.size || 0
         return [slot.key, { verifiedCount, notEatenCount: slot.state === "upcoming" ? null : Math.max(0, expected - verifiedCount) }]
@@ -119,6 +127,8 @@ export const getDailyReport = async ({ user, query = {} }) => {
   })
 
   const totals = blankCounts(slots)
+  const expectedRows = allocations.filter((row) => rows.some((item) => item.id === idOf(row.catererId)))
+  totals.tagCounts = tagCountsOf(expectedRows.map((row) => idOf(row.studentUserId)).filter((studentId) => !awayToday.has(studentId)))
   for (const row of rows) {
     for (const key of ["allocatedCount", "onRebateCount", "expectedCount", "ateAnyCount", "issueCount"]) totals[key] += row[key]
     totals.ateNothingCount = allEnded ? totals.ateNothingCount + row.ateNothingCount : null

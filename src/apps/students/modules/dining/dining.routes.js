@@ -1,10 +1,12 @@
 import express from 'express';
 import {
+  answerDiningTag,
   createDiningRebate,
   getDiningBilling,
   getDiningMeals,
   getDiningPortalState,
   getDiningRebates,
+  getDiningTags,
   selectDiningCaterer,
 } from './dining.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
@@ -23,5 +25,7 @@ router.get('/rebates', getDiningRebates);
 router.post('/rebates', createDiningRebate);
 router.get('/billing', getDiningBilling);
 router.get('/meals', getDiningMeals);
+router.get('/tags', getDiningTags);
+router.put('/tags/:tagId', answerDiningTag);
 
 export default router;

@@ -2,6 +2,7 @@ import { diningQueries } from "../../../../services/dining/diningQueries.service
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { badRequest, success } from "../../../../services/base/index.js"
 import { serializeVerification } from "../dining-meal-verification/dining-meal-verification.service.js"
+import { loadScanTags, loadTagContext } from "../../../../services/dining/tagResolve.js"
 import {
   idOf, dayKey, shiftDay, dayBounds, dayKeys, localDay, validateQuery, validateRange,
   getDiningScope, getPeriodScope, catererMatch, mealSlots, mealState, serializeCaterer,
@@ -61,6 +62,7 @@ export const getMealRecordOverview = async ({ user, query }) => {
     diningQueries.findRebates({ ...catererMatch(caterer), periodId: period._id, status: "approved", dateKeys: { $in: keys } }, { lean: true }),
   ])
   const roster = new Set(allocations.map((row) => idOf(row.studentUserId)))
+  const tagContext = await loadTagContext({ periods: [period], fromKey: from, toKey: to, studentUserIds: [...roster] })
   const rebatedByDay = new Map(keys.map((key) => [key, new Set()]))
   for (const rebate of rebates) {
     if (!roster.has(idOf(rebate.studentUserId))) continue
@@ -77,6 +79,7 @@ export const getMealRecordOverview = async ({ user, query }) => {
     days: keys.map((date) => ({
       date, allocatedCount: roster.size, onRebateCount: rebatedByDay.get(date).size,
       expectedCount: Math.max(0, roster.size - rebatedByDay.get(date).size),
+      tagCounts: tagContext.tagCountsOn(date, { periodId: period._id, userIds: [...roster].filter((id) => !rebatedByDay.get(date).has(id)) }),
       meals: Object.fromEntries(slots.map((slot) => [slot.key, { verifiedCount: verifiedByDayMeal.get(`${date}:${slot.key}`)?.size || 0 }])),
     })),
   })
@@ -113,7 +116,16 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
       ? diningQueries.findCaterers({ _id: { $in: caterer ? [caterer._id] : period.catererIds } }, { lean: true, sort: { name: 1 } })
       : null,
   ])
-  const profiles = light ? new Map() : await studentDetails(allocations.map((row) => row.studentUserId))
+  const [profiles, tagContext] = light
+    ? [new Map(), null]
+    : await Promise.all([
+      studentDetails(allocations.map((row) => row.studentUserId)),
+      loadTagContext({ periods: [period], fromKey: date, toKey: date, studentUserIds: allocations.map((row) => row.studentUserId) }),
+    ])
+  // Expected eaters (allocated, not on rebate) with each tag that applies on `date`.
+  const tagCountsOf = (list) => tagContext.tagCountsOn(date, {
+    periodId: period._id, userIds: list.filter((row) => !row.rebate).map((row) => idOf(row.allocation.studentUserId)),
+  })
   const catererById = new Map((catererDocs || []).map((item) => [idOf(item), { id: idOf(item), name: item.name }]))
   const attempts = new Map()
   for (const scan of scans) {
@@ -147,6 +159,7 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
     manualCount: verified.filter((attempt) => attempt.first.source === "manual").length,
     faceCount: verified.filter((attempt) => attempt.first.source === "face-scanner").length,
     issueCount,
+    ...(tagContext ? { tagCounts: tagCountsOf(rows) } : {}),
   }
 
   // Every caterer in scope, busiest kitchen first; scans count where they were made.
@@ -163,6 +176,7 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
         manualCount: ate.filter((attempt) => attempt.first.source === "manual").length,
         faceCount: ate.filter((attempt) => attempt.first.source === "face-scanner").length,
         issueCount: issueScans.filter((scan) => idOf(scan.catererId) === item.id).length,
+        ...(tagContext ? { tagCounts: tagCountsOf(mine) } : {}),
       }
     }).sort((a, b) => b.expectedCount - a.expectedCount || a.name.localeCompare(b.name))
     : undefined
@@ -178,7 +192,8 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
   const students = rows.map(({ allocation, attempt, rebate }) => {
     const id = idOf(allocation.studentUserId)
     return {
-      allocationId: idOf(allocation), student: serializeStudent(profiles.get(id), allocation),
+      allocationId: idOf(allocation),
+      student: { ...serializeStudent(profiles.get(id), allocation), tags: tagContext.yesTagsOn(id, date, { periodId: period._id }) },
       ...(oversight ? { caterer: catererById.get(idOf(allocation.catererId)) || null } : {}),
       status: statusOf(attempt, rebate),
       verifiedAt: attempt?.first?.scannedAt || null, verificationSource: attempt?.first?.source || null,
@@ -205,13 +220,17 @@ export const getMealFeed = async ({ user, query = {} }) => {
   const limit = Number(query.limit || 100)
   const filter = { ...catererMatch(caterer), scannedAt: dayBounds(date), ...(query.mealSlotKey ? { mealSlotKey: query.mealSlotKey } : {}) }
   const scans = await diningQueries.findVerificationsPopulated(filter, { lean: true, sort: { scannedAt: -1, createdAt: -1, _id: -1 }, limit })
-  const profiles = await studentDetails(scans.map((scan) => scan.studentUserId).filter(Boolean))
+  const [profiles, tagsOf] = await Promise.all([
+    studentDetails(scans.map((scan) => scan.studentUserId).filter(Boolean)),
+    loadScanTags(scans),
+  ])
   return success({
     date,
     entries: scans.map((scan) => {
       const entry = serializeVerification(scan)
       const profile = scan.studentUserId ? profiles.get(idOf(scan.studentUserId)) : null
-      return profile ? { ...entry, student: serializeStudent(profile, { rollNumber: scan.rollNumber }) } : entry
+      const student = profile ? serializeStudent(profile, { rollNumber: scan.rollNumber }) : entry.student
+      return student ? { ...entry, student: { ...student, tags: tagsOf(scan) } } : entry
     }),
   })
 }
