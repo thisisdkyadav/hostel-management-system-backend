@@ -14,6 +14,7 @@ import { h4Service } from "../apps/visitors/modules/intern-accommodation/h4.serv
 import { h4Notifications } from "../apps/visitors/modules/intern-accommodation/h4.notifications.js"
 import { sendDueDiningPeriodNotifications } from "../apps/administration/modules/admin/dining-period-notification.service.js"
 import { runDueDiningAutoAllocations } from "../apps/administration/modules/admin/dining-auto-allocation.service.js"
+import { runDueMissedMealsDigest } from "../apps/operations/modules/dining-caterer/dining-missed-meals-digest.service.js"
 
 const HOUR_MS = 60 * 60 * 1000
 const STARTUP_DELAY_MS = 30 * 1000
@@ -77,6 +78,8 @@ export const startJobScheduler = () => {
     h4Notifications.drain().catch(error => console.error("[scheduler] H4 notification delivery failed:", error.message))
     sendDueDiningPeriodNotifications().catch(error => console.error("[scheduler] dining period notifications failed:", error.message))
     runDueDiningAutoAllocations().catch(error => console.error("[scheduler] dining auto-allocation failed:", error.message))
+    // Nightly (from 01:00 local, once per day): students who missed every meal yesterday → hostel supervisors.
+    runDueMissedMealsDigest().catch(error => console.error("[scheduler] missed-meals digest failed:", error.message))
   }, 60000)
   console.log("⏰ Job scheduler started")
 }
