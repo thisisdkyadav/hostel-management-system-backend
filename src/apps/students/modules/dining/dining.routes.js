@@ -4,6 +4,7 @@ import {
   createDiningRebate,
   getDiningBilling,
   getDiningMeals,
+  getDiningMenu,
   getDiningPortalState,
   getDiningRebates,
   getDiningTags,
@@ -27,6 +28,7 @@ router.post('/rebates/preview', previewDiningRebate);
 router.post('/rebates', createDiningRebate);
 router.get('/billing', getDiningBilling);
 router.get('/meals', getDiningMeals);
+router.get('/menu', getDiningMenu);
 router.get('/tags', getDiningTags);
 router.put('/tags/:tagId', answerDiningTag);
 

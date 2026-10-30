@@ -1,1 +1,1 @@
-export { default } from "./dining-caterer.routes.js"
+export { default, catererMenuRoutes } from "./dining-caterer.routes.js"

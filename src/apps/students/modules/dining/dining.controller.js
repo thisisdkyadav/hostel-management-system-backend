@@ -7,6 +7,7 @@ import {
   selectStudentDiningCaterer,
 } from './dining.service.js';
 import { getStudentDiningMeals } from './dining.meals.service.js';
+import { getStudentMenu } from '../../../operations/modules/dining-menu/dining-menu.service.js';
 import { answerStudentDiningTag, listStudentDiningTags } from './dining.tags.service.js';
 import { asyncHandler } from '../../../../utils/index.js';
 
@@ -66,6 +67,15 @@ export const getDiningBilling = asyncHandler(async (req, res) => {
 
 export const getDiningMeals = asyncHandler(async (req, res) => {
   const result = await getStudentDiningMeals(req.user._id);
+  res.status(result.statusCode).json({
+    success: result.success,
+    message: result.message,
+    data: result.data,
+  });
+});
+
+export const getDiningMenu = asyncHandler(async (req, res) => {
+  const result = await getStudentMenu({ userId: req.user._id, query: req.query });
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,

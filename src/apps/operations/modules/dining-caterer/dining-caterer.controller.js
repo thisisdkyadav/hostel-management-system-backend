@@ -2,6 +2,8 @@ import { asyncHandler } from "../../../../utils/index.js"
 import { getMealFeed, getMealPulse, getMealRecordOptions, getMealRecordOverview, getMealRecords } from "./dining-caterer.meal-records.service.js"
 import { getRebateOverview, getRebateDay, getRebates } from "./dining-caterer.rebates.service.js"
 import { getDailyReport } from "./dining-caterer.daily-report.service.js"
+import { getCatererScope } from "./dining-caterer.service.js"
+import { getCatererMenu } from "../dining-menu/dining-menu.service.js"
 
 export const mealRecordOptions = asyncHandler(async (req, res) => {
   const result = await getMealRecordOptions({ user: req.user, query: req.query })
@@ -37,5 +39,10 @@ export const rebates = asyncHandler(async (req, res) => {
 })
 export const dailyReport = asyncHandler(async (req, res) => {
   const result = await getDailyReport({ user: req.user, query: req.query })
+  res.status(result.statusCode).json({ success: result.success, message: result.message, data: result.data })
+})
+export const menu = asyncHandler(async (req, res) => {
+  const { caterer, error } = await getCatererScope(req.user)
+  const result = error || await getCatererMenu({ caterer, query: req.query })
   res.status(result.statusCode).json({ success: result.success, message: result.message, data: result.data })
 })

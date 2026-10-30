@@ -31,12 +31,13 @@ import onlineUsersRoutes from './modules/online-users/online-users.routes.js';
 import securityRoutes from './modules/security/security.routes.js';
 import faceScannerRoutes from './modules/face-scanner/face-scanner.routes.js';
 import diningMealVerificationRoutes from './modules/dining-meal-verification/dining-meal-verification.routes.js';
-import diningCatererRoutes from './modules/dining-caterer/index.js';
+import diningCatererRoutes, { catererMenuRoutes } from './modules/dining-caterer/index.js';
 import diningInsightsRoutes from './modules/dining-insights/index.js';
 import diningOfficeRoutes from './modules/dining-office/dining-office.routes.js';
 import diningOversightRoutes from './modules/dining-oversight/index.js';
 import diningAllocationsRoutes from './modules/dining-allocations/index.js';
 import diningTagsRoutes from './modules/dining-tags/index.js';
+import diningMenuRoutes from './modules/dining-menu/index.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import statsRoutes from './modules/stats/stats.routes.js';
 
@@ -59,6 +60,8 @@ router.use('/dining-office', diningOfficeRoutes);
 router.use('/dining-oversight', diningOversightRoutes);
 router.use('/dining-allocations', diningAllocationsRoutes);
 router.use('/dining-tags', diningTagsRoutes);
+router.use('/dining-menu', diningMenuRoutes);
+router.use('/caterer', catererMenuRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/stats', statsRoutes);
 

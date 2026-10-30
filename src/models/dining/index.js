@@ -8,3 +8,5 @@ export { default as DiningBillingAccount } from './DiningBillingAccount.model.js
 export { default as DiningOfficeStaff } from './DiningOfficeStaff.model.js'
 export { default as DiningTag } from './DiningTag.model.js'
 export { default as DiningTagValue } from './DiningTagValue.model.js'
+export { default as DiningMenuWeek } from './DiningMenuWeek.model.js'
+export { default as DiningMenuDay } from './DiningMenuDay.model.js'
