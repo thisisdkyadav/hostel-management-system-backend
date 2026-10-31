@@ -1,8 +1,9 @@
 /**
  * Dining Auto-Allocation
  * At a period's autoAllocationAt, every eligible student who has not chosen a
- * caterer is assigned to the caterer with the lowest fill ratio that still has
- * a free seat. Runs from the job scheduler. Each period is claimed atomically
+ * caterer is assigned to the caterer that currently has the fewest students and
+ * still has a free seat, so the caterers' headcounts even out (a full caterer
+ * is skipped; the others keep filling). Runs from the job scheduler. Each period is claimed atomically
  * (diningOwner.claimDueAutoAllocationPeriod), so concurrent instances or
  * overlapping ticks never allocate the same period twice. Assignments go
  * through allocationOwner.assignStudent (allowMove:false, no force): the owner
@@ -22,10 +23,11 @@ const idOf = (value) => String(value?._id || value || '');
 
 const fillRatio = (caterer) => (caterer.max > 0 ? caterer.allocated / caterer.max : 1);
 
-// Lowest fill ratio first; ties go to the caterer with fewer students, then id.
+// Fewest students first (self-selected ones included); ties go to the lower
+// fill ratio (more room left), then id.
 const compareCaterers = (a, b) => (
-  fillRatio(a) - fillRatio(b)
-  || a.allocated - b.allocated
+  a.allocated - b.allocated
+  || fillRatio(a) - fillRatio(b)
   || a.catererId.localeCompare(b.catererId)
 );
 

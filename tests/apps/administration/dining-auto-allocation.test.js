@@ -313,7 +313,7 @@ describe("auto-allocation job", () => {
     expect(ids).toEqual(listed.map((s) => String(s.user._id)).sort())
   })
 
-  it("balances by fill ratio and never exceeds capacity", async () => {
+  it("evens out headcounts (not fill ratios) and never exceeds capacity", async () => {
     const a = await createCaterer()
     const b = await createCaterer()
     a.max = 10
@@ -325,13 +325,39 @@ describe("auto-allocation job", () => {
     })
     await runDueDiningAutoAllocations()
     const counts = await countsByCaterer(period._id)
-    expect(counts.get(String(a._id))).toBe(4)
-    expect(counts.get(String(b._id))).toBe(2)
+    expect(counts.get(String(a._id))).toBe(3)
+    expect(counts.get(String(b._id))).toBe(3)
     const saved = await reload(period._id)
     for (const entry of saved.catererCapacities) {
       expect(entry.allocatedCount).toBe(counts.get(String(entry.catererId)))
       expect(entry.allocatedCount).toBeLessThanOrEqual(entry.maxStudentCount)
     }
+  })
+
+  it("tops up the caterers behind before the one already ahead", async () => {
+    const a = await createCaterer()
+    const b = await createCaterer()
+    const c = await createCaterer()
+    const students = await makeStudents(10)
+    const period = await duePeriod([a, b, c], {
+      eligibilityMode: "custom",
+      eligibleRollNumbers: students.map((s) => s.profile.rollNumber),
+    })
+    // 4 students already chose A themselves
+    for (const s of students.slice(0, 4)) {
+      const outcome = await allocationOwner.assignStudent({
+        periodId: period._id, studentUserId: s.user._id, studentProfileId: s.profile._id,
+        rollNumber: s.profile.rollNumber, catererId: a._id, force: false, allowMove: false,
+      })
+      expect(outcome.ok).toBe(true)
+    }
+    const { results } = await runDueDiningAutoAllocations()
+    expect(results[0]).toMatchObject({ status: "completed", assigned: 6, leftOver: 0 })
+    const counts = await countsByCaterer(period._id)
+    // 6 auto-allocated all go to B and C (3 each) while A stays ahead at 4
+    expect([counts.get(String(a._id)), counts.get(String(b._id)), counts.get(String(c._id))]).toEqual([4, 3, 3])
+    const rows = await rowsFor(period._id)
+    expect(rows.filter((r) => r.unregistered).every((r) => String(r.catererId) !== String(a._id))).toBe(true)
   })
 
   it("fills the roomier caterer once the other is full and records students left over", async () => {
