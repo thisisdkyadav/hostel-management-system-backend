@@ -7,6 +7,8 @@
  * overlapping ticks never allocate the same period twice. Assignments go
  * through allocationOwner.assignStudent (allowMove:false, no force): the owner
  * is the capacity authority, local counts are only used to pick a caterer.
+ * Rows it creates are marked `unregistered` (no student rebates for the
+ * period until Admin / Dining Office clears the mark).
  */
 
 import { diningOwner } from '../../../../services/dining/diningOwner.service.js';
@@ -71,6 +73,7 @@ const allocatePeriod = async (period) => {
         catererId: caterer.catererId,
         force: false,
         allowMove: false,
+        unregistered: true, // never chose a caterer: no rebates until cleared
       });
 
       if (outcome.ok) {

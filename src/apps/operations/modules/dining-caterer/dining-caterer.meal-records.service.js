@@ -201,7 +201,7 @@ const buildMealRecord = async ({ user, query }, { light = false } = {}) => {
     const id = idOf(allocation.studentUserId)
     return {
       allocationId: idOf(allocation),
-      student: { ...serializeStudent(profiles.get(id), allocation), tags: tagContext.yesTagsOn(id, date, { periodId: period._id }) },
+      student: { ...serializeStudent(profiles.get(id), allocation), tags: tagContext.yesTagsOn(id, date, { periodId: period._id }), unregistered: Boolean(allocation.unregistered) },
       ...(oversight ? { caterer: catererById.get(idOf(allocation.catererId)) || null } : {}),
       status: statusOf(attempt, rebate),
       verifiedAt: attempt?.first?.scannedAt || null, verificationSource: attempt?.first?.source || null,

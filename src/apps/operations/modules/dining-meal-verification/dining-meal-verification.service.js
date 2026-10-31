@@ -128,7 +128,7 @@ const serializeAvailableStudent = ({ allocation, verificationStateByStudentId = 
 
   return {
     allocationId: allocation?._id || allocation?.id,
-    student: student ? { ...student, tags } : student,
+    student: student ? { ...student, tags, unregistered: Boolean(allocation?.unregistered) } : student,
     rollNumber: allocation?.rollNumber || student?.rollNumber || "",
     selectedAt: allocation?.selectedAt,
     isVerified: Boolean(verificationState.hasVerified),
@@ -175,10 +175,14 @@ export const serializeVerificationsWithTags = async (verifications = []) => {
   })
 }
 
-/** One scan, re-read populated, serialized with tags. */
-const serializeRecordWithTags = async (record) => {
+/**
+ * One scan, re-read populated, serialized with tags. With the student's
+ * allocation in hand, `student.unregistered` is added too (no extra read).
+ */
+const serializeRecordWithTags = async (record, allocation = null) => {
   const populated = await diningQueries.findVerificationByIdPopulated(record._id, { lean: true })
   const [verification] = await serializeVerificationsWithTags([populated])
+  if (allocation && verification?.student) verification.student.unregistered = Boolean(allocation.unregistered)
   return verification
 }
 
@@ -341,7 +345,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: WRONG_CATERER_STATUS,
     })
-    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
+    return success({ verification: await serializeRecordWithTags(record, allocation) }, 201, STATUS_MESSAGES[WRONG_CATERER_STATUS])
   }
 
   const rebatedStudentIds = await getApprovedRebateStudentIdsForDay({
@@ -363,7 +367,7 @@ const recordDiningMealAttempt = async ({
       deviceId,
       status: ON_REBATE_STATUS,
     })
-    return success({ verification: await serializeRecordWithTags(record) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
+    return success({ verification: await serializeRecordWithTags(record, allocation) }, 201, STATUS_MESSAGES[ON_REBATE_STATUS])
   }
 
   const previousVerified = await diningQueries.findOneVerification({
@@ -393,7 +397,7 @@ const recordDiningMealAttempt = async ({
   })
 
   return success(
-    { verification: await serializeRecordWithTags(record) },
+    { verification: await serializeRecordWithTags(record, allocation) },
     201,
     STATUS_MESSAGES[status],
   )

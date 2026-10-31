@@ -502,6 +502,7 @@ describe("dining rebates", () => {
       shortTermMinApplicationDays: 1,
       shortTermMinAdvanceDays: 2,
       maxAdvanceMonths: 6,
+      unregisteredPeriods: [],
     })
 
     // The API-created rebate (no legacy periodId) for days 11-12.

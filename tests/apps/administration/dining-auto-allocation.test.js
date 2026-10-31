@@ -283,7 +283,10 @@ describe("auto-allocation job", () => {
     const rows = await rowsFor(period._id)
     const byUser = new Map(rows.map((r) => [String(r.studentUserId), r]))
     expect(String(byUser.get(String(pre.user._id)).catererId)).toBe(String(b._id))
+    // Rows the job creates are marked unregistered; the pre-existing one is not.
+    expect(byUser.get(String(pre.user._id)).unregistered).toBe(false)
     for (const s of fresh) expect(byUser.has(String(s.user._id))).toBe(true)
+    for (const s of fresh) expect(byUser.get(String(s.user._id)).unregistered).toBe(true)
     expect(byUser.has(String(inactive.user._id))).toBe(false)
 
     const saved = await reload(period._id)

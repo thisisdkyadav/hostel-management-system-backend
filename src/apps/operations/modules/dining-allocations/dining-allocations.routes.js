@@ -2,7 +2,7 @@ import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { authorizeRoles } from "../../../../middlewares/authorize.middleware.js"
 import { requireRouteAccess } from "../../../../middlewares/authz.middleware.js"
-import { allocationPeriods, allocationRoster, studentAllocationHistory } from "./dining-allocations.controller.js"
+import { allocationPeriods, allocationRoster, markRegistered, studentAllocationHistory } from "./dining-allocations.controller.js"
 
 /**
  * The Allocations page, shared by Admin, the Dining Office (wardens and hall
@@ -16,6 +16,14 @@ const routeKeyFor = (user) => {
   return null
 }
 
+// Writes (clearing the "unregistered" mark) are for Admin and the Dining Office
+// only; caterer logins keep read access to the rest of the router.
+const requireOversight = (req, res, next) => {
+  const isOversight = req.user?.role === "Admin" || (req.user?.role === "Dining" && req.user?.subRole === "Office")
+  if (!isOversight) return res.status(403).json({ success: false, message: "You do not have access to this route" })
+  return requireRouteAccess("route.admin.diningAllocations")(req, res, next)
+}
+
 const router = express.Router()
 router.use(authenticate)
 router.use(authorizeRoles(["Admin", "Dining"]))
@@ -27,4 +35,5 @@ router.use((req, res, next) => {
 router.get("/periods", allocationPeriods)
 router.get("/roster", allocationRoster)
 router.get("/student-history", studentAllocationHistory)
+router.put("/:periodId/students/:studentUserId/registered", requireOversight, markRegistered)
 export default router

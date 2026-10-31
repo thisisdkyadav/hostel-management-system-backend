@@ -100,7 +100,7 @@ export const allocationQueries = {
     const filter = { studentUserId }
     if (catererId) filter.catererId = catererId
     return DiningAllocation.find(filter)
-      .select("periodId catererId selectedAt")
+      .select("periodId catererId selectedAt unregistered")
       .populate(CATERER_POPULATE)
       .lean()
   },
@@ -121,9 +121,15 @@ export const allocationQueries = {
   async findAllocationsByUsersAndPeriods(studentUserIds, periodIds) {
     if (!studentUserIds?.length || !periodIds?.length) return []
     return DiningAllocation.find({ studentUserId: { $in: studentUserIds }, periodId: { $in: periodIds } })
-      .select("periodId studentUserId catererId")
+      .select("periodId studentUserId catererId unregistered")
       .populate({ path: "catererId", select: "name" })
       .lean()
+  },
+
+  /** The periodIds where a student is marked unregistered (auto-allocated) — rebate block. */
+  async findUnregisteredPeriodIdsByUser(studentUserId) {
+    const rows = await DiningAllocation.find({ studentUserId, unregistered: true }).select("periodId").lean()
+    return rows.map((row) => row.periodId)
   },
 
   /** The studentUserIds allocated to one caterer in a period — rebate attribution. */

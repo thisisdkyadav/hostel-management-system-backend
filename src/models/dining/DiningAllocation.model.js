@@ -32,6 +32,22 @@ const DiningAllocationSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    // Set by the auto-allocation job when it assigns a student who never chose
+    // a caterer. Unregistered students can't request rebates for this period
+    // until Admin / Dining Office clears the mark. Missing = registered.
+    unregistered: {
+      type: Boolean,
+      default: false,
+    },
+    registrationClearedAt: {
+      type: Date,
+      default: null,
+    },
+    registrationClearedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
   {
     timestamps: true,

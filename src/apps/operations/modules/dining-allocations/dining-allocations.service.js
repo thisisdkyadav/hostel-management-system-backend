@@ -4,13 +4,16 @@
  * with photo and room, and per-student meals, rebates and billable days.
  * Caterer logins see their own kitchen and billable days only; Admin and the
  * Dining Office see every caterer (or one, with ?catererId) plus mess-fee status.
- * Read-only: allocation writes stay on /admin/dining-periods/:id/allocations.
+ * Allocation writes stay on /admin/dining-periods/:id/allocations; the only
+ * write here is clearing the auto-allocation "unregistered" mark (Admin / Office).
  */
 
 import mongoose from "mongoose"
-import { success, badRequest } from "../../../../services/base/index.js"
+import { success, badRequest, notFound } from "../../../../services/base/index.js"
 import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
+import { allocationOwner } from "../../../../services/dining/allocationOwner.service.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { billingQueries } from "../../../../services/dining/billingQueries.service.js"
 import { getDayKey, listDayKeys, normalizeDay } from "../../../../services/dining/dining-rebate.service.js"
 import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
@@ -138,9 +141,28 @@ const findPeriodRebates = (period, allocations) => {
 
 const emptyRebates = () => ({ approvedDays: 0, elapsedDays: 0, pending: 0, rejected: 0, keys: new Set() })
 
-export const getAllocationRoster = async ({ user, query = {} }) => {
+const REGISTRATION_FILTERS = ["registered", "unregistered"]
+
+/** Names of the users who cleared "unregistered" marks, by id. */
+const loadClearedByNames = async (allocations) => {
+  const ids = [...new Set(allocations.map((row) => idOf(row.registrationClearedBy)).filter(Boolean))]
+  if (!ids.length) return new Map()
+  const users = await userQueries.findUsers({ _id: { $in: ids } }, { select: "name", lean: true })
+  return new Map(users.map((item) => [idOf(item), item.name || ""]))
+}
+
+/**
+ * Roster of a period. `onlyStudentUserId` (internal) narrows the rows to one
+ * student; rows depend only on that student's own data, so the row is the same
+ * as in the full roster (summary/seats then cover that student only).
+ */
+const buildAllocationRoster = async ({ user, query = {}, onlyStudentUserId = null }) => {
   const { caterer, oversight, period, error } = await getPeriodScope(user, query)
-  if (error) return error
+  if (error) return { error }
+  const registration = query.registration === undefined || query.registration === "" ? "" : query.registration
+  if (registration && !REGISTRATION_FILTERS.includes(registration)) {
+    return { error: badRequest("registration must be one of: registered, unregistered") }
+  }
 
   const today = periodDay()
   const todayKey = dayKey()
@@ -148,24 +170,28 @@ export const getAllocationRoster = async ({ user, query = {} }) => {
   const elapsedSet = new Set(elapsedKeys)
   const dailyRate = Math.max(0, Number(period.dailyRate || 0))
 
-  const [allocations, caterers, feePeriods] = await Promise.all([
+  const [allAllocations, caterers, feePeriods] = await Promise.all([
     caterer
       ? allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id)
       : allocationQueries.findAllocationsByPeriod(period._id),
     diningQueries.findCaterers({ _id: { $in: period.catererIds || [] } }, { select: "name email", lean: true }),
     oversight ? billingQueries.findBillingPeriodsByDiningPeriods([period._id]) : [],
   ])
+  const allocations = onlyStudentUserId
+    ? allAllocations.filter((row) => idOf(row.studentUserId) === String(onlyStudentUserId))
+    : allAllocations
   const userIds = allocations.map((row) => idOf(row.studentUserId))
   const allocatedUsers = new Set(userIds)
   const activeFee = feePeriods.find((fee) => !fee.isArchived) || feePeriods[0] || null
 
-  const [profiles, meals, rebates, feeAccounts, tagContext] = await Promise.all([
+  const [profiles, meals, rebates, feeAccounts, tagContext, clearedByNames] = await Promise.all([
     studentDetails(userIds),
     phase === "upcoming" || !userIds.length ? [] : diningQueries.aggregateCycleMeals(period._id, TIMEZONE),
     findPeriodRebates(period, allocations),
     activeFee ? loadBillingPeriodAccounts(activeFee) : null,
     // Allocation tags of this period + standalone tags overlapping its days.
     loadTagContext({ periods: [period], fromKey: getDayKey(period.startDate), toKey: getDayKey(period.endDate), studentUserIds: userIds }),
+    loadClearedByNames(allocations),
   ])
 
   const slots = mealSlots(period)
@@ -214,6 +240,11 @@ export const getAllocationRoster = async ({ user, query = {} }) => {
       ...serializeStudent(profiles.get(key), allocation),
       caterer: { id: idOf(allocation.catererId), name: catererNames.get(idOf(allocation.catererId)) || "Caterer" },
       selectedAt: allocation.selectedAt || allocation.createdAt || null,
+      unregistered: Boolean(allocation.unregistered),
+      registrationClearedAt: allocation.registrationClearedAt || null,
+      registrationClearedBy: allocation.registrationClearedBy
+        ? { id: idOf(allocation.registrationClearedBy), name: clearedByNames.get(idOf(allocation.registrationClearedBy)) || "" }
+        : null,
       meals: meal?.total || 0,
       mealsBySlot: meal?.bySlot || {},
       daysEaten: meal?.days.size || 0,
@@ -268,7 +299,11 @@ export const getAllocationRoster = async ({ user, query = {} }) => {
     }
   }
 
-  return success({
+  const listed = registration
+    ? students.filter((student) => student.unregistered === (registration === "unregistered"))
+    : students
+
+  const response = success({
     period: {
       id: idOf(period),
       startDate: dayKey(period.startDate),
@@ -300,9 +335,36 @@ export const getAllocationRoster = async ({ user, query = {} }) => {
       billedAmount: round2(totals.billedAmount),
       projectedAmount: round2(projectedDays * dailyRate),
       fee,
+      unregisteredCount: students.filter((student) => student.unregistered).length,
     },
-    students,
+    students: listed,
   })
+  return { students, response }
+}
+
+export const getAllocationRoster = async ({ user, query = {} }) => {
+  const { error, response } = await buildAllocationRoster({ user, query })
+  return error || response
+}
+
+/**
+ * Clear a student's auto-allocation "unregistered" mark for a period (Admin /
+ * Dining Office; the route refuses caterer logins). Returns { allocation } in
+ * the roster row shape.
+ */
+export const markStudentRegistered = async ({ user, periodId, studentUserId }) => {
+  if (!mongoose.Types.ObjectId.isValid(periodId)) return badRequest("periodId must be a valid ObjectId")
+  if (!mongoose.Types.ObjectId.isValid(studentUserId)) return badRequest("studentUserId must be a valid ObjectId")
+
+  const outcome = await allocationOwner.clearUnregistered({ periodId, studentUserId, clearedBy: user?._id })
+  if (!outcome.ok) {
+    if (outcome.reason === "not-found") return notFound("Dining allocation")
+    return badRequest("This student is not marked unregistered for this period")
+  }
+
+  const { error, students } = await buildAllocationRoster({ user, query: { periodId }, onlyStudentUserId: studentUserId })
+  if (error) return error
+  return success({ allocation: students[0] || null }, 200, "Student marked as registered")
 }
 
 /** Every period a student was allocated in (one caterer's, for a caterer login), newest first. */
@@ -331,10 +393,11 @@ export const getStudentAllocationHistory = async ({ user, query = {} }) => {
         isArchived: Boolean(period.isArchived),
         caterer: { id: idOf(row.catererId), name: row.catererId?.name || "Caterer" },
         selectedAt: row.selectedAt || null,
+        unregistered: Boolean(row.unregistered),
       }
     })
     .sort((a, b) => b.startDate.localeCompare(a.startDate))
   return success({ history })
 }
 
-export default { getAllocationPeriods, getAllocationRoster, getStudentAllocationHistory }
+export default { getAllocationPeriods, getAllocationRoster, getStudentAllocationHistory, markStudentRegistered }

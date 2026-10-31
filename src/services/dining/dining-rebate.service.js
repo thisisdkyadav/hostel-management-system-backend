@@ -242,6 +242,33 @@ const formatKey = (key) => {
   return day ? day.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }) : key
 }
 
+const formatShortKey = (key) => {
+  const day = normalizeDay(key)
+  return day ? day.toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : key
+}
+
+const unregisteredRebateMessage = (fromKey, toKey) => (
+  `You were auto-allocated for the dining period ${formatShortKey(fromKey)} – ${formatShortKey(toKey)} because you didn't choose a caterer, `
+  + "so you can't request a rebate for those dates. Contact the dining office."
+)
+
+/**
+ * The student's unregistered (auto-allocated) periods that end today or later,
+ * so the portal can block those dates up front.
+ */
+const getUnregisteredPeriods = async (userId) => {
+  const periodIds = await allocationQueries.findUnregisteredPeriodIdsByUser(userId)
+  if (!periodIds.length) return []
+  const periods = await diningQueries.findPeriods(
+    { _id: { $in: periodIds }, isArchived: false, endDate: { $gte: normalizeDay(new Date()) } },
+    { select: "startDate endDate", sort: { startDate: 1 }, lean: true },
+  )
+  return periods.map((period) => {
+    const range = periodKeyRange(period)
+    return { periodId: period._id, startDate: range.fromKey, endDate: range.toKey }
+  })
+}
+
 /**
  * Validate a student's rebate request against the global rules. Rebates are
  * standalone: no dining period or allocation is required.
@@ -250,7 +277,8 @@ const formatKey = (key) => {
  *    student's approved short-term days inside it + this request's days there
  *    must stay within shortTermMaxTotalDays (days in no period are not capped);
  *  - the last day may be at most today + 6 months;
- *  - no overlap with the student's own pending/approved rebates.
+ *  - no overlap with the student's own pending/approved rebates;
+ *  - no day inside a period where the student is `unregistered` (auto-allocated).
  * Returns { response } on failure, else { rebate, placements, unplacedDayCount, rules }.
  */
 const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" }) => {
@@ -272,6 +300,22 @@ const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" })
     return { response: badRequest(`Rebates can be requested at most ${REBATE_MAX_ADVANCE_MONTHS} months ahead (until ${formatKey(getDayKey(latestAllowedDay))})`) }
   }
 
+  const fromKey = requestedKeys[0]
+  const toKey = requestedKeys[requestedKeys.length - 1]
+  const periods = await getPeriodsForKeyRange(fromKey, toKey)
+  const ranges = periods.map((period) => ({ period, ...periodKeyRange(period) }))
+  const allocations = ranges.length
+    ? await allocationQueries.findAllocationsByUsersAndPeriods([userId], periods.map((period) => period._id))
+    : []
+
+  // Auto-allocated (never chose a caterer): no new rebates touching that period,
+  // even when the request also covers registered days.
+  const unregisteredPeriodIds = new Set(allocations.filter((allocation) => allocation.unregistered).map((allocation) => String(allocation.periodId)))
+  const blocked = ranges.find(({ period, fromKey: pFrom, toKey: pTo }) => (
+    unregisteredPeriodIds.has(String(period._id)) && requestedKeys.some((key) => key >= pFrom && key <= pTo)
+  ))
+  if (blocked) return { response: badRequest(unregisteredRebateMessage(blocked.fromKey, blocked.toKey)) }
+
   const rules = await getDiningRebateRules()
   const dayCount = requestedKeys.length
   const isLongTerm = dayCount > rules.shortTermMaxContinuousDays
@@ -291,11 +335,6 @@ const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" })
     }
   }
 
-  const fromKey = requestedKeys[0]
-  const toKey = requestedKeys[requestedKeys.length - 1]
-  const periods = await getPeriodsForKeyRange(fromKey, toKey)
-  const ranges = periods.map((period) => ({ period, ...periodKeyRange(period) }))
-
   // One read covering every overlapped period; split per period in memory.
   const usedKeys = ranges.length
     ? await getApprovedShortTermKeys({
@@ -303,9 +342,6 @@ const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" })
       fromKey: ranges[0].fromKey,
       toKey: ranges.reduce((max, range) => (range.toKey > max ? range.toKey : max), ranges[0].toKey),
     })
-    : []
-  const allocations = ranges.length
-    ? await allocationQueries.findAllocationsByUsersAndPeriods([userId], periods.map((period) => period._id))
     : []
   const catererByPeriod = new Map(allocations.map((allocation) => [
     String(allocation.periodId),
@@ -470,19 +506,20 @@ export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
 }
 
 export const getStudentDiningRebates = async ({ userId }) => {
-  const [rebates, longTermForm, rules] = await Promise.all([
+  const [rebates, longTermForm, rules, unregisteredPeriods] = await Promise.all([
     diningQueries.findRebatesPopulated(
       { studentUserId: userId },
       { sort: { startDate: -1, createdAt: -1 }, limit: 100, lean: true },
     ),
     getLongTermRebateFormTemplate(),
     getDiningRebateRules(),
+    getUnregisteredPeriods(userId),
   ])
 
   return success({
     rebates: await serializeWithPlacements(rebates),
     longTermForm,
-    rules: serializeRules(rules),
+    rules: { ...serializeRules(rules), unregisteredPeriods },
   })
 }
 

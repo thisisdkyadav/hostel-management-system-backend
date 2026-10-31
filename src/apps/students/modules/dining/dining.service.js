@@ -73,6 +73,7 @@ const serializeAllocation = (allocation = null) => {
       ? serializeCaterer(allocation.catererId)
       : null,
     selectedAt: allocation.selectedAt,
+    unregistered: Boolean(allocation.unregistered),
   };
 };
 

@@ -163,7 +163,7 @@ const releaseSeat = async ({ periodId, catererId, session }) => {
   )
 }
 
-const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, rollNumber, catererId, force, allowMove = true, afterWrite = null }) => {
+const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, rollNumber, catererId, force, allowMove = true, unregistered = false, afterWrite = null }) => {
   const session = await mongoose.startSession()
   let result = null
   try {
@@ -201,7 +201,7 @@ const assignStudentOnce = async ({ periodId, studentUserId, studentProfileId, ro
       }
 
       const created = await DiningAllocation.create(
-        [{ periodId, studentUserId, studentProfileId, rollNumber, catererId, selectedAt: new Date() }],
+        [{ periodId, studentUserId, studentProfileId, rollNumber, catererId, selectedAt: new Date(), unregistered: Boolean(unregistered) }],
         { session }
       )
       if (afterWrite) await afterWrite({ session })
@@ -222,6 +222,8 @@ return {
    * Pass `allowMove: false` to refuse moving an existing allocation (reason
    * 'already-allocated'); the check runs inside the transaction, so it also
    * holds when two first-time requests race.
+   * `unregistered: true` (auto-allocation only) marks a NEWLY created row as
+   * unregistered; a move/unchanged result keeps the row's existing flag.
    * `afterWrite({ session })`, when given, runs inside the same transaction once
    * the student is assigned or moved, so related writes commit with the seat.
    * Returns { ok:true, status:'assigned'|'moved'|'unchanged', allocation } or
@@ -240,6 +242,22 @@ return {
       }
     }
     return { ok: false, reason: "conflict" }
+  },
+
+  /**
+   * Clear the auto-allocation "unregistered" mark (Admin / Dining Office), so
+   * the student may request rebates for this period again.
+   * Returns { ok:true, allocation } or { ok:false, reason:'not-found'|'not-unregistered' }.
+   */
+  async clearUnregistered({ periodId, studentUserId, clearedBy }) {
+    const allocation = await DiningAllocation.findOneAndUpdate(
+      { periodId, studentUserId, unregistered: true },
+      { $set: { unregistered: false, registrationClearedAt: new Date(), registrationClearedBy: clearedBy || null } },
+      { returnDocument: "after" }
+    ).lean()
+    if (allocation) return { ok: true, allocation }
+    const exists = await DiningAllocation.exists({ periodId, studentUserId })
+    return { ok: false, reason: exists ? "not-unregistered" : "not-found" }
   },
 
   /**

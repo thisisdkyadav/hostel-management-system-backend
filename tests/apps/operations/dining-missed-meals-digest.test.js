@@ -130,10 +130,13 @@ describe("dining missed-meals digest", () => {
   })
 
   it("runs from 01:00 local, once per day", async () => {
-    const year = 2040 + Math.floor(Math.random() * 50)
-    expect(await runDueMissedMealsDigest({ now: new Date(year, 0, 5, 0, 30) })).toBeNull()
-    const first = await runDueMissedMealsDigest({ now: new Date(year, 0, 5, 1, 0) })
-    expect(first).toMatchObject({ date: `${year}-01-04`, students: 0 })
-    expect(await runDueMissedMealsDigest({ now: new Date(year, 0, 5, 9, 0) })).toBe(LOCK_NOT_ACQUIRED)
+    // The day lock lives in shared Redis for 26h, so every run needs a day no earlier run used.
+    const year = 2100 + Math.floor(Math.random() * 7000)
+    const month = Math.floor(Math.random() * 12)
+    const pad = (n) => String(n).padStart(2, "0")
+    expect(await runDueMissedMealsDigest({ now: new Date(year, month, 5, 0, 30) })).toBeNull()
+    const first = await runDueMissedMealsDigest({ now: new Date(year, month, 5, 1, 0) })
+    expect(first).toMatchObject({ date: `${year}-${pad(month + 1)}-04`, students: 0 })
+    expect(await runDueMissedMealsDigest({ now: new Date(year, month, 5, 9, 0) })).toBe(LOCK_NOT_ACQUIRED)
   })
 })

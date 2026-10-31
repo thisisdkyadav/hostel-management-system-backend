@@ -315,6 +315,7 @@ describe("rules come from config diningRebate", () => {
       shortTermMinApplicationDays: 1,
       shortTermMinAdvanceDays: 2,
       maxAdvanceMonths: 6,
+      unregisteredPeriods: [],
     })
 
     await setRules({ shortTermMaxTotalDays: 4, shortTermMaxContinuousDays: 4, shortTermMinApplicationDays: 2, shortTermMinAdvanceDays: 5 })

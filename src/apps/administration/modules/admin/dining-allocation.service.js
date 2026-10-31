@@ -71,6 +71,7 @@ const serializeStudentRow = (allocation) => {
     degree: profile?.degree || null,
     batch: profile?.batch || null,
     selectedAt: allocation.selectedAt,
+    unregistered: Boolean(allocation.unregistered),
   }
 }
 

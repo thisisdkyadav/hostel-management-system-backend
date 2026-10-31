@@ -1,60 +1,104 @@
 import { eventExportQueries as queries } from "../../../../services/gymkhana/eventExportQueries.service.js"
-import { auditService } from "../../../../services/audit/audit.service.js"
+import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import { success, notFound, badRequest } from "../../../../services/base/ServiceResponse.js"
-import { renderEventReport, collectEventDocuments } from "./event-report.pdf.js"
+import { renderEventReport } from "./event-report.pdf.js"
 
-// Follow every page; the interactive timeline caps individual requests at 200.
-const history = async (entityType, entityId) => {
-  const items = []
-  let page = 1
-  while (true) {
-    const result = await auditService.getEntityHistory({ entityType, entityId, page, limit: 200 })
-    if (!result.success) throw new Error("Could not load the complete event history")
-    items.push(...result.data.items)
-    if (!result.data.pagination.hasMore) break
-    page += 1
+const titleCase = (key = "") => String(key).replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim()
+
+const categoryLabel = (key, calendar) =>
+  calendar?.categoryDefinitions?.find((definition) => definition.key === key)?.label || titleCase(key)
+
+const person = (user) => (user && typeof user === "object" ? user.name || user.email || null : null)
+
+const approvalEntry = (entry) => ({
+  at: entry.createdAt,
+  stage: entry.stage,
+  action: entry.action,
+  by: person(entry.performedBy),
+  comments: entry.comments || "",
+})
+
+/** Only the papers that belong to the proposal travel with the record; bills stay out. */
+const proposalDocuments = (proposal) =>
+  [
+    ["Signed proposal", proposal?.proposalDocumentUrl],
+    ["Chief guest document", proposal?.chiefGuestDocumentUrl],
+    ["Detailed programme schedule", proposal?.proposalDetails?.programmeSchedule?.detailedScheduleAnnexureUrl],
+  ]
+    .filter(([, url]) => typeof url === "string" && url.trim())
+    .filter(([, url], i, all) => all.findIndex(([, other]) => other === url) === i)
+    .map(([label, url], i) => ({ number: i + 1, label, url }))
+
+const shapeProposal = (proposal, approvals) =>
+  proposal && {
+    status: proposal.status,
+    currentApprovalStage: proposal.currentApprovalStage,
+    submittedBy: person(proposal.submittedBy),
+    // Embedded mega-event proposals carry no timestamps; fall back to the first submission.
+    submittedAt: proposal.createdAt || approvals.find((entry) => entry.action === "submitted")?.at || null,
+    approvedAt: proposal.approvedAt,
+    rejectedAt: proposal.rejectedAt,
+    rejectedBy: person(proposal.rejectedBy),
+    rejectionReason: proposal.rejectionReason,
+    revisionCount: proposal.revisionCount || 0,
+    proposalText: proposal.proposalText,
+    externalGuestsDetails: proposal.externalGuestsDetails,
+    details: proposal.proposalDetails || {},
+    totalExpectedIncome: proposal.totalExpectedIncome,
+    totalExpenditure: proposal.totalExpenditure,
+    budgetDeflection: proposal.budgetDeflection,
+    eventBudgetAtSubmission: proposal.eventBudgetAtSubmission,
+    accommodationRequired: proposal.accommodationRequired,
   }
-  return items.reverse()
-}
 
 export const eventExportService = {
+  /**
+   * A readable offline record: what the event details pop-up shows, the proposal
+   * as the proposal modal presents it, and the proposal's approval decisions.
+   */
   async export(id, { mega = false } = {}) {
     if (!/^[a-f\d]{24}$/i.test(id || "")) return badRequest("Invalid event ID")
     const event = await (mega ? queries.occurrence(id) : queries.event(id))
     if (!event) return notFound("Event not found")
 
-    const sections = [{ title: "Event details", record: event, omit: ["proposal", "expense", "seriesId"] }]
-    const histories = []
+    let calendar = null
+    let proposal = null
+    let approvals = []
     if (mega) {
-      sections.push({ title: "Mega-event series", record: event.seriesId })
-      sections.push({ title: "Proposal", record: event.proposal, omit: ["history"] })
-      sections.push({ title: "Bills and event report", record: event.expense, omit: ["history"] })
-      for (const [title, record] of [["Proposal decisions", event.proposal], ["Expense decisions", event.expense]]) {
-        histories.push({ title, items: record?.history || [] })
-      }
-      histories.push({ title: "Occurrence change history", items: await history("MegaEventOccurrence", id) })
+      proposal = event.proposal || null
+      approvals = (proposal?.history || []).map(approvalEntry)
     } else {
-      const [calendar, proposals, expenses, amendments] = await Promise.all([
+      const [calendarDoc, proposals] = await Promise.all([
         event.calendarId ? queries.calendar(event.calendarId) : null,
-        queries.proposals(id), queries.expenses(id), queries.amendments(event),
+        queries.proposals(id),
       ])
-      sections.push({ title: "Activity calendar", record: calendar })
-      for (const [title, records] of [["Proposal", proposals], ["Bills and event report", expenses], ["Calendar amendment", amendments]]) {
-        if (!records.length) sections.push({ title, record: null })
-        records.forEach((record, i) => sections.push({ title: records.length > 1 ? `${title} ${i + 1}` : title, record }))
-      }
-      const entities = [
-        ["Event change history", "GymkhanaEvent", id],
-        ...(calendar ? [["Calendar decisions and changes", "ActivityCalendar", calendar._id]] : []),
-        ...proposals.map((p, i) => [`Proposal ${i + 1} decisions and changes`, "EventProposal", p._id]),
-        ...expenses.map((e, i) => [`Expense ${i + 1} decisions and changes`, "EventExpense", e._id]),
-        ...amendments.map((a, i) => [`Amendment ${i + 1} decisions and changes`, "CalendarAmendment", a._id]),
-      ]
-      histories.push(...await Promise.all(entities.map(async ([title, type, entityId]) => ({ title, items: await history(type, entityId) }))))
+      calendar = calendarDoc
+      proposal = proposals.at(-1) || null
+      if (proposal) approvals = (await approvalLogQueries.findLogsByEntity("EventProposal", proposal._id)).map(approvalEntry)
     }
-    const generatedAt = new Date().toISOString()
-    const documents = collectEventDocuments({ sections, histories })
-    const bytes = await renderEventReport({ event, sections, histories, documents, generatedAt })
-    return success({ title: event.title, generatedAt, reportPdf: bytes.toString("base64"), documents })
+
+    const documents = proposalDocuments(proposal)
+    const report = {
+      generatedAt: new Date(),
+      event: {
+        title: event.title,
+        mega,
+        kind: mega ? `Mega event${event.seriesId?.name ? ` · ${event.seriesId.name}` : ""}` : "Calendar event",
+        academicYear: calendar?.academicYear || null,
+        category: categoryLabel(event.category, calendar),
+        status: event.status,
+        startDate: event.scheduledStartDate,
+        endDate: event.scheduledEndDate,
+        estimatedBudget: mega ? null : event.estimatedBudget,
+        proposalDueDate: event.proposalDueDate,
+        description: event.description,
+      },
+      proposal: null,
+      approvals: approvals.sort((a, b) => new Date(a.at) - new Date(b.at)),
+      documents,
+    }
+    report.proposal = shapeProposal(proposal, report.approvals)
+    const bytes = await renderEventReport(report)
+    return success({ title: event.title, generatedAt: report.generatedAt.toISOString(), reportPdf: bytes.toString("base64"), documents })
   },
 }
