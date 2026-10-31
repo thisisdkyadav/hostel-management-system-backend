@@ -3,7 +3,7 @@ import { allocationQueries } from "../../../../services/dining/allocationQueries
 import { badRequest, success } from "../../../../services/base/index.js"
 import { serializeVerification } from "../dining-meal-verification/dining-meal-verification.service.js"
 import { loadScanTags, loadTagContext } from "../../../../services/dining/tagResolve.js"
-import { rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
+import { rebateEligibleAllocations, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 import {
   idOf, dayKey, shiftDay, dayBounds, dayKeys, localDay, validateQuery, validateRange,
   getDiningScope, getPeriodScope, catererMatch, mealSlots, mealState, serializeCaterer,
@@ -14,9 +14,9 @@ const rosterFor = (period, caterer) => (caterer
   ? allocationQueries.findAllocationsByPeriodAndCaterer(period._id, caterer._id)
   : allocationQueries.findAllocationsByPeriod(period._id))
 
-/** Approved rebates of these allocated students touching [fromKey, toKey] (days inside their period). */
+/** Approved rebates of these allocated students touching [fromKey, toKey] (days inside their period; unregistered rows count none). */
 const findRosterRebates = (allocations, fromKey, toKey, { sort } = {}) => {
-  const filter = rebateScopeFilter([{ studentUserIds: allocations.map((row) => row.studentUserId), fromKey, toKey }], { status: "approved" })
+  const filter = rebateScopeFilter([{ studentUserIds: rebateEligibleAllocations(allocations).map((row) => row.studentUserId), fromKey, toKey }], { status: "approved" })
   return filter ? diningQueries.findRebates(filter, { lean: true, ...(sort ? { sort } : {}) }) : []
 }
 

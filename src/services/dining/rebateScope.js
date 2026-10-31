@@ -7,11 +7,22 @@
  *
  * A scope is { studentUserIds, fromKey, toKey } — the students allocated in one
  * period (optionally one caterer) and that period's day keys (YYYY-MM-DD).
+ *
+ * An allocation marked `unregistered` (auto-allocated: the student never chose
+ * a caterer) contributes NO rebate days: those days are charged and the student
+ * is expected to eat. Clearing the mark brings them back (computed at read
+ * time). Every allocation read feeding attribution must select `unregistered`.
  */
 
 import mongoose from "mongoose"
 
 const toObjectId = (value) => (value instanceof mongoose.Types.ObjectId ? value : new mongoose.Types.ObjectId(String(value?._id || value)))
+
+/** Does this allocation row attribute rebate days? (false when `unregistered`). */
+export const countsRebates = (allocation) => !allocation?.unregistered
+
+/** The allocation rows that attribute rebate days. */
+export const rebateEligibleAllocations = (allocations = []) => (allocations || []).filter(countsRebates)
 
 /**
  * Mongo filter matching rebates of the scopes' students that touch the scopes'
@@ -55,13 +66,14 @@ const utcDayKey = (value) => {
 export const periodKeyRange = (period, keyOf = utcDayKey) => ({ fromKey: keyOf(period?.startDate), toKey: keyOf(period?.endDate) })
 
 /**
- * One scope per period from allocation rows ({ periodId, studentUserId }):
+ * One scope per period from allocation rows ({ periodId, studentUserId, unregistered }):
  * the period's students and its day keys, optionally narrowed to [from, to].
- * Each scope also carries `periodId` for the caller's bucketing.
+ * Each scope also carries `periodId` for the caller's bucketing. Unregistered
+ * rows are skipped (they attribute no rebate days).
  */
 export const allocationScopes = (periods = [], allocations = [], { keyOf, from, to } = {}) => {
   const studentsByPeriod = new Map()
-  for (const allocation of allocations) {
+  for (const allocation of rebateEligibleAllocations(allocations)) {
     const periodId = String(allocation.periodId?._id || allocation.periodId)
     if (!studentsByPeriod.has(periodId)) studentsByPeriod.set(periodId, [])
     studentsByPeriod.get(periodId).push(allocation.studentUserId)
@@ -78,4 +90,4 @@ export const allocationScopes = (periods = [], allocations = [], { keyOf, from, 
   })
 }
 
-export default { rebateScopeFilter, keysInRange, clipRebate, periodKeyRange, allocationScopes }
+export default { countsRebates, rebateEligibleAllocations, rebateScopeFilter, keysInRange, clipRebate, periodKeyRange, allocationScopes }

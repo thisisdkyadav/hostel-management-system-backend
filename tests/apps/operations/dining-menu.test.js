@@ -4,6 +4,7 @@
  * (/api/v1/students/dining/menu).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import mongoose from "mongoose"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
@@ -32,7 +33,13 @@ const bad = (res, pattern) => {
 }
 
 let seq = 0
-const kitchen = async (name) => Caterer.create({ name: name || `Kitchen ${++seq}`, email: `kitchen-${Date.now()}-${++seq}@hms.test` })
+// Caterer.userId is unique+sparse with default null, and sparse still indexes
+// null: give each test kitchen its own (login-less) userId so they never collide.
+const kitchen = async (name) => Caterer.create({
+  name: name || `Kitchen ${++seq}`,
+  email: `kitchen-${Date.now()}-${++seq}@hms.test`,
+  userId: new mongoose.Types.ObjectId(),
+})
 const weekdayOf = (key) => new Date(`${key}T00:00:00Z`).getUTCDay()
 const item = (name, diet = "veg", special = false) => ({ name, diet, special })
 /** Every weekday: Breakfast + Lunch with the given lunch items. */

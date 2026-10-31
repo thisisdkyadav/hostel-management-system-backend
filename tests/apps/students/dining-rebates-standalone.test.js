@@ -116,7 +116,7 @@ describe("cross-period rebate (28 Jan – 2 Feb example)", () => {
       expect.objectContaining({ periodId: String(periodB._id), caterer: { id: String(catererB._id), name: "Feb Mess" }, dayCount: 2, usedShortTermDays: 0, maxShortTermDays: 10 }),
     ])
 
-    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), reason: "Home" })
+    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), acknowledgeRegistration: true, reason: "Home" })
     expect(res.status).toBe(201)
     expect(res.body.message).toBe("Short-term rebate approved")
     expect(res.body.data.rebates).toHaveLength(1) // ONE row per request
@@ -142,7 +142,7 @@ describe("cross-period rebate (28 Jan – 2 Feb example)", () => {
       const preview = await s.api.post(`${BASE}/rebates/preview`).send(range(30, 35))
       expect(preview.status).toBe(200)
       expect(preview.body.data).toMatchObject({ type: "long-term", status: "pending", hasLongTerm: true })
-      const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), reason: "Long" })
+      const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), acknowledgeRegistration: true, reason: "Long" })
       expect(res.status).toBe(201)
       expect(res.body.message).toBe("Long-term rebate request submitted for approval")
       expect(res.body.data.rebates[0]).toMatchObject({ type: "long-term", status: "pending" })
@@ -162,7 +162,7 @@ describe("cross-period rebate (28 Jan – 2 Feb example)", () => {
     expect(preview.status).toBe(200)
     expect(preview.body.data.placements.map((p) => p.usedShortTermDays)).toEqual([6, 8])
 
-    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), reason: "Exactly at the cap" })
+    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), acknowledgeRegistration: true, reason: "Exactly at the cap" })
     expect(res.status).toBe(201)
     expect(res.body.data.rebates[0].type).toBe("short-term")
   })
@@ -170,7 +170,7 @@ describe("cross-period rebate (28 Jan – 2 Feb example)", () => {
   it("fails when the days inside period A would exceed its cap", async () => {
     const s = await newStudent()
     await seedRebate(s, { from: 20, to: 26 }) // 7 used in A; +4 = 11
-    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), reason: "Over in A" })
+    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), acknowledgeRegistration: true, reason: "Over in A" })
     expect(res.status).toBe(400)
     expect(res.body.message).toContain("Short-term rebate limit exceeded")
     expect(res.body.message).toContain("Available days: 3")
@@ -182,7 +182,7 @@ describe("cross-period rebate (28 Jan – 2 Feb example)", () => {
   it("fails when the days inside period B would exceed its cap", async () => {
     const s = await newStudent()
     await seedRebate(s, { from: 40, to: 48 }) // 9 used in B; +2 = 11
-    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), reason: "Over in B" })
+    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(30, 35), acknowledgeRegistration: true, reason: "Over in B" })
     expect(res.status).toBe(400)
     expect(res.body.message).toContain("Available days: 1")
   })
@@ -191,10 +191,10 @@ describe("cross-period rebate (28 Jan – 2 Feb example)", () => {
     await setRules({ shortTermMaxTotalDays: 0 })
     try {
       const s = await newStudent()
-      const res = await s.api.post(`${BASE}/rebates`).send({ ...range(120, 121), reason: "No period" })
+      const res = await s.api.post(`${BASE}/rebates`).send({ ...range(120, 121), acknowledgeRegistration: true, reason: "No period" })
       expect(res.status).toBe(201)
       expect(res.body.data.rebates[0]).toMatchObject({ type: "short-term", unplacedDayCount: 2, placements: [] })
-      const blocked = await s.api.post(`${BASE}/rebates`).send({ ...range(36, 36), reason: "In B" })
+      const blocked = await s.api.post(`${BASE}/rebates`).send({ ...range(36, 36), acknowledgeRegistration: true, reason: "In B" })
       expect(blocked.status).toBe(400)
       expect(blocked.body.message).toContain("Available days: 0")
     } finally {
@@ -210,7 +210,7 @@ describe("rebates on days with no dining period", () => {
     expect(res.status).toBe(200)
     expect(res.body.data).toMatchObject({ type: "short-term", dayCount: 2, placements: [], unplacedDayCount: 2 })
 
-    const created = await s.api.post(`${BASE}/rebates`).send({ ...range(140, 141), reason: "Future trip" })
+    const created = await s.api.post(`${BASE}/rebates`).send({ ...range(140, 141), acknowledgeRegistration: true, reason: "Future trip" })
     expect(created.status).toBe(201)
     const rebateId = created.body.data.rebates[0].id
     expect(created.body.data.rebates[0]).toMatchObject({ placements: [], unplacedDayCount: 2 })
@@ -228,6 +228,7 @@ describe("rebates on days with no dining period", () => {
         periodId: String(period._id),
         period: { id: String(period._id), startDate: utcDay(130).toISOString(), endDate: utcDay(140).toISOString() },
         caterer: { id: String(caterer._id), name: "Later Mess" },
+        counted: true,
         dayCount: 1,
         dateKeys: [dayKey(utcDay(140))],
       },
@@ -261,7 +262,7 @@ describe("6-month horizon", () => {
   it("allows the last day exactly 6 months ahead and 400s one day later", async () => {
     const s = await newStudent()
     const limit = sixMonthsKey()
-    const ok = await s.api.post(`${BASE}/rebates`).send({ startDate: limit, endDate: limit, reason: "Edge" })
+    const ok = await s.api.post(`${BASE}/rebates`).send({ startDate: limit, endDate: limit, acknowledgeRegistration: true, reason: "Edge" })
     expect(ok.status).toBe(201)
 
     const tooFar = await s.api.post(`${BASE}/rebates`).send({ startDate: plusDays(limit, 1), endDate: plusDays(limit, 1), reason: "Too far" })
@@ -284,13 +285,13 @@ describe("overlap is checked per student", () => {
     await seedRebate(s, { from: 85, to: 86, status: "rejected" })
 
     for (const [from, to] of [[71, 72], [79, 80]]) {
-      const res = await s.api.post(`${BASE}/rebates`).send({ ...range(from, to), reason: "Overlap" })
+      const res = await s.api.post(`${BASE}/rebates`).send({ ...range(from, to), acknowledgeRegistration: true, reason: "Overlap" })
       expect(res.status, `${from}-${to}`).toBe(400)
       expect(res.body.message).toBe("One or more selected days already have a rebate request")
     }
 
-    expect((await s.api.post(`${BASE}/rebates`).send({ ...range(85, 86), reason: "Was rejected" })).status).toBe(201)
-    expect((await t.api.post(`${BASE}/rebates`).send({ ...range(71, 72), reason: "Other student" })).status).toBe(201)
+    expect((await s.api.post(`${BASE}/rebates`).send({ ...range(85, 86), acknowledgeRegistration: true, reason: "Was rejected" })).status).toBe(201)
+    expect((await t.api.post(`${BASE}/rebates`).send({ ...range(71, 72), acknowledgeRegistration: true, reason: "Other student" })).status).toBe(201)
   })
 
   it("admin approve re-checks overlap for the student", async () => {
@@ -322,11 +323,11 @@ describe("rules come from config diningRebate", () => {
     list = await s.api.get(`${BASE}/rebates`)
     expect(list.body.data.rules).toMatchObject({ shortTermMaxContinuousDays: 4, shortTermMinApplicationDays: 2, shortTermMinAdvanceDays: 5 })
 
-    let res = await s.api.post(`${BASE}/rebates`).send({ ...range(3, 4), reason: "Too soon" })
+    let res = await s.api.post(`${BASE}/rebates`).send({ ...range(3, 4), acknowledgeRegistration: true, reason: "Too soon" })
     expect(res.status).toBe(400)
     expect(res.body.message).toBe("Short-term rebate must be requested at least 5 day(s) in advance")
 
-    res = await s.api.post(`${BASE}/rebates`).send({ ...range(150, 150), reason: "Too short" })
+    res = await s.api.post(`${BASE}/rebates`).send({ ...range(150, 150), acknowledgeRegistration: true, reason: "Too short" })
     expect(res.status).toBe(400)
     expect(res.body.message).toBe("Short-term rebate must be at least 2 day(s)")
 
@@ -347,7 +348,7 @@ describe("rules come from config diningRebate", () => {
       rebateSettings: { shortTermMaxTotalDays: 0, shortTermMaxContinuousDays: 1, shortTermMinApplicationDays: 1, shortTermMinAdvanceDays: 0 },
     })
     await allocate(s, period, caterer)
-    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(161, 163), reason: "Legacy settings" })
+    const res = await s.api.post(`${BASE}/rebates`).send({ ...range(161, 163), acknowledgeRegistration: true, reason: "Legacy settings" })
     expect(res.status).toBe(201)
     expect(res.body.data.rebates[0]).toMatchObject({ type: "short-term", status: "approved" })
     expect(res.body.data.rebates[0].placements[0]).toMatchObject({ dayCount: 3, caterer: { name: "Legacy Settings Mess" } })

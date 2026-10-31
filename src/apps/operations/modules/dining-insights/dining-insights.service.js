@@ -3,6 +3,7 @@ import { allocationQueries } from "../../../../services/dining/allocationQueries
 import { badRequest, success } from "../../../../services/base/index.js"
 import { idOf, dayKey, localDay, shiftDay, dayKeys, mealSlots, mealState } from "../dining-caterer/dining-caterer.service.js"
 import { calendarDay } from "../dining-caterer/dining-caterer.rebates.service.js"
+import { rebateEligibleAllocations } from "../../../../services/dining/rebateScope.js"
 
 const minutes = (time) => {
   const [hour, minute] = time.split(":").map(Number)
@@ -67,10 +68,11 @@ export const getDiningInsightsOverview = async ({ query = {} } = {}) => {
   const rosters = new Map()
   for (const row of allocations) addToSet(rosters, `${idOf(row.periodId)}:${idOf(row.catererId)}`, idOf(row.studentUserId))
   // Rebates are standalone: a rebate day counts for the (period, caterer) the
-  // student is allocated to in the period covering that day.
+  // student is allocated to in the period covering that day. An `unregistered`
+  // allocation attributes no rebate days (the student stays expected to eat).
   const periodById = new Map(periods.map((period) => [idOf(period), period]))
   const membershipsByStudent = new Map()
-  for (const row of allocations) {
+  for (const row of rebateEligibleAllocations(allocations)) {
     const period = periodById.get(idOf(row.periodId))
     if (!period) continue
     const student = idOf(row.studentUserId)

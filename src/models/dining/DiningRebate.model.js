@@ -90,6 +90,12 @@ const DiningRebateSchema = new mongoose.Schema(
       type: DiningRebateFormSchema,
       default: null,
     },
+    // When the student acknowledged that days outside a registered dining
+    // period are only rebated if they register there (null when not needed).
+    registrationAcknowledgedAt: {
+      type: Date,
+      default: null,
+    },
     approvedBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",

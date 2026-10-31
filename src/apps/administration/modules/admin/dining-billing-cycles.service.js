@@ -164,7 +164,7 @@ export const getBillingCycle = async (periodId) => {
     billingQueries.findBillingPeriodsByDiningPeriods([objectId]),
   ]);
   // Rebates (any status) of the allocated students, clipped to this period's days.
-  const [scope] = allocationScopes([period], allocations.map((row) => ({ periodId: objectId, studentUserId: row.studentUserId })));
+  const [scope] = allocationScopes([period], allocations.map((row) => ({ periodId: objectId, studentUserId: row.studentUserId, unregistered: row.unregistered })));
   const rebateFilter = rebateScopeFilter([scope]);
   const rebates = (rebateFilter ? await diningQueries.findRebates(rebateFilter, { select: 'studentUserId status dateKeys', lean: true }) : [])
     .map((rebate) => clipRebate(rebate, scope.fromKey, scope.toKey));

@@ -6,7 +6,7 @@ import {
   mealSlots, mealState, serializeCaterer, serializePeriod, studentDetails, serializeStudent,
 } from "./dining-caterer.service.js"
 import { loadTagContext } from "../../../../services/dining/tagResolve.js"
-import { rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
+import { rebateEligibleAllocations, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 
 export const CHECK_ON_DAYS = [2, 3, 5, 7, 14]
 const DEFAULT_CHECK_ON_DAYS = 3
@@ -72,10 +72,12 @@ export const getDailyReport = async ({ user, query = {} }) => {
       : [],
   ])
 
-  // Rebates of the roster's students on `date` and the check-on window (both inside the period).
+  // Rebates of the roster's students on `date` and the check-on window (both
+  // inside the period). Unregistered allocations attribute no rebate days.
+  const rebateStudentIds = rebateEligibleAllocations(allocations).map((row) => row.studentUserId)
   const rebateFilter = rebateScopeFilter([
-    { studentUserIds: allocations.map((row) => row.studentUserId), fromKey: date, toKey: date },
-    ...(windowKeys.length ? [{ studentUserIds: allocations.map((row) => row.studentUserId), fromKey: windowFrom, toKey: windowTo }] : []),
+    { studentUserIds: rebateStudentIds, fromKey: date, toKey: date },
+    ...(windowKeys.length ? [{ studentUserIds: rebateStudentIds, fromKey: windowFrom, toKey: windowTo }] : []),
   ], { status: "approved" })
   const rebates = rebateFilter ? await diningQueries.findRebates(rebateFilter, { lean: true, select: "studentUserId dateKeys" }) : []
 

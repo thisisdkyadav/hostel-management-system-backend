@@ -1,8 +1,9 @@
 /**
  * Unregistered (auto-allocated) dining students (temp/dining-unregistered-contract.md):
  * the auto-allocation job marks the rows it creates `unregistered`; those
- * students can't request NEW rebates touching that period (earlier rebates keep
- * counting and stay approvable) until Admin / Dining Office clears the mark.
+ * students can't request NEW rebates touching that period, and earlier rebates
+ * (still approvable) attribute no days there (temp/dining-rebate-registration-risk-contract.md)
+ * until Admin / Dining Office clears the mark.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
@@ -103,11 +104,11 @@ beforeAll(async () => {
   expect(chosen.ok).toBe(true)
 
   // `early` requests rebates before auto-allocation: one pending long-term, one approved short-term.
-  const pending = await early.api.post(`${STUDENT}/rebates`).send(range(12, 16))
+  const pending = await early.api.post(`${STUDENT}/rebates`).send({ ...range(12, 16), acknowledgeRegistration: true })
   expect(pending.status, JSON.stringify(pending.body)).toBe(201)
   expect(pending.body.data.rebates[0].status).toBe("pending")
   pendingRebateId = pending.body.data.rebates[0].id
-  const approved = await early.api.post(`${STUDENT}/rebates`).send(range(20, 21))
+  const approved = await early.api.post(`${STUDENT}/rebates`).send({ ...range(20, 21), acknowledgeRegistration: true })
   expect(approved.status, JSON.stringify(approved.body)).toBe(201)
   expect(approved.body.data.rebates[0].status).toBe("approved")
 
@@ -187,19 +188,23 @@ describe("student rebates in an unregistered period", () => {
     expect(mine.body.data.rules.unregisteredPeriods).toEqual([])
   })
 
-  it("earlier rebates are untouched, still count and are still approvable", async () => {
+  it("earlier rebates are untouched and still approvable, but their days in the period are not counted", async () => {
     const rebates = await DiningRebate.find({ studentUserId: early.user._id }).lean()
     expect(rebates).toHaveLength(2)
     const approvedRow = rebates.find((r) => r.type === "short-term")
     expect(approvedRow.status).toBe("approved")
+    // Requested before allocation: the student acknowledged the registration rule.
+    expect(rebates.every((r) => r.registrationAcknowledgedAt instanceof Date)).toBe(true)
 
+    // Unregistered allocation: no rebate days attributed (charged, expected to eat).
     const row = await rowOf(early)
     const counted = await getApprovedRebateStudentIdsForDay({ periodId: period._id, catererId: row.catererId, date: utcDay(20) })
-    expect(counted.has(String(early.user._id))).toBe(true)
+    expect(counted.has(String(early.user._id))).toBe(false)
 
     const approve = await adminApi.put(`${ADMIN}/dining-rebates/${pendingRebateId}/approve`).send({})
     expect(approve.status, JSON.stringify(approve.body)).toBe(200)
     expect(approve.body.data.rebate.status).toBe("approved")
+    expect(approve.body.data.rebate.placements).toEqual([expect.objectContaining({ periodId: String(period._id), counted: false })])
   })
 })
 
@@ -263,10 +268,16 @@ describe("allocations roster + clearing the mark", () => {
     expect(roster.body.data.summary.unregisteredCount).toBe(2)
   })
 
-  it("Admin can clear too", async () => {
+  it("Admin can clear too, and the earlier rebates count again", async () => {
     const res = await adminApi.put(`${ALLOC}/${period._id}/students/${early.user._id}/registered`)
     expect(res.status, JSON.stringify(res.body)).toBe(200)
     expect(res.body.data.allocation.unregistered).toBe(false)
+
+    const row = await rowOf(early)
+    const counted = await getApprovedRebateStudentIdsForDay({ periodId: period._id, catererId: row.catererId, date: utcDay(20) })
+    expect(counted.has(String(early.user._id))).toBe(true)
+    const list = await early.api.get(`${STUDENT}/rebates`)
+    expect(list.body.data.rebates.flatMap((r) => r.placements.map((p) => p.counted))).toEqual([true, true])
   })
 })
 

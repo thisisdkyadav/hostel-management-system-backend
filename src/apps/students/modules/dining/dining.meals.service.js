@@ -8,6 +8,7 @@ import { success, notFound } from '../../../../services/base/index.js';
 import { diningQueries } from '../../../../services/dining/diningQueries.service.js';
 import { allocationQueries } from '../../../../services/dining/allocationQueries.service.js';
 import { coversDayFilter } from '../../../../services/dining/periodDay.js';
+import { countsRebates } from '../../../../services/dining/rebateScope.js';
 import { studentProfileQueries } from '../../../../services/student/studentProfileQueries.service.js';
 import {
   idOf, dayKey, shiftDay, dayKeys, localDay, mealSlots, mealState,
@@ -53,10 +54,13 @@ export const getStudentDiningMeals = async (userId) => {
       { select: 'mealSlotKey status scannedAt source', sort: { scannedAt: 1 } }
     ),
     // Rebates are standalone: the student's own, on these days (all inside the current period).
-    diningQueries.findRebates(
-      { studentUserId: userId, status: { $in: ['approved', 'pending'] }, dateKeys: { $in: keys } },
-      { lean: true, select: 'status dateKeys' }
-    ),
+    // An unregistered allocation attributes no rebate days: the student is expected to eat.
+    countsRebates(allocation)
+      ? diningQueries.findRebates(
+        { studentUserId: userId, status: { $in: ['approved', 'pending'] }, dateKeys: { $in: keys } },
+        { lean: true, select: 'status dateKeys' }
+      )
+      : [],
   ]);
 
   const away = new Set();

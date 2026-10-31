@@ -3,7 +3,7 @@ import { allocationQueries } from "../../../../services/dining/allocationQueries
 import { serializeDiningRebate } from "../../../../services/dining/dining-rebate.service.js"
 import { success } from "../../../../services/base/index.js"
 import { loadTagContext } from "../../../../services/dining/tagResolve.js"
-import { allocationScopes, keysInRange, periodKeyRange, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
+import { allocationScopes, keysInRange, periodKeyRange, rebateEligibleAllocations, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 import {
   idOf, dayKey, shiftDay, dayKeys, validateRange, getCatererScope, getPeriodScope,
   serializeCaterer, studentDetails, serializeStudent,
@@ -19,11 +19,12 @@ const serializeRebate = (rebate, profile) => {
 /**
  * Rebates are standalone date ranges; a caterer sees the days of a rebate that
  * fall in its periods while the student is allocated to it. `rosters` is one
- * entry per caterer period: { period, fromKey, toKey, students:Set }.
+ * entry per caterer period: { period, fromKey, toKey, students:Set }. Only
+ * rebate-counting allocations (not `unregistered`) are in `students`.
  */
 const buildRosters = (periods, allocations) => {
   const students = new Map()
-  for (const allocation of allocations) {
+  for (const allocation of rebateEligibleAllocations(allocations)) {
     const id = idOf(allocation.periodId)
     if (!students.has(id)) students.set(id, new Set())
     students.get(id).add(idOf(allocation.studentUserId))
@@ -86,11 +87,13 @@ const loadCalendar = async (caterer, from, to, { populate = false } = {}) => {
     if (!rosterByPeriod.has(id)) rosterByPeriod.set(id, new Set())
     rosterByPeriod.get(id).add(idOf(allocation.studentUserId))
   }
-  // A rebate belongs to every period whose roster (here) has its student; calendarDay checks the day.
+  // A rebate belongs to every period whose rebate-counting roster (here) has its
+  // student; calendarDay checks the day. Unregistered students stay in the
+  // headcount roster (expected to eat) but attribute no rebate days.
   for (const scope of scopes) {
-    const roster = rosterByPeriod.get(scope.periodId)
-    if (!roster) continue
-    rebatesByPeriod.set(scope.periodId, rebates.filter((rebate) => roster.has(idOf(rebate.studentUserId)) && keysInRange(rebate, scope.fromKey, scope.toKey).length))
+    if (!rosterByPeriod.has(scope.periodId)) continue
+    const counted = new Set(scope.studentUserIds.map(idOf))
+    rebatesByPeriod.set(scope.periodId, rebates.filter((rebate) => counted.has(idOf(rebate.studentUserId)) && keysInRange(rebate, scope.fromKey, scope.toKey).length))
   }
   // One tag context for the whole calendar: headcount per tag on each day.
   const tagContext = await loadTagContext({

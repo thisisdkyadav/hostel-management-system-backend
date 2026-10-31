@@ -14,6 +14,7 @@ import { emailService } from "../../../../services/email/email.service.js"
 import { customEmailTemplate } from "../../../../services/email/email.templates.js"
 import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
+import { countsRebates } from "../../../../services/dining/rebateScope.js"
 import { staffRolesQueries } from "../../../../services/user/staffRolesQueries.service.js"
 import { withLock } from "../../../../services/lock/distributedLock.js"
 import { idOf, dayKey, shiftDay, localDay, dayKeys, mealSlots, studentDetails, serializeStudent } from "./dining-caterer.service.js"
@@ -94,7 +95,12 @@ export const findStudentsWhoMissedMeals = async (date) => {
     if (!awayDays.has(id)) awayDays.set(id, new Set())
     rebate.dateKeys.forEach((key) => awayDays.get(id).add(key))
   }
-  const expectedOn = (studentId, key) => !awayDays.get(studentId)?.has(key) && allocationOn(studentId, key)
+  // A rebate day excuses the student only under a rebate-counting (registered) allocation.
+  const expectedOn = (studentId, key) => {
+    const allocation = allocationOn(studentId, key)
+    if (!allocation) return false
+    return !(countsRebates(allocation.row) && awayDays.get(studentId)?.has(key))
+  }
 
   const missed = candidates.filter((studentId) => !ate.has(studentId) && expectedOn(studentId, date))
   if (!missed.length) return []

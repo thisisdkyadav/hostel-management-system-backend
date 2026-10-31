@@ -21,13 +21,13 @@ export const allocationQueries = {
   /** All period/caterer rosters for insights, in one read. */
   async findAllocationRostersByPeriods(periodIds) {
     return DiningAllocation.find({ periodId: { $in: periodIds } })
-      .select("periodId catererId studentUserId")
+      .select("periodId catererId studentUserId unregistered")
       .lean()
   },
   /** Bulk roster summaries for caterer calendars, without per-period reads. */
   async findCatererAllocationsByPeriods(catererId, periodIds) {
     return DiningAllocation.find({ catererId, periodId: { $in: periodIds } })
-      .select("periodId studentUserId studentProfileId rollNumber")
+      .select("periodId studentUserId studentProfileId rollNumber unregistered")
       .lean()
   },
 
@@ -75,14 +75,14 @@ export const allocationQueries = {
   /** One period's allocations with caterer — billing-cycle detail. */
   async findCycleAllocations(periodId) {
     return DiningAllocation.find({ periodId })
-      .select("studentUserId studentProfileId rollNumber catererId selectedAt")
+      .select("studentUserId studentProfileId rollNumber catererId selectedAt unregistered")
       .lean()
   },
 
   /** Lean allocation summaries across periods (billing charge derivation). */
   async findAllocationSummariesByPeriods(periodIds) {
     return DiningAllocation.find({ periodId: { $in: periodIds } })
-      .select("periodId studentUserId studentProfileId rollNumber")
+      .select("periodId studentUserId studentProfileId rollNumber unregistered")
       .lean()
   },
 
@@ -92,7 +92,7 @@ export const allocationQueries = {
   async findAllocationPeriodIdsByUser(studentUserId, periodIds = null) {
     const filter = { studentUserId }
     if (periodIds) filter.periodId = { $in: periodIds }
-    return DiningAllocation.find(filter).select("periodId").lean()
+    return DiningAllocation.find(filter).select("periodId unregistered").lean()
   },
 
   /** Every allocation a student has had (optionally one caterer's), caterer populated — allocation history. */
@@ -132,10 +132,9 @@ export const allocationQueries = {
     return rows.map((row) => row.periodId)
   },
 
-  /** The studentUserIds allocated to one caterer in a period — rebate attribution. */
-  async findStudentUserIdsByPeriodAndCaterer(periodId, catererId) {
-    const rows = await DiningAllocation.find({ periodId, catererId }).select("studentUserId").lean()
-    return rows.map((row) => row.studentUserId)
+  /** One caterer's allocation rows in a period ({ studentUserId, unregistered }) — rebate attribution. */
+  async findAttributionRowsByPeriodAndCaterer(periodId, catererId) {
+    return DiningAllocation.find({ periodId, catererId }).select("studentUserId unregistered").lean()
   },
 }
 

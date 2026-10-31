@@ -8,7 +8,7 @@ import { configQueries } from "../config/configQueries.service.js"
 import { fileAccessService } from "../storage/file-access.service.js"
 import { isMediaRef } from "../storage/file-ref.service.js"
 import { badRequest, notFound, success } from "../base/index.js"
-import { keysInRange, periodKeyRange, rebateScopeFilter } from "./rebateScope.js"
+import { countsRebates, keysInRange, periodKeyRange, rebateEligibleAllocations, rebateScopeFilter } from "./rebateScope.js"
 import { DINING_REBATE_CONFIG_KEY, REBATE_MAX_ADVANCE_MONTHS, resolveRebateRules } from "./rebateRules.js"
 
 const APPROVED_STATUS = "approved"
@@ -23,6 +23,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const REBATE_FORM_STORAGE_POLICY = "dining-rebate-forms"
 const FORM_REQUIRED_MESSAGE = "Please upload the filled long-term rebate form"
 const INVALID_FORM_MESSAGE = "The rebate form must be a file you uploaded for this rebate request"
+const REGISTRATION_ACK_MESSAGE = "Please confirm that you will register for the upcoming dining periods covered by this rebate."
 
 export const normalizeDay = (value) => {
   const date = value instanceof Date ? value : new Date(value)
@@ -131,6 +132,7 @@ export const serializeDiningRebate = (rebate = {}) => ({
   reason: rebate.reason || "",
   adminComment: rebate.adminComment || "",
   form: serializeRebateForm(rebate.form),
+  registrationAcknowledgedAt: rebate.registrationAcknowledgedAt || null,
   placements: Array.isArray(rebate.placements) ? rebate.placements : null,
   unplacedDayCount: Number.isFinite(rebate.unplacedDayCount) ? rebate.unplacedDayCount : null,
   approvedAt: rebate.approvedAt,
@@ -162,6 +164,8 @@ const studentIdOf = (rebate) => String(rebate.studentUserId?._id || rebate.stude
  * the student's caterer in each. Batched: one periods read + one allocations
  * read for the whole list. Returns new objects with `placements` and
  * `unplacedDayCount` (raw docs otherwise unchanged, ready for serializeDiningRebate).
+ * A placement's `counted` is false when the student's allocation in that
+ * period is `unregistered` (those days attribute nowhere until it is cleared).
  */
 export const attachRebatePlacements = async (rebates = []) => {
   const list = (Array.isArray(rebates) ? rebates : []).filter(Boolean)
@@ -183,6 +187,9 @@ export const attachRebatePlacements = async (rebates = []) => {
       ? { id: allocation.catererId._id, name: allocation.catererId.name }
       : null,
   ]))
+  const unregisteredStudentPeriods = new Set(allocations
+    .filter((allocation) => !countsRebates(allocation))
+    .map((allocation) => `${allocation.studentUserId}:${allocation.periodId}`))
 
   return list.map((rebate) => {
     const dateKeys = Array.isArray(rebate.dateKeys) ? rebate.dateKeys : []
@@ -196,6 +203,7 @@ export const attachRebatePlacements = async (rebates = []) => {
         periodId: period._id,
         period: serializePeriod(period),
         caterer: catererByStudentPeriod.get(`${studentIdOf(rebate)}:${period._id}`) || null,
+        counted: !unregisteredStudentPeriods.has(`${studentIdOf(rebate)}:${period._id}`),
         dayCount: keys.length,
         dateKeys: keys,
       })
@@ -279,7 +287,10 @@ const getUnregisteredPeriods = async (userId) => {
  *  - the last day may be at most today + 6 months;
  *  - no overlap with the student's own pending/approved rebates;
  *  - no day inside a period where the student is `unregistered` (auto-allocated).
- * Returns { response } on failure, else { rebate, placements, unplacedDayCount, rules }.
+ * Days are "secured" when inside a period where the student has a registered
+ * allocation; every other day (no period yet, or no allocation yet) is at risk
+ * and needs the student's registration acknowledgement.
+ * Returns { response } on failure, else { rebate, placements, unplacedDayCount, atRiskDayCount, rules }.
  */
 const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" }) => {
   const profile = await getStudentProfileForUser(userId)
@@ -349,6 +360,7 @@ const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" })
       ? { id: allocation.catererId._id, name: allocation.catererId.name }
       : null,
   ]))
+  const registeredPeriodIds = new Set(rebateEligibleAllocations(allocations).map((allocation) => String(allocation.periodId)))
 
   const placed = new Set()
   const placements = []
@@ -371,6 +383,7 @@ const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" })
       periodId: period._id,
       period: serializePeriod(period),
       caterer: catererByPeriod.get(String(period._id)) || null,
+      registered: registeredPeriodIds.has(String(period._id)),
       dayCount: keys.length,
       dateKeys: keys,
       usedShortTermDays,
@@ -378,10 +391,16 @@ const buildValidatedRebate = async ({ userId, startDate, endDate, reason = "" })
     })
   }
 
+  const unplacedDayCount = requestedKeys.filter((key) => !placed.has(key)).length
+  const atRiskDayCount = unplacedDayCount + placements
+    .filter((placement) => !placement.registered)
+    .reduce((sum, placement) => sum + placement.dayCount, 0)
+
   return {
     rules,
     placements,
-    unplacedDayCount: requestedKeys.filter((key) => !placed.has(key)).length,
+    unplacedDayCount,
+    atRiskDayCount,
     rebate: {
       periodId: null,
       catererId: null,
@@ -458,6 +477,8 @@ export const previewStudentDiningRebate = async ({ userId, payload = {} }) => {
     endDate: rebate.endDate,
     placements: validation.placements.map(({ dateKeys, ...placement }) => placement),
     unplacedDayCount: validation.unplacedDayCount,
+    atRiskDayCount: validation.atRiskDayCount,
+    requiresRegistrationAcknowledgement: validation.atRiskDayCount > 0,
     hasLongTerm,
     formRequired: Boolean(hasLongTerm && template),
   })
@@ -472,6 +493,13 @@ export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
   })
 
   if (validation.response) return validation.response
+
+  // Days outside a registered period are only rebated if the student registers
+  // there later: they must acknowledge that before the request is accepted.
+  const requiresAcknowledgement = validation.atRiskDayCount > 0
+  if (requiresAcknowledgement && payload.acknowledgeRegistration !== true) {
+    return badRequest(REGISTRATION_ACK_MESSAGE)
+  }
 
   const isLongTerm = validation.rebate.type === LONG_TERM_TYPE
 
@@ -493,6 +521,7 @@ export const createStudentDiningRebate = async ({ userId, payload = {} }) => {
   const [created] = await diningOwner.insertRebates([{
     ...validation.rebate,
     form,
+    registrationAcknowledgedAt: requiresAcknowledgement ? new Date() : null,
     requestGroupId: crypto.randomUUID(),
   }])
 
@@ -592,14 +621,17 @@ const getPeriodForDay = async (day) => (
   )
 )
 
-/** Approved rebates on one day for the students allocated to a caterer in a period (attribution). */
+/**
+ * Approved rebates on one day for the students allocated to a caterer in a
+ * period (attribution; unregistered allocations attribute none).
+ */
 const countApprovedRebatesForCatererDay = async ({ periodId, catererId, dateKey }) => {
-  const studentUserIds = await allocationQueries.findStudentUserIdsByPeriodAndCaterer(periodId, catererId)
+  const rows = await allocationQueries.findAttributionRowsByPeriodAndCaterer(periodId, catererId)
+  const studentUserIds = rebateEligibleAllocations(rows).map((row) => row.studentUserId)
   const filter = rebateScopeFilter([{ studentUserIds, fromKey: dateKey, toKey: dateKey }], { status: APPROVED_STATUS })
-  if (!filter) return { allocatedStudentCount: 0, approvedRebateCount: 0 }
   return {
-    allocatedStudentCount: studentUserIds.length,
-    approvedRebateCount: await diningQueries.countRebates(filter),
+    allocatedStudentCount: rows.length,
+    approvedRebateCount: filter ? await diningQueries.countRebates(filter) : 0,
   }
 }
 
@@ -654,7 +686,7 @@ export const getCatererDiningRebateSummary = async ({ catererId }) => {
 /**
  * The studentUserIds (strings) with an approved rebate on `date` among the
  * students allocated to `catererId` in `periodId`. Empty when the day is
- * outside the period's dates.
+ * outside the period's dates. Unregistered allocations attribute no rebate days.
  */
 export const getApprovedRebateStudentIdsForDay = async ({ periodId, catererId, date = new Date() }) => {
   const dateKey = getDayKey(date)
@@ -665,7 +697,8 @@ export const getApprovedRebateStudentIdsForDay = async ({ periodId, catererId, d
   const range = periodKeyRange(period)
   if (dateKey < range.fromKey || dateKey > range.toKey) return new Set()
 
-  const studentUserIds = await allocationQueries.findStudentUserIdsByPeriodAndCaterer(periodId, catererId)
+  const rows = await allocationQueries.findAttributionRowsByPeriodAndCaterer(periodId, catererId)
+  const studentUserIds = rebateEligibleAllocations(rows).map((row) => row.studentUserId)
   const filter = rebateScopeFilter([{ studentUserIds, fromKey: dateKey, toKey: dateKey }], { status: APPROVED_STATUS })
   if (!filter) return new Set()
 

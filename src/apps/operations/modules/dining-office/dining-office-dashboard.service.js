@@ -14,7 +14,7 @@ import { getCurrentMealScope } from "../dining-meal-verification/dining-meal-ver
 import { getBillingPeriods } from "../../../administration/modules/admin/dining-billing.service.js"
 import { normalizeDay, getDayKey } from "../../../../services/dining/dining-rebate.service.js"
 import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
-import { rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
+import { rebateEligibleAllocations, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100
@@ -44,10 +44,10 @@ const buildCatererBreakdown = (period, caterers) => {
   })
 }
 
-/** Approved rebates today of the students allocated in the running period (rebates are standalone). */
+/** Approved rebates today of the students allocated in the running period (rebates are standalone; unregistered rows count none). */
 const countRebatesOfRosterToday = async (periodId, todayKey) => {
   const allocations = await allocationQueries.findAllocationSummariesByPeriods([periodId])
-  const filter = rebateScopeFilter([{ studentUserIds: allocations.map((row) => row.studentUserId), fromKey: todayKey, toKey: todayKey }], { status: "approved" })
+  const filter = rebateScopeFilter([{ studentUserIds: rebateEligibleAllocations(allocations).map((row) => row.studentUserId), fromKey: todayKey, toKey: todayKey }], { status: "approved" })
   return filter ? diningQueries.countRebates(filter) : 0
 }
 

@@ -16,7 +16,7 @@ import { allocationQueries } from '../../../../services/dining/allocationQueries
 import { MAX_BULK_RECORDS } from '../../../../core/constants/system-limits.constants.js';
 import { listDayKeys, normalizeDay } from '../../../../services/dining/dining-rebate.service.js';
 import { billingOwner } from '../../../../services/dining/billingOwner.service.js';
-import { allocationScopes, keysInRange, rebateScopeFilter } from '../../../../services/dining/rebateScope.js';
+import { allocationScopes, keysInRange, rebateEligibleAllocations, rebateScopeFilter } from '../../../../services/dining/rebateScope.js';
 import { billingQueries } from '../../../../services/dining/billingQueries.service.js';
 
 const APPROVED_STATUS = 'approved';
@@ -160,7 +160,8 @@ const serializeBillingPeriod = (billingPeriod, summary = null) => {
 /**
  * Approved rebate day keys per student per dining period, by attribution:
  * a student's rebate days count in a period they are allocated in, clipped to
- * that period's days. Rebates are never looked up by periodId.
+ * that period's days. Rebates are never looked up by periodId. An
+ * `unregistered` allocation contributes no rebate days (charged in full).
  * Returns Map(studentUserId -> Map(periodId -> Set(dayKey))).
  */
 const loadApprovedRebateKeys = async (diningPeriods, allocations) => {
@@ -176,7 +177,7 @@ const loadApprovedRebateKeys = async (diningPeriods, allocations) => {
     rebatesByStudent.get(key).push(rebate);
   });
   const scopeByPeriod = new Map(scopes.map((scope) => [scope.periodId, scope]));
-  allocations.forEach((allocation) => {
+  rebateEligibleAllocations(allocations).forEach((allocation) => {
     const userId = String(allocation.studentUserId);
     const periodId = String(allocation.periodId?._id || allocation.periodId);
     const scope = scopeByPeriod.get(periodId);
@@ -464,7 +465,7 @@ const computeStudentBillingForPeriod = async (billingPeriod, userId, asOf = new 
   const participatingPeriodIds = new Set(allocations.map((allocation) => String(allocation.periodId)));
   const rebateKeysByPeriod = (await loadApprovedRebateKeys(
     diningPeriods,
-    allocations.map((allocation) => ({ periodId: allocation.periodId, studentUserId: userId })),
+    allocations.map((allocation) => ({ periodId: allocation.periodId, studentUserId: userId, unregistered: allocation.unregistered })),
   )).get(String(userId)) || new Map();
 
   return computeAccountCharges({

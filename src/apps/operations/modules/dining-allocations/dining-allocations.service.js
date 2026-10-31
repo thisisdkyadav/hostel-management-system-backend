@@ -19,7 +19,7 @@ import { getDayKey, listDayKeys, normalizeDay } from "../../../../services/dinin
 import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
 import { periodDay } from "../../../../services/dining/periodDay.js"
 import { loadTagContext } from "../../../../services/dining/tagResolve.js"
-import { clipRebate, periodKeyRange, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
+import { clipRebate, periodKeyRange, rebateEligibleAllocations, rebateScopeFilter } from "../../../../services/dining/rebateScope.js"
 import { loadBillingPeriodAccounts } from "../../../administration/modules/admin/dining-billing.service.js"
 import { dayKey, getDiningScope, getPeriodScope, idOf, mealSlots, serializeCaterer, serializeStudent, studentDetails } from "../dining-caterer/dining-caterer.service.js"
 
@@ -133,9 +133,12 @@ export const getAllocationPeriods = async ({ user, query = {} }) => {
   })
 }
 
-/** Rebates (any status) of the allocated students that touch this period's days; standalone, so never by periodId. */
+/**
+ * Rebates (any status) of the allocated students that touch this period's days;
+ * standalone, so never by periodId. Unregistered allocations attribute none.
+ */
 const findPeriodRebates = (period, allocations) => {
-  const filter = rebateScopeFilter([{ studentUserIds: allocations.map((row) => row.studentUserId), ...periodKeyRange(period, getDayKey) }])
+  const filter = rebateScopeFilter([{ studentUserIds: rebateEligibleAllocations(allocations).map((row) => row.studentUserId), ...periodKeyRange(period, getDayKey) }])
   return filter ? diningQueries.findRebates(filter, { select: "studentUserId status dateKeys", lean: true }) : []
 }
 

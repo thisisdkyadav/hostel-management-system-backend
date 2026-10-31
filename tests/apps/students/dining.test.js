@@ -322,7 +322,7 @@ describe("dining rebates", () => {
   it("POST /rebates accepts dates with no dining period yet (unplaced, no allocation needed)", async () => {
     const res = await studentApi
       .post(`${BASE}/rebates`)
-      .send({ startDate: utcDay(100), endDate: utcDay(101), reason: "Trip" })
+      .send({ startDate: utcDay(100), endDate: utcDay(101), reason: "Trip", acknowledgeRegistration: true })
     expect(res.status).toBe(201)
     expect(res.body.message).toBe("Short-term rebate approved")
     const created = res.body.data.rebates[0]
@@ -341,7 +341,7 @@ describe("dining rebates", () => {
     })
     const res = await studentApi
       .post(`${BASE}/rebates`)
-      .send({ startDate: utcDay(21), endDate: utcDay(21), reason: "Family function" })
+      .send({ startDate: utcDay(21), endDate: utcDay(21), reason: "Family function", acknowledgeRegistration: true })
     expect(res.status).toBe(201)
     const created = res.body.data.rebates[0]
     expect(created.unplacedDayCount).toBe(0)
