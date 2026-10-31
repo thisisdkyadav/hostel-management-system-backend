@@ -5,6 +5,7 @@
  * (see emailService.sendGroupEmail).
  */
 
+import { eligibleProfileFilter } from '../../../../services/dining/diningEligibility.js';
 import { env } from '../../../../config/env.config.js';
 import { emailService } from '../../../../services/email/email.service.js';
 import { customEmailTemplate } from '../../../../services/email/email.templates.js';
@@ -15,9 +16,8 @@ const formatDate = (value) => new Date(value).toLocaleDateString('en-IN', { day:
 const formatDateTime = (value) => new Date(value).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' });
 
 const getRecipientEmails = async (period) => {
-  const query = period.eligibilityMode === 'custom'
-    ? { status: 'Active', rollNumber: { $in: period.eligibleRollNumbers || [] } }
-    : { status: 'Active' };
+  const query = eligibleProfileFilter(period);
+  if (!query) return [];
   const profiles = await studentProfileQueries.findByQueryWithUserRole(query);
   return profiles.map((profile) => profile.userId?.email).filter(Boolean);
 };

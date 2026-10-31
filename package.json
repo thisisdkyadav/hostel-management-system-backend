@@ -22,6 +22,7 @@
     "migrate:proposal-due-days": "node scripts/migrate_proposal_due_days.mjs",
     "migrate:legacy-uploads": "node scripts/migrate_legacy_uploads_to_storage.mjs",
     "migrate:dining-rebate-rules": "node scripts/migrate_dining_rebate_rules_to_config.mjs",
+    "dining:remove-day-scholars": "node scripts/remove_day_scholars_from_dining_period.mjs",
     "check:boundary": "node scripts/check-model-boundary.mjs",
     "sim:load": "node ../scripts/sim-student-load.mjs",
     "check:allocations": "node scripts/check_allocation_invariants.mjs",

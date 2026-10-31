@@ -12,6 +12,7 @@
  * lean / session shape. Bare findOne/find return HYDRATED docs.
  */
 
+import { eligibleProfileFilter } from "../dining/diningEligibility.js"
 import { StudentProfile } from "../../models/index.js"
 
 const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -268,15 +269,13 @@ export const studentProfileQueries = {
   },
 
   /**
-   * Active students eligible for a dining period (all-active, or custom roll
-   * list), lean `_id userId rollNumber`, sorted by roll number. Same rule as
-   * the student self-select eligibility check.
+   * Active students eligible for a dining period (all hostellers, all active,
+   * or custom roll list), lean `_id userId rollNumber`, sorted by roll number.
+   * Same rule as the student self-select eligibility check (diningEligibility.js).
    */
   async findDiningEligibleStudents({ eligibilityMode, eligibleRollNumbers = [] } = {}) {
-    if (eligibilityMode !== "custom" && eligibilityMode !== "all-active") return []
-    const filter = eligibilityMode === "custom"
-      ? { status: "Active", rollNumber: { $in: eligibleRollNumbers } }
-      : { status: "Active" }
+    const filter = eligibleProfileFilter({ eligibilityMode, eligibleRollNumbers })
+    if (!filter) return []
     return StudentProfile.find(filter).select("_id userId rollNumber").sort({ rollNumber: 1 }).lean()
   },
 

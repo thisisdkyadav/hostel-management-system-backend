@@ -18,7 +18,7 @@ import {
   archiveLiveDiningPeriods,
 } from "../../helpers/seed/students.js"
 import { catererFixture } from "../../helpers/seed/dining-caterer.js"
-import { DiningPeriod, DiningAllocation } from "../../../src/models/index.js"
+import { DiningPeriod, DiningAllocation, StudentProfile } from "../../../src/models/index.js"
 import { runDueDiningAutoAllocations } from "../../../src/apps/administration/modules/admin/dining-auto-allocation.service.js"
 import { allocationOwner } from "../../../src/services/dining/allocationOwner.service.js"
 
@@ -297,6 +297,23 @@ describe("auto-allocation job", () => {
     expect(saved.autoAllocation.unallocatedBefore).toBe(rows.length - 1)
     expect(saved.autoAllocation.leftOver).toBe(0)
     expect(saved.autoAllocation.byCaterer.reduce((s, e) => s + e.assigned, 0)).toBe(rows.length - 1)
+  })
+
+  it("all-hostellers skips day scholars; all-active includes them", async () => {
+    const a = await createCaterer()
+    const [hosteller, dayScholar] = await makeStudents(2)
+    await StudentProfile.updateOne({ _id: dayScholar.profile._id }, { $set: { isDayScholar: true } })
+    const hostellers = await duePeriod([a], { eligibilityMode: "all-hostellers" })
+    await runDueDiningAutoAllocations()
+    let ids = new Set((await rowsFor(hostellers._id)).map((r) => String(r.studentUserId)))
+    expect(ids.has(String(hosteller.user._id))).toBe(true)
+    expect(ids.has(String(dayScholar.user._id))).toBe(false)
+
+    await DiningPeriod.updateOne({ _id: hostellers._id }, { $set: { isArchived: true } })
+    const everyone = await duePeriod([a], { eligibilityMode: "all-active" })
+    await runDueDiningAutoAllocations()
+    ids = new Set((await rowsFor(everyone._id)).map((r) => String(r.studentUserId)))
+    expect(ids.has(String(dayScholar.user._id))).toBe(true)
   })
 
   it("respects a custom roll list", async () => {

@@ -3,6 +3,7 @@
  * Handles student-facing caterer selection for active dining periods.
  */
 
+import { isProfileEligible, periodEligibilityClauses } from '../../../../services/dining/diningEligibility.js';
 import mongoose from 'mongoose';
 import {
   success,
@@ -25,8 +26,6 @@ import { getStudentDiningBilling } from '../../../administration/modules/admin/d
 import { tagOwner } from '../../../../services/dining/tagOwner.service.js';
 import { getSelectionQuestions, validateSelectionAnswers } from './dining.tags.service.js';
 
-const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
-const ELIGIBILITY_MODE_CUSTOM = 'custom';
 
 const normalizeRollNumber = (value = '') => String(value || '').trim().toUpperCase();
 
@@ -109,13 +108,7 @@ const serializePortalPeriod = ({ period, allocation = null, tags }) => {
 
 const getEligibilityFilterForProfile = (profile = {}) => ({
   isArchived: false,
-  $or: [
-    { eligibilityMode: ELIGIBILITY_MODE_ALL_ACTIVE },
-    {
-      eligibilityMode: ELIGIBILITY_MODE_CUSTOM,
-      eligibleRollNumbers: normalizeRollNumber(profile?.rollNumber),
-    },
-  ],
+  $or: periodEligibilityClauses(profile, normalizeRollNumber(profile?.rollNumber)),
 });
 
 const mapAllocationsByPeriod = (allocations = []) => {
@@ -128,18 +121,10 @@ const mapAllocationsByPeriod = (allocations = []) => {
 };
 
 const getStudentProfileForUser = async (userId, session = null) => {
-  return studentProfileQueries.findByUserId(userId, { select: '_id rollNumber status', session, lean: true });
+  return studentProfileQueries.findByUserId(userId, { select: '_id rollNumber status isDayScholar', session, lean: true });
 };
 
-const isStudentEligibleForPeriod = (period, profile) => {
-  if (!period || !profile || profile.status !== 'Active') return false;
-  if (period.eligibilityMode === ELIGIBILITY_MODE_ALL_ACTIVE) return true;
-  if (period.eligibilityMode === ELIGIBILITY_MODE_CUSTOM) {
-    const rollNumber = normalizeRollNumber(profile.rollNumber);
-    return Array.isArray(period.eligibleRollNumbers) && period.eligibleRollNumbers.includes(rollNumber);
-  }
-  return false;
-};
+const isStudentEligibleForPeriod = (period, profile) => isProfileEligible(period, profile, normalizeRollNumber);
 
 const getStudentVisiblePeriod = async (profile, session = null) => {
   const now = new Date();
@@ -149,13 +134,7 @@ const getStudentVisiblePeriod = async (profile, session = null) => {
       registrationEnabled: true,
       allocationStartAt: { $lte: now },
       allocationEndAt: { $gte: now },
-      $or: [
-        { eligibilityMode: ELIGIBILITY_MODE_ALL_ACTIVE },
-        {
-          eligibilityMode: ELIGIBILITY_MODE_CUSTOM,
-          eligibleRollNumbers: normalizeRollNumber(profile?.rollNumber),
-        },
-      ],
+      $or: periodEligibilityClauses(profile, normalizeRollNumber(profile?.rollNumber)),
     },
     {
       sort: { allocationEndAt: 1, startDate: 1 },

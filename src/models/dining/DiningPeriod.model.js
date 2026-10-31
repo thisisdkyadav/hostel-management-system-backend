@@ -171,8 +171,8 @@ const DiningPeriodSchema = new mongoose.Schema(
     },
     eligibilityMode: {
       type: String,
-      enum: ["all-active", "custom"],
-      default: "all-active",
+      enum: ["all-hostellers", "all-active", "custom"],
+      default: "all-hostellers",
       required: true,
     },
     eligibleRollNumbers: {

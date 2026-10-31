@@ -3,6 +3,13 @@
  * Handles caterer allocation period master-data for admin routes.
  */
 
+import {
+  ELIGIBILITY_MODES,
+  ELIGIBILITY_MODE_ALL_ACTIVE,
+  ELIGIBILITY_MODE_ALL_HOSTELLERS,
+  ELIGIBILITY_MODE_CUSTOM,
+  eligibleProfileFilter,
+} from '../../../../services/dining/diningEligibility.js';
 import mongoose from 'mongoose';
 import {
   success,
@@ -18,9 +25,16 @@ import { allocationOwner } from '../../../../services/dining/allocationOwner.ser
 import { tagOwner } from '../../../../services/dining/tagOwner.service.js';
 import { tagQueries } from '../../../../services/dining/tagQueries.service.js';
 
-const ELIGIBILITY_MODE_ALL_ACTIVE = 'all-active';
-const ELIGIBILITY_MODE_CUSTOM = 'custom';
-const VALID_ELIGIBILITY_MODES = new Set([ELIGIBILITY_MODE_ALL_ACTIVE, ELIGIBILITY_MODE_CUSTOM]);
+const VALID_ELIGIBILITY_MODES = new Set(ELIGIBILITY_MODES);
+
+// Eligible students per non-custom mode, for serializePeriod.
+const countEligibleByMode = async () => {
+  const [allActive, allHostellers] = await Promise.all([
+    studentProfileQueries.countProfiles(eligibleProfileFilter({ eligibilityMode: ELIGIBILITY_MODE_ALL_ACTIVE })),
+    studentProfileQueries.countProfiles(eligibleProfileFilter({ eligibilityMode: ELIGIBILITY_MODE_ALL_HOSTELLERS })),
+  ]);
+  return { [ELIGIBILITY_MODE_ALL_ACTIVE]: allActive, [ELIGIBILITY_MODE_ALL_HOSTELLERS]: allHostellers };
+};
 const DEFAULT_MEAL_SLOTS = [
   { name: 'Breakfast', startTime: '07:00', endTime: '10:00' },
   { name: 'Lunch', startTime: '12:00', endTime: '15:00' },
@@ -241,7 +255,7 @@ const loadPeriodTags = async (periodIds = []) => {
   return byPeriod;
 };
 
-const serializePeriod = (period, activeStudentCount = 0, tags = []) => {
+const serializePeriod = (period, eligibleCounts = {}, tags = []) => {
   const caterers = Array.isArray(period.catererIds)
     ? period.catererIds.filter((item) => item && typeof item === 'object' && item.name).map(serializeCaterer)
     : [];
@@ -291,9 +305,9 @@ const serializePeriod = (period, activeStudentCount = 0, tags = []) => {
     // Rebate rules are global now (config `diningRebate`); periods no longer carry them.
     rebateSettings: null,
     dailyRate: Math.max(0, Number(period.dailyRate || 0)),
-    eligibleStudentCount: period.eligibilityMode === ELIGIBILITY_MODE_ALL_ACTIVE
-      ? activeStudentCount
-      : eligibleRollNumbers.length,
+    eligibleStudentCount: period.eligibilityMode === ELIGIBILITY_MODE_CUSTOM
+      ? eligibleRollNumbers.length
+      : Number(eligibleCounts[period.eligibilityMode] || 0),
     isArchived: Boolean(period.isArchived),
     status: getPeriodStatus(period),
     allocationStatus: getAllocationStatus(period),
@@ -360,7 +374,7 @@ class DiningPeriodService {
     const catererIds = rawCatererIds.length > 0
       ? rawCatererIds
       : catererCapacities.map((entry) => entry.catererId);
-    const eligibilityMode = String(payload.eligibilityMode || ELIGIBILITY_MODE_ALL_ACTIVE).trim();
+    const eligibilityMode = String(payload.eligibilityMode || ELIGIBILITY_MODE_ALL_HOSTELLERS).trim();
     const eligibleRollNumbers = normalizeRollNumbers(payload.eligibleRollNumbers);
     const mealSlots = normalizeMealSlots(payload.mealSlots);
     const weekSchedule = normalizeWeekSchedule(payload.weekSchedule, mealSlots);
@@ -519,7 +533,9 @@ class DiningPeriodService {
       return { error: 'One or more selected caterers are unavailable or archived' };
     }
 
-    let eligibleStudentCount = await studentProfileQueries.countProfiles({ status: 'Active' });
+    let eligibleStudentCount = eligibilityMode === ELIGIBILITY_MODE_CUSTOM
+      ? 0
+      : await studentProfileQueries.countProfiles(eligibleProfileFilter({ eligibilityMode }));
     let resolvedRollNumbers = [];
 
     if (eligibilityMode === ELIGIBILITY_MODE_CUSTOM) {
@@ -575,7 +591,7 @@ class DiningPeriodService {
   }
 
   async getDiningPeriods(archive = 'false') {
-    const [periods, activeStudentCount] = await Promise.all([
+    const [periods, eligibleCounts] = await Promise.all([
       diningQueries.findPeriods(
         { isArchived: archive === 'true' },
         {
@@ -584,11 +600,11 @@ class DiningPeriodService {
           lean: true,
         }
       ),
-      studentProfileQueries.countProfiles({ status: 'Active' }),
+      countEligibleByMode(),
     ]);
 
     const tagsByPeriod = await loadPeriodTags(periods.map((period) => period._id));
-    return success(periods.map((period) => serializePeriod(period, activeStudentCount, tagsByPeriod.get(String(period._id)) || [])));
+    return success(periods.map((period) => serializePeriod(period, eligibleCounts, tagsByPeriod.get(String(period._id)) || [])));
   }
 
   async createDiningPeriod(payload, actor = null) {
@@ -704,13 +720,13 @@ class DiningPeriodService {
       return notFound('Dining period');
     }
 
-    const [activeStudentCount, tagsByPeriod] = await Promise.all([
-      studentProfileQueries.countProfiles({ status: 'Active' }),
+    const [eligibleCounts, tagsByPeriod] = await Promise.all([
+      countEligibleByMode(),
       loadPeriodTags([updatedPeriod._id]),
     ]);
 
     return success(
-      serializePeriod(updatedPeriod, activeStudentCount, tagsByPeriod.get(String(updatedPeriod._id)) || []),
+      serializePeriod(updatedPeriod, eligibleCounts, tagsByPeriod.get(String(updatedPeriod._id)) || []),
       200,
       updatedPeriod.isArchived ? 'Dining period archived successfully' : 'Dining period unarchived successfully',
     );
