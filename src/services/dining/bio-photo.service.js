@@ -20,6 +20,7 @@ import { isMediaRef } from "../storage/file-ref.service.js"
 import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
 import { userQueries } from "../user/userQueries.service.js"
 import { EasyWdmsError, getEasyWdmsClient } from "../easywdms/easywdms.client.js"
+import { noteBioPhotoPushed } from "./scanner-users.service.js"
 import { BIO_PHOTO_STATUSES } from "../../models/dining/DiningBioPhotoRequest.model.js"
 
 export const BIO_PHOTO_STORAGE_POLICY = "dining-bio-photos"
@@ -245,6 +246,7 @@ export const approveBioPhotoRequest = async ({ requestId, reviewer }) => {
   const approved = await bioPhotoOwner.markPushed({ requestId, lockedAt, reviewerId: reviewer._id })
   if (!approved) return conflict("The photo was sent, but the request changed meanwhile. Refresh the page.")
   const [row] = await enrich([approved])
+  noteBioPhotoPushed({ rollNumber: approved.rollNumber, studentUserId: approved.studentUserId, name: row.student?.name })
   return success({ request: row }, 200, "Sent to the face scanners")
 }
 

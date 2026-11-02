@@ -1,12 +1,12 @@
 /**
  * Dining Bio-Photo Queries
  * ------------------------
- * The single READ surface for DiningBioPhotoRequest (writes live in
- * bioPhotoOwner.service.js). Returns lean docs.
+ * The single READ surface for the face-scanner domain: DiningBioPhotoRequest
+ * and DiningScannerUser (writes live in bioPhotoOwner.service.js). Returns lean docs.
  */
 
 import mongoose from "mongoose"
-import { DiningBioPhotoRequest } from "../../models/index.js"
+import { DiningBioPhotoRequest, DiningScannerUser } from "../../models/index.js"
 import { BIO_PHOTO_STATUSES } from "../../models/dining/DiningBioPhotoRequest.model.js"
 
 const toObjectId = (value) =>
@@ -47,6 +47,54 @@ export const bioPhotoQueries = {
     const counts = Object.fromEntries(BIO_PHOTO_STATUSES.map((status) => [status, 0]))
     for (const row of rows) if (row._id in counts) counts[row._id] = row.count
     return counts
+  },
+
+  // ---------------------------------------------------------------- scanner users
+
+  async findScannerUser(rollNumber) {
+    return DiningScannerUser.findOne({ rollNumber }).lean()
+  },
+
+  /** Existing rows for a set of roll numbers (sync keeps earlier machine answers). */
+  async findScannerUsersByRoll(rollNumbers) {
+    return DiningScannerUser.find({ rollNumber: { $in: rollNumbers } })
+      .select("rollNumber bioPhoto.registeredAt devices devicesChecked")
+      .lean()
+  },
+
+  /** One page of scanner users for a ready filter, by roll number. */
+  async findScannerUserPage(filter, { page = 1, limit = 50 } = {}) {
+    const [items, total] = await Promise.all([
+      DiningScannerUser.find(filter).sort({ rollNumber: 1 }).skip((page - 1) * limit).limit(limit).lean(),
+      DiningScannerUser.countDocuments(filter),
+    ])
+    return { items, total }
+  },
+
+  /** Counts for the page's tabs (users currently on the scanner). */
+  async countScannerUsers() {
+    const [byStatus, notInHms, total] = await Promise.all([
+      DiningScannerUser.aggregate([{ $match: { onScanner: true } }, { $group: { _id: "$photoStatus", count: { $sum: 1 } } }]),
+      DiningScannerUser.countDocuments({ onScanner: true, studentUserId: null }),
+      DiningScannerUser.countDocuments({ onScanner: true }),
+    ])
+    const counts = { all: total, notInHms, valid: 0, pending: 0, failed: 0, missing: 0 }
+    for (const row of byStatus) if (row._id in counts) counts[row._id] = row.count
+    return counts
+  },
+
+  /** Scanner users the bulk "use profile photos" run should try. */
+  async findProfilePhotoCandidates({ limit = 5000 } = {}) {
+    return DiningScannerUser.find({
+      onScanner: true,
+      studentUserId: { $ne: null },
+      photoStatus: "missing",
+      "profileAttempt.at": null,
+    })
+      .sort({ rollNumber: 1 })
+      .limit(limit)
+      .select("rollNumber studentUserId")
+      .lean()
   },
 }
 

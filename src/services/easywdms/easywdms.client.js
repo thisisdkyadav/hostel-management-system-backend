@@ -16,6 +16,14 @@
  *        bio_photo (<roll>.jpg|png), overwrite, ignore_error
  *        → JSON { code: 0, msg: "" } or { code: -1, msg: "…" }
  *
+ * REST API (employees, terminals): POST /api-token-auth/ {username,password}
+ *   → { token }, then "Authorization: Token <token>" on /personnel/api/… and
+ *   /iclock/api/…. Creating an employee needs emp_code, first_name,
+ *   department, position, area.
+ * Portal grids (bio photos, terminal command results) have no REST endpoint:
+ *   GET /iclock/<model>/table/?page=&limit= with the session and
+ *   "Accept: application/json" returns { count, data } (newest first).
+ *
  * Credentials come from env (EASYWDMS_*) and are never logged or returned.
  */
 
@@ -28,6 +36,12 @@ const REQUEST_TIMEOUT_MS = 30_000
 const LOGIN_PATH = "/login/"
 const IMPORT_PATH = "/iclock/biophoto/action/"
 const BIOPHOTO_PAGE = "/iclock/biophoto/"
+const TOKEN_PATH = "/api-token-auth/"
+const GRID_PAGE_SIZE = 1000
+const GRID_HEADERS = { "X-Requested-With": "XMLHttpRequest", Accept: "application/json, text/javascript, */*; q=0.01" }
+const ROLL_PATTERN = /^[A-Za-z0-9_-]{1,32}$/
+
+export const isScannerRollNumber = (value) => ROLL_PATTERN.test(String(value || ""))
 
 export class EasyWdmsError extends Error {
   constructor(message, { kind = "upload" } = {}) {
@@ -130,6 +144,8 @@ export class EasyWdmsClient {
     this.jar = new CookieJar()
     this.loggedIn = false
     this.queue = Promise.resolve()
+    this.token = ""
+    this.setup = null
   }
 
   get configured() {
@@ -218,7 +234,7 @@ export class EasyWdmsClient {
    */
   async importBioPhoto({ rollNumber, buffer, contentType, overwrite = true }) {
     if (!this.configured) throw new EasyWdmsError("The face scanner software isn't connected yet", { kind: "config" })
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(String(rollNumber || ""))) {
+    if (!isScannerRollNumber(rollNumber)) {
       throw new EasyWdmsError("This roll number can't be used as a scanner employee ID", { kind: "input" })
     }
     return this.serial(async () => {
@@ -243,6 +259,239 @@ export class EasyWdmsClient {
       }
       throw new EasyWdmsError("Couldn't stay logged in to the face scanner software", { kind: "login" })
     })
+  }
+
+  // ------------------------------------------------------------------ REST API
+
+  async fetchToken() {
+    const response = await this.request(TOKEN_PATH, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: this.username, password: this.password }),
+    })
+    const result = await response.json().catch(() => null)
+    if (!response.ok || !result?.token) {
+      throw new EasyWdmsError("Couldn't log in to the face scanner software. Check the stored EasyWDMS username and password.", { kind: "login" })
+    }
+    this.token = result.token
+    return this.token
+  }
+
+  /** JSON call to the REST API; renews the token once on 401. */
+  async api(path, { method = "GET", body } = {}) {
+    if (!this.configured) throw new EasyWdmsError("The face scanner software isn't connected yet", { kind: "config" })
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!this.token) await this.fetchToken()
+      let response
+      try {
+        response = await this.fetch(`${this.baseUrl}${path}`, {
+          method,
+          redirect: "manual",
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          headers: { Authorization: `Token ${this.token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        })
+      } catch (error) {
+        throw new EasyWdmsError(`Couldn't reach the face scanner software (${error?.name === "TimeoutError" ? "timed out" : error?.message || "network error"})`, { kind: "network" })
+      }
+      if (response.status === 401) {
+        this.token = ""
+        continue
+      }
+      const result = await response.json().catch(() => null)
+      if (!response.ok) {
+        const detail = result && typeof result === "object"
+          ? Object.entries(result).map(([field, value]) => `${field}: ${Array.isArray(value) ? value.join(" ") : value}`).join("; ")
+          : ""
+        throw new EasyWdmsError(`Face scanner software: ${detail || `HTTP ${response.status}`}`)
+      }
+      return result
+    }
+    throw new EasyWdmsError("Couldn't stay logged in to the face scanner software", { kind: "login" })
+  }
+
+  /** Every page of a REST list → rows. */
+  async apiAll(path, { pageSize = 500 } = {}) {
+    const rows = []
+    for (let page = 1; page < 1000; page++) {
+      const separator = path.includes("?") ? "&" : "?"
+      const result = await this.api(`${path}${separator}page=${page}&page_size=${pageSize}`)
+      const data = result?.data || result?.results || []
+      rows.push(...data)
+      if (!result?.next || !data.length) break
+    }
+    return rows
+  }
+
+  /** All employees: [{ id, code, name, areaIds }]. */
+  async listEmployees() {
+    const rows = await this.apiAll("/personnel/api/employees/")
+    return rows.map((row) => ({
+      id: row.id,
+      code: String(row.emp_code || "").trim(),
+      name: String(row.first_name || "").trim(),
+      areaIds: (row.area || []).map((area) => area.id),
+    }))
+  }
+
+  /** One employee by exact emp_code, or null. */
+  async findEmployee(code) {
+    const result = await this.api(`/personnel/api/employees/?emp_code=${encodeURIComponent(code)}`)
+    const row = (result?.data || []).find((item) => String(item.emp_code) === String(code))
+    return row ? { id: row.id, code: String(row.emp_code), name: String(row.first_name || "") } : null
+  }
+
+  /**
+   * Where new users go: the areas the machines are in, plus the first
+   * department and position (EasyWDMS requires both). Cached per process.
+   */
+  async getSetup() {
+    if (this.setup) return this.setup
+    const [terminals, departments, positions] = await Promise.all([
+      this.apiAll("/iclock/api/terminals/"),
+      this.api("/personnel/api/departments/?page_size=1"),
+      this.api("/personnel/api/positions/?page_size=1"),
+    ])
+    const areaIds = [...new Set(terminals.map((terminal) => terminal.area?.id).filter(Boolean))]
+    const departmentId = departments?.data?.[0]?.id
+    const positionId = positions?.data?.[0]?.id
+    if (!areaIds.length || !departmentId || !positionId) {
+      throw new EasyWdmsError("The face scanner software has no machine area, department or position set up", { kind: "config" })
+    }
+    this.setup = {
+      areaIds,
+      departmentId,
+      positionId,
+      terminals: terminals.map((terminal) => ({ sn: terminal.sn, alias: terminal.alias || terminal.sn })),
+    }
+    return this.setup
+  }
+
+  /** Add a student to the scanners (all machine areas). Returns the employee. */
+  async createEmployee({ rollNumber, name }) {
+    if (!isScannerRollNumber(rollNumber)) {
+      throw new EasyWdmsError("This roll number can't be used as a scanner employee ID", { kind: "input" })
+    }
+    const setup = await this.getSetup()
+    const created = await this.api("/personnel/api/employees/", {
+      method: "POST",
+      body: {
+        emp_code: rollNumber,
+        first_name: String(name || rollNumber).trim().slice(0, 100),
+        department: setup.departmentId,
+        position: setup.positionId,
+        area: setup.areaIds,
+      },
+    })
+    return { id: created?.id, code: String(created?.emp_code || rollNumber), name: String(created?.first_name || name || "") }
+  }
+
+  // ------------------------------------------------------------- portal grids
+
+  async gridPage(path, page, limit = GRID_PAGE_SIZE) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (!this.loggedIn) await this.login()
+      const response = await this.request(`${path}?page=${page}&limit=${limit}`, { headers: GRID_HEADERS })
+      if (isLoginRedirect(response) || response.status === 403) {
+        this.loggedIn = false
+        continue
+      }
+      const result = await response.json().catch(() => null)
+      if (!response.ok || !Array.isArray(result?.data)) {
+        throw new EasyWdmsError(`The face scanner software returned an unexpected list (HTTP ${response.status})`)
+      }
+      return result
+    }
+    throw new EasyWdmsError("Couldn't stay logged in to the face scanner software", { kind: "login" })
+  }
+
+  /** Every bio photo: [{ code, path, approval, registeredAt }]. */
+  async listBioPhotos() {
+    if (!this.configured) throw new EasyWdmsError("The face scanner software isn't connected yet", { kind: "config" })
+    return this.serial(async () => {
+      const rows = []
+      for (let page = 1; page < 1000; page++) {
+        const result = await this.gridPage("/iclock/biophoto/table/", page)
+        rows.push(...result.data)
+        if (result.data.length < GRID_PAGE_SIZE || rows.length >= Number(result.count || 0)) break
+      }
+      return rows.map(toBioPhotoRow)
+    })
+  }
+
+  /** The newest bio photos (first grid page), to refresh one user right after a push. */
+  async recentBioPhotos(limit = 100) {
+    if (!this.configured) throw new EasyWdmsError("The face scanner software isn't connected yet", { kind: "config" })
+    return this.serial(async () => (await this.gridPage("/iclock/biophoto/table/", 1, limit)).data.map(toBioPhotoRow))
+  }
+
+  /**
+   * Bio-photo commands sent to the machines, newest first, down to (not
+   * including) command id `afterId`: [{ id, code, sn, alias, ok, message, at }].
+   * ok: true accepted, false error, null not answered yet.
+   */
+  async listBioPhotoCommands({ afterId = 0, maxRows = 200_000, pageSize = GRID_PAGE_SIZE } = {}) {
+    if (!this.configured) throw new EasyWdmsError("The face scanner software isn't connected yet", { kind: "config" })
+    return this.serial(async () => {
+      const rows = []
+      let seen = 0
+      for (let page = 1; page < 1000 && seen < maxRows; page++) {
+        const result = await this.gridPage("/iclock/terminalcommand/table/", page, pageSize)
+        let reachedOld = false
+        for (const row of result.data) {
+          const id = Number(row.id)
+          if (id <= afterId) {
+            reachedOld = true
+            break
+          }
+          const command = toBioPhotoCommand(row)
+          if (command) rows.push(command)
+        }
+        seen += result.data.length
+        if (reachedOld || result.data.length < pageSize) break
+      }
+      return rows
+    })
+  }
+
+  /** The id of the newest command (0 when none), to find the commands a push creates. */
+  async latestCommandId() {
+    if (!this.configured) return 0
+    return this.serial(async () => Number((await this.gridPage("/iclock/terminalcommand/table/", 1, 1)).data[0]?.id || 0))
+  }
+
+  /** The bio photo file for display (proxied by HMS). Returns { buffer, contentType } or null. */
+  async fetchBioPhotoFile(path) {
+    const clean = String(path || "").replace(/^\/+/, "")
+    if (!/^biophoto\/[A-Za-z0-9]+\/[A-Za-z0-9_-]+\.(jpg|jpeg|png)$/i.test(clean)) return null
+    const response = await this.request(`/iclock/file/${clean}`)
+    if (!response.ok) return null
+    return { buffer: Buffer.from(await response.arrayBuffer()), contentType: response.headers.get("content-type") || "image/jpeg" }
+  }
+}
+
+const toBioPhotoRow = (row) => ({
+  code: String(row.get_emp_code || "").trim(),
+  path: String(row.bio_photo || "").trim(),
+  approval: String(row.approval_state || "").trim(),
+  registeredAt: String(row.register_time || "").trim(),
+})
+
+const BIOPHOTO_COMMAND = /^DATA UPDATE BIOPHOTO PIN=([^\s]+)/
+
+const toBioPhotoCommand = (row) => {
+  const match = String(row.get_content_display || "").match(BIOPHOTO_COMMAND)
+  if (!match) return null
+  const answer = String(row.get_return_value || "").trim()
+  const answered = Boolean(String(row.return_time || "").trim()) || Boolean(answer)
+  return {
+    id: Number(row.id),
+    code: match[1],
+    sn: String(row.terminal_sn || ""),
+    alias: String(row.terminal_alias || row.terminal_sn || ""),
+    ok: answered ? /^successful$/i.test(answer) || answer === "0" : null,
+    message: answer,
+    at: String(row.commit_time || ""),
   }
 }
 

@@ -1,13 +1,13 @@
 /**
  * Dining Bio-Photo Owner Service
  * ------------------------------
- * The single WRITE surface for DiningBioPhotoRequest (reads live in
- * bioPhotoQueries.service.js). Callers validate input; every state change here
+ * The single WRITE surface for the face-scanner domain: DiningBioPhotoRequest
+ * and DiningScannerUser (reads live in bioPhotoQueries.service.js). Callers validate input; every state change here
  * is a guarded findOneAndUpdate so a request only moves out of "pending" once.
  */
 
 import mongoose from "mongoose"
-import { DiningBioPhotoRequest } from "../../models/index.js"
+import { DiningBioPhotoRequest, DiningScannerUser } from "../../models/index.js"
 
 // A push holds the request for at most this long; a crashed push frees itself.
 export const PUSH_LOCK_MS = 2 * 60 * 1000
@@ -119,6 +119,43 @@ export const bioPhotoOwner = {
         },
       },
       AFTER
+    ).lean()
+  },
+
+  // ---------------------------------------------------------------- scanner users
+
+  /**
+   * Sync upserts: each row is { rollNumber, set } and becomes an upserted $set.
+   * Rows are written in chunks so a 4–5k sync stays one round trip per chunk.
+   */
+  async upsertScannerUsers(rows = [], { chunkSize = 1000 } = {}) {
+    let written = 0
+    for (let index = 0; index < rows.length; index += chunkSize) {
+      const ops = rows.slice(index, index + chunkSize).map(({ rollNumber, set }) => ({
+        updateOne: { filter: { rollNumber }, update: { $set: { rollNumber, ...set } }, upsert: true },
+      }))
+      if (!ops.length) continue
+      const result = await DiningScannerUser.bulkWrite(ops, { ordered: false })
+      written += (result.upsertedCount || 0) + (result.modifiedCount || 0)
+    }
+    return written
+  },
+
+  /** Rows the sync no longer found in EasyWDMS stay, marked off-scanner. */
+  async markOffScanner(presentRollNumbers = [], now = new Date()) {
+    const result = await DiningScannerUser.updateMany(
+      { rollNumber: { $nin: presentRollNumbers }, onScanner: true },
+      { $set: { onScanner: false, syncedAt: now } }
+    )
+    return result.modifiedCount || 0
+  },
+
+  /** Upsert one scanner user's fields; returns the lean doc. */
+  async upsertScannerUser(rollNumber, set = {}) {
+    return DiningScannerUser.findOneAndUpdate(
+      { rollNumber },
+      { $set: { rollNumber, ...set } },
+      { upsert: true, returnDocument: "after", runValidators: true, setDefaultsOnInsert: true }
     ).lean()
   },
 }
