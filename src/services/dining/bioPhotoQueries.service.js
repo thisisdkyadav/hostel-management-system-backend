@@ -58,8 +58,19 @@ export const bioPhotoQueries = {
   /** Existing rows for a set of roll numbers (sync keeps earlier machine answers). */
   async findScannerUsersByRoll(rollNumbers) {
     return DiningScannerUser.find({ rollNumber: { $in: rollNumbers } })
-      .select("rollNumber bioPhoto.registeredAt devices devicesChecked")
+      .select("rollNumber bioPhoto devices devicesChecked")
       .lean()
+  },
+
+  /** Smallest command id a machine hasn't answered yet (0 when none). */
+  async findOldestUnansweredCommandId() {
+    const [row] = await DiningScannerUser.aggregate([
+      { $match: { onScanner: true, "devices.ok": null, "devices.commandId": { $gt: 0 } } },
+      { $unwind: "$devices" },
+      { $match: { "devices.ok": null, "devices.commandId": { $gt: 0 } } },
+      { $group: { _id: null, id: { $min: "$devices.commandId" } } },
+    ])
+    return row?.id || 0
   },
 
   /** One page of scanner users for a ready filter, by roll number. */

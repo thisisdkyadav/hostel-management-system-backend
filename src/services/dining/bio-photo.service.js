@@ -20,7 +20,7 @@ import { isMediaRef } from "../storage/file-ref.service.js"
 import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
 import { userQueries } from "../user/userQueries.service.js"
 import { EasyWdmsError, getEasyWdmsClient } from "../easywdms/easywdms.client.js"
-import { noteBioPhotoPushed } from "./scanner-users.service.js"
+import { getStudentScannerStatus, noteBioPhotoPushed } from "./scanner-users.service.js"
 import { BIO_PHOTO_STATUSES } from "../../models/dining/DiningBioPhotoRequest.model.js"
 
 export const BIO_PHOTO_STORAGE_POLICY = "dining-bio-photos"
@@ -65,14 +65,21 @@ const serializeRequest = (request) => ({
 // Student
 // ---------------------------------------------------------------------------
 
-/** { current, history, rules }: current = the pending request, else the latest. */
+/**
+ * { current, history, rules, scanner }: current = the pending request, else the
+ * latest; scanner = whether their photo works on the face scanners (or null).
+ */
 export const getStudentBioPhoto = async ({ userId }) => {
-  const requests = await bioPhotoQueries.findByStudent(userId, { limit: HISTORY_LIMIT })
+  const [requests, profile] = await Promise.all([
+    bioPhotoQueries.findByStudent(userId, { limit: HISTORY_LIMIT }),
+    studentProfileQueries.findByUserId(userId, { select: "rollNumber", lean: true }),
+  ])
   const current = requests.find((request) => request.status === "pending") || requests[0] || null
   return success({
     current: current ? serializeRequest(current) : null,
     history: requests.map(serializeRequest),
     rules: studentRules(),
+    scanner: await getStudentScannerStatus(profile?.rollNumber).catch(() => null),
   })
 }
 

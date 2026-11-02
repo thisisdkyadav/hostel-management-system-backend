@@ -32,6 +32,8 @@ import { EasyWdmsError, getEasyWdmsClient, isScannerRollNumber } from "../easywd
 
 export const SYNC_CONFIG_KEY = "diningScannerSync"
 export const PROFILE_JOB_CONFIG_KEY = "diningScannerProfileJob"
+// Cursor for the per-minute refresh: { lastCommandId, machines, lastRunAt }.
+export const LIVE_CONFIG_KEY = "diningScannerLive"
 export const SCANNER_SYNC_HOUR = 3
 const SYNC_LOCK = "lock:dining-scanner-sync"
 const PROFILE_JOB_LOCK = "lock:dining-scanner-profile-job"
@@ -39,7 +41,9 @@ const LIST_FILTERS = ["all", "valid", "pending", "failed", "missing", "notInHms"
 const MAX_PAGE_SIZE = 100
 const WAIT_FOR_MACHINES_MS = 25_000
 const POLL_EVERY_MS = 3_000
-const REFRESH_AFTER_APPROVAL_MS = 90_000
+const LIVE_MAX_ROWS = 5000
+const LIVE_LOOKBACK = 3000
+const LIVE_RECENT_PHOTOS = 200
 
 const idOf = (value) => String(value?._id || value || "")
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
@@ -113,11 +117,13 @@ export const syncScannerUsers = async ({ trigger = "manual" } = {}) => {
   const client = getEasyWdmsClient()
   if (!client.configured) return { ok: false, error: "The face scanner software isn't connected yet" }
 
-  const result = await withLock(SYNC_LOCK, 15 * 60, async () => {
+  const result = await withLockWhenFree(SYNC_LOCK, 15 * 60, async () => {
     const startedAt = new Date()
     const previous = (await readState(SYNC_CONFIG_KEY)) || {}
     await writeState(SYNC_CONFIG_KEY, { ...previous, running: true, startedAt })
     try {
+      const latestCommandId = await client.latestCommandId()
+      const setup = await client.getSetup()
       const [employees, photos, commands] = [await client.listEmployees(), await client.listBioPhotos(), await client.listBioPhotoCommands()]
       const photoByCode = new Map(photos.map((photo) => [photo.code, photo]))
       const resultsByCode = latestDeviceResults(commands)
@@ -158,6 +164,7 @@ export const syncScannerUsers = async ({ trigger = "manual" } = {}) => {
       await bioPhotoOwner.upsertScannerUsers(rows)
       const removed = await bioPhotoOwner.markOffScanner(codes, now)
       const counts = await bioPhotoQueries.countScannerUsers()
+      await writeState(LIVE_CONFIG_KEY, { lastCommandId: latestCommandId, machines: setup.terminals.length, lastRunAt: now })
       const state = { running: false, ok: true, error: "", trigger, lastRunAt: now, startedAt, durationMs: Date.now() - startedAt.getTime(), counts, removed }
       await writeState(SYNC_CONFIG_KEY, state)
       logger.info?.(`[scanner-users] ${trigger} sync: ${counts.all} on scanner, ${counts.valid} valid, ${counts.missing} missing, ${counts.failed} failed`)
@@ -171,6 +178,85 @@ export const syncScannerUsers = async ({ trigger = "manual" } = {}) => {
   })
   return result === LOCK_NOT_ACQUIRED ? { running: true } : result
 }
+
+/** withLock, retrying for up to ~30 s while the short per-minute refresh holds it. */
+const withLockWhenFree = async (key, ttl, task) => {
+  for (let attempt = 0; attempt < 15; attempt++) {
+    const result = await withLock(key, ttl, task)
+    if (result !== LOCK_NOT_ACQUIRED) return result
+    await sleep(2000)
+  }
+  return LOCK_NOT_ACQUIRED
+}
+
+/** Merge newer machine answers into a row's devices (per machine, newest command wins). */
+const mergeDevices = (previous = [], fresh = []) => {
+  const bySn = new Map(previous.map((device) => [device.sn, device]))
+  for (const device of fresh) {
+    const old = bySn.get(device.sn)
+    if (!old || Number(device.commandId) >= Number(old.commandId || 0)) bySn.set(device.sn, device)
+  }
+  return [...bySn.values()].sort((a, b) => String(a.alias).localeCompare(String(b.alias)))
+}
+
+/**
+ * Per-minute refresh: only what changed since the last look — new bio photos
+ * (newest grid page) and machine answers to bio-photo commands newer than the
+ * cursor or still unanswered. A few small requests; the nightly full sync
+ * covers everything else (new employees, removals).
+ */
+export const refreshRecentScannerChanges = async ({ now = new Date() } = {}) => {
+  const client = getEasyWdmsClient()
+  if (!client.configured) return null
+  const result = await withLock(SYNC_LOCK, 120, async () => {
+    const cursor = await readState(LIVE_CONFIG_KEY)
+    if (!cursor?.lastCommandId) return null // wait for the first full sync
+
+    // Answers fill in on the same command row, so re-read from the oldest unanswered one.
+    const oldestWaiting = await bioPhotoQueries.findOldestUnansweredCommandId()
+    // …but not further back than LIVE_LOOKBACK commands (an offline machine waits for the nightly sync).
+    const afterId = oldestWaiting ? Math.max(Math.min(cursor.lastCommandId, oldestWaiting - 1), cursor.lastCommandId - LIVE_LOOKBACK) : cursor.lastCommandId
+    const latestCommandId = await client.latestCommandId()
+    const commands = latestCommandId > afterId ? await client.listBioPhotoCommands({ afterId, maxRows: LIVE_MAX_ROWS }) : []
+    const photos = await client.recentBioPhotos(LIVE_RECENT_PHOTOS)
+
+    const resultsByCode = latestDeviceResults(commands)
+    const recentPhotoCodes = photos.map((photo) => photo.code).filter(Boolean)
+    const candidates = [...new Set([...resultsByCode.keys(), ...recentPhotoCodes])]
+    const existingRows = candidates.length ? await bioPhotoQueries.findScannerUsersByRoll(candidates) : []
+    const existingByRoll = new Map(existingRows.map((row) => [row.rollNumber, row]))
+    const photoByCode = new Map(photos.map((photo) => [photo.code, photo]))
+
+    const changed = candidates.filter((code) => {
+      const row = existingByRoll.get(code)
+      if (!row) return true
+      const photo = photoByCode.get(code)
+      if (photo && (photo.path !== row.bioPhoto?.path || photo.registeredAt !== row.bioPhoto?.registeredAt || photo.approval !== row.bioPhoto?.approval)) return true
+      const merged = mergeDevices(row.devices, resultsByCode.get(code) || [])
+      return JSON.stringify(merged.map(deviceKey)) !== JSON.stringify((row.devices || []).map(deviceKey))
+    })
+
+    const newCodes = changed.filter((code) => !existingByRoll.has(code))
+    const students = newCodes.length ? await hmsStudentsByRoll(newCodes) : new Map()
+    const rows = changed.map((code) => {
+      const row = existingByRoll.get(code)
+      const photo = photoByCode.get(code) || (row?.bioPhoto?.path ? row.bioPhoto : null)
+      const devices = mergeDevices(row?.devices || [], resultsByCode.get(code) || [])
+      const set = { onScanner: true, bioPhoto: photoFields(photo), devices, devicesChecked: devices.length > 0 || Boolean(row?.devicesChecked), photoStatus: derivePhotoStatus(photo, devices), syncedAt: now }
+      if (!row) {
+        const student = students.get(code)
+        Object.assign(set, { name: student?.name || photo?.name || "", studentUserId: student?.userId || null })
+      }
+      return { rollNumber: code, set }
+    })
+    if (rows.length) await bioPhotoOwner.upsertScannerUsers(rows)
+    await writeState(LIVE_CONFIG_KEY, { ...cursor, lastCommandId: Math.max(cursor.lastCommandId, latestCommandId), lastRunAt: now })
+    return { updated: rows.length }
+  })
+  return result === LOCK_NOT_ACQUIRED ? null : result
+}
+
+const deviceKey = (device) => `${device.sn}:${device.commandId}:${device.ok}`
 
 /** Scheduler hook: once a day from 03:00 local. */
 export const runDueScannerSync = async ({ now = new Date() } = {}) => {
@@ -234,11 +320,12 @@ export const listScannerUsers = async ({ query = {} }) => {
     filter.$or = [{ rollNumber: pattern }, { name: pattern }]
   }
 
-  const [{ items, total }, counts, sync, profileJob] = await Promise.all([
+  const [{ items, total }, counts, sync, profileJob, live] = await Promise.all([
     bioPhotoQueries.findScannerUserPage(filter, { page, limit }),
     bioPhotoQueries.countScannerUsers(),
     readState(SYNC_CONFIG_KEY),
     readState(PROFILE_JOB_CONFIG_KEY),
+    readState(LIVE_CONFIG_KEY),
   ])
   return success({
     items: await withUsers(items),
@@ -248,6 +335,7 @@ export const listScannerUsers = async ({ query = {} }) => {
     counts,
     sync: sync ? { running: Boolean(sync.running), ok: sync.ok !== false, error: sync.error || "", lastRunAt: sync.lastRunAt || null, trigger: sync.trigger || "" } : null,
     profileJob,
+    live: live ? { lastRunAt: live.lastRunAt || null } : null,
     scanner: { configured: getEasyWdmsClient().configured },
   })
 }
@@ -478,24 +566,43 @@ export const getScannerPhoto = async ({ rollNumber }) => {
 }
 
 /**
- * After a student's photo request is approved: mark the copy pending now and
- * pick up the machines' answers a little later. Never throws.
+ * After a student's photo request is approved: mark the copy waiting; the
+ * per-minute refresh picks up the machines' answers. Never throws.
  */
 export const noteBioPhotoPushed = async ({ rollNumber, studentUserId, name }) => {
   try {
-    await bioPhotoOwner.upsertScannerUser(rollNumber, { onScanner: true, studentUserId: studentUserId || null, ...(name ? { name } : {}), photoStatus: "pending", devices: [], devicesChecked: false })
+    await bioPhotoOwner.upsertScannerUser(rollNumber, { onScanner: true, studentUserId: studentUserId || null, ...(name ? { name } : {}), photoStatus: "pending" })
   } catch (caught) {
     logger.warn?.(`[scanner-users] couldn't note push for ${rollNumber}: ${caught?.message || caught}`)
-    return
   }
-  const timer = setTimeout(async () => {
-    try {
-      const { photo, devices } = await refreshOne(getEasyWdmsClient(), rollNumber)
-      if (!photo) return
-      await bioPhotoOwner.upsertScannerUser(rollNumber, { bioPhoto: photoFields(photo), devices, devicesChecked: devices.length > 0, photoStatus: derivePhotoStatus(photo, devices), syncedAt: new Date() })
-    } catch (caught) {
-      logger.warn?.(`[scanner-users] refresh after approval failed for ${rollNumber}: ${caught?.message || caught}`)
-    }
-  }, REFRESH_AFTER_APPROVAL_MS)
-  timer.unref?.()
+}
+
+// ---------------------------------------------------------------------------
+// Student view
+// ---------------------------------------------------------------------------
+
+/**
+ * What a student sees on their Dining page: is their scanner photo working on
+ * every machine? null until the first sync has run.
+ */
+export const getStudentScannerStatus = async (rollNumber) => {
+  const roll = String(rollNumber || "").trim()
+  if (!roll) return null
+  const [row, live] = await Promise.all([bioPhotoQueries.findScannerUser(roll), readState(LIVE_CONFIG_KEY)])
+  if (!live && !row) return null
+  const devices = row?.devices || []
+  const total = Math.max(Number(live?.machines || 0), devices.length)
+  const onScanner = Boolean(row?.onScanner)
+  const status = onScanner ? row.photoStatus : "notOnScanner"
+  return {
+    status,
+    machines: {
+      total,
+      // An approved photo with no recorded answers (older than the command history) counts as working.
+      accepted: status === "valid" && !row.devicesChecked ? total : devices.filter((device) => device.ok === true).length,
+      rejected: devices.filter((device) => device.ok === false).length,
+      waiting: devices.filter((device) => device.ok === null).length,
+    },
+    checkedAt: live?.lastRunAt || row?.syncedAt || null,
+  }
 }

@@ -264,11 +264,20 @@ export class EasyWdmsClient {
   // ------------------------------------------------------------------ REST API
 
   async fetchToken() {
-    const response = await this.request(TOKEN_PATH, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: this.username, password: this.password }),
-    })
+    // No portal cookies here: with a session cookie EasyWDMS treats the POST as
+    // a browser request and refuses it for a missing CSRF token.
+    let response
+    try {
+      response = await this.fetch(`${this.baseUrl}${TOKEN_PATH}`, {
+        method: "POST",
+        redirect: "manual",
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: this.username, password: this.password }),
+      })
+    } catch (error) {
+      throw new EasyWdmsError(`Couldn't reach the face scanner software (${error?.name === "TimeoutError" ? "timed out" : error?.message || "network error"})`, { kind: "network" })
+    }
     const result = await response.json().catch(() => null)
     if (!response.ok || !result?.token) {
       throw new EasyWdmsError("Couldn't log in to the face scanner software. Check the stored EasyWDMS username and password.", { kind: "login" })
@@ -472,6 +481,7 @@ export class EasyWdmsClient {
 
 const toBioPhotoRow = (row) => ({
   code: String(row.get_emp_code || "").trim(),
+  name: String(row.first_name || "").trim(),
   path: String(row.bio_photo || "").trim(),
   approval: String(row.approval_state || "").trim(),
   registeredAt: String(row.register_time || "").trim(),

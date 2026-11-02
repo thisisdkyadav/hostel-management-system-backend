@@ -15,7 +15,7 @@ import { h4Notifications } from "../apps/visitors/modules/intern-accommodation/h
 import { sendDueDiningPeriodNotifications } from "../apps/administration/modules/admin/dining-period-notification.service.js"
 import { runDueDiningAutoAllocations } from "../apps/administration/modules/admin/dining-auto-allocation.service.js"
 import { runDueMissedMealsDigest } from "../apps/operations/modules/dining-caterer/dining-missed-meals-digest.service.js"
-import { runDueScannerSync } from "../services/dining/scanner-users.service.js"
+import { refreshRecentScannerChanges, runDueScannerSync } from "../services/dining/scanner-users.service.js"
 
 const HOUR_MS = 60 * 60 * 1000
 const STARTUP_DELAY_MS = 30 * 1000
@@ -83,6 +83,8 @@ export const startJobScheduler = () => {
     runDueMissedMealsDigest().catch(error => console.error("[scheduler] missed-meals digest failed:", error.message))
     // Nightly (from 03:00 local, once per day): refresh the face-scanner users and their bio-photo status.
     runDueScannerSync().catch(error => console.error("[scheduler] scanner user sync failed:", error.message))
+    // Every minute: new scanner photos and the machines' answers (a few small EasyWDMS requests).
+    refreshRecentScannerChanges().catch(error => console.error("[scheduler] scanner refresh failed:", error.message))
   }, 60000)
   console.log("⏰ Job scheduler started")
 }

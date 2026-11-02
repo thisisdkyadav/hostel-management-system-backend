@@ -9,11 +9,12 @@ import { as } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
 import { createStudentProfile } from "../../helpers/seed/students.js"
 import { fileAccessService } from "../../../src/services/storage/file-access.service.js"
-import { setEasyWdmsClient } from "../../../src/services/easywdms/easywdms.client.js"
+import { EasyWdmsClient, setEasyWdmsClient } from "../../../src/services/easywdms/easywdms.client.js"
 import { DiningScannerUser } from "../../../src/models/index.js"
 import {
   derivePhotoStatus,
   latestDeviceResults,
+  refreshRecentScannerChanges,
   runDueScannerSync,
   syncScannerUsers,
 } from "../../../src/services/dining/scanner-users.service.js"
@@ -284,5 +285,65 @@ describe("photo proxy + access", () => {
     expect((await (await as(await seed.student())).get(BASE)).status).toBe(403)
     const denied = await seed.createUser({ role: "Dining", subRole: "Office", authz: { override: { denyRoutes: ["route.admin.diningScannerUsers"] } } })
     expect((await (await as(denied)).get(BASE)).status).toBe(403)
+  })
+})
+
+describe("per-minute refresh + student view", () => {
+  it("picks up new photos, new answers and late answers to waiting commands", async () => {
+    const a = await makeStudent({ name: "Live A" })
+    const b = await makeStudent({ name: "Live B" })
+    const { state } = fakeScanner({
+      employees: [{ code: a.rollNumber, name: "a" }, { code: b.rollNumber, name: "b" }],
+      photos: [photoRow(a.rollNumber)],
+      commands: [command(100, a.rollNumber, "SN2", true), command(101, a.rollNumber, "SN3", true)],
+    })
+    expect(await refreshRecentScannerChanges()).toBeNull() // no full sync yet → nothing to go on
+    await syncScannerUsers()
+
+    // B gets a photo: m2 answers at once, m3 not yet.
+    state.photos.push({ ...photoRow(b.rollNumber), registeredAt: "2026-11-02 10:00:00" })
+    state.commands.push(command(102, b.rollNumber, "SN2", true), command(103, b.rollNumber, "SN3", null))
+    expect(await refreshRecentScannerChanges()).toEqual({ updated: 1 })
+    expect(await DiningScannerUser.findOne({ rollNumber: b.rollNumber }).lean()).toMatchObject({ photoStatus: "pending" })
+
+    const student = await as(b.user)
+    const waiting = await student.get("/api/v1/students/dining/bio-photo")
+    expect(waiting.body.data.scanner).toMatchObject({ status: "pending", machines: { total: 2, accepted: 1, waiting: 1, rejected: 0 } })
+
+    // m3 answers on the same command row (same id): still picked up.
+    state.commands = state.commands.map((item) => (item.id === 103 ? command(103, b.rollNumber, "SN3", false, "Face not detected") : item))
+    expect(await refreshRecentScannerChanges()).toEqual({ updated: 1 })
+    const failed = await student.get("/api/v1/students/dining/bio-photo")
+    expect(failed.body.data.scanner).toMatchObject({ status: "failed", machines: { accepted: 1, rejected: 1, waiting: 0 } })
+
+    // Nothing new → nothing written.
+    expect(await refreshRecentScannerChanges()).toEqual({ updated: 0 })
+
+    const ready = await (await as(a.user)).get("/api/v1/students/dining/bio-photo")
+    expect(ready.body.data.scanner).toMatchObject({ status: "valid", machines: { total: 2, accepted: 2 } })
+  })
+
+  it("tells a student who isn't on the scanners", async () => {
+    const outsider = await makeStudent()
+    fakeScanner({ employees: [] })
+    await syncScannerUsers()
+    const response = await (await as(outsider.user)).get("/api/v1/students/dining/bio-photo")
+    expect(response.body.data.scanner).toMatchObject({ status: "notOnScanner" })
+  })
+})
+
+describe("EasyWDMS client", () => {
+  it("asks for an API token without the portal session cookie", async () => {
+    const seen = []
+    const fetchImpl = async (url, init = {}) => {
+      seen.push({ url, cookie: init.headers?.Cookie || "" })
+      if (url.endsWith("/api-token-auth/")) return new Response(JSON.stringify({ token: "t1" }), { status: 200 })
+      return new Response(JSON.stringify({ data: [], next: null }), { status: 200 })
+    }
+    const client = new EasyWdmsClient({ baseUrl: "http://wdms", username: "u", password: "p", fetchImpl })
+    client.jar.cookies.set("sessionid", "portal-session")
+    client.jar.cookies.set("csrftoken", "csrf")
+    await client.findEmployee("123")
+    expect(seen[0]).toEqual({ url: "http://wdms/api-token-auth/", cookie: "" })
   })
 })
