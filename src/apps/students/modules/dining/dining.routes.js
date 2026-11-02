@@ -1,6 +1,9 @@
 import express from 'express';
 import {
   answerDiningTag,
+  cancelBioPhotoRequest,
+  createBioPhotoRequest,
+  getBioPhoto,
   createDiningRebate,
   getDiningBilling,
   getDiningMeals,
@@ -31,5 +34,8 @@ router.get('/meals', getDiningMeals);
 router.get('/menu', getDiningMenu);
 router.get('/tags', getDiningTags);
 router.put('/tags/:tagId', answerDiningTag);
+router.get('/bio-photo', getBioPhoto);
+router.post('/bio-photo', createBioPhotoRequest);
+router.delete('/bio-photo/:requestId', cancelBioPhotoRequest);
 
 export default router;

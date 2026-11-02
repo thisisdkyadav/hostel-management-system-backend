@@ -315,3 +315,19 @@ export const uploadInsurancePdf = asyncHandler(async (req, res) => {
 
   return res.status(result.statusCode).json(result.data);
 });
+
+/**
+ * Upload a student's new face-scanner bio photo (JPG or PNG only)
+ */
+export const uploadDiningBioPhoto = asyncHandler(async (req, res) => {
+  const result = await uploadService.uploadDiningBioPhoto({
+    userId: req.user?._id,
+    file: req.file || getFileFromRequest(req),
+  });
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ error: result.message });
+  }
+
+  return res.status(result.statusCode).json(result.data);
+});

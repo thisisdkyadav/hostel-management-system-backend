@@ -45,6 +45,7 @@ const HOSTEL_STAFF_STUDENT_DOCS = new Set([
 const DISCO_POLICIES = new Set(['disco-process-docs']);
 const SIGNATURE_POLICIES = new Set(['signature-images']);
 const DINING_REBATE_FORM_POLICY = 'dining-rebate-forms';
+const DINING_BIO_PHOTO_POLICY = 'dining-bio-photos';
 
 const toId = (value) => {
   if (!value) return '';
@@ -130,6 +131,16 @@ const canViewMedia = async (user, meta, fileRef) => {
 
   // Filled long-term rebate forms: the uploading student (handled above), admins
   // (handled above) and the Dining Office who verifies them. Caterers never see them.
+  // Face-scanner bio photo requests: the student (above), admins (above) and the
+  // Dining Office who approve them. Caterers never see them.
+  if (
+    policy === DINING_BIO_PHOTO_POLICY &&
+    user.role === ROLES.DINING &&
+    user.subRole === DINING_SUBROLES.OFFICE
+  ) {
+    return true;
+  }
+
   if (
     policy === DINING_REBATE_FORM_POLICY &&
     user.role === ROLES.DINING &&

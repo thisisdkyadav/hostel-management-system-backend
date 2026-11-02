@@ -38,6 +38,7 @@ import diningOversightRoutes from './modules/dining-oversight/index.js';
 import diningAllocationsRoutes from './modules/dining-allocations/index.js';
 import diningTagsRoutes from './modules/dining-tags/index.js';
 import diningMenuRoutes from './modules/dining-menu/index.js';
+import diningBioPhotoRoutes from './modules/dining-bio-photos/index.js';
 import dashboardRoutes from './modules/dashboard/dashboard.routes.js';
 import statsRoutes from './modules/stats/stats.routes.js';
 
@@ -61,6 +62,7 @@ router.use('/dining-oversight', diningOversightRoutes);
 router.use('/dining-allocations', diningAllocationsRoutes);
 router.use('/dining-tags', diningTagsRoutes);
 router.use('/dining-menu', diningMenuRoutes);
+router.use('/dining-bio-photos', diningBioPhotoRoutes);
 router.use('/caterer', catererMenuRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/stats', statsRoutes);

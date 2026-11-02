@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 25
+export const AUTHZ_CATALOG_VERSION = 26
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -69,6 +69,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.diningAllocations", "Dining Allocations", ["/admin/allocations"]),
   route("route.admin.diningTags", "Dining Tags", ["/admin/dining-tags"]),
   route("route.admin.diningMenu", "Dining Menu", ["/admin/dining-menu"]),
+  route("route.admin.diningBioPhotos", "Dining Bio Photos", ["/admin/dining-bio-photos"]),
   route("route.admin.administrators", "Administrators", ["/admin/administrators"]),
   route("route.admin.wardens", "Wardens", ["/admin/wardens"]),
   route("route.admin.associateWardens", "Associate Wardens", ["/admin/associate-wardens"]),
@@ -272,6 +273,7 @@ export const DINING_OFFICE_ADMIN_ROUTE_KEYS = [
   "route.admin.diningAllocations",
   "route.admin.diningTags",
   "route.admin.diningMenu",
+  "route.admin.diningBioPhotos",
 ]
 
 // For roles whose default route access depends on the sub-role (currently only

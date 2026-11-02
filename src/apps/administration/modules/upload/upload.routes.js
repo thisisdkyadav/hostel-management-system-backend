@@ -26,6 +26,7 @@ import {
   uploadInsurancePdf,
   uploadDiningRebateFormTemplate,
   uploadDiningRebateForm,
+  uploadDiningBioPhoto,
 } from './upload.controller.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
@@ -112,6 +113,21 @@ const handleElectionNominationUpload = (req, res, next) => {
       return next(error);
     }
 
+    return next();
+  });
+};
+
+// Face-scanner bio photo: 5 MB, one file.
+const bioPhotoUpload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+const handleBioPhotoUpload = (req, res, next) => {
+  bioPhotoUpload.single('file')(req, res, (error) => {
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'The photo must be 5 MB or smaller' });
+    }
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ error: 'Upload one photo in the "file" field' });
+    }
+    if (error) return next(error);
     return next();
   });
 };
@@ -265,6 +281,14 @@ router.post(
   guardDiningRebateForm(['Student']),
   handleElectionNominationUpload,
   uploadDiningRebateForm
+);
+
+// Student's new face-scanner bio photo (JPG or PNG only)
+router.post(
+  '/dining-bio-photo',
+  guardDiningRebateForm(['Student']),
+  handleBioPhotoUpload,
+  uploadDiningBioPhoto
 );
 
 export default router;

@@ -5,6 +5,7 @@
  */
 
 import { storageClient } from '../../../../services/storage/storage.client.js';
+import { validateBioPhotoBuffer } from '../../../../services/dining/bioPhotoImage.js';
 
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif'];
 const PDF_MIME_TYPES = ['application/pdf'];
@@ -312,6 +313,24 @@ class UploadService {
       actorRole: 'Student',
       entityHint: String(userId || ''),
     });
+  }
+
+  /** Face-scanner bio photo: JPG/PNG by content, size and pixel limits checked here. */
+  async uploadDiningBioPhoto({ userId, file }) {
+    if (!file?.buffer) return errorResult(400, 'No photo uploaded');
+    const check = validateBioPhotoBuffer(file.buffer);
+    if (!check.ok) return errorResult(400, check.message);
+
+    const extension = check.contentType === 'image/png' ? 'png' : 'jpg';
+    const result = await this._uploadWithPolicy({
+      file: { ...file, mimetype: check.contentType, originalname: `bio-photo.${extension}` },
+      policy: 'dining-bio-photo',
+      actorId: userId,
+      actorRole: 'Student',
+      entityHint: String(userId || ''),
+    });
+    if (!result.success) return result;
+    return successResult({ ...result.data, contentType: check.contentType, width: check.width, height: check.height });
   }
 
   async uploadPorDocumentPDF({ userId, file }) {
