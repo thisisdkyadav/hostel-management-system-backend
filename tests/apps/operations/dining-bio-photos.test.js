@@ -370,7 +370,7 @@ describe("EasyWDMS client", () => {
     const upload = requests[2].init
     expect(upload.headers.Cookie).toContain("sessionid=s1")
     expect(upload.headers["X-CSRFToken"]).toBe("c2")
-    expect(upload.body.get("action_name")).toBe("importbiophoto")
+    expect(upload.body.get("action_name")).toBe("496d706f727442696f50686f746f")
     expect(upload.body.get("overwrite")).toBe("1")
     expect(upload.body.get("ignore_error")).toBe("0")
     expect(upload.body.get("bio_photo").name).toBe("230008001.jpg")

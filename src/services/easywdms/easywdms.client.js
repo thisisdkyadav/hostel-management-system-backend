@@ -12,7 +12,7 @@
  *                 text = "csrfmiddlewaretoken=…&username=…&password=…&template10=&login_type="))
  *                 → JSON { ret: 0 } and a sessionid cookie
  * Import:
- *   POST /iclock/biophoto/action/ multipart: action_name, csrfmiddlewaretoken,
+ *   POST /iclock/biophoto/action/ multipart: action_name (hex of "ImportBioPhoto"), csrfmiddlewaretoken,
  *        bio_photo (<roll>.jpg|png), overwrite, ignore_error
  *        → JSON { code: 0, msg: "" } or { code: -1, msg: "…" }
  *
@@ -21,7 +21,9 @@
 
 import { env } from "../../config/env.config.js"
 
-export const IMPORT_ACTION_NAME = "importbiophoto"
+// The portal names actions by the hex of their class name ("ImportBioPhoto"),
+// as listed in GET /iclock/biophoto/table/ → action_choices, and posts that.
+export const IMPORT_ACTION_NAME = Buffer.from("ImportBioPhoto", "utf8").toString("hex")
 const REQUEST_TIMEOUT_MS = 30_000
 const LOGIN_PATH = "/login/"
 const IMPORT_PATH = "/iclock/biophoto/action/"
