@@ -331,6 +331,24 @@ describe("dining meal verification — hardening edges", () => {
     expect(res.body.data.verification.mealSlotKey).toBe("dawn-slot")
     expect(new Date(res.body.data.verification.scannedAt).getHours()).toBe(4)
 
+    // within the buffer (up to 60 min after the slot ends) -> same meal; already
+    // eaten, so a duplicate of the Dawn Slot rather than outside-meal-time
+    const lateBuffer = new Date(day); lateBuffer.setHours(5, 25, 0, 0)
+    res = await api.post("/api/v1/dining-meal-verification/manual").send({
+      rollNumber: profile.rollNumber,
+      scannedAt: lateBuffer.toISOString(),
+    })
+    expect(res.body.data.verification.status).toBe("duplicate")
+    expect(res.body.data.verification.mealSlotKey).toBe("dawn-slot")
+
+    // past the buffer -> outside-meal-time
+    const pastBuffer = new Date(day); pastBuffer.setHours(5, 31, 0, 0)
+    res = await api.post("/api/v1/dining-meal-verification/manual").send({
+      rollNumber: profile.rollNumber,
+      scannedAt: pastBuffer.toISOString(),
+    })
+    expect(res.body.data.verification.status).toBe("outside-meal-time")
+
     // five days later no period covers the scan -> no-active-period
     const later = new Date(day); later.setDate(later.getDate() + 5); later.setHours(12, 0, 0, 0)
     res = await api.post("/api/v1/dining-meal-verification/manual").send({

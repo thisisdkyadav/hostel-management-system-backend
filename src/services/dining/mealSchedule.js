@@ -41,4 +41,61 @@ export const resolveMealSlotsForDay = (period = {}, day = new Date()) => {
     .filter(Boolean)
 }
 
+/**
+ * Scans a little before or after a meal still count for that meal:
+ * from MEAL_EARLY_BUFFER_MINUTES before it starts to MEAL_LATE_BUFFER_MINUTES
+ * after it ends. Outside every meal and its buffer is "outside meal time".
+ */
+export const MEAL_EARLY_BUFFER_MINUTES = 30
+export const MEAL_LATE_BUFFER_MINUTES = 60
+
+const toMinutes = (value = "") => {
+  const [hours, minutes] = String(value || "").split(":").map(Number)
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
+  return hours * 60 + minutes
+}
+
+/**
+ * How far `minute` (0..1439) is from a slot: 0 inside it, otherwise minutes
+ * before its start (`early`) or after its end (`late`). Overnight slots
+ * (22:00–02:00) wrap; a normal slot's buffer doesn't cross midnight.
+ */
+const distanceToSlot = (minute, slot) => {
+  const start = toMinutes(slot.startTime)
+  const end = toMinutes(slot.endTime)
+  if (start === null || end === null) return null
+  if (start <= end) {
+    if (minute >= start && minute <= end) return { inside: true, early: 0, late: 0 }
+    return minute < start ? { inside: false, early: start - minute, late: Infinity } : { inside: false, early: Infinity, late: minute - end }
+  }
+  if (minute >= start || minute <= end) return { inside: true, early: 0, late: 0 }
+  return { inside: false, early: start - minute, late: minute - end }
+}
+
+/**
+ * The meal a time belongs to, from the day's slots (resolveMealSlotsForDay).
+ * Inside a meal's own window wins; otherwise the nearest meal whose buffer
+ * covers the time. Returns { slot, match: "inside" | "early" | "late" } or null.
+ */
+export const findMealSlotForTime = (
+  slots = [],
+  date = new Date(),
+  { earlyMinutes = MEAL_EARLY_BUFFER_MINUTES, lateMinutes = MEAL_LATE_BUFFER_MINUTES } = {}
+) => {
+  const minute = date.getHours() * 60 + date.getMinutes()
+  let best = null
+  for (const slot of slots) {
+    const distance = distanceToSlot(minute, slot)
+    if (!distance) continue
+    if (distance.inside) return { slot, match: "inside" }
+    const candidates = []
+    if (distance.early <= earlyMinutes) candidates.push({ gap: distance.early, match: "early" })
+    if (distance.late <= lateMinutes) candidates.push({ gap: distance.late, match: "late" })
+    for (const candidate of candidates) {
+      if (!best || candidate.gap < best.gap) best = { slot, ...candidate }
+    }
+  }
+  return best ? { slot: best.slot, match: best.match } : null
+}
+
 export default resolveMealSlotsForDay

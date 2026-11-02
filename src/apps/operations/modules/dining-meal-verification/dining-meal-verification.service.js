@@ -1,4 +1,4 @@
-import { resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
+import { findMealSlotForTime, resolveMealSlotsForDay } from "../../../../services/dining/mealSchedule.js"
 import { coversDayFilter } from "../../../../services/dining/periodDay.js"
 import mongoose from "mongoose"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
@@ -44,14 +44,6 @@ const slugifySlotName = (name = "") => String(name || "")
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-+|-+$/g, "")
 
-const parseTimeToMinutes = (value = "") => {
-  const [hours, minutes] = String(value || "").split(":").map(Number)
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  return hours * 60 + minutes
-}
-
-const getMinutesForDate = (date = new Date()) => date.getHours() * 60 + date.getMinutes()
-
 const getDayBounds = (date = new Date()) => {
   const start = new Date(date)
   start.setHours(0, 0, 0, 0)
@@ -60,22 +52,13 @@ const getDayBounds = (date = new Date()) => {
   return { start, end }
 }
 
-const isTimeInsideSlot = (date, slot) => {
-  const start = parseTimeToMinutes(slot.startTime)
-  const end = parseTimeToMinutes(slot.endTime)
-  if (start === null || end === null) return false
-
-  const current = getMinutesForDate(date)
-  if (start <= end) return current >= start && current <= end
-
-  // Overnight slot, e.g. 22:00 to 02:00.
-  return current >= start || current <= end
-}
-
+// The meal a scan belongs to: inside its timings, or within the buffer around
+// them (see findMealSlotForTime). null = outside meal time.
 const getMealSlotForDate = (period, date) => {
   const slots = period ? resolveMealSlotsForDay(period, date) : []
-  const slot = slots.find((candidate) => isTimeInsideSlot(date, candidate))
-  if (!slot) return null
+  const found = findMealSlotForTime(slots, date)
+  if (!found) return null
+  const { slot } = found
 
   return {
     key: slugifySlotName(slot.name),
