@@ -32,6 +32,7 @@ export * from './expenditure/index.js'
 
 // Scanner Models (FaceScanner, ScannerAccount, ApiClient)
 export * from './scanner/index.js'
+export * from './iclock/index.js'
 
 // Task Models
 export * from './task/index.js'
