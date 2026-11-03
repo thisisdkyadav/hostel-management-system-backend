@@ -180,7 +180,21 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
     // OPERLOG / BIODATA / ATTPHOTO / USERINFO …: acknowledged; the raw log keeps a copy.
     const records = table === "ATTPHOTO" ? [] : parseRecords(text(body))
     // People on the machine (answer to DATA QUERY USERINFO, or someone enrolled at the machine).
-    if (["OPERLOG", "USERINFO", "USER"].includes(table)) await recordMachineUsers(sn, records)
+    if (["OPERLOG", "USERINFO", "USER"].includes(table)) {
+      await recordMachineUsers(sn, records)
+      // DATA QUERY USERINFO PIN=… answers with USER + BIOPHOTO (Content=<jpeg>) lines in an
+      // OPERLOG upload (captured on SpeedFace-V5L): keep the photo the machine holds.
+      const photoLines = text(body)
+        .split("\n")
+        .filter((line) => /^(BIOPHOTO|USERPIC)\s/.test(line.trim()))
+      if (photoLines.length) {
+        try {
+          await saveMachinePhotos(sn, parsePhotoUploads(photoLines.join("\n")))
+        } catch (error) {
+          console.error(`[iclock] ${sn}: photo in ${table} upload not saved:`, error?.message || error)
+        }
+      }
+    }
     return `OK:${records.length || 1}\n`
   }
 

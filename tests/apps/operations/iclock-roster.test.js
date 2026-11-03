@@ -382,10 +382,23 @@ describe("machine photo uploads (BIOPHOTO)", () => {
     expect((await readMachinePhoto(sn, pin)).equals(jpeg)).toBe(true)
     expect((await row(sn, pin)).machinePhoto).toMatchObject({ kind: "BIOPHOTO", size: jpeg.length })
 
+    // What SpeedFace-V5L sends for DATA QUERY USERINFO PIN=…: USER + BIOPHOTO in one OPERLOG upload.
+    const newer = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe1]), Buffer.from("machine-copy")])
+    const operlog = await request(app)
+      .post(`/iclock/cdata?SN=${sn}&table=OPERLOG&Stamp=9999`)
+      .set("Content-Type", "text/plain")
+      .send(
+        `USER PIN=${pin}\tName=SIMRAN\tPri=0\tPasswd=\tCard=\tGrp=1\n` +
+          `BIOPHOTO PIN=${pin}\tNo=0\tIndex=0\tFileName=${pin}.jpg\tType=9\tSize=${newer.length}\tContent=${newer.toString("base64")}\r\n`,
+      )
+    expect(operlog.status).toBe(200)
+    expect((await readMachinePhoto(sn, pin)).equals(newer)).toBe(true)
+    expect((await row(sn, pin)).onMachine).toBe(true)
+
     // Something that isn't an image is acknowledged and ignored.
     const odd = await request(app).post(`/iclock/cdata?SN=${sn}&table=BIOPHOTO`).set("Content-Type", "text/plain").send(`BIOPHOTO PIN=${pin}\tContent=bm90IGFuIGltYWdl\n`)
     expect(odd.status).toBe(200)
-    expect((await readMachinePhoto(sn, pin)).equals(jpeg)).toBe(true)
+    expect((await readMachinePhoto(sn, pin)).equals(newer)).toBe(true)
   })
 })
 

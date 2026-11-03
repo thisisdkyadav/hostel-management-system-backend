@@ -1,8 +1,9 @@
 /**
  * Machine photos — the face photo a machine actually holds, fetched back from it.
  *
- * HMS asks a machine for one person's photo (DATA QUERY BIOPHOTO PIN=…); the
- * machine uploads it on cdata?table=BIOPHOTO. The file is kept on disk, one per
+ * HMS asks a machine for one person (DATA QUERY USERINFO PIN=…); the machine
+ * uploads the BIOPHOTO line with the JPEG (in an OPERLOG upload on these
+ * firmwares; a BIOPHOTO table upload is handled too). The file is kept on disk, one per
  * machine + person, overwritten on every fetch, so the folder never grows past
  * (machines × people) photos. The row on IclockDeviceUser.machinePhoto says
  * when it came and whether it is byte-identical to the HMS face.
@@ -22,8 +23,13 @@ export const machinePhotoDir = () => process.env.ICLOCK_MACHINE_PHOTO_DIR || pat
 const safe = (value) => String(value || "").replace(/[^A-Za-z0-9_-]/g, "_")
 const fileFor = (sn, pin) => path.join(machinePhotoDir(), safe(sn), `${safe(pin)}.jpg`)
 
-/** Command that asks a machine for one person's face photo. */
-export const photoQueryCommand = (pin) => `DATA QUERY BIOPHOTO PIN=${pin}`
+/**
+ * Command that makes a machine upload one person's face photo. SpeedFace-V5L
+ * (PUSH 3.1.6) answers -1 to DATA QUERY BIOPHOTO / USERPIC and -1004 to the
+ * tablename= form; DATA QUERY USERINFO PIN=… returns USER + BIOPHOTO (with the
+ * JPEG) in an OPERLOG upload, plus the face template in a BIODATA upload.
+ */
+export const photoQueryCommand = (pin) => `DATA QUERY USERINFO PIN=${pin}`
 
 /** Queue a photo fetch for one person on one machine. */
 export const requestMachinePhoto = (sn, pin, { command = photoQueryCommand(pin), createdBy = null } = {}) =>

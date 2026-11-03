@@ -4,7 +4,7 @@
  * Used to find out whether (and how) the firmware answers photo queries.
  * Read-only on the machine: the command only asks it to upload what it holds.
  *
- *   node scripts/iclock-fetch-machine-photo.mjs <SN> <PIN> [--command "DATA QUERY BIOPHOTO PIN=<PIN>"] [--wait 180]
+ *   node scripts/iclock-fetch-machine-photo.mjs <SN> <PIN> [--command "DATA QUERY USERINFO PIN=<PIN>"] [--wait 180]
  *
  * Needs hms-iclock running (it receives the upload and saves the file).
  */
