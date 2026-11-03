@@ -71,10 +71,11 @@ export const readBioPhotoSize = (buffer, contentType = detectBioPhotoType(buffer
 }
 
 /**
- * Check an uploaded buffer against the rules.
+ * Check an uploaded buffer against the rules. `sizeRules: false` only checks
+ * that it is a readable JPG/PNG within the byte limit (photos the machines already accept).
  * Returns { ok: true, contentType, width, height } or { ok: false, message }.
  */
-export const validateBioPhotoBuffer = (buffer) => {
+export const validateBioPhotoBuffer = (buffer, { sizeRules = true } = {}) => {
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) return { ok: false, message: "No photo uploaded" }
   const contentType = detectBioPhotoType(buffer)
   if (!contentType) return { ok: false, message: "Only JPG or PNG photos are accepted" }
@@ -83,6 +84,8 @@ export const validateBioPhotoBuffer = (buffer) => {
   }
   const size = readBioPhotoSize(buffer, contentType)
   if (!size || !size.width || !size.height) return { ok: false, message: "This photo couldn't be read. Please try another JPG or PNG." }
+  // Photos already on the machines (copied from EasyWDMS) are kept whatever their size.
+  if (!sizeRules) return { ok: true, contentType, width: size.width, height: size.height }
   const shortSide = Math.min(size.width, size.height)
   const longSide = Math.max(size.width, size.height)
   if (shortSide < BIO_PHOTO_RULES.minSidePx) {

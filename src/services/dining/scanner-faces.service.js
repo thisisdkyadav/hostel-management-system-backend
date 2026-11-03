@@ -85,7 +85,8 @@ const faceFromCheck = ({ ref, buffer, check, source, sourceKey }) => ({
 
 /** Validate and store a face for `rollNumber`. Returns { ok, face } or { ok:false, problem }. */
 export const storeScannerFace = async ({ rollNumber, buffer, source, sourceKey = "", actorId = "" }) => {
-  const check = validateBioPhotoBuffer(buffer)
+  // EasyWDMS photos are already working on the machines: keep them even if they're smaller than the upload rules.
+  const check = validateBioPhotoBuffer(buffer, { sizeRules: source !== "easywdms" })
   if (!check.ok) return { ok: false, problem: check.message }
 
   const extension = check.contentType === "image/png" ? "png" : "jpg"

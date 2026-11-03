@@ -77,7 +77,7 @@ describe("scanner faces", () => {
     const client = easyWdms({
       [`biophoto/x/${a}.jpg`]: jpeg(480, 640),
       [`biophoto/x/${b}.jpg`]: jpeg(480, 640),
-      [`biophoto/x/${c}.jpg`]: jpeg(50, 50), // too small
+      [`biophoto/x/${c}.jpg`]: Buffer.from("not an image"),
     })
 
     const first = await importFacesFromEasyWdms({ trigger: "test" })
@@ -96,6 +96,15 @@ describe("scanner faces", () => {
     await DiningScannerUser.updateOne({ rollNumber: b }, { $set: { "bioPhoto.registeredAt": "2026-11-03 12:00:00" } })
     client.fetchBioPhotoFile.mockImplementation(async () => ({ buffer: jpeg(480, 640, 1), contentType: "image/jpeg" }))
     expect(await importFacesFromEasyWdms({ trigger: "test" })).toMatchObject({ stored: 1, processed: 1 })
+  })
+
+  it("keeps an EasyWDMS photo smaller than the upload rules (the machines already accept it)", async () => {
+    fakeStorage()
+    const r = roll()
+    await scannerRow(r, `biophoto/x/${r}.jpg`)
+    easyWdms({ [`biophoto/x/${r}.jpg`]: jpeg(240, 320) })
+    await importFacesFromEasyWdms({ trigger: "test" })
+    expect((await DiningScannerUser.findOne({ rollNumber: r }).lean()).face).toMatchObject({ width: 240, height: 320, problem: "" })
   })
 
   it("never replaces a face that came from a student request", async () => {
