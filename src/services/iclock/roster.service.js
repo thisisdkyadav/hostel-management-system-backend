@@ -19,6 +19,8 @@
  *   back until an admin confirms (a bad status import must not wipe a machine).
  * - At most MAX_OUTSTANDING commands are in flight per machine; later runs top
  *   up, so a big first sync trickles in instead of flooding the machine.
+ * - Commands wait in the queue while a machine is offline; only commands the
+ *   machine took and never answered (30 min) are failed and re-planned.
  */
 import { iclockOwner } from "./iclockOwner.service.js"
 import { iclockQueries } from "./iclockQueries.service.js"
@@ -197,7 +199,7 @@ const runLocked = async (sn, { allowRemovals, now, createdBy, roster: sharedRost
 
   const staleBefore = new Date(now - STALE_AFTER_MS)
   const failed = await iclockOwner.failUnansweredCommands(sn, staleBefore)
-  const expired = await iclockOwner.clearStaleRosterPending(sn, staleBefore)
+  const expired = await iclockOwner.clearRosterPendingFor(sn, failed)
 
   const [rows, roster, outstanding] = await Promise.all([
     iclockQueries.listRoster(sn),

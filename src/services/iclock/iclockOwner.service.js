@@ -72,15 +72,18 @@ export const iclockOwner = {
     ).lean()
   },
 
-  /** Commands sent (or queued) before `before` that the machine never answered → failed. */
+  /**
+   * Commands the machine TOOK before `before` but never answered → failed.
+   * Still-queued commands are left alone: an offline machine picks them up when it's back.
+   */
   async failUnansweredCommands(sn, before) {
-    const stale = await IclockCommand.find({ sn, status: { $in: ["queued", "sent"] }, createdAt: { $lt: before } })
+    const stale = await IclockCommand.find({ sn, status: "sent", sentAt: { $lt: before } })
       .select("commandId")
       .lean()
     if (!stale.length) return []
     const ids = stale.map((c) => c.commandId)
     await IclockCommand.updateMany(
-      { sn, commandId: { $in: ids }, status: { $in: ["queued", "sent"] } },
+      { sn, commandId: { $in: ids }, status: "sent" },
       { $set: { status: "failed", result: "no answer", doneAt: new Date() } },
     )
     return ids
@@ -151,10 +154,11 @@ export const iclockOwner = {
     return IclockDeviceUser.findOneAndUpdate({ sn, pin }, { $set: set }, { returnDocument: "after" }).lean()
   },
 
-  /** Pending operations older than `before` (machine never answered) are dropped so they get re-planned. */
-  async clearStaleRosterPending(sn, before) {
+  /** Pending operations that include an unanswered (failed) command are dropped so they get re-planned. */
+  async clearRosterPendingFor(sn, commandIds) {
+    if (!commandIds.length) return 0
     const result = await IclockDeviceUser.updateMany(
-      { sn, "pending.op": { $ne: "" }, "pending.at": { $lt: before } },
+      { sn, "pending.op": { $ne: "" }, "pending.commandIds": { $in: commandIds } },
       { $set: { pending: { op: "", commandIds: [], faceSha: "", at: null }, lastResult: { op: "", ok: false, code: null, at: new Date() } } },
     )
     return result.modifiedCount || 0

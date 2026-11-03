@@ -229,6 +229,17 @@ describe("roster sync through the receiver", () => {
     expect((await row(sn, pin)).pending.op).toBe("add") // re-queued
   })
 
+  it("commands for an offline machine wait in the queue instead of expiring", async () => {
+    const sn = await machine()
+    const api = await as(await seed.admin())
+    await api.patch(`${BASE}/${sn}`).send({ sync: true })
+    const pin = await student()
+    await runRosterSync(sn)
+    const result = await runRosterSync(sn, { now: Date.now() + 3 * STALE_AFTER_MS })
+    expect(result.unanswered).toBe(0)
+    expect(forPin(await drain(sn), pin).map((c) => c.split(" PIN")[0])).toEqual(["DATA USER", "DATA UPDATE BIOPHOTO"])
+  })
+
   it("pushes and removes one person by hand", async () => {
     const sn = await machine()
     const api = await as(await seed.admin())
