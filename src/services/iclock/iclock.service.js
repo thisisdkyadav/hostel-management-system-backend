@@ -27,7 +27,7 @@ import {
 import { scannerQueries } from "../scanner/scannerQueries.service.js"
 import { readFaceForMachine } from "../dining/scanner-faces.service.js"
 import { applyMachineErrors, applyRosterAnswer, recordMachineUsers } from "./roster.service.js"
-import { saveMachinePhotos } from "./machine-photos.service.js"
+import { recordFaceTemplates, recordPhotoCheckAnswer, saveMachinePhotos } from "./machine-photos.service.js"
 import * as scannerActionService from "../../apps/operations/modules/face-scanner/scanner-action.service.js"
 
 /** Punches further than this from "now" (by machine clock) are stored but never turned into records. */
@@ -179,6 +179,8 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
     }
     // OPERLOG / BIODATA / ATTPHOTO / USERINFO …: acknowledged; the raw log keeps a copy.
     const records = table === "ATTPHOTO" ? [] : parseRecords(text(body))
+    // Face records: the machine made a face for these people (photo checks read this).
+    if (table === "BIODATA") await recordFaceTemplates(sn, records)
     // People on the machine (answer to DATA QUERY USERINFO, or someone enrolled at the machine).
     if (["OPERLOG", "USERINFO", "USER"].includes(table)) {
       await recordMachineUsers(sn, records)
@@ -207,7 +209,8 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
   if (route === "devicecmd") {
     for (const result of parseDeviceCmdResults(text(body))) {
       const command = await iclockOwner.completeCommand(sn, result)
-      if (command) await applyRosterAnswer(sn, command)
+      if (command?.ref?.kind === "photo-query") await recordPhotoCheckAnswer(sn, command)
+      else if (command) await applyRosterAnswer(sn, command)
     }
     return "OK"
   }

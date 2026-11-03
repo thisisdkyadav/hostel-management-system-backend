@@ -43,6 +43,11 @@ const IclockDeviceSchema = new mongoose.Schema(
       // Removals an admin confirmed that haven't all been queued yet.
       removalsApproved: { type: Number, default: 0 },
     },
+    // Photo checks (fetching what the machine holds): the IST night whose run was planned.
+    photoCheck: {
+      lastNight: { type: String, default: "" },
+      lastFull: { type: String, default: "" },
+    },
   },
   { timestamps: true },
 )

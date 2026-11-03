@@ -27,6 +27,7 @@ import { fileAccessService } from "../storage/file-access.service.js"
 import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
 import { iclockQueries } from "../iclock/iclockQueries.service.js"
 import { refusedPhoto, runDueRosterSyncs } from "../iclock/roster.service.js"
+import { checkStudentOnMachines, photoCheckResult, readMachinePhoto } from "../iclock/machine-photos.service.js"
 import { configOwner } from "../config/configOwner.service.js"
 import { configQueries } from "../config/configQueries.service.js"
 import { withLock } from "../lock/distributedLock.js"
@@ -83,7 +84,7 @@ const syncMachines = async () => {
   return devices.map((device) => ({ sn: device.sn, alias: device.alias || device.sn })).sort((a, b) => a.alias.localeCompare(b.alias))
 }
 
-const FACE_SOURCES = { request: "Student upload", profile: "Profile photo", easywdms: "Old scanner software" }
+const FACE_SOURCES = { request: "Student upload", profile: "Profile photo", easywdms: "Imported from EasyWDMS" }
 
 /** Everything the page shows for one student. */
 const buildEntry = ({ profile, row, machines, statesByPin }) => {
@@ -100,7 +101,7 @@ const buildEntry = ({ profile, row, machines, statesByPin }) => {
       state === "refused"
         ? { code: result.error || (result.code != null ? String(result.code) : ""), message: result.message || "The machine didn't accept this photo", at: result.at || null }
         : null
-    return { alias: machine.alias, state, refusal }
+    return { alias: machine.alias, sn: machine.sn, state, refusal, check: photoCheckResult(machineRow, faceSha) }
   })
   const status = derivePhotoStatus(faceSha, perMachine.map((machine) => machine.state))
   return {
@@ -303,4 +304,30 @@ export const getStudentScannerStatus = async (rollNumber) => {
     },
     checkedAt: new Date(),
   }
+}
+
+// ---------------------------------------------------------------------------
+// What the machines hold (fetched back from them)
+// ---------------------------------------------------------------------------
+
+/** "Fetch from machines": ask every synced machine for this student now. */
+export const checkOnMachines = async ({ rollNumber, actor }) => {
+  const roll = typeof rollNumber === "string" ? rollNumber.trim() : ""
+  const [entry] = roll ? (await loadBoard({ rollNumber: roll })).entries : []
+  if (!entry) return notFound(`No active student with roll number ${roll}.`)
+  const asked = await checkStudentOnMachines(entry.rollNumber, { createdBy: actor?._id || null })
+  if (!asked) return badRequest("No machine is kept in sync yet.")
+  const [item] = (await loadBoard({ rollNumber: entry.rollNumber })).entries
+  return success({ item }, 202, `Asked ${asked} machine${asked === 1 ? "" : "s"}. Their photos show here within a minute or two.`)
+}
+
+/** The face photo a machine sent back for this student (`machine` = sn or alias). */
+export const getMachinePhoto = async ({ rollNumber, machine }) => {
+  const roll = String(rollNumber || "").trim()
+  const wanted = String(machine || "").trim()
+  if (!roll || !wanted) return null
+  const target = (await syncMachines()).find((m) => m.sn === wanted || m.alias === wanted)
+  if (!target) return null
+  const buffer = await readMachinePhoto(target.sn, roll)
+  return buffer ? { buffer, contentType: "image/jpeg" } : null
 }

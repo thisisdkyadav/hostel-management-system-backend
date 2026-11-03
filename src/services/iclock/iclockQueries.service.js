@@ -56,7 +56,7 @@ export const iclockQueries = {
   /** What each of these machines holds for every person (or one pin), for the scanner-photo page. */
   async listRosterStates(sns, { pin } = {}) {
     return IclockDeviceUser.find({ sn: { $in: sns }, ...(pin ? { pin } : {}) })
-      .select("sn pin onMachine faceSha pending.op lastResult")
+      .select("sn pin onMachine faceSha pending.op lastResult check faceTemplateAt machinePhoto")
       .lean()
   },
 
@@ -74,6 +74,20 @@ export const iclockQueries = {
 
   async listRosterFailures(sn, limit = 50) {
     return IclockDeviceUser.find({ sn, "lastResult.ok": false }).sort({ "lastResult.at": -1 }).limit(limit).lean()
+  },
+
+  /** Photo-check commands queued or taken and not answered yet. */
+  async countOutstandingPhotoChecks(sn) {
+    return IclockCommand.countDocuments({ sn, "ref.kind": "photo-query", status: { $in: ["queued", "sent"] } })
+  },
+
+  async listWantedPhotoChecks(sn, limit) {
+    return IclockDeviceUser.find({ sn, "check.wanted": true }).select("pin").limit(limit).lean()
+  },
+
+  /** Rows for planning checks: what HMS sent and the last check. */
+  async listPhotoCheckStates(sn) {
+    return IclockDeviceUser.find({ sn }).select("pin onMachine faceSha pending.op lastResult check").lean()
   },
 
   async findCommand(sn, commandId) {

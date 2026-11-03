@@ -169,6 +169,55 @@ export const iclockOwner = {
     )
   },
 
+  // ---- Photo checks (what the machine holds) ----
+
+  /** Plan checks for these people on this machine (picked up by topUpPhotoChecks). */
+  async markPhotoChecksWanted(sn, pins) {
+    if (!pins.length) return 0
+    const result = await IclockDeviceUser.bulkWrite(
+      pins.map((pin) => ({
+        updateOne: {
+          filter: { sn, pin },
+          update: { $set: { "check.wanted": true }, $setOnInsert: { sn, pin, onMachine: false, source: "", faceSha: "" } },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    )
+    return (result.upsertedCount || 0) + (result.modifiedCount || 0)
+  },
+
+  async setPhotoCheckRequested(sn, pin, { commandId, faceSha }) {
+    return IclockDeviceUser.updateOne(
+      { sn, pin },
+      {
+        $set: { check: { wanted: false, requestedAt: new Date(), commandId, answeredAt: null, returnCode: null, faceSha: faceSha || "" } },
+        $setOnInsert: { sn, pin, onMachine: false, source: "", faceSha: "" },
+      },
+      { upsert: true },
+    )
+  },
+
+  /** The machine answered the check command (its uploads came with or before the answer). */
+  async setPhotoCheckAnswered(sn, pin, { commandId, returnCode }) {
+    return IclockDeviceUser.updateOne(
+      { sn, pin, "check.commandId": commandId },
+      { $set: { "check.answeredAt": new Date(), "check.returnCode": returnCode } },
+    )
+  },
+
+  /** The machine sent face records (BIODATA Type=9) for these people. */
+  async setFaceTemplatesSeen(sn, pins) {
+    if (!pins.length) return 0
+    const result = await IclockDeviceUser.updateMany({ sn, pin: { $in: pins } }, { $set: { faceTemplateAt: new Date() } })
+    return result.modifiedCount || 0
+  },
+
+  async setPhotoCheckNight(sn, set) {
+    const prefixed = Object.fromEntries(Object.entries(set).map(([k, v]) => [`photoCheck.${k}`, v]))
+    return IclockDevice.updateOne({ sn }, { $set: prefixed })
+  },
+
   /** Remember an ERRORLOG on its command. Returns the command (null when HMS never sent it). */
   async recordCommandError(sn, commandId, { code, message }) {
     return IclockCommand.findOneAndUpdate(

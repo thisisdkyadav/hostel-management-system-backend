@@ -17,7 +17,12 @@ import mongoose from "mongoose"
  *   took the photo (Return=0) but then couldn't use it; commandId — which command.
  * machinePhoto — the photo the MACHINE holds, as it last uploaded it (answer to
  *   DATA QUERY BIOPHOTO). The file is kept on disk (one per machine+person,
- *   overwritten); sameAsHms = byte-identical to the HMS face that was sent.
+ *   overwritten).
+ * check — the last time HMS asked the machine for this person (DATA QUERY
+ *   USERINFO PIN): wanted = planned (nightly), requestedAt/commandId = asked,
+ *   answeredAt = machine answered, faceSha = the HMS face at that moment.
+ *   What came back after requestedAt is the result: machinePhoto (photo) and
+ *   faceTemplateAt (a face record, i.e. the machine made a face from the photo).
  */
 export const ICLOCK_ROSTER_SOURCES = ["easywdms", "machine", "hms"]
 export const ICLOCK_ROSTER_OPS = ["add", "face", "remove"]
@@ -46,6 +51,15 @@ const IclockDeviceUserSchema = new mongoose.Schema(
       error: { type: String, default: "" },
       message: { type: String, default: "" },
     },
+    check: {
+      wanted: { type: Boolean, default: false },
+      requestedAt: { type: Date, default: null },
+      commandId: { type: Number, default: null },
+      answeredAt: { type: Date, default: null },
+      returnCode: { type: Number, default: null },
+      faceSha: { type: String, default: "" },
+    },
+    faceTemplateAt: { type: Date, default: null },
     machinePhoto: {
       kind: { type: String, default: "" },
       sha256: { type: String, default: "" },
@@ -59,5 +73,6 @@ const IclockDeviceUserSchema = new mongoose.Schema(
 IclockDeviceUserSchema.index({ sn: 1, pin: 1 }, { unique: true })
 IclockDeviceUserSchema.index({ sn: 1, "pending.op": 1 })
 IclockDeviceUserSchema.index({ sn: 1, "lastResult.ok": 1, "lastResult.at": -1 })
+IclockDeviceUserSchema.index({ sn: 1, "check.wanted": 1 })
 
 export default mongoose.models.IclockDeviceUser || mongoose.model("IclockDeviceUser", IclockDeviceUserSchema)

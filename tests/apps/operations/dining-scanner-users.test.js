@@ -110,8 +110,8 @@ describe("list", () => {
     expect(byRoll[none.rollNumber]).toMatchObject({ name: "No Photo", photoStatus: "missing", photo: { present: false } })
     expect(byRoll[working.rollNumber]).toMatchObject({ photoStatus: "valid", photo: { present: true, source: "request", sourceLabel: "Student upload" } })
     expect(byRoll[working.rollNumber].machines).toEqual([
-      { alias: "m2", state: "ok", refusal: null },
-      { alias: "m3", state: "ok", refusal: null },
+      { alias: "m2", sn: machines[0], state: "ok", refusal: null, check: { status: "none" } },
+      { alias: "m3", sn: machines[1], state: "ok", refusal: null, check: { status: "none" } },
     ])
     expect(byRoll[sending.rollNumber]).toMatchObject({ photoStatus: "pending", machines: [{ alias: "m2", state: "ok" }, { alias: "m3", state: "waiting" }] })
     expect(byRoll[refused.rollNumber]).toMatchObject({

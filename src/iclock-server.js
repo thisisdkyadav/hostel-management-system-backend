@@ -10,6 +10,7 @@ import { initializeDatabase, initializeSocketIO } from "./loaders/index.js"
 import { iclockOwner } from "./services/iclock/iclockOwner.service.js"
 import { createIclockApp } from "./apps/iclock/iclock.app.js"
 import { runDueRosterSyncs, SYNC_INTERVAL_MS } from "./services/iclock/roster.service.js"
+import { runDuePhotoChecks } from "./services/iclock/machine-photos.service.js"
 
 const PORT = Number.parseInt(process.env.ICLOCK_PORT, 10) || 5300
 const HOST = process.env.ICLOCK_HOST || "0.0.0.0"
@@ -34,6 +35,12 @@ const start = async () => {
       await runDueRosterSyncs()
     } catch (error) {
       console.error("📟 roster sync failed:", error?.message || error)
+    }
+    // Fetch back what machines hold: just-sent photos, the nightly plan, on-demand asks.
+    try {
+      await runDuePhotoChecks()
+    } catch (error) {
+      console.error("📟 photo checks failed:", error?.message || error)
     } finally {
       syncing = false
     }
