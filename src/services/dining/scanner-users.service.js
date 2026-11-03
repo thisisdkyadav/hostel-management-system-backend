@@ -92,8 +92,15 @@ const buildEntry = ({ profile, row, machines, statesByPin }) => {
   const faceSha = faceShaOf(face)
   const held = statesByPin.get(key(rollNumber)) || new Map()
   const perMachine = machines.map((machine) => {
-    const state = faceSha ? machineState(held.get(machine.sn), faceSha) : "none"
-    return { alias: machine.alias, state }
+    const machineRow = held.get(machine.sn)
+    const state = faceSha ? machineState(machineRow, faceSha) : "none"
+    const result = machineRow?.lastResult || {}
+    // What the machine said when it refused (ERRORLOG code/message, or its non-zero answer).
+    const refusal =
+      state === "refused"
+        ? { code: result.error || (result.code != null ? String(result.code) : ""), message: result.message || "The machine didn't accept this photo", at: result.at || null }
+        : null
+    return { alias: machine.alias, state, refusal }
   })
   const status = derivePhotoStatus(faceSha, perMachine.map((machine) => machine.state))
   return {

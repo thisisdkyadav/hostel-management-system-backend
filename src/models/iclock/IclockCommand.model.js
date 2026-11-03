@@ -15,6 +15,12 @@ const IclockCommandSchema = new mongoose.Schema(
     status: { type: String, enum: ICLOCK_COMMAND_STATUSES, default: "queued" },
     returnCode: { type: Number, default: null },
     result: { type: String, default: "" },
+    // An ERRORLOG the machine sent about this command after answering it (a Return=0 that failed later).
+    machineError: {
+      code: { type: String, default: "" },
+      message: { type: String, default: "" },
+      at: { type: Date, default: null },
+    },
     // What the command is about, so callers can find their answer (e.g. a roll number).
     ref: { kind: { type: String, default: "" }, key: { type: String, default: "" } },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },

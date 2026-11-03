@@ -13,6 +13,11 @@ import mongoose from "mongoose"
  * pending — commands in flight for this person; cleared as the machine answers.
  * lastResult.faceSha — the photo that answer was about: a photo a machine refused
  *   isn't sent to that machine again until HMS has a different one.
+ * lastResult.error / message — the machine's own error (ERRORLOG ErrCode) when it
+ *   took the photo (Return=0) but then couldn't use it; commandId — which command.
+ * machinePhoto — the photo the MACHINE holds, as it last uploaded it (answer to
+ *   DATA QUERY BIOPHOTO). The file is kept on disk (one per machine+person,
+ *   overwritten); sameAsHms = byte-identical to the HMS face that was sent.
  */
 export const ICLOCK_ROSTER_SOURCES = ["easywdms", "machine", "hms"]
 export const ICLOCK_ROSTER_OPS = ["add", "face", "remove"]
@@ -37,6 +42,15 @@ const IclockDeviceUserSchema = new mongoose.Schema(
       code: { type: Number, default: null },
       at: { type: Date, default: null },
       faceSha: { type: String, default: "" },
+      commandId: { type: Number, default: null },
+      error: { type: String, default: "" },
+      message: { type: String, default: "" },
+    },
+    machinePhoto: {
+      kind: { type: String, default: "" },
+      sha256: { type: String, default: "" },
+      size: { type: Number, default: 0 },
+      at: { type: Date, default: null },
     },
   },
   { timestamps: true },

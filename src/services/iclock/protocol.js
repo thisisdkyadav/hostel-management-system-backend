@@ -98,6 +98,82 @@ export const parseRecords = (text) =>
     return parseKeyValueRecord(line)
   })
 
+const decodeAdditional = (value) => {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64").toString("utf8"))
+    return parsed && typeof parsed === "object" ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+/**
+ * ERRORLOG body → errors. A machine reports here when a command it answered
+ * Return=0 to fails afterwards (captured: a BIOPHOTO it couldn't turn into a
+ * face):
+ *   ERRORLOG ErrCode=D01E0001\tErrMsg=\tDataOrigin=cmd\tCmdId=100877\tAdditional=<base64 {"pin":"…"}>
+ */
+export const parseErrorLog = (text) =>
+  bodyLines(text)
+    .map((line) => {
+      const record = parseKeyValueRecord(line)
+      if (!record.ErrCode) return null
+      const additional = decodeAdditional(record.Additional)
+      const cmdId = Number.parseInt(record.CmdId ?? "", 10)
+      return {
+        code: String(record.ErrCode).trim(),
+        message: String(record.ErrMsg ?? "").trim(),
+        origin: String(record.DataOrigin ?? "").trim(),
+        commandId: Number.isFinite(cmdId) ? cmdId : null,
+        pin: String(additional.pin ?? additional.PIN ?? "").trim(),
+      }
+    })
+    .filter(Boolean)
+
+const field = (record, ...names) => {
+  for (const name of names) {
+    const hit = Object.keys(record).find((k) => k.toLowerCase() === name.toLowerCase())
+    if (hit && record[hit] !== "") return record[hit]
+  }
+  return ""
+}
+
+/**
+ * BIOPHOTO / USERPIC upload (a machine sending a photo it holds, e.g. answering
+ * DATA QUERY BIOPHOTO) → photos. Lines look like
+ *   BIOPHOTO PIN=1\tFileName=1.jpg\tType=9\tSize=12345\tContent=<base64>
+ * Field names are matched loosely (firmwares differ); lines without a decodable
+ * image are returned with buffer null so the caller can log what came.
+ */
+export const parsePhotoUploads = (text, table = "") =>
+  bodyLines(text).map((line) => {
+    const record = parseKeyValueRecord(line)
+    const content = field(record, "Content", "Photo", "Data")
+    let buffer = null
+    if (content) {
+      const decoded = Buffer.from(content.replace(/\s+/g, ""), "base64")
+      if (decoded.length > 3 && decoded[0] === 0xff && decoded[1] === 0xd8) buffer = decoded
+    }
+    const keys = Object.keys(record).filter((k) => !/^(content|photo|data)$/i.test(k))
+    return {
+      kind: String(record._type || table || "").toUpperCase(),
+      pin: String(field(record, "PIN", "Pin") || "").trim(),
+      type: String(field(record, "Type") || ""),
+      fileName: String(field(record, "FileName") || ""),
+      size: Number.parseInt(field(record, "Size"), 10) || null,
+      buffer,
+      fields: Object.fromEntries(keys.map((k) => [k, record[k]])),
+    }
+  })
+
+/** What an ERRORLOG code means, in words for the admin pages. */
+const MACHINE_ERRORS = {
+  D01E0001: "The machine couldn't make a face from this photo",
+}
+export const describeMachineError = (code, message = "") =>
+  message || MACHINE_ERRORS[code] || "The machine reported an error for this photo"
+
 /**
  * devicecmd body → command results. Each line is a query string:
  *   ID=12&Return=0&CMD=DATA

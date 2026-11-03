@@ -20,11 +20,14 @@ import {
   parseDeviceCmdResults,
   parseInfoParam,
   parseOptions,
+  parseErrorLog,
+  parsePhotoUploads,
   parseRecords,
 } from "./protocol.js"
 import { scannerQueries } from "../scanner/scannerQueries.service.js"
 import { readFaceForMachine } from "../dining/scanner-faces.service.js"
-import { applyRosterAnswer, recordMachineUsers } from "./roster.service.js"
+import { applyMachineErrors, applyRosterAnswer, recordMachineUsers } from "./roster.service.js"
+import { saveMachinePhotos } from "./machine-photos.service.js"
 import * as scannerActionService from "../../apps/operations/modules/face-scanner/scanner-action.service.js"
 
 /** Punches further than this from "now" (by machine clock) are stored but never turned into records. */
@@ -154,8 +157,26 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
       await iclockOwner.updateDevice(sn, { "info.options": parseOptions(text(body)), "info.optionsAt": new Date(now) })
       return "OK\n"
     }
-    // ERRORLOG: EasyWDMS stores nothing and answers OK:0 (captured); we do the same.
-    if (table === "ERRORLOG") return "OK:0\n"
+    // ERRORLOG: a command the machine answered Return=0 failed afterwards (e.g. it couldn't
+    // make a face from a photo). Applied to the roster; answered OK:0 like EasyWDMS (captured).
+    if (table === "ERRORLOG") {
+      try {
+        await applyMachineErrors(sn, parseErrorLog(text(body)))
+      } catch (error) {
+        console.error(`[iclock] ${sn}: ERRORLOG not applied:`, error?.message || error)
+      }
+      return "OK:0\n"
+    }
+    // A photo the machine holds (answer to DATA QUERY BIOPHOTO): kept so admins can see it.
+    if (table === "BIOPHOTO" || table === "USERPIC") {
+      const uploads = parsePhotoUploads(text(body), table)
+      try {
+        await saveMachinePhotos(sn, uploads)
+      } catch (error) {
+        console.error(`[iclock] ${sn}: ${table} upload not saved:`, error?.message || error)
+      }
+      return `OK:${uploads.length || 1}\n`
+    }
     // OPERLOG / BIODATA / ATTPHOTO / USERINFO …: acknowledged; the raw log keeps a copy.
     const records = table === "ATTPHOTO" ? [] : parseRecords(text(body))
     // People on the machine (answer to DATA QUERY USERINFO, or someone enrolled at the machine).

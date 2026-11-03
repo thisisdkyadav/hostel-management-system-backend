@@ -88,6 +88,7 @@ describe("list", () => {
     const working = await makeStudent({ name: "Working" })
     const sending = await makeStudent({ name: "Sending" })
     const refused = await makeStudent({ name: "Refused" })
+    const errored = await makeStudent({ name: "Machine Error" })
     const graduated = await makeStudent({ name: "Graduated", status: "Graduated" })
     await giveFace(working.rollNumber, "w1")
     await hold(0, working.rollNumber, { onMachine: true, faceSha: "w1" })
@@ -97,6 +98,9 @@ describe("list", () => {
     await giveFace(refused.rollNumber, "r1")
     await hold(0, refused.rollNumber, { onMachine: true, faceSha: "r1" })
     await hold(1, refused.rollNumber, { onMachine: true, faceSha: "", lastResult: { op: "face", ok: false, code: -12, faceSha: "r1" } })
+    await giveFace(errored.rollNumber, "e1")
+    await hold(0, errored.rollNumber, { onMachine: true, faceSha: "", lastResult: { op: "face", ok: false, code: 0, faceSha: "e1", error: "D01E0001", message: "The machine couldn't make a face from this photo" } })
+    await hold(1, errored.rollNumber, { onMachine: true, faceSha: "e1" })
     await giveFace(graduated.rollNumber, "g1")
 
     const api = await as(await seed.admin())
@@ -105,13 +109,24 @@ describe("list", () => {
     expect(byRoll[graduated.rollNumber]).toBeUndefined()
     expect(byRoll[none.rollNumber]).toMatchObject({ name: "No Photo", photoStatus: "missing", photo: { present: false } })
     expect(byRoll[working.rollNumber]).toMatchObject({ photoStatus: "valid", photo: { present: true, source: "request", sourceLabel: "Student upload" } })
-    expect(byRoll[working.rollNumber].machines).toEqual([{ alias: "m2", state: "ok" }, { alias: "m3", state: "ok" }])
+    expect(byRoll[working.rollNumber].machines).toEqual([
+      { alias: "m2", state: "ok", refusal: null },
+      { alias: "m3", state: "ok", refusal: null },
+    ])
     expect(byRoll[sending.rollNumber]).toMatchObject({ photoStatus: "pending", machines: [{ alias: "m2", state: "ok" }, { alias: "m3", state: "waiting" }] })
-    expect(byRoll[refused.rollNumber]).toMatchObject({ photoStatus: "failed", machines: [{ alias: "m2", state: "ok" }, { alias: "m3", state: "refused" }] })
+    expect(byRoll[refused.rollNumber]).toMatchObject({
+      photoStatus: "failed",
+      machines: [{ alias: "m2", state: "ok" }, { alias: "m3", state: "refused", refusal: { code: "-12", message: "The machine didn't accept this photo" } }],
+    })
+    // Took the photo (Return=0), then reported it couldn't use it: the machine's error is shown.
+    expect(byRoll[errored.rollNumber]).toMatchObject({
+      photoStatus: "failed",
+      machines: [{ alias: "m2", state: "refused", refusal: { code: "D01E0001", message: "The machine couldn't make a face from this photo" } }, { alias: "m3", state: "ok", refusal: null }],
+    })
     expect(data.counts).toMatchObject({ valid: expect.any(Number), missing: expect.any(Number) })
     expect(data.machines).toEqual(["m2", "m3"])
 
-    expect((await listFor(api, { status: "failed" })).items.map((item) => item.rollNumber)).toEqual([refused.rollNumber])
+    expect((await listFor(api, { status: "failed" })).items.map((item) => item.rollNumber).sort()).toEqual([refused.rollNumber, errored.rollNumber].sort())
     expect((await listFor(api, { search: working.rollNumber })).items.map((item) => item.rollNumber)).toEqual([working.rollNumber])
     expect((await api.get(BASE).query({ status: "notInHms" })).status).toBe(400)
   })

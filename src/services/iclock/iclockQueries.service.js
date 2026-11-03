@@ -76,6 +76,15 @@ export const iclockQueries = {
     return IclockDeviceUser.find({ sn, "lastResult.ok": false }).sort({ "lastResult.at": -1 }).limit(limit).lean()
   },
 
+  async findCommand(sn, commandId) {
+    return IclockCommand.findOne({ sn, commandId }).lean()
+  },
+
+  /** Saved ERRORLOG uploads, oldest first (replaying errors that arrived before HMS read them). */
+  async listErrorLogUploads() {
+    return IclockRequestLog.find({ method: "POST", path: "cdata", query: /table=ERRORLOG/i }).select("sn body at").sort({ at: 1 }).lean()
+  },
+
   async listRequestLogs({ sn, limit = 100 } = {}) {
     return IclockRequestLog.find(sn ? { sn } : {}).sort({ at: -1 }).limit(limit).lean()
   },

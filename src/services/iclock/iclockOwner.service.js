@@ -141,16 +141,65 @@ export const iclockOwner = {
    * The machine answered one roster command. `kind` is the command's ref.kind
    * (roster-user | roster-face | roster-remove). Returns the updated row.
    */
-  async applyRosterResult(sn, pin, { kind, commandId, ok, code }) {
+  async applyRosterResult(sn, pin, { kind, commandId, ok, code, error = "", message = "" }) {
     const row = await IclockDeviceUser.findOne({ sn, pin }).lean()
     if (!row) return null
-    const set = { lastResult: { op: kind.replace("roster-", ""), ok, code, at: new Date(), faceSha: row.pending?.faceSha || "" } }
+    const set = {
+      lastResult: { op: kind.replace("roster-", ""), ok, code, at: new Date(), faceSha: row.pending?.faceSha || "", commandId, error, message },
+    }
+    // "User added" says nothing about the photo: keep a photo error the machine already reported.
+    if (kind === "roster-user" && row.lastResult?.error) delete set.lastResult
+    // The machine's error for this very command already arrived (ERRORLOG before the answer): it stands.
+    if (row.lastResult?.error && row.lastResult.commandId === commandId) delete set.lastResult
     if (ok && kind === "roster-user") set.onMachine = true
     if (ok && kind === "roster-face") set.faceSha = row.pending?.faceSha || ""
     if (ok && kind === "roster-remove") Object.assign(set, { onMachine: false, faceSha: "" })
     const remaining = (row.pending?.commandIds || []).filter((id) => id !== commandId)
     // A failed step ends the whole operation: the next sync run plans it again.
     set.pending = remaining.length && ok ? { ...row.pending, commandIds: remaining } : { op: "", commandIds: [], faceSha: "", at: null }
+    return IclockDeviceUser.findOneAndUpdate({ sn, pin }, { $set: set }, { returnDocument: "after" }).lean()
+  },
+
+  /** The machine uploaded the photo it holds for this person (file saved by the caller). */
+  async setMachinePhoto(sn, pin, { kind, sha256, size }) {
+    return IclockDeviceUser.updateOne(
+      { sn, pin },
+      { $set: { machinePhoto: { kind, sha256, size, at: new Date() } }, $setOnInsert: { sn, pin, onMachine: true, source: "machine", faceSha: "" } },
+      { upsert: true },
+    )
+  },
+
+  /** Remember an ERRORLOG on its command. Returns the command (null when HMS never sent it). */
+  async recordCommandError(sn, commandId, { code, message }) {
+    return IclockCommand.findOneAndUpdate(
+      { sn, commandId },
+      { $set: { machineError: { code, message, at: new Date() } } },
+      { returnDocument: "after" },
+    ).lean()
+  },
+
+  /**
+   * The machine took a photo command (Return=0, or not answered yet) and then
+   * reported it couldn't use it. Only applies when that command is the one in
+   * flight or the last one answered for this person, so a late or replayed
+   * error never marks a newer photo as refused. Returns the updated row or null.
+   */
+  async applyMachineError(sn, pin, { commandId, error, message }) {
+    const row = await IclockDeviceUser.findOne({ sn, pin }).lean()
+    if (!row) return null
+    const inFlight = (row.pending?.commandIds || []).includes(commandId)
+    const last = row.lastResult || {}
+    // Rows answered before commandId was recorded: the last answer must be a photo.
+    const lastAnswer = last.commandId === commandId || (last.commandId == null && last.op === "face" && last.ok === true)
+    if (!inFlight && !lastAnswer) return null
+    const refusedSha = inFlight ? row.pending.faceSha : last.faceSha || row.faceSha
+    if (!refusedSha) return null
+    const set = {
+      lastResult: { op: "face", ok: false, code: last.code ?? null, at: new Date(), faceSha: refusedSha, commandId, error, message },
+    }
+    // The machine has no usable face from this photo.
+    if (row.faceSha === refusedSha) set.faceSha = ""
+    if (inFlight) set.pending = { op: "", commandIds: [], faceSha: "", at: null }
     return IclockDeviceUser.findOneAndUpdate({ sn, pin }, { $set: set }, { returnDocument: "after" }).lean()
   },
 

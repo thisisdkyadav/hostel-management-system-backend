@@ -24,7 +24,7 @@
  */
 import { iclockOwner } from "./iclockOwner.service.js"
 import { iclockQueries } from "./iclockQueries.service.js"
-import { bioPhotoCommand, deleteUserCommand, userInfoCommand } from "./protocol.js"
+import { bioPhotoCommand, deleteUserCommand, describeMachineError, userInfoCommand } from "./protocol.js"
 import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
 import { bioPhotoQueries } from "../dining/bioPhotoQueries.service.js"
 import { faceUrlFor } from "../dining/scanner-faces.service.js"
@@ -191,12 +191,35 @@ export const queueRemove = async (sn, person, createdBy = null) => {
 /** Called by the receiver after a devicecmd answer. */
 export const applyRosterAnswer = async (sn, command) => {
   if (!command?.ref?.kind?.startsWith("roster-") || !command.ref.key) return null
+  const error = command.machineError?.code || ""
   return iclockOwner.applyRosterResult(sn, command.ref.key, {
     kind: command.ref.kind,
     commandId: command.commandId,
-    ok: command.returnCode === 0,
+    // Return=0 but the machine already reported it couldn't use it (ERRORLOG came first).
+    ok: command.returnCode === 0 && !error,
     code: command.returnCode,
+    error,
+    message: error ? describeMachineError(error, command.machineError.message) : "",
   })
+}
+
+/**
+ * ERRORLOG upload: the machine took a command and then failed it. A photo
+ * (roster-face) error marks that photo refused on that machine, with the
+ * machine's error, so it shows on the Scanner Photos page and isn't resent.
+ * Returns how many people it changed.
+ */
+export const applyMachineErrors = async (sn, errors) => {
+  let changed = 0
+  for (const error of errors) {
+    if (error.commandId == null) continue
+    const message = describeMachineError(error.code, error.message)
+    const command = await iclockOwner.recordCommandError(sn, error.commandId, { code: error.code, message: error.message })
+    if (command?.ref?.kind !== "roster-face" || !command.ref.key) continue
+    const row = await iclockOwner.applyMachineError(sn, command.ref.key, { commandId: command.commandId, error: error.code, message })
+    if (row) changed++
+  }
+  return changed
 }
 
 // ---- Running ----------------------------------------------------------------

@@ -11,6 +11,10 @@ import { seed } from "../../helpers/seed.js"
 import { createIclockApp } from "../../../src/apps/iclock/iclock.app.js"
 import { iclockOwner } from "../../../src/services/iclock/iclockOwner.service.js"
 import { planRoster, runRosterSync, STALE_AFTER_MS } from "../../../src/services/iclock/roster.service.js"
+import { parseErrorLog } from "../../../src/services/iclock/protocol.js"
+import { readMachinePhoto } from "../../../src/services/iclock/machine-photos.service.js"
+import os from "node:os"
+import path from "node:path"
 import { faceToken } from "../../../src/services/dining/scanner-faces.service.js"
 import { DiningScannerUser, IclockCommand, IclockDeviceUser, StudentProfile } from "../../../src/models/index.js"
 
@@ -278,3 +282,110 @@ describe("roster sync through the receiver", () => {
     expect((await row(sn, pin)).onMachine).toBe(false)
   })
 })
+
+/** An ERRORLOG upload exactly as SpeedFace-V5L machines send it (captured). */
+const errorLog = (sn, commandId, pin, code = "D01E0001") => {
+  const additional = Buffer.from(`{\n\t"pin":\t"${pin}"\n}`).toString("base64")
+  return request(app)
+    .post(`/iclock/cdata?SN=${sn}&table=ERRORLOG&Stamp=9999`)
+    .set("Content-Type", "text/plain")
+    .send(`ERRORLOG ErrCode=${code}\tErrMsg=\tDataOrigin=cmd\tCmdId=${commandId}\tAdditional=${additional}\n`)
+}
+
+describe("machine error reports (ERRORLOG)", () => {
+  it("parses the captured format", () => {
+    const additional = Buffer.from('{\n\t"pin":\t"240001072"\n}').toString("base64")
+    expect(parseErrorLog(`ERRORLOG ErrCode=D01E0001\tErrMsg=\tDataOrigin=cmd\tCmdId=100877\tAdditional=${additional}\n`)).toEqual([
+      { code: "D01E0001", message: "", origin: "cmd", commandId: 100877, pin: "240001072" },
+    ])
+    expect(parseErrorLog("garbage\n")).toEqual([])
+  })
+
+  const setup = async () => {
+    const sn = await machine()
+    const api = await as(await seed.admin())
+    await api.patch(`${BASE}/${sn}`).send({ sync: true })
+    const pin = await student()
+    await runRosterSync(sn)
+    return { sn, pin }
+  }
+
+  it("a photo the machine took (Return=0) and then reported an error for is refused and not resent", async () => {
+    const { sn, pin } = await setup()
+    const commands = await drain(sn) // everything answered Return=0
+    const photo = commands.find((c) => c.command.startsWith(`DATA UPDATE BIOPHOTO PIN=${pin}`))
+    expect((await row(sn, pin)).faceSha).toBe(`sha-${pin}`)
+
+    const res = await errorLog(sn, photo.id, pin)
+    expect(res.status).toBe(200)
+    expect(res.text).toBe("OK:0\n")
+    const after = await row(sn, pin)
+    expect(after.lastResult).toMatchObject({ ok: false, error: "D01E0001", faceSha: `sha-${pin}`, commandId: photo.id })
+    expect(after.lastResult.message).toMatch(/couldn't make a face/)
+    expect(after.faceSha).toBe("")
+    expect(after.onMachine).toBe(true)
+    expect((await IclockCommand.findOne({ sn, commandId: photo.id }).lean()).machineError.code).toBe("D01E0001")
+
+    const again = await runRosterSync(sn)
+    expect(again.refused).toBe(1)
+    expect(forPin(await drain(sn), pin)).toEqual([])
+
+    // A new photo is sent.
+    await DiningScannerUser.updateOne({ rollNumber: pin }, { $set: { "face.sha256": `new-${pin}` } })
+    await runRosterSync(sn)
+    expect(forPin(await drain(sn), pin).map((c) => c.split(" PIN")[0])).toEqual(["DATA UPDATE BIOPHOTO"])
+    expect((await row(sn, pin)).faceSha).toBe(`new-${pin}`)
+  })
+
+  it("an error that arrives before the Return=0 answer still wins", async () => {
+    const { sn, pin } = await setup()
+    const commands = await poll(sn)
+    const photo = commands.find((c) => c.command.startsWith(`DATA UPDATE BIOPHOTO PIN=${pin}`))
+    await errorLog(sn, photo.id, pin)
+    const body = commands.map((c) => `ID=${c.id}&Return=0&CMD=DATA`).join("\n")
+    await request(app).post(`/iclock/devicecmd?SN=${sn}`).set("Content-Type", "text/plain").send(body)
+    const after = await row(sn, pin)
+    expect(after.onMachine).toBe(true)
+    expect(after.faceSha).toBe("")
+    expect(after.lastResult).toMatchObject({ ok: false, error: "D01E0001", faceSha: `sha-${pin}` })
+    expect((await runRosterSync(sn)).refused).toBe(1)
+  })
+
+  it("an old error never marks a newer photo refused, and unknown commands are ignored", async () => {
+    const { sn, pin } = await setup()
+    const first = (await drain(sn)).find((c) => c.command.startsWith(`DATA UPDATE BIOPHOTO PIN=${pin}`))
+    await DiningScannerUser.updateOne({ rollNumber: pin }, { $set: { "face.sha256": `new-${pin}` } })
+    await runRosterSync(sn)
+    await drain(sn)
+    expect((await row(sn, pin)).faceSha).toBe(`new-${pin}`)
+
+    await errorLog(sn, first.id, pin) // late error about the old photo
+    await errorLog(sn, 999999, pin) // a command HMS never sent
+    const after = await row(sn, pin)
+    expect(after.faceSha).toBe(`new-${pin}`)
+    expect(after.lastResult.ok).toBe(true)
+  })
+})
+
+describe("machine photo uploads (BIOPHOTO)", () => {
+  it("saves the photo a machine uploads, one file per machine and person", async () => {
+    process.env.ICLOCK_MACHINE_PHOTO_DIR = path.join(os.tmpdir(), `iclock-photos-${uniq()}`)
+    const sn = await machine()
+    const pin = await student()
+    const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from("fake-jpeg-body")])
+    const res = await request(app)
+      .post(`/iclock/cdata?SN=${sn}&table=BIOPHOTO`)
+      .set("Content-Type", "text/plain")
+      .send(`BIOPHOTO PIN=${pin}\tFileName=${pin}.jpg\tType=9\tSize=${jpeg.length}\tContent=${jpeg.toString("base64")}\n`)
+    expect(res.status).toBe(200)
+    expect(res.text).toBe("OK:1\n")
+    expect((await readMachinePhoto(sn, pin)).equals(jpeg)).toBe(true)
+    expect((await row(sn, pin)).machinePhoto).toMatchObject({ kind: "BIOPHOTO", size: jpeg.length })
+
+    // Something that isn't an image is acknowledged and ignored.
+    const odd = await request(app).post(`/iclock/cdata?SN=${sn}&table=BIOPHOTO`).set("Content-Type", "text/plain").send(`BIOPHOTO PIN=${pin}\tContent=bm90IGFuIGltYWdl\n`)
+    expect(odd.status).toBe(200)
+    expect((await readMachinePhoto(sn, pin)).equals(jpeg)).toBe(true)
+  })
+})
+
