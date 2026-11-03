@@ -4,6 +4,7 @@ import { getRebateOverview, getRebateDay, getRebates } from "./dining-caterer.re
 import { getDailyReport } from "./dining-caterer.daily-report.service.js"
 import { getCatererScope } from "./dining-caterer.service.js"
 import { getCatererMenu } from "../dining-menu/dining-menu.service.js"
+import { verifyDiningMealOnBehalf } from "../dining-meal-verification/dining-meal-verification.service.js"
 
 export const mealRecordOptions = asyncHandler(async (req, res) => {
   const result = await getMealRecordOptions({ user: req.user, query: req.query })
@@ -23,6 +24,11 @@ export const mealPulse = asyncHandler(async (req, res) => {
 })
 export const mealFeed = asyncHandler(async (req, res) => {
   const result = await getMealFeed({ user: req.user, query: req.query })
+  res.status(result.statusCode).json({ success: result.success, message: result.message, data: result.data })
+})
+/** Admin or Dining Office: check a student in by roll number from the live feed. */
+export const manualCheckIn = asyncHandler(async (req, res) => {
+  const result = await verifyDiningMealOnBehalf({ rollNumber: req.body?.rollNumber, catererId: req.body?.catererId || "" })
   res.status(result.statusCode).json({ success: result.success, message: result.message, data: result.data })
 })
 export const rebateOverview = asyncHandler(async (req, res) => {

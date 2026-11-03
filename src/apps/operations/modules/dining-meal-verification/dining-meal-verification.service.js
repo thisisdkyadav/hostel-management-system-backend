@@ -423,6 +423,32 @@ export const verifyDiningMeal = async (options = {}) => {
   return error("Meal verification is busy. Please retry the face scan.", 503)
 }
 
+/**
+ * Admin or Dining Office checking a student in by roll number from the live feed.
+ * With a caterer picked, the scan is recorded at that caterer (a student allocated
+ * elsewhere shows up as "wrong caterer", like at the machine). Without one, it is
+ * recorded at the caterer the student is allocated to this period.
+ */
+export const verifyDiningMealOnBehalf = async ({ rollNumber, catererId = "" } = {}) => {
+  const roll = normalizeRollNumber(rollNumber)
+  if (!roll) return badRequest("Roll number is required")
+  if (catererId) {
+    if (!mongoose.Types.ObjectId.isValid(catererId)) return badRequest("Valid caterer is required")
+    return verifyDiningMeal({ rollNumber: roll, catererId, source: "manual" })
+  }
+
+  const now = new Date()
+  const [period, studentProfile] = await Promise.all([
+    getActiveDiningPeriodForDate(now, { lean: true }),
+    studentProfileQueries.findByRollNumberCaseInsensitiveWithUserFull(roll),
+  ])
+  if (!studentProfile) return badRequest(`No student with roll number ${roll}`)
+  if (!period) return badRequest("No dining period is running today")
+  const allocation = await allocationQueries.findAllocation(period._id, studentProfile.userId?._id || studentProfile.userId)
+  if (!allocation?.catererId) return badRequest(`${roll} has no caterer this period. Pick a caterer first to record it there.`)
+  return verifyDiningMeal({ rollNumber: roll, catererId: String(allocation.catererId), scannedAt: now, source: "manual" })
+}
+
 export const getDiningMealVerificationFeed = async ({
   catererId,
   periodId,
