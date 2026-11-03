@@ -280,6 +280,14 @@ export const studentProfileQueries = {
   },
 
   /** Every profile's roll number, status and name (face-machine roster sync), lean. */
+  /** Active students for the scanner-photo page: roll, user id, name and profile photo. */
+  async findActivePhotoProfiles({ rollNumber } = {}) {
+    return StudentProfile.find({ status: "Active", rollNumber: rollNumber ? rollNumber : { $nin: [null, ""] } })
+      .select("rollNumber userId")
+      .populate({ path: "userId", select: "name profileImage" })
+      .lean()
+  },
+
   async findRosterProfiles() {
     return StudentProfile.find({ rollNumber: { $nin: [null, ""] } })
       .select("rollNumber status userId")

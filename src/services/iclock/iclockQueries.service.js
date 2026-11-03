@@ -53,6 +53,13 @@ export const iclockQueries = {
 
   // ---- Roster ----
 
+  /** What each of these machines holds for every person (or one pin), for the scanner-photo page. */
+  async listRosterStates(sns, { pin } = {}) {
+    return IclockDeviceUser.find({ sn: { $in: sns }, ...(pin ? { pin } : {}) })
+      .select("sn pin onMachine faceSha pending.op lastResult")
+      .lean()
+  },
+
   async listRoster(sn) {
     return IclockDeviceUser.find({ sn }).select("pin name onMachine source faceSha pending lastResult").lean()
   },

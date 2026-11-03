@@ -11,6 +11,8 @@ import mongoose from "mongoose"
  *   hms      — HMS added them
  * faceSha — sha256 of the photo HMS believes the machine has ("" = unknown/none).
  * pending — commands in flight for this person; cleared as the machine answers.
+ * lastResult.faceSha — the photo that answer was about: a photo a machine refused
+ *   isn't sent to that machine again until HMS has a different one.
  */
 export const ICLOCK_ROSTER_SOURCES = ["easywdms", "machine", "hms"]
 export const ICLOCK_ROSTER_OPS = ["add", "face", "remove"]
@@ -34,6 +36,7 @@ const IclockDeviceUserSchema = new mongoose.Schema(
       ok: { type: Boolean, default: null },
       code: { type: Number, default: null },
       at: { type: Date, default: null },
+      faceSha: { type: String, default: "" },
     },
   },
   { timestamps: true },

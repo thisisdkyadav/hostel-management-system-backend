@@ -124,32 +124,6 @@ export const bioPhotoOwner = {
 
   // ---------------------------------------------------------------- scanner users
 
-  /**
-   * Sync upserts: each row is { rollNumber, set } and becomes an upserted $set.
-   * Rows are written in chunks so a 4–5k sync stays one round trip per chunk.
-   */
-  async upsertScannerUsers(rows = [], { chunkSize = 1000 } = {}) {
-    let written = 0
-    for (let index = 0; index < rows.length; index += chunkSize) {
-      const ops = rows.slice(index, index + chunkSize).map(({ rollNumber, set }) => ({
-        updateOne: { filter: { rollNumber }, update: { $set: { rollNumber, ...set } }, upsert: true },
-      }))
-      if (!ops.length) continue
-      const result = await DiningScannerUser.bulkWrite(ops, { ordered: false })
-      written += (result.upsertedCount || 0) + (result.modifiedCount || 0)
-    }
-    return written
-  },
-
-  /** Rows the sync no longer found in EasyWDMS stay, marked off-scanner. */
-  async markOffScanner(presentRollNumbers = [], now = new Date()) {
-    const result = await DiningScannerUser.updateMany(
-      { rollNumber: { $nin: presentRollNumbers }, onScanner: true },
-      { $set: { onScanner: false, syncedAt: now } }
-    )
-    return result.modifiedCount || 0
-  },
-
   /** Upsert one scanner user's fields; returns the lean doc. */
   async upsertScannerUser(rollNumber, set = {}) {
     return DiningScannerUser.findOneAndUpdate(

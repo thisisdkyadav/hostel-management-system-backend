@@ -1,6 +1,6 @@
 /**
  * Face-scanner bio-photo requests: student upload + request, Admin/Office
- * review, push to EasyWDMS (client stubbed), and the EasyWDMS login cipher.
+ * review; approving makes the photo the student's HMS scanner face (a JPEG).
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from "vitest"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
@@ -10,14 +10,8 @@ import { createStudentProfile } from "../../helpers/seed/students.js"
 import { fileAccessService } from "../../../src/services/storage/file-access.service.js"
 import { storageClient } from "../../../src/services/storage/storage.client.js"
 import { validateBioPhotoBuffer, readBioPhotoSize } from "../../../src/services/dining/bioPhotoImage.js"
-import {
-  EasyWdmsClient,
-  EasyWdmsError,
-  buildLoginPayload,
-  extractCsrfInput,
-  rc4,
-  setEasyWdmsClient,
-} from "../../../src/services/easywdms/easywdms.client.js"
+import sharp from "sharp"
+import { DiningScannerUser } from "../../../src/models/index.js"
 import { bioPhotoOwner } from "../../../src/services/dining/bioPhotoOwner.service.js"
 
 const STUDENT_BASE = "/api/v1/students/dining/bio-photo"
@@ -45,6 +39,9 @@ const png = (width, height) => {
   buffer.writeUInt32BE(height, 20)
   return buffer
 }
+/** A real, decodable photo (the request is checked by actually converting it). */
+const photo = (width = 640, height = 800, format = "jpeg") =>
+  sharp({ create: { width, height, channels: 3, background: { r: 150, g: 110, b: 90 } } })[format]().toBuffer()
 const gif = () => Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00", "latin1")
 
 // ---- storage stub: ref -> { policy, actorId, buffer } ----------------------
@@ -73,28 +70,10 @@ const addFile = (actorId, buffer, policy = POLICY) => {
   return ref
 }
 
-// ---- fake EasyWDMS client ---------------------------------------------------
-const fakeScanner = ({ configured = true, fail = "" } = {}) => {
-  const calls = []
-  const client = {
-    configured,
-    importBioPhoto: vi.fn(async (args) => {
-      calls.push(args)
-      if (fail) throw new EasyWdmsError(fail)
-      return { ok: true }
-    }),
-  }
-  setEasyWdmsClient(client)
-  return { client, calls }
-}
-
 beforeAll(async () => {
   await setupTestDb()
 })
-afterAll(async () => {
-  setEasyWdmsClient(null)
-  await teardownTestDb()
-})
+afterAll(teardownTestDb)
 beforeEach(() => stubStorage())
 afterEach(() => {
   vi.restoreAllMocks()
@@ -108,8 +87,8 @@ const makeStudent = async (name = "Bio Student") => {
   return { user, rollNumber, api: await as(user) }
 }
 
-const createRequest = async (student, buffer = jpeg(640, 800), note = "") => {
-  const photoRef = addFile(student.user._id, buffer)
+const createRequest = async (student, buffer, note = "") => {
+  const photoRef = addFile(student.user._id, buffer || (await photo()))
   return student.api.post(STUDENT_BASE).send({ photoRef, note })
 }
 
@@ -158,7 +137,7 @@ describe("upload endpoint", () => {
 describe("student requests", () => {
   it("creates a pending request, shows it, and blocks a second one", async () => {
     const student = await makeStudent()
-    const res = await createRequest(student, png(600, 600), "  New haircut  ")
+    const res = await createRequest(student, await photo(600, 600, "png"), "  New haircut  ")
     expect(res.status).toBe(201)
     expect(res.body.data.request).toMatchObject({ status: "pending", rollNumber: student.rollNumber, note: "New haircut" })
     expect(res.body.data.request.photo).toMatchObject({ contentType: "image/png", width: 600, height: 600 })
@@ -208,7 +187,6 @@ describe("review (Admin + Dining Office)", () => {
   })
 
   it("grants Admin and Dining Office, refuses caterers, students and denied office", async () => {
-    fakeScanner()
     expect((await adminApi.get(BASE)).status).toBe(200)
     expect((await (await as(await seed.createUser({ role: "Dining", subRole: "Office" }))).get(BASE)).status).toBe(200)
     expect((await (await as(await seed.createUser({ role: "Dining", subRole: "Caterer" }))).get(BASE)).status).toBe(403)
@@ -218,7 +196,6 @@ describe("review (Admin + Dining Office)", () => {
   })
 
   it("lists pending oldest first with student details, counts and search", async () => {
-    fakeScanner()
     const first = await makeStudent("Zara Pending")
     const second = await makeStudent("Yusuf Pending")
     await createRequest(first)
@@ -228,60 +205,59 @@ describe("review (Admin + Dining Office)", () => {
     const names = res.body.data.items.map((item) => item.student.name)
     expect(names).toEqual(["Zara Pending", "Yusuf Pending"])
     expect(res.body.data.counts.pending).toBeGreaterThanOrEqual(2)
-    expect(res.body.data.scanner).toEqual({ configured: true })
     const byRoll = await adminApi.get(BASE).query({ search: second.rollNumber })
     expect(byRoll.body.data.items.map((item) => item.rollNumber)).toEqual([second.rollNumber])
     expect((await adminApi.get(BASE).query({ status: "nope" })).status).toBe(400)
   })
 
-  it("approve uploads to the scanner software and marks it approved", async () => {
-    const { calls } = fakeScanner()
+  it("approve makes the photo the student's scanner face, as a JPEG", async () => {
     const student = await makeStudent()
-    const photo = jpeg(700, 900)
-    const { body } = await createRequest(student, photo)
+    const { body } = await createRequest(student, await photo(1200, 1600, "png"))
     const res = await adminApi.post(`${BASE}/${body.data.request.id}/approve`)
     expect(res.status).toBe(200)
     expect(res.body.data.request).toMatchObject({ status: "approved", lastError: "", attempts: 1 })
     expect(res.body.data.request.pushedAt).toBeTruthy()
     expect(res.body.data.request.reviewedBy).toBeTruthy()
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ rollNumber: student.rollNumber, contentType: "image/jpeg", overwrite: true })
-    expect(Buffer.compare(calls[0].buffer, photo)).toBe(0)
+
+    const row = await DiningScannerUser.findOne({ rollNumber: student.rollNumber }).lean()
+    expect(row.face).toMatchObject({ source: "request", contentType: "image/jpeg", width: 768, height: 1024 })
+    expect(String(row.studentUserId)).toBe(String(student.user._id))
+    expect((await sharp(files.get(row.face.ref).buffer).metadata()).format).toBe("jpeg")
 
     expect((await adminApi.post(`${BASE}/${body.data.request.id}/approve`)).status).toBe(409)
     const view = await student.api.get(STUDENT_BASE)
     expect(view.body.data.current.status).toBe("approved")
   })
 
-  it("a failed upload keeps the request pending with the error; retry then succeeds", async () => {
-    fakeScanner({ fail: "Face scanner software: Face not detected" })
+  it("a photo that can't be saved keeps the request pending with the reason; retry then succeeds", async () => {
     const student = await makeStudent()
     const { body } = await createRequest(student)
     const id = body.data.request.id
+    const read = fileAccessService.getBuffer.getMockImplementation()
+    fileAccessService.getBuffer.mockImplementation(async () => {
+      throw new Error("storage down")
+    })
     const res = await adminApi.post(`${BASE}/${id}/approve`)
-    expect(res.status).toBe(502)
-    expect(res.body.message).toBe("Face scanner software: Face not detected")
+    expect(res.status).toBe(422)
+    expect(res.body.message).toBe("Couldn't read the photo from storage")
     const pending = await adminApi.get(BASE).query({ search: student.rollNumber })
-    expect(pending.body.data.items[0]).toMatchObject({ status: "pending", lastError: "Face scanner software: Face not detected", attempts: 1 })
+    expect(pending.body.data.items[0]).toMatchObject({ status: "pending", lastError: "Couldn't read the photo from storage", attempts: 1 })
 
-    fakeScanner()
+    fileAccessService.getBuffer.mockImplementation(read)
     const retry = await adminApi.post(`${BASE}/${id}/approve`)
     expect(retry.status).toBe(200)
     expect(retry.body.data.request).toMatchObject({ status: "approved", lastError: "", attempts: 2 })
   })
 
-  it("approve needs the scanner software to be configured", async () => {
-    fakeScanner({ configured: false })
+  it("a stored file that isn't really a photo is refused when the student sends it", async () => {
     const student = await makeStudent()
-    const { body } = await createRequest(student)
-    const res = await adminApi.post(`${BASE}/${body.data.request.id}/approve`)
-    expect(res.status).toBe(503)
-    const list = await adminApi.get(BASE)
-    expect(list.body.data.scanner).toEqual({ configured: false })
+    // Right header, nothing behind it: passes the header check, fails the conversion.
+    const res = await createRequest(student, jpeg(640, 800))
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/couldn't be read/)
   })
 
   it("only one push at a time: a claimed request can't be approved or rejected again", async () => {
-    fakeScanner()
     const student = await makeStudent()
     const { body } = await createRequest(student)
     const id = body.data.request.id
@@ -305,96 +281,5 @@ describe("review (Admin + Dining Office)", () => {
     const view = await student.api.get(STUDENT_BASE)
     expect(view.body.data.current).toMatchObject({ status: "rejected", reviewComment: "Face is covered" })
     expect((await createRequest(student)).status).toBe(201)
-  })
-})
-
-describe("EasyWDMS client", () => {
-  it("rc4 round-trips and the login payload is base64 of the cipher text", () => {
-    const text = "csrfmiddlewaretoken=abc&username=a&password=b&template10=&login_type="
-    expect(rc4("key123", rc4("key123", text))).toBe(text)
-    const payload = buildLoginPayload({ csrfToken: "abc", username: "a", password: "b" })
-    expect(Buffer.from(payload, "base64").toString("latin1")).toBe(rc4("abc", text))
-  })
-
-  it("matches a vector produced by the portal's own zkEncrypt()", () => {
-    // Generated with the portal's easy-login.js (zkEncrypt) on 2026-11-02.
-    const csrf = "gBOLlojMW8XLhxi3I1uOZRBp5dh5CN2ZrqDnag8LbtgkuCBpDBKJIrq8n4QL92aA"
-    expect(buildLoginPayload({ csrfToken: csrf, username: "hms bot@x", password: "p@ss wörd&=" }).slice(0, 40)).toBe(
-      "nHArl1zmP2/SO86ASzlfr09HNoZKqQs9bM2qiCaT"
-    )
-  })
-
-  it("reads the csrf input from the login page", () => {
-    expect(extractCsrfInput('<input type="hidden" name="csrfmiddlewaretoken" value="tok123">')).toBe("tok123")
-  })
-
-  const response = (status, { json, html, cookies = [], location } = {}) => {
-    const headers = new Headers()
-    if (location) headers.set("location", location)
-    return {
-      status,
-      ok: status >= 200 && status < 300,
-      headers: Object.assign(headers, { getSetCookie: () => cookies }),
-      json: async () => {
-        if (json === undefined) throw new Error("not json")
-        return json
-      },
-      text: async () => html || "",
-    }
-  }
-
-  const loginResponses = () => [
-    response(200, { html: '<input type="hidden" name="csrfmiddlewaretoken" value="formtok">', cookies: ["csrftoken=c1; Path=/"] }),
-    response(200, { json: { ret: 0 }, cookies: ["sessionid=s1; Path=/; HttpOnly", "csrftoken=c2; Path=/"] }),
-  ]
-
-  it("logs in, posts the import with the roll-number file name, and reports success", async () => {
-    const requests = []
-    const queue = [...loginResponses(), response(200, { json: { code: 0, msg: "" } })]
-    const fetchImpl = async (url, init) => {
-      requests.push({ url, init })
-      return queue.shift()
-    }
-    const client = new EasyWdmsClient({ baseUrl: "http://wdms", username: "bot", password: "pw", fetchImpl })
-    await expect(client.importBioPhoto({ rollNumber: "230008001", buffer: jpeg(640, 800), contentType: "image/jpeg" })).resolves.toEqual({ ok: true })
-
-    expect(requests.map((r) => `${r.init.method} ${r.url}`)).toEqual([
-      "GET http://wdms/login/",
-      "POST http://wdms/login/",
-      "POST http://wdms/iclock/biophoto/action/",
-    ])
-    const login = new URLSearchParams(requests[1].init.body)
-    expect(login.get("csrfmiddlewaretoken")).toBe("formtok")
-    expect(login.get("encrypt_data")).toBe(buildLoginPayload({ csrfToken: "formtok", username: "bot", password: "pw" }))
-
-    const upload = requests[2].init
-    expect(upload.headers.Cookie).toContain("sessionid=s1")
-    expect(upload.headers["X-CSRFToken"]).toBe("c2")
-    expect(upload.body.get("action_name")).toBe("496d706f727442696f50686f746f")
-    expect(upload.body.get("overwrite")).toBe("1")
-    expect(upload.body.get("ignore_error")).toBe("0")
-    expect(upload.body.get("bio_photo").name).toBe("230008001.jpg")
-  })
-
-  it("re-logs in once when the session expired, and surfaces EasyWDMS errors", async () => {
-    const queue = [
-      ...loginResponses(),
-      response(302, { location: "/login/?next=/iclock/biophoto/action/" }),
-      ...loginResponses(),
-      response(200, { json: { code: -1, msg: "bioPhotoImport_error_userNoFound_X1" } }),
-    ]
-    const client = new EasyWdmsClient({ baseUrl: "http://wdms", username: "bot", password: "pw", fetchImpl: async () => queue.shift() })
-    await expect(client.importBioPhoto({ rollNumber: "X1", buffer: png(400, 400), contentType: "image/png" })).rejects.toThrow(
-      "Face scanner software: bioPhotoImport_error_userNoFound_X1"
-    )
-    expect(queue).toHaveLength(0)
-  })
-
-  it("reports bad credentials and refuses odd roll numbers", async () => {
-    const queue = [loginResponses()[0], response(200, { json: { ret: -1, message: "bad" } })]
-    const client = new EasyWdmsClient({ baseUrl: "http://wdms", username: "bot", password: "pw", fetchImpl: async () => queue.shift() })
-    await expect(client.importBioPhoto({ rollNumber: "R1", buffer: png(400, 400), contentType: "image/png" })).rejects.toThrow(/Couldn't log in/)
-    await expect(client.importBioPhoto({ rollNumber: "../x", buffer: png(400, 400), contentType: "image/png" })).rejects.toThrow(/roll number/)
-    expect(new EasyWdmsClient({ baseUrl: "", username: "", password: "" }).configured).toBe(false)
   })
 })

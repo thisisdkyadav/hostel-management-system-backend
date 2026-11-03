@@ -144,7 +144,7 @@ export const iclockOwner = {
   async applyRosterResult(sn, pin, { kind, commandId, ok, code }) {
     const row = await IclockDeviceUser.findOne({ sn, pin }).lean()
     if (!row) return null
-    const set = { lastResult: { op: kind.replace("roster-", ""), ok, code, at: new Date() } }
+    const set = { lastResult: { op: kind.replace("roster-", ""), ok, code, at: new Date(), faceSha: row.pending?.faceSha || "" } }
     if (ok && kind === "roster-user") set.onMachine = true
     if (ok && kind === "roster-face") set.faceSha = row.pending?.faceSha || ""
     if (ok && kind === "roster-remove") Object.assign(set, { onMachine: false, faceSha: "" })

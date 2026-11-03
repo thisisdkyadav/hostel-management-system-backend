@@ -1,11 +1,11 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { routeGuard } from "../../../../lib/api-kit/index.js"
-import { add, list, photo, profilePhoto, profilePhotos, sync } from "./dining-scanner-users.controller.js"
+import { list, photo, profilePhoto, profilePhotos } from "./dining-scanner-users.controller.js"
 
 /**
- * Face-scanner users (HMS's copy of EasyWDMS employees + bio-photo status):
- * Admin and the Dining Office. Caterer logins are refused before authz.
+ * Scanner photos: each active student's face photo and whether every face
+ * machine has it. Admin and the Dining Office. Caterer logins are refused before authz.
  */
 const guard = routeGuard({
   Admin: "route.admin.diningScannerUsers",
@@ -23,8 +23,6 @@ router.use(authenticate)
 router.use(guard(["Admin", "Dining"]))
 router.use(officeOnly)
 router.get("/", list)
-router.post("/", add)
-router.post("/sync", sync)
 router.post("/profile-photos", profilePhotos)
 router.post("/:roll/profile-photo", profilePhoto)
 router.get("/:roll/photo", photo)

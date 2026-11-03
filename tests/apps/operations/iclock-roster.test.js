@@ -161,7 +161,7 @@ describe("roster sync through the receiver", () => {
     expect((await row(sn, fresh)).faceSha).toBe(`sha2-${fresh}`)
   })
 
-  it("a rejected photo is recorded as a failure and planned again next run", async () => {
+  it("a refused photo is recorded, not retried, and a new photo is sent", async () => {
     const sn = await machine()
     const api = await as(await seed.admin())
     await api.patch(`${BASE}/${sn}`).send({ sync: true })
@@ -172,6 +172,13 @@ describe("roster sync through the receiver", () => {
     const roster = await api.get(`${BASE}/${sn}/roster`)
     expect(roster.body.data.failures.map((f) => f.pin)).toContain(pin)
 
+    // The same photo isn't sent again: the machine already said no to it.
+    await runRosterSync(sn)
+    expect(forPin(await drain(sn), pin)).toEqual([])
+    expect((await row(sn, pin)).lastResult.faceSha).toBe(`sha-${pin}`)
+
+    // A different photo goes out.
+    await DiningScannerUser.updateOne({ rollNumber: pin }, { $set: { "face.ref": `media://new-${pin}`, "face.sha256": `sha2-${pin}` } })
     await runRosterSync(sn)
     expect(forPin(await drain(sn), pin).map((c) => c.split(" PIN")[0])).toEqual(["DATA UPDATE BIOPHOTO"])
   })

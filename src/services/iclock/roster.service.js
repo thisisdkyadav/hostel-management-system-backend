@@ -97,6 +97,9 @@ export const seedRosterFromEasyWdms = async (sn) => {
 // ---- Planning ---------------------------------------------------------------
 
 /** Pure: what a run would do for one machine. */
+/** The machine already said no to this exact photo: wait for a different one instead of retrying. */
+export const refusedPhoto = (row, faceSha) => Boolean(row?.lastResult && row.lastResult.ok === false && faceSha && row.lastResult.faceSha === faceSha)
+
 export const planRoster = ({ rows, wanted, status }) => {
   const byKey = new Map(rows.map((row) => [key(row.pin), row]))
   const add = []
@@ -105,6 +108,7 @@ export const planRoster = ({ rows, wanted, status }) => {
   let inFlight = 0
   let unmanaged = 0
   let onMachine = 0
+  let refused = 0
 
   for (const row of rows) {
     if (row.onMachine) onMachine++
@@ -114,6 +118,10 @@ export const planRoster = ({ rows, wanted, status }) => {
   for (const [k, person] of wanted) {
     const row = byKey.get(k)
     if (row?.pending?.op) continue
+    if (refusedPhoto(row, person.faceSha)) {
+      refused++
+      continue
+    }
     if (!row || !row.onMachine) add.push(person)
     else if (row.faceSha !== person.faceSha) face.push({ ...person, pin: row.pin })
   }
@@ -128,7 +136,7 @@ export const planRoster = ({ rows, wanted, status }) => {
     remove.push({ pin: row.pin, name: row.name, status: studentStatus || "not in HMS" })
   }
 
-  return { add, face, remove, inFlight, unmanaged, onMachine }
+  return { add, face, remove, inFlight, unmanaged, onMachine, refused }
 }
 
 const summarize = (plan, extra = {}) => ({
@@ -138,6 +146,7 @@ const summarize = (plan, extra = {}) => ({
   toRemove: plan.remove.length,
   inFlight: plan.inFlight,
   unmanaged: plan.unmanaged,
+  refused: plan.refused || 0,
   ...extra,
 })
 

@@ -2,7 +2,6 @@ import { handler } from "../../../../lib/api-kit/index.js"
 import {
   getMachineActivity,
   getMachineRoster,
-  importFaces,
   listMachines,
   pushMachinePerson,
   readMachinePeople,
@@ -14,7 +13,6 @@ import {
 export const machines = handler(() => listMachines())
 export const machineUpdate = handler((req) => updateMachine(req.params.sn, req.body))
 export const machineActivity = handler((req) => getMachineActivity(req.params.sn))
-export const faceImport = handler(() => importFaces())
 export const machineRoster = handler((req) => getMachineRoster(req.params.sn))
 export const machineRosterSync = handler((req) => syncMachineRoster(req.params.sn, req.body, req.user))
 export const machinePersonPush = handler((req) => pushMachinePerson(req.params.sn, req.body, req.user))

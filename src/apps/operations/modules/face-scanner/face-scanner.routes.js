@@ -27,7 +27,6 @@ import {
 } from './face-scanner.controller.js';
 import { processScan, ping } from './scanner-action.controller.js';
 import {
-  faceImport,
   machineActivity,
   machinePeopleRead,
   machinePersonPush,
@@ -65,7 +64,6 @@ router.use(guard.access);
 
 // Machines that talk to HMS directly (iclock receiver). Must precede /:id.
 router.get('/machines', machines);
-router.post('/machines/faces/import', faceImport);
 router.get('/machines/:sn/activity', machineActivity);
 router.patch('/machines/:sn', machineUpdate);
 router.get('/machines/:sn/roster', machineRoster);

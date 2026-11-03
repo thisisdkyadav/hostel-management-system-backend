@@ -1,6 +1,6 @@
 /**
- * HMS-held scanner faces (import from EasyWDMS, token-guarded download by the
- * machines) and the Face Scanners → Machines API.
+ * HMS-held scanner faces (stored as upright JPEGs, token-guarded download by
+ * the machines) and the Face Scanners → Machines API.
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest"
 import request from "supertest"
@@ -11,21 +11,9 @@ import { createIclockApp } from "../../../src/apps/iclock/iclock.app.js"
 import { iclockOwner } from "../../../src/services/iclock/iclockOwner.service.js"
 import { fileAccessService } from "../../../src/services/storage/file-access.service.js"
 import { storageClient } from "../../../src/services/storage/storage.client.js"
-import { setEasyWdmsClient } from "../../../src/services/easywdms/easywdms.client.js"
-import { faceToken, faceUrlFor, importFacesFromEasyWdms } from "../../../src/services/dining/scanner-faces.service.js"
+import sharp from "sharp"
+import { faceToken, faceUrlFor, storeScannerFace } from "../../../src/services/dining/scanner-faces.service.js"
 import { DiningScannerUser, FaceScanner, IclockDevice } from "../../../src/models/index.js"
-
-const jpeg = (width, height, salt = 0) => {
-  const app0 = Buffer.from([0xff, 0xe0, 0x00, 0x10, ...Buffer.from("JFIF\0"), 1, 1, 0, 0, 1, 0, 1, 0, salt])
-  const sof = Buffer.alloc(19)
-  sof.writeUInt16BE(0xffc0, 0)
-  sof.writeUInt16BE(17, 2)
-  sof[4] = 8
-  sof.writeUInt16BE(height, 5)
-  sof.writeUInt16BE(width, 7)
-  sof[9] = 3
-  return Buffer.concat([Buffer.from([0xff, 0xd8]), app0, sof, Buffer.from([0xff, 0xd9])])
-}
 
 let app
 let seq = 0
@@ -37,10 +25,7 @@ beforeAll(async () => {
   await iclockOwner.ensureIndexes()
   app = createIclockApp()
 })
-afterAll(async () => {
-  setEasyWdmsClient(null)
-  await teardownTestDb()
-})
+afterAll(teardownTestDb)
 afterEach(() => vi.restoreAllMocks())
 
 const fakeStorage = () => {
@@ -55,74 +40,44 @@ const fakeStorage = () => {
   })
 }
 
-const easyWdms = (photosByPath) => {
-  const client = {
-    configured: true,
-    fetchBioPhotoFile: vi.fn(async (path) => (photosByPath[path] ? { buffer: photosByPath[path], contentType: "image/jpeg" } : null)),
-  }
-  setEasyWdmsClient(client)
-  return client
-}
-
-const scannerRow = (rollNumber, path, registeredAt = "2026-11-01 10:00:00") =>
-  DiningScannerUser.create({ rollNumber, name: "Face Test", onScanner: true, bioPhoto: { present: true, approval: "approved", path, registeredAt } })
+/** A real image of the given size and format (sharp can decode it). */
+const image = (width, height, format = "jpeg", options = {}) =>
+  sharp({ create: { width, height, channels: 3, background: { r: 120, g: 90, b: 60 } } })[format]()
+    .withMetadata(options.orientation ? { orientation: options.orientation } : {})
+    .toBuffer()
 
 describe("scanner faces", () => {
-  it("imports EasyWDMS photos once, re-imports only changed ones, marks unusable ones", async () => {
-    fakeStorage()
-    const [a, b, c] = [roll(), roll(), roll()]
-    await scannerRow(a, `biophoto/x/${a}.jpg`)
-    await scannerRow(b, `biophoto/x/${b}.jpg`)
-    await scannerRow(c, `biophoto/x/${c}.jpg`)
-    const client = easyWdms({
-      [`biophoto/x/${a}.jpg`]: jpeg(480, 640),
-      [`biophoto/x/${b}.jpg`]: jpeg(480, 640),
-      [`biophoto/x/${c}.jpg`]: Buffer.from("not an image"),
-    })
-
-    const first = await importFacesFromEasyWdms({ trigger: "test" })
-    expect(first).toMatchObject({ stored: 2, unusable: 1, failed: 0 })
-    const rowA = await DiningScannerUser.findOne({ rollNumber: a }).lean()
-    expect(rowA.face).toMatchObject({ source: "easywdms", contentType: "image/jpeg", width: 480, height: 640 })
-    expect(rowA.face.sha256).toHaveLength(64)
-    expect((await DiningScannerUser.findOne({ rollNumber: c }).lean()).face.problem).toBeTruthy()
-
-    // Nothing changed → nothing downloaded again.
-    client.fetchBioPhotoFile.mockClear()
-    expect(await importFacesFromEasyWdms({ trigger: "test" })).toMatchObject({ stored: 0, unusable: 0, processed: 0 })
-    expect(client.fetchBioPhotoFile).not.toHaveBeenCalled()
-
-    // b re-registered in EasyWDMS → only b is fetched again.
-    await DiningScannerUser.updateOne({ rollNumber: b }, { $set: { "bioPhoto.registeredAt": "2026-11-03 12:00:00" } })
-    client.fetchBioPhotoFile.mockImplementation(async () => ({ buffer: jpeg(480, 640, 1), contentType: "image/jpeg" }))
-    expect(await importFacesFromEasyWdms({ trigger: "test" })).toMatchObject({ stored: 1, processed: 1 })
-  })
-
-  it("keeps an EasyWDMS photo smaller than the upload rules (the machines already accept it)", async () => {
+  it("stores a PNG as a JPEG the machines can use, scaled down and upright", async () => {
     fakeStorage()
     const r = roll()
-    await scannerRow(r, `biophoto/x/${r}.jpg`)
-    easyWdms({ [`biophoto/x/${r}.jpg`]: jpeg(240, 320) })
-    await importFacesFromEasyWdms({ trigger: "test" })
-    expect((await DiningScannerUser.findOne({ rollNumber: r }).lean()).face).toMatchObject({ width: 240, height: 320, problem: "" })
+    const result = await storeScannerFace({ rollNumber: r, buffer: await image(1600, 2400, "png"), source: "profile" })
+    expect(result.ok).toBe(true)
+    expect(result.face).toMatchObject({ contentType: "image/jpeg", width: 683, height: 1024, source: "profile" })
+    const stored = files.get(result.face.ref)
+    expect(stored[0]).toBe(0xff)
+    expect((await sharp(stored).metadata()).format).toBe("jpeg")
+    const row = await DiningScannerUser.findOne({ rollNumber: r }).lean()
+    expect(faceUrlFor(row)).toContain(`/${r}.jpg`)
+
+    // A phone photo stored sideways with an EXIF rotation comes out upright.
+    const turned = await storeScannerFace({ rollNumber: r, buffer: await image(800, 600, "jpeg", { orientation: 6 }), source: "request" })
+    expect(turned.face).toMatchObject({ width: 600, height: 800 })
   })
 
-  it("never replaces a face that came from a student request", async () => {
+  it("refuses photos it can't use and leaves the current face alone", async () => {
     fakeStorage()
     const r = roll()
-    await scannerRow(r, `biophoto/x/${r}.jpg`)
-    await DiningScannerUser.updateOne({ rollNumber: r }, { $set: { face: { ref: "media://from-request", source: "request", contentType: "image/jpeg" } } })
-    easyWdms({ [`biophoto/x/${r}.jpg`]: jpeg(480, 640) })
-    await importFacesFromEasyWdms({ trigger: "test" })
-    expect((await DiningScannerUser.findOne({ rollNumber: r }).lean()).face.ref).toBe("media://from-request")
+    await storeScannerFace({ rollNumber: r, buffer: await image(400, 400), source: "profile" })
+    const before = (await DiningScannerUser.findOne({ rollNumber: r }).lean()).face.ref
+    expect(await storeScannerFace({ rollNumber: r, buffer: await image(200, 200), source: "profile" })).toMatchObject({ ok: false, problem: expect.stringMatching(/too small/) })
+    expect(await storeScannerFace({ rollNumber: r, buffer: Buffer.from("not an image at all"), source: "profile" })).toMatchObject({ ok: false })
+    expect((await DiningScannerUser.findOne({ rollNumber: r }).lean()).face.ref).toBe(before)
   })
 
   it("machines download a face only with the right token, and the old url dies when the photo changes", async () => {
     fakeStorage()
     const r = roll()
-    await scannerRow(r, `biophoto/x/${r}.jpg`)
-    easyWdms({ [`biophoto/x/${r}.jpg`]: jpeg(480, 640) })
-    await importFacesFromEasyWdms({ trigger: "test" })
+    await storeScannerFace({ rollNumber: r, buffer: await image(480, 640), source: "request" })
     const row = await DiningScannerUser.findOne({ rollNumber: r }).lean()
     const url = faceUrlFor(row)
     expect(url).toBe(`iclock/file/biophoto/${faceToken(r, row.face.ref)}/${r}.jpg`)
@@ -135,8 +90,7 @@ describe("scanner faces", () => {
     expect((await request(app).get(`/iclock/file/biophoto/${"0".repeat(32)}/${r}.jpg`)).status).toBe(404)
     expect((await request(app).get(`/iclock/file/biophoto/${faceToken(r, row.face.ref)}/SOMEONEELSE.jpg`)).status).toBe(404)
 
-    await DiningScannerUser.updateOne({ rollNumber: r }, { $set: { "face.ref": "media://newer" } })
-    files.set("media://newer", jpeg(480, 640, 2))
+    await storeScannerFace({ rollNumber: r, buffer: await image(480, 640, "png"), source: "request" })
     expect((await request(app).get(`/${url}`)).status).toBe(404)
   })
 })

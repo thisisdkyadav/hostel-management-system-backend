@@ -96,3 +96,44 @@ export const validateBioPhotoBuffer = (buffer, { sizeRules = true } = {}) => {
   }
   return { ok: true, contentType, width: size.width, height: size.height }
 }
+
+// ---- What the machines get ---------------------------------------------------
+
+/** Longest side of a face sent to the machines; phone photos are scaled down to this. */
+export const MACHINE_FACE_MAX_SIDE = 1024
+const MACHINE_FACE_QUALITY = 88
+
+let sharpModule = null
+const loadSharp = async () => {
+  if (!sharpModule) sharpModule = (await import("sharp")).default
+  return sharpModule
+}
+
+/**
+ * Turn a student upload or profile photo into what the machines accept: a JPEG,
+ * upright (phone EXIF rotation applied), at most MACHINE_FACE_MAX_SIDE on its
+ * longest side. Any format sharp can read is accepted (JPG, PNG, WebP, HEIC…);
+ * the pixel rule is checked on the upright image.
+ * Returns { ok: true, buffer, contentType, width, height } or { ok: false, message }.
+ */
+export const prepareMachineFace = async (buffer, { sizeRules = true } = {}) => {
+  if (!Buffer.isBuffer(buffer) || buffer.length === 0) return { ok: false, message: "No photo uploaded" }
+  if (buffer.length > BIO_PHOTO_RULES.maxSizeBytes * 2) return { ok: false, message: "The photo is too large" }
+  let output
+  try {
+    const sharp = await loadSharp()
+    output = await sharp(buffer, { failOn: "error", limitInputPixels: BIO_PHOTO_RULES.maxSidePx * BIO_PHOTO_RULES.maxSidePx })
+      .rotate()
+      .resize({ width: MACHINE_FACE_MAX_SIDE, height: MACHINE_FACE_MAX_SIDE, fit: "inside", withoutEnlargement: true })
+      .flatten({ background: "#ffffff" })
+      .jpeg({ quality: MACHINE_FACE_QUALITY })
+      .toBuffer({ resolveWithObject: true })
+  } catch {
+    return { ok: false, message: "The photo couldn't be read" }
+  }
+  const { width, height } = output.info
+  if (sizeRules && Math.min(width, height) < Math.min(BIO_PHOTO_RULES.minSidePx, MACHINE_FACE_MAX_SIDE)) {
+    return { ok: false, message: `The photo is too small (${width}×${height}); it must be at least ${BIO_PHOTO_RULES.minSidePx} pixels on each side` }
+  }
+  return { ok: true, buffer: output.data, contentType: "image/jpeg", width, height }
+}

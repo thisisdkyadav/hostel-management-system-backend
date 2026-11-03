@@ -95,13 +95,6 @@ export const env = {
     signedUrlTtlSeconds: parseInt(process.env.STORAGE_SIGNED_URL_TTL_SECONDS, 10) || 300,
   },
 
-  // EasyWDMS (ZKTeco face-scanner software): HMS uploads approved bio photos.
-  easywdms: {
-    baseUrl: (process.env.EASYWDMS_BASE_URL || '').replace(/\/+$/, ''),
-    username: process.env.EASYWDMS_USERNAME || '',
-    password: process.env.EASYWDMS_PASSWORD || '',
-  },
-
   // Email/SMTP
   smtp: {
     host: process.env.SMTP_HOST || "smtp.gmail.com",

@@ -9,7 +9,7 @@ import { iclockOwner } from "../../../../services/iclock/iclockOwner.service.js"
 import { iclockQueries } from "../../../../services/iclock/iclockQueries.service.js"
 import { scannerQueries } from "../../../../services/scanner/scannerQueries.service.js"
 import { clearIclockCaches } from "../../../../services/iclock/iclock.service.js"
-import { getFaceSummary, startFaceImport } from "../../../../services/dining/scanner-faces.service.js"
+import { getFaceSummary } from "../../../../services/dining/scanner-faces.service.js"
 import { ICLOCK_DEVICE_MODES } from "../../../../models/iclock/IclockDevice.model.js"
 import {
   previewRoster,
@@ -225,7 +225,4 @@ export const readMachinePeople = (sn, actor) =>
     return success({ queued: true }, 202, "Asked the machine for its people list")
   })
 
-export const importFaces = async () => {
-  startFaceImport({ trigger: "manual" })
-  return success({ started: true }, 202, "Copying face photos from EasyWDMS")
-}
+

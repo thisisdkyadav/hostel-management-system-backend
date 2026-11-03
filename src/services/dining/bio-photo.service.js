@@ -2,25 +2,24 @@
  * Face-scanner bio-photo requests
  * -------------------------------
  * Students ask to change the photo the face scanners use; Admin or the Dining
- * Office approves it, and approving uploads the photo to EasyWDMS (which pushes
- * it to every machine). A failed upload keeps the request pending with the
- * error so the reviewer can retry or reject.
+ * Office approves it. Approving makes it the student's face in HMS (an upright
+ * JPEG, see scanner-faces) and nudges the roster sync, which sends it to every
+ * machine within a couple of minutes. A photo that can't be used keeps the
+ * request pending with the reason, so the reviewer can reject it.
  *
- * Writes: bioPhotoOwner. Reads: bioPhotoQueries. EasyWDMS: easywdms.client.
+ * Writes: bioPhotoOwner. Reads: bioPhotoQueries.
  */
 
 import mongoose from "mongoose"
 import { success, created, badRequest, notFound, conflict, error as errorResponse } from "../base/index.js"
-import { logger } from "../base/Logger.js"
 import { bioPhotoOwner } from "./bioPhotoOwner.service.js"
 import { bioPhotoQueries } from "./bioPhotoQueries.service.js"
-import { BIO_PHOTO_RULES, validateBioPhotoBuffer } from "./bioPhotoImage.js"
+import { BIO_PHOTO_RULES, prepareMachineFace, validateBioPhotoBuffer } from "./bioPhotoImage.js"
 import { fileAccessService } from "../storage/file-access.service.js"
 import { isMediaRef } from "../storage/file-ref.service.js"
 import { studentProfileQueries } from "../student/studentProfileQueries.service.js"
 import { userQueries } from "../user/userQueries.service.js"
-import { EasyWdmsError, getEasyWdmsClient } from "../easywdms/easywdms.client.js"
-import { getStudentScannerStatus, noteBioPhotoPushed } from "./scanner-users.service.js"
+import { getStudentScannerStatus, nudgeRosterSync } from "./scanner-users.service.js"
 import { recordRequestFace } from "./scanner-faces.service.js"
 import { BIO_PHOTO_STATUSES } from "../../models/dining/DiningBioPhotoRequest.model.js"
 
@@ -112,13 +111,17 @@ export const createStudentBioPhotoRequest = async ({ userId, payload = {} }) => 
   if (meta?.policy !== BIO_PHOTO_STORAGE_POLICY || idOf(meta?.actorId) !== idOf(userId)) return badRequest(INVALID_PHOTO)
 
   let check
+  let buffer
   try {
-    const { buffer } = await fileAccessService.getBuffer(photoRef)
+    ;({ buffer } = await fileAccessService.getBuffer(photoRef))
     check = { ...validateBioPhotoBuffer(buffer), size: buffer.length }
   } catch {
     return badRequest(INVALID_PHOTO)
   }
   if (!check.ok) return badRequest(check.message)
+  // The same conversion approval will do, so a photo the machines can't get is caught now.
+  const prepared = await prepareMachineFace(buffer)
+  if (!prepared.ok) return badRequest(prepared.message)
 
   const result = await bioPhotoOwner.createRequest({
     studentUserId: userId,
@@ -206,7 +209,6 @@ export const listBioPhotoRequests = async ({ query = {} }) => {
     page,
     limit,
     counts,
-    scanner: { configured: getEasyWdmsClient().configured },
   })
 }
 
@@ -219,15 +221,13 @@ const loadPending = async (requestId) => {
 }
 
 /**
- * Approve = upload to EasyWDMS. Only one push per request at a time (claim).
- * Success → approved. Failure → still pending with lastError, 502.
+ * Approve = make it the student's scanner face. One approval per request at a
+ * time (claim). Success → approved and sent to the machines by the roster sync.
+ * A photo that can't be used → still pending with lastError, 422.
  */
 export const approveBioPhotoRequest = async ({ requestId, reviewer }) => {
   const loaded = await loadPending(requestId)
   if (loaded.response) return loaded.response
-
-  const client = getEasyWdmsClient()
-  if (!client.configured) return errorResponse("The face scanner software isn't connected yet. Ask the administrator to set it up.", 503)
 
   const claimed = await bioPhotoOwner.claimForPush(requestId)
   if (!claimed) {
@@ -237,27 +237,28 @@ export const approveBioPhotoRequest = async ({ requestId, reviewer }) => {
   }
   const lockedAt = claimed.push.lockedAt
 
-  let pushError = ""
+  const [student] = await enrich([claimed])
+  let stored
   try {
-    const { buffer } = await fileAccessService.getBuffer(claimed.photo.ref)
-    await client.importBioPhoto({ rollNumber: claimed.rollNumber, buffer, contentType: claimed.photo.contentType, overwrite: true })
-  } catch (caught) {
-    pushError = caught instanceof EasyWdmsError ? caught.message : "Couldn't read the photo from storage"
-    logger.warn?.(`[bio-photo] push failed for ${claimed.rollNumber}: ${caught?.message || caught}`)
+    stored = await recordRequestFace({
+      rollNumber: claimed.rollNumber,
+      photo: claimed.photo,
+      actorId: idOf(reviewer._id),
+      fields: { studentUserId: claimed.studentUserId, ...(student.student?.name ? { name: student.student.name } : {}) },
+    })
+  } catch {
+    stored = { ok: false, problem: "Couldn't save the photo. Try again." }
   }
-
-  if (pushError) {
-    await bioPhotoOwner.markPushFailed({ requestId, lockedAt, error: pushError })
-    return errorResponse(pushError, 502)
+  if (!stored.ok) {
+    await bioPhotoOwner.markPushFailed({ requestId, lockedAt, error: stored.problem })
+    return errorResponse(stored.problem, 422)
   }
 
   const approved = await bioPhotoOwner.markPushed({ requestId, lockedAt, reviewerId: reviewer._id })
-  if (!approved) return conflict("The photo was sent, but the request changed meanwhile. Refresh the page.")
+  if (!approved) return conflict("The photo was saved, but the request changed meanwhile. Refresh the page.")
+  nudgeRosterSync()
   const [row] = await enrich([approved])
-  await noteBioPhotoPushed({ rollNumber: approved.rollNumber, studentUserId: approved.studentUserId, name: row.student?.name })
-  // HMS keeps the approved photo as this student's face for direct machine pushes.
-  recordRequestFace({ rollNumber: approved.rollNumber, photo: approved.photo })
-  return success({ request: row }, 200, "Sent to the face scanners")
+  return success({ request: row }, 200, "Approved. The face scanners get it within a couple of minutes.")
 }
 
 export const rejectBioPhotoRequest = async ({ requestId, reviewer, body = {} }) => {

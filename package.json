@@ -52,6 +52,7 @@
     "node-forge": "^1.4.0",
     "nodemailer": "^8.0.11",
     "pdfkit": "^0.19.1",
+    "sharp": "^0.35.5",
     "socket.io": "^4.8.1"
   }
 }
