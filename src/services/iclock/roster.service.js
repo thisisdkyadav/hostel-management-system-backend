@@ -208,7 +208,9 @@ const runLocked = async (sn, { allowRemovals, now, createdBy, roster: sharedRost
   ])
   const plan = planRoster({ rows, wanted: roster.wanted, status: roster.status })
   const guard = removalGuard(plan.onMachine)
-  const removalsHeld = plan.remove.length > guard && !allowRemovals
+  // An admin's confirmation covers that many removals until they're all queued (they may take several runs).
+  const approved = allowRemovals ? plan.remove.length : device.sync?.removalsApproved || 0
+  const removalsHeld = plan.remove.length > guard && plan.remove.length > approved
 
   let budget = MAX_OUTSTANDING - outstanding
   const queued = { add: 0, face: 0, remove: 0 }
@@ -239,7 +241,8 @@ const runLocked = async (sn, { allowRemovals, now, createdBy, roster: sharedRost
     expired,
     unanswered: failed.length,
   }
-  await iclockOwner.setSyncState(sn, { lastRunAt: new Date(now), lastResult: result })
+  const leftApproved = removalsHeld ? 0 : Math.max(0, Math.min(approved, plan.remove.length) - queued.remove)
+  await iclockOwner.setSyncState(sn, { lastRunAt: new Date(now), lastResult: result, removalsApproved: leftApproved })
   return result
 }
 

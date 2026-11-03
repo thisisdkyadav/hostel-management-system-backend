@@ -40,6 +40,8 @@ const IclockDeviceSchema = new mongoose.Schema(
       seededAt: { type: Date, default: null },
       lastRunAt: { type: Date, default: null },
       lastResult: { type: mongoose.Schema.Types.Mixed, default: null },
+      // Removals an admin confirmed that haven't all been queued yet.
+      removalsApproved: { type: Number, default: 0 },
     },
   },
   { timestamps: true },

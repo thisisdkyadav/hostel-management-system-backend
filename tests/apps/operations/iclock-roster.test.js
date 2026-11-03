@@ -192,9 +192,28 @@ describe("roster sync through the receiver", () => {
     expect(gone.flatMap((pin) => forPin(whileHeld, pin))).toEqual([])
 
     const confirmed = await api.post(`${BASE}/${sn}/roster/sync`).send({ allowRemovals: true })
+    expect(confirmed.body.data.result.removalsHeld).toBe(0)
     expect(confirmed.body.data.result.queued.remove).toBeGreaterThanOrEqual(55)
     const sent = await drain(sn)
     for (const pin of gone) expect(forPin(sent, pin)).toEqual([`DATA DELETE USERINFO PIN=${pin}`])
+  })
+
+  it("a confirmed removal bigger than one batch keeps going on the automatic runs", async () => {
+    const roster = await import("../../../src/services/iclock/roster.service.js")
+    const sn = await machine()
+    const api = await as(await seed.admin())
+    await api.patch(`${BASE}/${sn}`).send({ sync: true })
+    const gone = Array.from({ length: 70 }, () => `H${uniq()}`)
+    await iclockOwner.seedRoster(sn, gone.map((pin) => ({ pin, source: "easywdms" })))
+    // Fill the queue so only part of the removal fits in this run.
+    for (let i = 0; i < roster.MAX_OUTSTANDING - 30; i++) await iclockOwner.queueCommand({ sn, command: "INFO", ref: { kind: "test", key: "" } })
+    const first = await runRosterSync(sn, { allowRemovals: true })
+    expect(first.queued.remove).toBeGreaterThan(0)
+    expect(first.queued.remove).toBeLessThan(70)
+    await drain(sn)
+    const second = await runRosterSync(sn) // automatic run, no confirmation
+    expect(second.removalsHeld).toBe(0)
+    expect(first.queued.remove + second.queued.remove).toBeGreaterThanOrEqual(70) // + anyone else not in HMS
   })
 
   it("people the machine reports are recorded, and someone who isn't in HMS is removed", async () => {
