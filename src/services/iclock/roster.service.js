@@ -12,9 +12,8 @@
  *            become Active again they're simply added back)
  *
  * Safety:
- * - Only people HMS knows about are ever removed: students who aren't Active,
- *   or people HMS itself added who are no longer wanted. Anyone else on the
- *   machine (staff, test users) is left alone and counted as "not managed".
+ * - Machines hold ONLY HMS's active students: anyone else on a machine (left
+ *   students, people HMS doesn't know, test users) is removed.
  * - Active students are never removed, even without a photo.
  * - A run that would remove more than REMOVAL_GUARD people holds the removals
  *   back until an admin confirms (a bad status import must not wipe a machine).
@@ -123,8 +122,8 @@ export const planRoster = ({ rows, wanted, status }) => {
     if (wanted.has(k)) continue
     const studentStatus = status.get(k)
     if (studentStatus === ACTIVE) continue // active without a photo: keep
-    if (studentStatus || row.source === "hms") remove.push({ pin: row.pin, name: row.name, status: studentStatus || "not a student" })
-    else unmanaged++
+    if (!studentStatus) unmanaged++ // counted for the page: on the machine but not in HMS at all
+    remove.push({ pin: row.pin, name: row.name, status: studentStatus || "not in HMS" })
   }
 
   return { add, face, remove, inFlight, unmanaged, onMachine }

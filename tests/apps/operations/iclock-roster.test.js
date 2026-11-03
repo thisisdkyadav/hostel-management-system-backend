@@ -90,16 +90,16 @@ describe("planRoster", () => {
     { pin: "C", onMachine: true, faceSha: "s3", pending: { op: "face" } }, // in flight → left alone
     { pin: "D", onMachine: true, faceSha: "x", source: "easywdms" }, // graduated → remove
     { pin: "E", onMachine: true, faceSha: "", source: "easywdms" }, // active, no HMS photo → keep
-    { pin: "STAFF1", onMachine: true, source: "machine" }, // not a student → not managed
-    { pin: "GONE", onMachine: true, source: "hms" }, // HMS added, no longer wanted → remove
+    { pin: "STAFF1", onMachine: true, source: "machine" }, // not in HMS → removed
+    { pin: "GONE", onMachine: true, source: "hms" }, // not in HMS → removed
   ]
 
-  it("adds, re-photos, removes only people HMS knows, and never removes an active student", () => {
+  it("adds, re-photos, removes everyone who isn't an active student, and never removes an active student", () => {
     const plan = planRoster({ rows, wanted, status })
     expect(plan.add.map((p) => p.pin)).toEqual(["A"])
     expect(plan.face.map((p) => p.pin)).toEqual(["B"])
-    expect(plan.remove.map((p) => p.pin).sort()).toEqual(["D", "GONE"])
-    expect(plan).toMatchObject({ unmanaged: 1, inFlight: 1, onMachine: 6 })
+    expect(plan.remove.map((p) => p.pin).sort()).toEqual(["D", "GONE", "STAFF1"])
+    expect(plan).toMatchObject({ unmanaged: 2, inFlight: 1, onMachine: 6 })
   })
 })
 
@@ -197,7 +197,7 @@ describe("roster sync through the receiver", () => {
     for (const pin of gone) expect(forPin(sent, pin)).toEqual([`DATA DELETE USERINFO PIN=${pin}`])
   })
 
-  it("people the machine reports are recorded, and someone who isn't a student is never removed", async () => {
+  it("people the machine reports are recorded, and someone who isn't in HMS is removed", async () => {
     const sn = await machine()
     const api = await as(await seed.admin())
     await api.patch(`${BASE}/${sn}`).send({ sync: true })
@@ -209,7 +209,7 @@ describe("roster sync through the receiver", () => {
     await request(app).post(`/iclock/cdata?SN=${sn}&table=OPERLOG`).set("Content-Type", "text/plain").send(`USER PIN=${staff}\tName=Mess Staff\tPri=0\tPasswd=\tCard=\tGrp=1`)
     expect(await row(sn, staff)).toMatchObject({ onMachine: true, source: "machine", name: "Mess Staff" })
     await runRosterSync(sn)
-    expect(forPin(await drain(sn), staff)).toEqual([])
+    expect(forPin(await drain(sn), staff)).toEqual([`DATA DELETE USERINFO PIN=${staff}`])
   })
 
   it("commands a machine never answers are failed after a while and the person is planned again", async () => {
