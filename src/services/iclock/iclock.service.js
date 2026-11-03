@@ -24,6 +24,7 @@ import {
 } from "./protocol.js"
 import { scannerQueries } from "../scanner/scannerQueries.service.js"
 import { readFaceForMachine } from "../dining/scanner-faces.service.js"
+import { applyRosterAnswer, recordMachineUsers } from "./roster.service.js"
 import * as scannerActionService from "../../apps/operations/modules/face-scanner/scanner-action.service.js"
 
 /** Punches further than this from "now" (by machine clock) are stored but never turned into records. */
@@ -157,6 +158,8 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
     if (table === "ERRORLOG") return "OK:0\n"
     // OPERLOG / BIODATA / ATTPHOTO / USERINFO …: acknowledged; the raw log keeps a copy.
     const records = table === "ATTPHOTO" ? [] : parseRecords(text(body))
+    // People on the machine (answer to DATA QUERY USERINFO, or someone enrolled at the machine).
+    if (["OPERLOG", "USERINFO", "USER"].includes(table)) await recordMachineUsers(sn, records)
     return `OK:${records.length || 1}\n`
   }
 
@@ -167,7 +170,10 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
   }
 
   if (route === "devicecmd") {
-    for (const result of parseDeviceCmdResults(text(body))) await iclockOwner.completeCommand(sn, result)
+    for (const result of parseDeviceCmdResults(text(body))) {
+      const command = await iclockOwner.completeCommand(sn, result)
+      if (command) await applyRosterAnswer(sn, command)
+    }
     return "OK"
   }
 

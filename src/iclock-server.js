@@ -9,6 +9,7 @@
 import { initializeDatabase, initializeSocketIO } from "./loaders/index.js"
 import { iclockOwner } from "./services/iclock/iclockOwner.service.js"
 import { createIclockApp } from "./apps/iclock/iclock.app.js"
+import { runDueRosterSyncs, SYNC_INTERVAL_MS } from "./services/iclock/roster.service.js"
 
 const PORT = Number.parseInt(process.env.ICLOCK_PORT, 10) || 5300
 const HOST = process.env.ICLOCK_HOST || "0.0.0.0"
@@ -23,8 +24,24 @@ const start = async () => {
   const server = createIclockApp().listen(PORT, HOST, () => console.log(`📟 iclock receiver on ${HOST}:${PORT}`))
   server.keepAliveTimeout = 5000
 
+  // Roster sync for machines that have it switched on (off by default). Each
+  // machine runs under its own lock, so several receivers never double-queue.
+  let syncing = false
+  const syncTimer = setInterval(async () => {
+    if (syncing) return
+    syncing = true
+    try {
+      await runDueRosterSyncs()
+    } catch (error) {
+      console.error("📟 roster sync failed:", error?.message || error)
+    } finally {
+      syncing = false
+    }
+  }, SYNC_INTERVAL_MS)
+
   const shutdown = (signal) => {
     console.log(`📟 iclock receiver: ${signal}, closing`)
+    clearInterval(syncTimer)
     server.close(() => process.exit(0))
     setTimeout(() => process.exit(1), 5000).unref()
   }

@@ -1,7 +1,7 @@
 /**
  * iclock Queries Service — the only READ surface for the iclock collections.
  */
-import { IclockCommand, IclockDevice, IclockPunch, IclockRequestLog } from "../../models/index.js"
+import { IclockCommand, IclockDevice, IclockDeviceUser, IclockPunch, IclockRequestLog } from "../../models/index.js"
 
 export const iclockQueries = {
   async findDevice(sn) {
@@ -41,6 +41,32 @@ export const iclockQueries = {
       ]),
     ])
     return { punches, commands, recent }
+  },
+
+  async countOutstandingCommands(sn) {
+    return IclockCommand.countDocuments({ sn, status: { $in: ["queued", "sent"] } })
+  },
+
+  async listSyncDevices() {
+    return IclockDevice.find({ "sync.enabled": true }).lean()
+  },
+
+  // ---- Roster ----
+
+  async listRoster(sn) {
+    return IclockDeviceUser.find({ sn }).select("pin name onMachine source faceSha pending lastResult").lean()
+  },
+
+  async countRoster(sn) {
+    return IclockDeviceUser.countDocuments({ sn })
+  },
+
+  async findRosterPerson(sn, pin) {
+    return IclockDeviceUser.findOne({ sn, pin }).lean()
+  },
+
+  async listRosterFailures(sn, limit = 50) {
+    return IclockDeviceUser.find({ sn, "lastResult.ok": false }).sort({ "lastResult.at": -1 }).limit(limit).lean()
   },
 
   async listRequestLogs({ sn, limit = 100 } = {}) {

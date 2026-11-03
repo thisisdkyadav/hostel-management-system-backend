@@ -81,6 +81,11 @@ export const bioPhotoQueries = {
     return { stored, withoutFace }
   },
 
+  /** Every scanner-user row's roll, EasyWDMS presence and HMS face (face-machine roster sync). */
+  async findRosterFaces() {
+    return DiningScannerUser.find({}).select("rollNumber name onScanner bioPhoto.present face").lean()
+  },
+
   async findScannerUser(rollNumber) {
     return DiningScannerUser.findOne({ rollNumber }).lean()
   },

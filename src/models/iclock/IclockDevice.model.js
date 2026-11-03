@@ -33,6 +33,14 @@ const IclockDeviceSchema = new mongoose.Schema(
     lastSeenAt: { type: Date, default: null },
     lastHandshakeAt: { type: Date, default: null },
     lastPunchAt: { type: Date, default: null },
+
+    // Roster sync: keep this machine's people = active students with an HMS face.
+    sync: {
+      enabled: { type: Boolean, default: false },
+      seededAt: { type: Date, default: null },
+      lastRunAt: { type: Date, default: null },
+      lastResult: { type: mongoose.Schema.Types.Mixed, default: null },
+    },
   },
   { timestamps: true },
 )

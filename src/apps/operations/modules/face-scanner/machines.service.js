@@ -11,6 +11,14 @@ import { scannerQueries } from "../../../../services/scanner/scannerQueries.serv
 import { clearIclockCaches } from "../../../../services/iclock/iclock.service.js"
 import { getFaceSummary, startFaceImport } from "../../../../services/dining/scanner-faces.service.js"
 import { ICLOCK_DEVICE_MODES } from "../../../../models/iclock/IclockDevice.model.js"
+import {
+  previewRoster,
+  pushPerson,
+  removePerson,
+  requestMachineUsers,
+  runRosterSync,
+  seedRosterFromEasyWdms,
+} from "../../../../services/iclock/roster.service.js"
 
 const ONLINE_WITHIN_MS = 60 * 1000
 
@@ -74,6 +82,11 @@ const toMachine = (device, { punchesToday, commands, clockOffsetMs, scanner }, n
     commands,
     clockOffsetSeconds: clockOffsetMs === null ? null : Math.round(clockOffsetMs / 1000),
     scanner: scannerSummary(scanner),
+    sync: {
+      enabled: Boolean(device.sync?.enabled),
+      lastRunAt: device.sync?.lastRunAt || null,
+      lastResult: device.sync?.lastResult || null,
+    },
   }
 }
 
@@ -131,12 +144,14 @@ export const updateMachine = async (sn, body = {}) => {
       set.faceScannerId = scanner._id
     } else set.faceScannerId = null
   }
+  if (body.sync !== undefined) set["sync.enabled"] = Boolean(body.sync)
   const nextMode = set.mode ?? device.mode
   const nextScanner = set.faceScannerId !== undefined ? set.faceScannerId : device.faceScannerId
   if (nextMode === "live" && !nextScanner) return badRequest("Link the machine to a scanner before making it live")
   if (!Object.keys(set).length) return badRequest("Nothing to change")
 
   await iclockOwner.updateDevice(sn, set)
+  if (set["sync.enabled"] && !device.sync?.seededAt) await seedRosterFromEasyWdms(sn)
   clearIclockCaches()
   return listMachines()
 }
@@ -157,6 +172,58 @@ export const getMachineActivity = async (sn) => {
     log: log.map((l) => ({ at: l.at, method: l.method, path: l.path, query: l.query, status: l.status, ms: l.ms, bodyBytes: l.bodyBytes, response: l.response.slice(0, 200) })),
   })
 }
+
+// ---- People on a machine (roster sync) --------------------------------------
+
+const withDevice = async (sn, work) => {
+  const device = await iclockQueries.findDevice(sn)
+  if (!device) return notFound("Machine not found")
+  return work(device)
+}
+
+const rosterView = async (sn) => {
+  const [preview, failures, device] = await Promise.all([
+    previewRoster(sn),
+    iclockQueries.listRosterFailures(sn, 30),
+    iclockQueries.findDevice(sn),
+  ])
+  return {
+    sync: { enabled: Boolean(device.sync?.enabled), seededAt: device.sync?.seededAt || null, lastRunAt: device.sync?.lastRunAt || null, lastResult: device.sync?.lastResult || null },
+    preview,
+    failures: failures.map((f) => ({ pin: f.pin, name: f.name, op: f.lastResult?.op || "", code: f.lastResult?.code ?? null, at: f.lastResult?.at || null })),
+  }
+}
+
+export const getMachineRoster = (sn) => withDevice(sn, async () => success(await rosterView(sn)))
+
+export const syncMachineRoster = (sn, body = {}, actor) =>
+  withDevice(sn, async () => {
+    const result = await runRosterSync(sn, { allowRemovals: body.allowRemovals === true, createdBy: actor?._id || null })
+    if (result.running) return badRequest("A sync is already running for this machine")
+    return success({ result, ...(await rosterView(sn)) })
+  })
+
+export const pushMachinePerson = (sn, body = {}, actor) =>
+  withDevice(sn, async () => {
+    const roll = String(body.rollNumber ?? "").trim()
+    if (!roll) return badRequest("Enter a roll number")
+    const result = await pushPerson(sn, roll, actor?._id || null)
+    if (!result.ok) return badRequest(result.message)
+    return success(result, 202, `Sent ${result.pin} to the machine`)
+  })
+
+export const removeMachinePerson = (sn, rollNumber, actor) =>
+  withDevice(sn, async () => {
+    const result = await removePerson(sn, rollNumber, actor?._id || null)
+    if (!result.ok) return badRequest(result.message)
+    return success(result, 202, `Removing ${result.pin} from the machine`)
+  })
+
+export const readMachinePeople = (sn, actor) =>
+  withDevice(sn, async () => {
+    await requestMachineUsers(sn, actor?._id || null)
+    return success({ queued: true }, 202, "Asked the machine for its people list")
+  })
 
 export const importFaces = async () => {
   startFaceImport({ trigger: "manual" })

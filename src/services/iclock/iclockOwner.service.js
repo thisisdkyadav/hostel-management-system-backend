@@ -1,12 +1,12 @@
 /**
  * iclock Owner Service — the only WRITE surface for the iclock collections
- * (IclockDevice, IclockCommand, IclockPunch, IclockRequestLog).
+ * (IclockDevice, IclockCommand, IclockPunch, IclockRequestLog, IclockDeviceUser).
  */
-import { IclockCommand, IclockDevice, IclockPunch, IclockRequestLog } from "../../models/index.js"
+import { IclockCommand, IclockDevice, IclockDeviceUser, IclockPunch, IclockRequestLog } from "../../models/index.js"
 
 export const iclockOwner = {
   async ensureIndexes() {
-    await Promise.all([IclockDevice, IclockCommand, IclockPunch, IclockRequestLog].map((m) => m.createIndexes()))
+    await Promise.all([IclockDevice, IclockCommand, IclockPunch, IclockRequestLog, IclockDeviceUser].map((m) => m.createIndexes()))
   },
 
   /** Upsert the machine on every request and return it (lean). */
@@ -70,6 +70,99 @@ export const iclockOwner = {
       },
       { returnDocument: "after" },
     ).lean()
+  },
+
+  /** Commands sent (or queued) before `before` that the machine never answered → failed. */
+  async failUnansweredCommands(sn, before) {
+    const stale = await IclockCommand.find({ sn, status: { $in: ["queued", "sent"] }, createdAt: { $lt: before } })
+      .select("commandId")
+      .lean()
+    if (!stale.length) return []
+    const ids = stale.map((c) => c.commandId)
+    await IclockCommand.updateMany(
+      { sn, commandId: { $in: ids }, status: { $in: ["queued", "sent"] } },
+      { $set: { status: "failed", result: "no answer", doneAt: new Date() } },
+    )
+    return ids
+  },
+
+  // ---- Roster (who is on each machine) ----
+
+  /** First-time seed: insert rows that don't exist yet, never touch existing ones. */
+  async seedRoster(sn, rows) {
+    if (!rows.length) return 0
+    const result = await IclockDeviceUser.bulkWrite(
+      rows.map((row) => ({
+        updateOne: {
+          filter: { sn, pin: row.pin },
+          update: { $setOnInsert: { sn, pin: row.pin, name: row.name || "", onMachine: true, source: row.source, faceSha: row.faceSha || "" } },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    )
+    return result.upsertedCount || 0
+  },
+
+  /** The machine reported these people (USER records): they are on it. */
+  async markOnMachine(sn, people) {
+    if (!people.length) return 0
+    const result = await IclockDeviceUser.bulkWrite(
+      people.map(({ pin, name }) => ({
+        updateOne: {
+          filter: { sn, pin },
+          update: {
+            $set: { onMachine: true, ...(name ? { name } : {}) },
+            $setOnInsert: { sn, pin, source: "machine", faceSha: "" },
+          },
+          upsert: true,
+        },
+      })),
+      { ordered: false },
+    )
+    return (result.upsertedCount || 0) + (result.modifiedCount || 0)
+  },
+
+  async setRosterPending(sn, pin, { op, commandIds, faceSha = "", name }) {
+    return IclockDeviceUser.updateOne(
+      { sn, pin },
+      {
+        $set: { pending: { op, commandIds, faceSha, at: new Date() }, ...(name !== undefined ? { name } : {}) },
+        $setOnInsert: { sn, pin, onMachine: false, source: "hms", faceSha: "" },
+      },
+      { upsert: true },
+    )
+  },
+
+  /**
+   * The machine answered one roster command. `kind` is the command's ref.kind
+   * (roster-user | roster-face | roster-remove). Returns the updated row.
+   */
+  async applyRosterResult(sn, pin, { kind, commandId, ok, code }) {
+    const row = await IclockDeviceUser.findOne({ sn, pin }).lean()
+    if (!row) return null
+    const set = { lastResult: { op: kind.replace("roster-", ""), ok, code, at: new Date() } }
+    if (ok && kind === "roster-user") set.onMachine = true
+    if (ok && kind === "roster-face") set.faceSha = row.pending?.faceSha || ""
+    if (ok && kind === "roster-remove") Object.assign(set, { onMachine: false, faceSha: "" })
+    const remaining = (row.pending?.commandIds || []).filter((id) => id !== commandId)
+    // A failed step ends the whole operation: the next sync run plans it again.
+    set.pending = remaining.length && ok ? { ...row.pending, commandIds: remaining } : { op: "", commandIds: [], faceSha: "", at: null }
+    return IclockDeviceUser.findOneAndUpdate({ sn, pin }, { $set: set }, { returnDocument: "after" }).lean()
+  },
+
+  /** Pending operations older than `before` (machine never answered) are dropped so they get re-planned. */
+  async clearStaleRosterPending(sn, before) {
+    const result = await IclockDeviceUser.updateMany(
+      { sn, "pending.op": { $ne: "" }, "pending.at": { $lt: before } },
+      { $set: { pending: { op: "", commandIds: [], faceSha: "", at: null }, lastResult: { op: "", ok: false, code: null, at: new Date() } } },
+    )
+    return result.modifiedCount || 0
+  },
+
+  async setSyncState(sn, set) {
+    const prefixed = Object.fromEntries(Object.entries(set).map(([k, v]) => [`sync.${k}`, v]))
+    return IclockDevice.findOneAndUpdate({ sn }, { $set: prefixed }, { returnDocument: "after" }).lean()
   },
 
   logRequest(entry) {

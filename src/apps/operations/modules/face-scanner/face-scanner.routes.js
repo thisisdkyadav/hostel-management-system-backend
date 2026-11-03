@@ -26,7 +26,17 @@ import {
   regenerateScannerAccountPassword,
 } from './face-scanner.controller.js';
 import { processScan, ping } from './scanner-action.controller.js';
-import { faceImport, machineActivity, machineUpdate, machines } from './machines.controller.js';
+import {
+  faceImport,
+  machineActivity,
+  machinePeopleRead,
+  machinePersonPush,
+  machinePersonRemove,
+  machineRoster,
+  machineRosterSync,
+  machineUpdate,
+  machines,
+} from './machines.controller.js';
 
 const router = express.Router();
 
@@ -58,6 +68,11 @@ router.get('/machines', machines);
 router.post('/machines/faces/import', faceImport);
 router.get('/machines/:sn/activity', machineActivity);
 router.patch('/machines/:sn', machineUpdate);
+router.get('/machines/:sn/roster', machineRoster);
+router.post('/machines/:sn/roster/sync', machineRosterSync);
+router.post('/machines/:sn/roster/read', machinePeopleRead);
+router.post('/machines/:sn/roster/people', machinePersonPush);
+router.delete('/machines/:sn/roster/people/:roll', machinePersonRemove);
 
 // Accounts must precede /:id; they share the existing session + role + route guard.
 router.get('/accounts', getScannerAccounts);

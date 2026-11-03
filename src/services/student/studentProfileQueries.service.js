@@ -279,6 +279,14 @@ export const studentProfileQueries = {
     return StudentProfile.find(filter).select("_id userId rollNumber").sort({ rollNumber: 1 }).lean()
   },
 
+  /** Every profile's roll number, status and name (face-machine roster sync), lean. */
+  async findRosterProfiles() {
+    return StudentProfile.find({ rollNumber: { $nin: [null, ""] } })
+      .select("rollNumber status userId")
+      .populate({ path: "userId", select: "name" })
+      .lean()
+  },
+
   /** One profile by case-insensitive exact roll number, userId (name/email/image) populated, NO select (meal verification). */
   async findByRollNumberCaseInsensitiveWithUserFull(rollNumber) {
     return StudentProfile.findOne({
