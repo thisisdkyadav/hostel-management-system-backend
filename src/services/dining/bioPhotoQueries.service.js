@@ -51,6 +51,36 @@ export const bioPhotoQueries = {
 
   // ---------------------------------------------------------------- scanner users
 
+  /** EasyWDMS photos HMS hasn't stored yet (or whose EasyWDMS copy changed since). */
+  async findFaceImportCandidates({ limit = 500 } = {}) {
+    return DiningScannerUser.aggregate([
+      { $match: { onScanner: true, "bioPhoto.present": true, "bioPhoto.path": { $ne: "" } } },
+      { $addFields: { _key: { $concat: ["$bioPhoto.path", "@", { $ifNull: ["$bioPhoto.registeredAt", ""] }] } } },
+      {
+        $match: {
+          $expr: {
+            $and: [
+              { $ne: [{ $ifNull: ["$face.sourceKey", ""] }, "$_key"] },
+              // never overwrite a face HMS got from a student request / profile photo
+              { $in: [{ $ifNull: ["$face.source", ""] }, ["", "easywdms"]] },
+            ],
+          },
+        },
+      },
+      { $sort: { rollNumber: 1 } },
+      { $limit: limit },
+      { $project: { rollNumber: 1, bioPhoto: 1, _key: 1 } },
+    ])
+  },
+
+  async countFaces() {
+    const [stored, withoutFace] = await Promise.all([
+      DiningScannerUser.countDocuments({ "face.ref": { $nin: ["", null] } }),
+      DiningScannerUser.countDocuments({ onScanner: true, "bioPhoto.present": true, "face.ref": { $in: ["", null] } }),
+    ])
+    return { stored, withoutFace }
+  },
+
   async findScannerUser(rollNumber) {
     return DiningScannerUser.findOne({ rollNumber }).lean()
   },

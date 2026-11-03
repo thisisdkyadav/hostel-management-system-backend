@@ -38,6 +38,28 @@ const BioPhotoSchema = new mongoose.Schema(
   { _id: false }
 )
 
+/**
+ * The face photo HMS itself keeps for this person (in HMS storage). This is what
+ * HMS sends to the machines once they talk to HMS directly; EasyWDMS's copy is
+ * imported once and then only when it changes.
+ */
+export const SCANNER_FACE_SOURCES = ["easywdms", "request", "profile"]
+const FaceSchema = new mongoose.Schema(
+  {
+    ref: { type: String, default: "" }, // storage file ref
+    contentType: { type: String, default: "" },
+    size: { type: Number, default: 0 },
+    width: { type: Number, default: 0 },
+    height: { type: Number, default: 0 },
+    sha256: { type: String, default: "" },
+    source: { type: String, enum: [...SCANNER_FACE_SOURCES, ""], default: "" },
+    sourceKey: { type: String, default: "" }, // easywdms: "<path>@<registeredAt>" — re-import when it changes
+    storedAt: { type: Date, default: null },
+    problem: { type: String, default: "" }, // why the last import/store failed, if it did
+  },
+  { _id: false }
+)
+
 const ProfileAttemptSchema = new mongoose.Schema(
   {
     at: { type: Date, default: null },
@@ -55,6 +77,7 @@ const DiningScannerUserSchema = new mongoose.Schema(
     studentUserId: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     onScanner: { type: Boolean, default: true },
     bioPhoto: { type: BioPhotoSchema, default: () => ({}) },
+    face: { type: FaceSchema, default: () => ({}) },
     devices: { type: [DeviceResultSchema], default: [] },
     devicesChecked: { type: Boolean, default: false },
     photoStatus: { type: String, enum: SCANNER_PHOTO_STATUSES, default: "missing" },

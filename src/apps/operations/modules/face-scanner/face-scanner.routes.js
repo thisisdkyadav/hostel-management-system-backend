@@ -26,6 +26,7 @@ import {
   regenerateScannerAccountPassword,
 } from './face-scanner.controller.js';
 import { processScan, ping } from './scanner-action.controller.js';
+import { faceImport, machineActivity, machineUpdate, machines } from './machines.controller.js';
 
 const router = express.Router();
 
@@ -51,6 +52,12 @@ const guard = routeGuard({
 });
 
 router.use(guard.access);
+
+// Machines that talk to HMS directly (iclock receiver). Must precede /:id.
+router.get('/machines', machines);
+router.post('/machines/faces/import', faceImport);
+router.get('/machines/:sn/activity', machineActivity);
+router.patch('/machines/:sn', machineUpdate);
 
 // Accounts must precede /:id; they share the existing session + role + route guard.
 router.get('/accounts', getScannerAccounts);

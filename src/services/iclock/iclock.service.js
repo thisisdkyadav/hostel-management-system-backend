@@ -23,9 +23,10 @@ import {
   parseRecords,
 } from "./protocol.js"
 import { scannerQueries } from "../scanner/scannerQueries.service.js"
+import { readFaceForMachine } from "../dining/scanner-faces.service.js"
 import * as scannerActionService from "../../apps/operations/modules/face-scanner/scanner-action.service.js"
 
-/** Punches older than this (by machine clock) are stored but never turned into records. */
+/** Punches further than this from "now" (by machine clock) are stored but never turned into records. */
 export const LIVE_PUNCH_MAX_AGE_MS = 30 * 60 * 1000
 const LOG_BODY_LIMIT = 4096
 const SCANNER_CACHE_MS = 10 * 1000
@@ -52,7 +53,9 @@ const processPunch = async ({ device, scanner, punch, now }) => {
   if (device.mode !== "live") return { processed: false, reason: "shadow" }
   if (!scanner) return { processed: false, reason: "unlinked" }
   if (!scanner.isActive) return { processed: false, reason: "scanner-inactive" }
-  if (now - punch.dateTime.getTime() > LIVE_PUNCH_MAX_AGE_MS) return { processed: false, reason: "too-old" }
+  const age = now - punch.dateTime.getTime()
+  if (age > LIVE_PUNCH_MAX_AGE_MS) return { processed: false, reason: "too-old" }
+  if (-age > LIVE_PUNCH_MAX_AGE_MS) return { processed: false, reason: "clock-ahead" }
 
   const modeofAttn = mapPunchState(punch.status)
   const direction = modeofAttn === "IN" ? "in" : modeofAttn === "OUT" ? "out" : scanner.direction
@@ -131,7 +134,7 @@ const deviceSetFromRequest = ({ query, ip, headers }) => {
   if (xff) set.forwardedFor = String(xff)
   if (query.pushver) set.pushVersion = String(query.pushver)
   const info = parseInfoParam(query.INFO)
-  if (info) set.info = info
+  if (info) set["info.poll"] = info
   return set
 }
 
@@ -147,7 +150,7 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
     if (query.Stamp && table) await iclockOwner.setStamp(sn, table, query.Stamp)
     if (table === "ATTLOG") return handleAttlog(device, text(body), now)
     if (table === "OPTIONS") {
-      await iclockOwner.updateDevice(sn, { info: { ...(device.info || {}), options: parseOptions(text(body)) } })
+      await iclockOwner.updateDevice(sn, { "info.options": parseOptions(text(body)), "info.optionsAt": new Date(now) })
       return "OK\n"
     }
     // ERRORLOG: EasyWDMS stores nothing and answers OK:0 (captured); we do the same.
@@ -217,4 +220,37 @@ export const handleIclockRequest = async ({ method, path, query = {}, body, head
   return { status, body: answer }
 }
 
-export default { handleIclockRequest }
+/**
+ * GET /iclock/file/biophoto/<token>/<roll>.jpg — a face the machine was told to
+ * download by a BIOPHOTO command. Returns { status, body: Buffer|string, contentType }.
+ */
+export const handleIclockFileRequest = async ({ path, ip = "" }) => {
+  const started = Date.now()
+  const match = /^\/iclock\/file\/biophoto\/([0-9a-f]{32})\/([A-Za-z0-9_-]+)\.jpe?g$/i.exec(String(path || ""))
+  let result = { status: 404, body: "Not found", contentType: "text/plain" }
+  if (match) {
+    try {
+      const face = await readFaceForMachine({ token: match[1].toLowerCase(), rollNumber: match[2] })
+      if (face) result = { status: 200, body: face.buffer, contentType: face.contentType }
+    } catch (error) {
+      console.error("[iclock] face file failed:", error?.message || error)
+      result = { status: 500, body: "ERROR", contentType: "text/plain" }
+    }
+  }
+  iclockOwner
+    .logRequest({
+      sn: "",
+      method: "GET",
+      path: "file",
+      query: String(path || "").slice(0, 300),
+      status: result.status,
+      response: result.status === 200 ? `${result.body.length} bytes` : String(result.body),
+      ms: Date.now() - started,
+      at: new Date(started),
+      body: ip ? `ip=${ip}` : "",
+    })
+    .catch(() => {})
+  return result
+}
+
+export default { handleIclockRequest, handleIclockFileRequest }

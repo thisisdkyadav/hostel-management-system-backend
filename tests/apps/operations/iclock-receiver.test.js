@@ -32,8 +32,11 @@ afterAll(async () => {
 })
 
 const pad2 = (n) => String(n).padStart(2, "0")
-const machineTime = (d) =>
-  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
+// Machine clocks are IST regardless of the server's zone.
+const machineTime = (d) => {
+  const ist = new Date(d.getTime() + 330 * 60 * 1000)
+  return `${ist.getUTCFullYear()}-${pad2(ist.getUTCMonth() + 1)}-${pad2(ist.getUTCDate())} ${pad2(ist.getUTCHours())}:${pad2(ist.getUTCMinutes())}:${pad2(ist.getUTCSeconds())}`
+}
 let snSeq = 0
 const newSn = () => `TESTSN${Date.now().toString(36)}${++snSeq}`.toUpperCase()
 
@@ -68,6 +71,11 @@ async function diningFixture() {
 }
 
 describe("iclock protocol parsing", () => {
+  it("reads machine time as IST whatever the server's zone is", () => {
+    const { punches } = parseAttlog("1\t2026-11-03 12:01:20\t255\t15\t0\n")
+    expect(punches[0].dateTime.toISOString()).toBe("2026-11-03T06:31:20.000Z")
+  })
+
   it("parses ATTLOG lines and rejects junk without throwing", () => {
     const { punches, rejected } = parseAttlog("2301\t2026-11-03 12:01:05\t0\t15\t0\t0\t0\t0\t0\t0\r\nnot a punch\n\n")
     expect(punches).toHaveLength(1)
@@ -155,15 +163,18 @@ describe("iclock receiver", () => {
     clearIclockCaches()
 
     const old = new Date(Date.now() - 2 * 3600e3)
+    const ahead = new Date(Date.now() + 2 * 3600e3)
     const body = [
       `${profile.rollNumber}\t${machineTime(old)}\t0\t15\t0\t0\t0\t0\t0\t0`,
       `${profile.rollNumber}\t${machineTime(new Date())}\t0\t15\t0\t0\t0\t0\t0\t0`,
+      `${profile.rollNumber}\t${machineTime(ahead)}\t0\t15\t0\t0\t0\t0\t0\t0`,
     ].join("\n")
     const res = await post(`/iclock/cdata?SN=${sn}&table=ATTLOG`, body)
-    expect(res.text).toBe("OK:2\n")
+    expect(res.text).toBe("OK:3\n")
 
     const punches = await IclockPunch.find({ sn }).sort({ punchedAt: 1 }).lean()
-    expect(punches.map((p) => p.outcome.reason)).toEqual(["too-old", ""])
+    expect(punches.map((p) => p.outcome.reason)).toEqual(["too-old", "", "clock-ahead"])
+    expect(Math.abs(punches[1].punchedAt.getTime() - Date.now())).toBeLessThan(5000)
     expect(punches[1].outcome).toMatchObject({ processed: true, success: true })
     expect(await DiningMealVerification.countDocuments({ rollNumber: profile.rollNumber })).toBe(1)
   })

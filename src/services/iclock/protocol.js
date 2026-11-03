@@ -19,17 +19,26 @@ export const bodyLines = (text) =>
     .map((line) => line.replace(/\0+$/, ""))
     .filter((line) => line.trim() !== "")
 
+/** Machine clocks run in the zone the handshake gives them (TimeZone=330 → IST). */
+export const MACHINE_TZ_MINUTES = 330
+
+const tzSuffix = (minutes) => {
+  const sign = minutes < 0 ? "-" : "+"
+  const abs = Math.abs(minutes)
+  return `${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`
+}
+
 /**
  * "YYYY-MM-DD HH:mm:ss" (machine-local) → { localTime, date, time, dateTime }.
- * Interpreted in the server's local time zone, matching the existing scan path.
+ * Read in the MACHINE's zone, not the server's, so a UTC server gets it right too.
  */
-export const parseMachineTime = (raw) => {
+export const parseMachineTime = (raw, tzMinutes = MACHINE_TZ_MINUTES) => {
   const match = /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?$/.exec(String(raw ?? "").trim())
   if (!match) return null
   const [, y, mo, d, h, mi, s = "0"] = match
   const date = `${y}-${pad2(mo)}-${pad2(d)}`
   const time = `${pad2(h)}:${pad2(mi)}:${pad2(s)}`
-  const dateTime = new Date(`${date}T${time}`)
+  const dateTime = new Date(`${date}T${time}${tzSuffix(tzMinutes)}`)
   if (Number.isNaN(dateTime.getTime())) return null
   return { localTime: `${date} ${time}`, date, time, dateTime }
 }

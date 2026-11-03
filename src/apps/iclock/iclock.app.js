@@ -6,7 +6,7 @@
  * taken raw and handed to the iclock service, which returns the exact answer.
  */
 import express from "express"
-import { handleIclockRequest } from "../../services/iclock/iclock.service.js"
+import { handleIclockFileRequest, handleIclockRequest } from "../../services/iclock/iclock.service.js"
 
 export const createIclockApp = () => {
   const app = express()
@@ -17,8 +17,11 @@ export const createIclockApp = () => {
   app.get("/health", (req, res) => res.type("text/plain").send("ok"))
 
   // Machines download face photos by the relative Url in a BIOPHOTO command (no SN on
-  // these requests). Serving HMS-stored photos here is the next step; until then: 404.
-  app.get(/^\/iclock\/file\/.*/, (req, res) => res.status(404).type("text/plain").send("Not found"))
+  // these requests); the token in the path is what authorises it.
+  app.get(/^\/iclock\/file\/.*/, async (req, res) => {
+    const result = await handleIclockFileRequest({ path: req.path, ip: req.ip })
+    res.status(result.status).set("Cache-Control", "no-store").type(result.contentType).send(result.body)
+  })
 
   app.all(/^\/iclock\/.*/, express.raw({ type: () => true, limit: "20mb" }), async (req, res) => {
     const result = await handleIclockRequest({

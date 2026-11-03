@@ -24,6 +24,25 @@ export const iclockQueries = {
     return IclockPunch.find(sn ? { sn } : {}).sort({ receivedAt: -1 }).limit(limit).lean()
   },
 
+  /** Per-machine counts for the machines page: punches since `since`, command states. */
+  async machineStats(since) {
+    const [punches, commands, recent] = await Promise.all([
+      IclockPunch.aggregate([{ $match: { receivedAt: { $gte: since } } }, { $group: { _id: "$sn", n: { $sum: 1 } } }]),
+      IclockCommand.aggregate([
+        { $match: { $or: [{ status: { $in: ["queued", "sent"] } }, { status: "failed", doneAt: { $gte: since } }] } },
+        { $group: { _id: { sn: "$sn", status: "$status" }, n: { $sum: 1 } } },
+      ]),
+      // Realtime punches arrive within seconds, so (machine time − received time) ≈ clock offset.
+      IclockPunch.aggregate([
+        { $match: { receivedAt: { $gte: new Date(Date.now() - 24 * 3600e3) } } },
+        { $sort: { receivedAt: -1 } },
+        { $group: { _id: "$sn", diffs: { $push: { $subtract: ["$punchedAt", "$receivedAt"] } } } },
+        { $project: { diffs: { $slice: ["$diffs", 20] } } },
+      ]),
+    ])
+    return { punches, commands, recent }
+  },
+
   async listRequestLogs({ sn, limit = 100 } = {}) {
     return IclockRequestLog.find(sn ? { sn } : {}).sort({ at: -1 }).limit(limit).lean()
   },
