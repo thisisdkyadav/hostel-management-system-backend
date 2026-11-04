@@ -24,6 +24,20 @@ export const iclockQueries = {
     return IclockPunch.find(sn ? { sn } : {}).sort({ receivedAt: -1 }).limit(limit).lean()
   },
 
+  /**
+   * Each person's latest face scan (verify 15 = face) at or after `since`:
+   * Map pin → { at, sn }. One person when `pin` is given.
+   */
+  async lastFaceScans({ since, pin } = {}) {
+    const match = { verify: "15", ...(since ? { punchedAt: { $gte: since } } : {}), ...(pin ? { pin } : {}) }
+    const rows = await IclockPunch.aggregate([
+      { $match: match },
+      { $sort: { punchedAt: -1 } },
+      { $group: { _id: "$pin", at: { $first: "$punchedAt" }, sn: { $first: "$sn" } } },
+    ])
+    return new Map(rows.map((row) => [String(row._id).trim().toUpperCase(), { at: row.at, sn: row.sn }]))
+  },
+
   /** Per-machine counts for the machines page: punches since `since`, command states. */
   async machineStats(since) {
     const [punches, commands, recent] = await Promise.all([

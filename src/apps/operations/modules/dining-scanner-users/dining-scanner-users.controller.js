@@ -14,7 +14,7 @@ export const list = handler((req) => listScannerUsers({ query: req.query }))
 export const stats = handler(() => getScannerStats())
 export const one = handler((req) => getScannerUser({ rollNumber: req.params.roll }))
 export const profilePhoto = handler((req) => tryProfilePhoto({ rollNumber: req.params.roll, body: req.body, actor: req.user }))
-export const profilePhotos = handler((req) => startProfilePhotoJob({ actor: req.user }))
+export const profilePhotos = handler((req) => startProfilePhotoJob({ actor: req.user, body: req.body || {} }))
 export const machineCheck = handler((req) => checkOnMachines({ rollNumber: req.params.roll, actor: req.user }))
 
 const sendImage = (res, file) => {

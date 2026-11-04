@@ -131,7 +131,7 @@ const syncMachines = async () => {
 const FACE_SOURCES = { request: "Student upload", profile: "Profile photo", easywdms: "Imported from EasyWDMS" }
 
 /** Everything the page shows for one student. */
-const buildEntry = ({ profile, row, machines, statesByPin }) => {
+const buildEntry = ({ profile, row, machines, statesByPin, scans }) => {
   const rollNumber = String(profile.rollNumber).trim()
   const face = row?.face?.ref ? row.face : null
   const faceSha = faceShaOf(face)
@@ -161,7 +161,14 @@ const buildEntry = ({ profile, row, machines, statesByPin }) => {
       : { present: false },
     machines: perMachine,
     profileAttempt: row?.profileAttempt?.at ? { at: row.profileAttempt.at, outcome: row.profileAttempt.outcome, message: row.profileAttempt.message || "" } : null,
+    lastScan: scanSince(scans.get(key(rollNumber)), face, machines),
   }
+}
+
+/** The student's latest face scan since the current photo was saved, or null. */
+const scanSince = (scan, face, machines) => {
+  if (!scan || !face?.storedAt || new Date(scan.at) < new Date(face.storedAt)) return null
+  return { at: scan.at, machine: machines.find((machine) => machine.sn === scan.sn)?.alias || scan.sn }
 }
 
 /** Every active student (or one roll) with their photo and machine states. */
@@ -173,6 +180,9 @@ const loadBoard = async ({ rollNumber } = {}) => {
   ])
   const rowByRoll = new Map(rows.map((row) => [key(row.rollNumber), row]))
   const states = machines.length ? await iclockQueries.listRosterStates(machines.map((machine) => machine.sn), rollNumber ? { pin: rollNumber } : {}) : []
+  // Face scans since the oldest current photo (each student's own photo date is checked in scanSince).
+  const oldestPhoto = rows.reduce((min, row) => (row.face?.storedAt && (!min || row.face.storedAt < min) ? row.face.storedAt : min), null)
+  const scans = oldestPhoto ? await iclockQueries.lastFaceScans({ since: oldestPhoto, pin: rollNumber }) : new Map()
   const statesByPin = new Map()
   for (const state of states) {
     const k = key(state.pin)
@@ -185,7 +195,7 @@ const loadBoard = async ({ rollNumber } = {}) => {
     const k = key(profile.rollNumber)
     if (!k || seen.has(k)) continue
     seen.add(k)
-    entries.push(buildEntry({ profile, row: rowByRoll.get(k), machines, statesByPin }))
+    entries.push(buildEntry({ profile, row: rowByRoll.get(k), machines, statesByPin, scans }))
   }
   entries.sort((a, b) => a.rollNumber.localeCompare(b.rollNumber))
   return { entries, machines }
@@ -264,11 +274,15 @@ export const getScannerStats = async () => {
   const reasons = Object.fromEntries(REASONS.map((name) => [name, 0]))
   const perMachine = machines.map((machine) => ({ alias: machine.alias, sn: machine.sn, lastSeenAt: machine.lastSeenAt, ok: 0, waiting: 0, refused: 0, match: 0, lastCheckAt: null }))
   let missingWithProfile = 0
+  let notWorkingWithProfile = 0
+  let scannedSinceUpdate = 0
   for (const entry of entries) {
+    if (entry.lastScan) scannedSinceUpdate++
+    if (isProfileCandidate(entry, { includeNotWorking: true }) && entry.photoStatus !== "missing") notWorkingWithProfile++
     status[entry.photoStatus]++
     if (entry.checkSummary) checks[entry.checkSummary]++
     reasons[entry.reason]++
-    if (entry.photoStatus === "missing" && entry.profileImage) missingWithProfile++
+    if (entry.photoStatus === "missing" && isProfileCandidate(entry)) missingWithProfile++
     entry.machines.forEach((machine, index) => {
       const tally = perMachine[index]
       if (machine.state in tally) tally[machine.state]++
@@ -286,6 +300,8 @@ export const getScannerStats = async () => {
     reasons,
     notWorking: entries.length - reasons.working,
     missingWithProfile,
+    notWorkingWithProfile,
+    scannedSinceUpdate,
     machines: perMachine,
     profileJob,
   })
@@ -344,11 +360,25 @@ export const tryProfilePhoto = async ({ rollNumber: rawRoll, body = {}, actor })
   return success({ item, outcome: result.outcome }, 200, result.message)
 }
 
-/** Active students with no photo, a profile photo, and no earlier try. */
-const profilePhotoCandidates = async () => {
-  const [{ entries }, attempted] = await Promise.all([loadBoard(), bioPhotoQueries.findProfileAttemptedRolls()])
-  const tried = new Set(attempted.map(key))
-  return entries.filter((entry) => entry.photoStatus === "missing" && entry.profileImage && !tried.has(key(entry.rollNumber)))
+/** Reasons whose photo doesn't work and won't fix itself (not sending, not just unchecked). */
+const BROKEN_REASONS = new Set(["refused", "noFace"])
+
+/**
+ * Who the bulk run gives their profile photo: everyone with no photo and no
+ * earlier try; with includeNotWorking, also everyone whose photo a machine
+ * refused or made no face from, unless that photo already is the profile photo
+ * or the profile photo was found unusable before.
+ */
+const isProfileCandidate = (entry, { includeNotWorking = false } = {}) => {
+  if (!entry.profileImage) return false
+  if (entry.photoStatus === "missing") return !entry.profileAttempt
+  if (!includeNotWorking || !BROKEN_REASONS.has(entry.reason)) return false
+  return entry.photo.source !== "profile" && entry.profileAttempt?.outcome !== "unusable"
+}
+
+const profilePhotoCandidates = async (options) => {
+  const { entries } = await loadBoard()
+  return entries.filter((entry) => isProfileCandidate(entry, options))
 }
 
 const runProfilePhotoJob = async (actor, candidates) => {
@@ -374,11 +404,12 @@ const runProfilePhotoJob = async (actor, candidates) => {
 }
 
 /** Start the bulk run in the background; 409 while one runs. */
-export const startProfilePhotoJob = async ({ actor }) => {
+export const startProfilePhotoJob = async ({ actor, body = {} }) => {
   const current = await readState(PROFILE_JOB_CONFIG_KEY)
   if (current?.running && Date.now() - new Date(current.startedAt).getTime() < 2 * 60 * 60 * 1000) return conflict("Profile photos are already being saved.")
-  const candidates = await profilePhotoCandidates()
-  if (!candidates.length) return badRequest("Nobody needs a profile photo tried: every active student without a photo has been tried already, or has no profile photo.")
+  const includeNotWorking = body.includeNotWorking === true
+  const candidates = await profilePhotoCandidates({ includeNotWorking })
+  if (!candidates.length) return badRequest("Nobody needs a profile photo tried: everyone in that group has been tried already, or has no profile photo.")
 
   withLock(PROFILE_JOB_LOCK, 2 * 60 * 60, () => runProfilePhotoJob(actor, candidates)).catch((caught) => {
     logger.warn?.(`[scanner-photos] profile photo run failed: ${caught?.message || caught}`)

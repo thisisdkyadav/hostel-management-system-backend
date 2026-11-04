@@ -12,7 +12,7 @@ import { createStudentProfile } from "../../helpers/seed/students.js"
 import { fileAccessService } from "../../../src/services/storage/file-access.service.js"
 import { storageClient } from "../../../src/services/storage/storage.client.js"
 import { configOwner } from "../../../src/services/config/configOwner.service.js"
-import { DiningScannerUser, IclockDevice, IclockDeviceUser } from "../../../src/models/index.js"
+import { DiningScannerUser, IclockDevice, IclockDeviceUser, IclockPunch } from "../../../src/models/index.js"
 import { derivePhotoStatus, machineState, PROFILE_JOB_CONFIG_KEY } from "../../../src/services/dining/scanner-users.service.js"
 
 const BASE = "/api/v1/dining-scanner-users"
@@ -252,6 +252,57 @@ describe("use profile photo", () => {
     expect((await DiningScannerUser.findOne({ rollNumber: bad.rollNumber }).lean()).profileAttempt.outcome).toBe("unusable")
     // Everyone has been tried now.
     expect((await api.post(`${BASE}/profile-photos`)).status).toBe(400)
+  })
+
+  it("bulk with includeNotWorking: also replaces a photo the machines made no face from", async () => {
+    await configOwner.upsertConfig({ key: PROFILE_JOB_CONFIG_KEY }, { key: PROFILE_JOB_CONFIG_KEY, value: { running: false } })
+    const broken = await makeStudent({ profileImage: putFile(await image(720, 720)) })
+    await giveFace(broken.rollNumber, "nf1")
+    const asked = new Date(Date.now() - 60_000)
+    const answered = new Date()
+    await hold(0, broken.rollNumber, { onMachine: true, faceSha: "nf1", check: { requestedAt: asked, answeredAt: answered, faceSha: "nf1" }, machinePhoto: { sha256: "nf1", at: answered }, faceTemplateAt: new Date(0) })
+    await hold(1, broken.rollNumber, { onMachine: true, faceSha: "nf1" })
+    const api = await as(await seed.admin())
+    expect((await api.get(`${BASE}/${broken.rollNumber}`)).body.data.item.reason).toBe("noFace")
+    expect((await api.get(`${BASE}/stats`)).body.data.notWorkingWithProfile).toBeGreaterThanOrEqual(1)
+
+    // Without the toggle the student isn't touched.
+    await api.post(`${BASE}/profile-photos`)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect((await DiningScannerUser.findOne({ rollNumber: broken.rollNumber }).lean()).face.source).toBe("request")
+
+    await configOwner.upsertConfig({ key: PROFILE_JOB_CONFIG_KEY }, { key: PROFILE_JOB_CONFIG_KEY, value: { running: false } })
+    const res = await api.post(`${BASE}/profile-photos`).send({ includeNotWorking: true })
+    expect(res.status).toBe(202)
+    let face
+    for (let i = 0; i < 50; i++) {
+      face = (await DiningScannerUser.findOne({ rollNumber: broken.rollNumber }).lean()).face
+      if (face.source === "profile") break
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    expect(face.source).toBe("profile")
+  })
+})
+
+describe("face scans", () => {
+  it("shows the latest face scan since the photo was saved, and counts it", async () => {
+    const api = await as(await seed.admin())
+    const before = (await api.get(`${BASE}/stats`)).body.data.scannedSinceUpdate
+    const student = await makeStudent({ name: "Scan Person" })
+    await giveFace(student.rollNumber, "sc1")
+    const old = await makeStudent({ name: "Old Scan" })
+    await giveFace(old.rollNumber, "sc2")
+    const now = Date.now()
+    await IclockPunch.create([
+      { sn: machines[0], pin: student.rollNumber, localTime: "a1", punchedAt: new Date(now + 1000), verify: "15" },
+      { sn: machines[1], pin: student.rollNumber, localTime: "a2", punchedAt: new Date(now + 2000), verify: "15" },
+      { sn: machines[0], pin: old.rollNumber, localTime: "a3", punchedAt: new Date(now - 3600e3), verify: "15" }, // before the photo
+    ])
+    const item = (await api.get(`${BASE}/${student.rollNumber}`)).body.data.item
+    expect(item.lastScan).toMatchObject({ machine: "m3" })
+    expect(new Date(item.lastScan.at).getTime()).toBe(now + 2000)
+    expect((await api.get(`${BASE}/${old.rollNumber}`)).body.data.item.lastScan).toBeNull()
+    expect((await api.get(`${BASE}/stats`)).body.data.scannedSinceUpdate).toBe(before + 1)
   })
 })
 
