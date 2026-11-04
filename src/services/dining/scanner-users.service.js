@@ -39,6 +39,24 @@ export const PHOTO_STATUSES = ["valid", "pending", "failed", "missing"]
 /** What the machines sent back when asked (fetch-back checks), summed over machines. */
 export const CHECK_SUMMARIES = ["match", "mismatch", "noFace", "checking", "unchecked"]
 const LIST_FILTERS = ["all", ...PHOTO_STATUSES, ...CHECK_SUMMARIES]
+/**
+ * Does the student's face work at the mess, and if not, why. A machine holding
+ * a different photo than HMS still works when it made a face, so that is not a
+ * problem; a machine with no photo at all counts as "no face".
+ */
+export const REASONS = ["noPhoto", "refused", "noFace", "sending", "unchecked", "working"]
+export const NOT_WORKING = REASONS.filter((reason) => reason !== "working")
+const REASON_FILTERS = ["notWorking", ...REASONS]
+
+export const reasonOf = (photoStatus, checks) => {
+  if (photoStatus === "missing") return "noPhoto"
+  if (photoStatus === "failed") return "refused"
+  const statuses = checks.map((check) => check?.status || "none")
+  if (statuses.some((s) => s === "noFace" || s === "noPhoto")) return "noFace"
+  if (photoStatus === "pending") return "sending"
+  if (statuses.every((s) => s === "match" || s === "different")) return "working"
+  return "unchecked"
+}
 const MAX_PAGE_SIZE = 100
 const DEFAULT_PAGE_SIZE = 10
 /** A machine polls every few seconds; quiet for this long means it's off or unreachable. */
@@ -137,6 +155,7 @@ const buildEntry = ({ profile, row, machines, statesByPin }) => {
     profileImage: profile.userId?.profileImage || "",
     photoStatus: status,
     checkSummary: faceSha ? summarizeChecks(perMachine.map((machine) => machine.check)) : null,
+    reason: reasonOf(status, perMachine.map((machine) => machine.check)),
     photo: face
       ? { present: true, source: face.source || "", sourceLabel: FACE_SOURCES[face.source] || "", storedAt: face.storedAt || null, width: face.width || 0, height: face.height || 0, version: (face.sha256 || face.ref).slice(0, 12) }
       : { present: false },
@@ -183,6 +202,7 @@ const parsePositiveInt = (value, fallback, max) => {
 }
 
 const matchesFilter = (entry, filter) => filter === "all" || entry.photoStatus === filter || entry.checkSummary === filter
+const matchesReason = (entry, reason) => !reason || entry.reason === reason || (reason === "notWorking" && entry.reason !== "working")
 
 /** Search ranks exact roll, then roll prefix, then name/roll containing it. */
 const searchRank = (entry, search) => {
@@ -201,6 +221,8 @@ const searchRank = (entry, search) => {
 export const listScannerUsers = async ({ query = {} }) => {
   const status = query.status === undefined || query.status === "" ? "all" : query.status
   if (!LIST_FILTERS.includes(status)) return badRequest(`status must be one of ${LIST_FILTERS.join(", ")}`)
+  const reason = typeof query.reason === "string" ? query.reason : ""
+  if (reason && !REASON_FILTERS.includes(reason)) return badRequest(`reason must be one of ${REASON_FILTERS.join(", ")}`)
   const page = parsePositiveInt(query.page, 1)
   const limit = parsePositiveInt(query.limit, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE)
   const search = typeof query.search === "string" ? query.search.trim().slice(0, 60) : ""
@@ -210,7 +232,7 @@ export const listScannerUsers = async ({ query = {} }) => {
   for (const entry of entries) counts[entry.photoStatus]++
 
   const pattern = search ? new RegExp(escapeRegex(search), "i") : null
-  let filtered = entries.filter((entry) => matchesFilter(entry, status) && (!pattern || pattern.test(entry.rollNumber) || pattern.test(entry.name)))
+  let filtered = entries.filter((entry) => matchesFilter(entry, status) && matchesReason(entry, reason) && (!pattern || pattern.test(entry.rollNumber) || pattern.test(entry.name)))
   if (search) filtered = filtered.map((entry) => [searchRank(entry, search), entry]).sort((a, b) => a[0] - b[0]).map(([, entry]) => entry)
   return success({
     items: filtered.slice((page - 1) * limit, page * limit),
@@ -239,11 +261,13 @@ export const getScannerStats = async () => {
   const [{ entries, machines }, profileJob] = await Promise.all([loadBoard(), readState(PROFILE_JOB_CONFIG_KEY)])
   const status = { valid: 0, pending: 0, failed: 0, missing: 0 }
   const checks = Object.fromEntries(CHECK_SUMMARIES.map((name) => [name, 0]))
+  const reasons = Object.fromEntries(REASONS.map((name) => [name, 0]))
   const perMachine = machines.map((machine) => ({ alias: machine.alias, sn: machine.sn, lastSeenAt: machine.lastSeenAt, ok: 0, waiting: 0, refused: 0, match: 0, lastCheckAt: null }))
   let missingWithProfile = 0
   for (const entry of entries) {
     status[entry.photoStatus]++
     if (entry.checkSummary) checks[entry.checkSummary]++
+    reasons[entry.reason]++
     if (entry.photoStatus === "missing" && entry.profileImage) missingWithProfile++
     entry.machines.forEach((machine, index) => {
       const tally = perMachine[index]
@@ -259,6 +283,8 @@ export const getScannerStats = async () => {
     withPhoto: entries.length - status.missing,
     status,
     checks,
+    reasons,
+    notWorking: entries.length - reasons.working,
     missingWithProfile,
     machines: perMachine,
     profileJob,

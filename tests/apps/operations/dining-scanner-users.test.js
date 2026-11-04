@@ -155,6 +155,11 @@ describe("overview, filters, search, one student", () => {
     expect(stats.status.valid).toBe(before.status.valid + 2)
     expect(stats.checks.match).toBe(before.checks.match + 1)
     expect(stats.checks.mismatch).toBe(before.checks.mismatch + 1)
+    // A different photo on a machine is not a problem: still "not checked" on the other one.
+    expect(stats.reasons.working).toBe(before.reasons.working + 1)
+    expect(stats.reasons.noPhoto).toBe(before.reasons.noPhoto + 1)
+    expect(stats.reasons.unchecked).toBe(before.reasons.unchecked + 1)
+    expect(stats.notWorking).toBe(stats.total - stats.reasons.working)
     expect(stats.withPhoto).toBe(stats.total - stats.status.missing)
     expect(stats.machines.map((m) => m.alias)).toEqual(["m2", "m3"])
     expect(stats.machines[0].ok).toBe(before.machines[0].ok + 2)
@@ -164,6 +169,15 @@ describe("overview, filters, search, one student", () => {
     expect(await byFilter("match")).toContain(matched.rollNumber)
     expect(await byFilter("mismatch")).toEqual([mismatched.rollNumber])
     expect(await byFilter("missing")).toContain(missing.rollNumber)
+    const byReason = async (reason) => (await listFor(api, { reason })).items.map((item) => item.rollNumber)
+    const working = await byReason("working")
+    const notWorking = await byReason("notWorking")
+    expect(working).toContain(matched.rollNumber)
+    expect(notWorking).toEqual(expect.arrayContaining([missing.rollNumber, mismatched.rollNumber]))
+    expect(notWorking).not.toContain(matched.rollNumber)
+    expect(working).not.toContain(mismatched.rollNumber)
+    expect(await byReason("unchecked")).toContain(mismatched.rollNumber)
+    expect((await api.get(BASE).query({ reason: "mismatch" })).status).toBe(400)
     expect((await listFor(api, { search: matched.rollNumber })).items[0]).toMatchObject({ rollNumber: matched.rollNumber, checkSummary: "match" })
 
     // Default page size is 10; exact roll first.
