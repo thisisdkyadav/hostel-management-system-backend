@@ -36,8 +36,11 @@ export const PROFILE_JOB_CONFIG_KEY = "diningScannerProfileJob"
 const PROFILE_JOB_LOCK = "lock:dining-scanner-profile-photos"
 
 export const PHOTO_STATUSES = ["valid", "pending", "failed", "missing"]
-const LIST_FILTERS = ["all", ...PHOTO_STATUSES]
+/** What the machines sent back when asked (fetch-back checks), summed over machines. */
+export const CHECK_SUMMARIES = ["match", "mismatch", "noFace", "checking", "unchecked"]
+const LIST_FILTERS = ["all", ...PHOTO_STATUSES, ...CHECK_SUMMARIES]
 const MAX_PAGE_SIZE = 100
+const DEFAULT_PAGE_SIZE = 10
 
 const idOf = (value) => String(value?._id || value || "")
 const key = (roll) => String(roll ?? "").trim().toUpperCase()
@@ -78,6 +81,25 @@ export const derivePhotoStatus = (faceSha, states) => {
   return "pending"
 }
 
+/**
+ * One word for what every machine sent back for this student's current photo
+ * (null without a photo or machines). Worst first:
+ *   mismatch  — a machine holds another photo, or none at all
+ *   noFace    — a machine holds this photo but made no face from it
+ *   checking  — asked, waiting for an answer
+ *   unchecked — at least one machine never checked (or didn't answer)
+ *   match     — every machine holds this exact photo and made a face
+ */
+export const summarizeChecks = (checks) => {
+  if (!checks.length) return null
+  const statuses = checks.map((check) => check?.status || "none")
+  if (statuses.some((s) => s === "different" || s === "noPhoto")) return "mismatch"
+  if (statuses.includes("noFace")) return "noFace"
+  if (statuses.includes("checking")) return "checking"
+  if (statuses.every((s) => s === "match")) return "match"
+  return "unchecked"
+}
+
 /** Machines with roster sync on: { sn, alias }. */
 const syncMachines = async () => {
   const devices = await iclockQueries.listSyncDevices()
@@ -110,6 +132,7 @@ const buildEntry = ({ profile, row, machines, statesByPin }) => {
     studentUserId: idOf(profile.userId),
     profileImage: profile.userId?.profileImage || "",
     photoStatus: status,
+    checkSummary: faceSha ? summarizeChecks(perMachine.map((machine) => machine.check)) : null,
     photo: face
       ? { present: true, source: face.source || "", sourceLabel: FACE_SOURCES[face.source] || "", storedAt: face.storedAt || null, width: face.width || 0, height: face.height || 0, version: (face.sha256 || face.ref).slice(0, 12) }
       : { present: false },
@@ -155,19 +178,36 @@ const parsePositiveInt = (value, fallback, max) => {
   return max ? Math.min(parsed, max) : parsed
 }
 
+const matchesFilter = (entry, filter) => filter === "all" || entry.photoStatus === filter || entry.checkSummary === filter
+
+/** Search ranks exact roll, then roll prefix, then name/roll containing it. */
+const searchRank = (entry, search) => {
+  const roll = key(entry.rollNumber)
+  const wanted = key(search)
+  if (roll === wanted) return 0
+  if (roll.startsWith(wanted)) return 1
+  if (entry.name.toUpperCase().startsWith(wanted)) return 2
+  return 3
+}
+
+/**
+ * Students by search (roll or name) and/or filter, 10 a page by default.
+ * The page asks only once something is typed or a filter is picked.
+ */
 export const listScannerUsers = async ({ query = {} }) => {
   const status = query.status === undefined || query.status === "" ? "all" : query.status
   if (!LIST_FILTERS.includes(status)) return badRequest(`status must be one of ${LIST_FILTERS.join(", ")}`)
   const page = parsePositiveInt(query.page, 1)
-  const limit = parsePositiveInt(query.limit, 50, MAX_PAGE_SIZE)
+  const limit = parsePositiveInt(query.limit, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE)
   const search = typeof query.search === "string" ? query.search.trim().slice(0, 60) : ""
 
-  const [{ entries, machines }, profileJob] = await Promise.all([loadBoard(), readState(PROFILE_JOB_CONFIG_KEY)])
+  const { entries, machines } = await loadBoard()
   const counts = { all: entries.length, valid: 0, pending: 0, failed: 0, missing: 0 }
   for (const entry of entries) counts[entry.photoStatus]++
 
   const pattern = search ? new RegExp(escapeRegex(search), "i") : null
-  const filtered = entries.filter((entry) => (status === "all" || entry.photoStatus === status) && (!pattern || pattern.test(entry.rollNumber) || pattern.test(entry.name)))
+  let filtered = entries.filter((entry) => matchesFilter(entry, status) && (!pattern || pattern.test(entry.rollNumber) || pattern.test(entry.name)))
+  if (search) filtered = filtered.map((entry) => [searchRank(entry, search), entry]).sort((a, b) => a[0] - b[0]).map(([, entry]) => entry)
   return success({
     items: filtered.slice((page - 1) * limit, page * limit),
     total: filtered.length,
@@ -175,6 +215,46 @@ export const listScannerUsers = async ({ query = {} }) => {
     limit,
     counts,
     machines: machines.map((machine) => machine.alias),
+  })
+}
+
+/** One student (the detail view). */
+export const getScannerUser = async ({ rollNumber }) => {
+  const roll = typeof rollNumber === "string" ? rollNumber.trim() : ""
+  const [item] = roll ? (await loadBoard({ rollNumber: roll })).entries : []
+  if (!item) return notFound(`No active student with roll number ${roll}.`)
+  return success({ item })
+}
+
+/**
+ * The overview: how many active students have a photo every machine took,
+ * what's on its way or refused, what the machines sent back, and each
+ * machine's own tally.
+ */
+export const getScannerStats = async () => {
+  const [{ entries, machines }, profileJob] = await Promise.all([loadBoard(), readState(PROFILE_JOB_CONFIG_KEY)])
+  const status = { valid: 0, pending: 0, failed: 0, missing: 0 }
+  const checks = Object.fromEntries(CHECK_SUMMARIES.map((name) => [name, 0]))
+  const perMachine = machines.map((machine) => ({ alias: machine.alias, sn: machine.sn, ok: 0, waiting: 0, refused: 0, match: 0, lastCheckAt: null }))
+  let missingWithProfile = 0
+  for (const entry of entries) {
+    status[entry.photoStatus]++
+    if (entry.checkSummary) checks[entry.checkSummary]++
+    if (entry.photoStatus === "missing" && entry.profileImage) missingWithProfile++
+    entry.machines.forEach((machine, index) => {
+      const tally = perMachine[index]
+      if (machine.state in tally) tally[machine.state]++
+      if (machine.check?.status === "match") tally.match++
+      if (machine.check?.at && (!tally.lastCheckAt || new Date(machine.check.at) > new Date(tally.lastCheckAt))) tally.lastCheckAt = machine.check.at
+    })
+  }
+  return success({
+    total: entries.length,
+    withPhoto: entries.length - status.missing,
+    status,
+    checks,
+    missingWithProfile,
+    machines: perMachine,
     profileJob,
   })
 }

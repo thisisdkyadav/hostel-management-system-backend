@@ -132,6 +132,55 @@ describe("list", () => {
   })
 })
 
+describe("overview, filters, search, one student", () => {
+  it("counts by status, check and machine; filters and search page by 10", async () => {
+    const api = await as(await seed.admin())
+    const before = (await api.get(`${BASE}/stats`)).body.data
+    const missing = await makeStudent({ name: "Zed Missing" })
+    const matched = await makeStudent({ name: "Matched Person" })
+    const mismatched = await makeStudent({ name: "Mismatch Person" })
+    await giveFace(matched.rollNumber, "mm1")
+    await giveFace(mismatched.rollNumber, "mx1")
+    const asked = new Date(Date.now() - 60_000)
+    const answered = new Date()
+    for (const i of [0, 1]) {
+      await hold(i, matched.rollNumber, { onMachine: true, faceSha: "mm1", check: { requestedAt: asked, answeredAt: answered, faceSha: "mm1" }, machinePhoto: { sha256: "mm1", at: answered }, faceTemplateAt: answered })
+    }
+    await hold(0, mismatched.rollNumber, { onMachine: true, faceSha: "mx1", check: { requestedAt: asked, answeredAt: answered, faceSha: "mx1" }, machinePhoto: { sha256: "old", at: answered }, faceTemplateAt: answered })
+    await hold(1, mismatched.rollNumber, { onMachine: true, faceSha: "mx1" })
+
+    const stats = (await api.get(`${BASE}/stats`)).body.data
+    expect(stats.total).toBe(before.total + 3)
+    expect(stats.status.missing).toBe(before.status.missing + 1)
+    expect(stats.status.valid).toBe(before.status.valid + 2)
+    expect(stats.checks.match).toBe(before.checks.match + 1)
+    expect(stats.checks.mismatch).toBe(before.checks.mismatch + 1)
+    expect(stats.withPhoto).toBe(stats.total - stats.status.missing)
+    expect(stats.machines.map((m) => m.alias)).toEqual(["m2", "m3"])
+    expect(stats.machines[0].ok).toBe(before.machines[0].ok + 2)
+    expect(stats.machines[0].match).toBe(before.machines[0].match + 1)
+
+    const byFilter = async (status) => (await listFor(api, { status })).items.map((item) => item.rollNumber)
+    expect(await byFilter("match")).toContain(matched.rollNumber)
+    expect(await byFilter("mismatch")).toEqual([mismatched.rollNumber])
+    expect(await byFilter("missing")).toContain(missing.rollNumber)
+    expect((await listFor(api, { search: matched.rollNumber })).items[0]).toMatchObject({ rollNumber: matched.rollNumber, checkSummary: "match" })
+
+    // Default page size is 10; exact roll first.
+    const plain = (await api.get(BASE).query({ search: tag })).body.data
+    expect(plain.limit).toBe(10)
+    expect(plain.items.length).toBeLessThanOrEqual(10)
+    expect(plain.total).toBeGreaterThanOrEqual(3)
+    const byName = (await api.get(BASE).query({ search: "zed missing" })).body.data
+    expect(byName.items.map((item) => item.rollNumber)).toContain(missing.rollNumber)
+
+    const one = await api.get(`${BASE}/${mismatched.rollNumber}`)
+    expect(one.status).toBe(200)
+    expect(one.body.data.item).toMatchObject({ rollNumber: mismatched.rollNumber, checkSummary: "mismatch", machines: [{ alias: "m2", check: { status: "different" } }, { alias: "m3", check: { status: "none" } }] })
+    expect((await api.get(`${BASE}/NOSUCHROLL`)).status).toBe(404)
+  })
+})
+
 describe("use profile photo", () => {
   it("saves a usable profile photo as a JPEG face and records the try", async () => {
     const student = await makeStudent({ profileImage: putFile(await image(900, 1200)) })
@@ -179,8 +228,8 @@ describe("use profile photo", () => {
     expect(res.status).toBe(202)
     let job
     for (let i = 0; i < 50; i++) {
-      job = (await listFor(api)).profileJob
-      if (job && !job.running) break
+      job = (await api.get(`${BASE}/stats`)).body.data.profileJob
+      if (job?.finishedAt && !job.running) break
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
     expect(job).toMatchObject({ running: false })

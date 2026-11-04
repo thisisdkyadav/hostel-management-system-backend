@@ -1,7 +1,7 @@
 import express from "express"
 import { authenticate } from "../../../../middlewares/auth.middleware.js"
 import { routeGuard } from "../../../../lib/api-kit/index.js"
-import { list, machineCheck, machinePhoto, photo, profilePhoto, profilePhotos } from "./dining-scanner-users.controller.js"
+import { list, machineCheck, one, stats, machinePhoto, photo, profilePhoto, profilePhotos } from "./dining-scanner-users.controller.js"
 
 /**
  * Scanner photos: each active student's face photo and whether every face
@@ -23,8 +23,10 @@ router.use(authenticate)
 router.use(guard(["Admin", "Dining"]))
 router.use(officeOnly)
 router.get("/", list)
+router.get("/stats", stats)
 router.post("/profile-photos", profilePhotos)
 router.post("/:roll/profile-photo", profilePhoto)
+router.get("/:roll", one)
 router.get("/:roll/photo", photo)
 router.post("/:roll/machine-check", machineCheck)
 router.get("/:roll/machine-photo", machinePhoto)
