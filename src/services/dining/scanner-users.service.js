@@ -42,7 +42,8 @@ const LIST_FILTERS = ["all", ...PHOTO_STATUSES, ...CHECK_SUMMARIES]
 /**
  * Does the student's face work at the mess, and if not, why. A machine holding
  * a different photo than HMS still works when it made a face, so that is not a
- * problem; a machine with no photo at all counts as "no face".
+ * problem; a machine with no photo at all counts as "no face" — unless it sent a
+ * face record, which means it recognises the student anyway.
  * A face scan at any machine since the current photo was saved is proof the
  * face works: it outranks what the photo checks say (they can miss the face
  * record or the photo), except a refusal, which still needs a new photo.
@@ -55,7 +56,9 @@ export const reasonOf = (photoStatus, checks, { scanned = false } = {}) => {
   if (photoStatus === "missing") return "noPhoto"
   if (photoStatus === "failed") return "refused"
   if (scanned) return "working"
-  const statuses = checks.map((check) => check?.status || "none")
+  // A machine that sent a face record but no photo still recognises the student
+  // (enrolled on the machine itself, e.g. via EasyWDMS): as good as a different photo.
+  const statuses = checks.map((check) => (check?.status === "noPhoto" && check.face ? "different" : check?.status || "none"))
   if (statuses.some((s) => s === "noFace" || s === "noPhoto")) return "noFace"
   if (photoStatus === "pending") return "sending"
   if (statuses.every((s) => s === "match" || s === "different")) return "working"

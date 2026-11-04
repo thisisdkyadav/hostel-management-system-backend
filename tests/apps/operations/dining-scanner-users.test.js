@@ -306,6 +306,18 @@ describe("face scans", () => {
     expect(item.machines.map((m) => Boolean(m.scannedAt))).toEqual([true, true, ...item.machines.slice(2).map(() => false)])
   })
 
+  it("a machine with a face record but no photo still counts as working", async () => {
+    const student = await makeStudent({})
+    await giveFace(student.rollNumber, "fr1")
+    const asked = new Date(Date.now() - 60_000)
+    const answered = new Date()
+    for (const i of [0, 1]) await hold(i, student.rollNumber, { onMachine: true, faceSha: "fr1", check: { requestedAt: asked, answeredAt: answered, faceSha: "fr1" }, faceTemplateAt: answered })
+    const api = await as(await seed.admin())
+    const item = (await api.get(`${BASE}/${student.rollNumber}`)).body.data.item
+    expect(item.machines[0].check).toMatchObject({ status: "noPhoto", face: true })
+    expect(item.reason).toBe("working")
+  })
+
   it("a face scan since the photo outranks a no-face check: working, and not a profile-photo candidate", async () => {
     const student = await makeStudent({ profileImage: putFile(await image(720, 720)) })
     await giveFace(student.rollNumber, "sf1")
