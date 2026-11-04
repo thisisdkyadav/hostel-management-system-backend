@@ -43,14 +43,18 @@ const LIST_FILTERS = ["all", ...PHOTO_STATUSES, ...CHECK_SUMMARIES]
  * Does the student's face work at the mess, and if not, why. A machine holding
  * a different photo than HMS still works when it made a face, so that is not a
  * problem; a machine with no photo at all counts as "no face".
+ * A face scan at any machine since the current photo was saved is proof the
+ * face works: it outranks what the photo checks say (they can miss the face
+ * record or the photo), except a refusal, which still needs a new photo.
  */
 export const REASONS = ["noPhoto", "refused", "noFace", "sending", "unchecked", "working"]
 export const NOT_WORKING = REASONS.filter((reason) => reason !== "working")
 const REASON_FILTERS = ["notWorking", ...REASONS]
 
-export const reasonOf = (photoStatus, checks) => {
+export const reasonOf = (photoStatus, checks, { scanned = false } = {}) => {
   if (photoStatus === "missing") return "noPhoto"
   if (photoStatus === "failed") return "refused"
+  if (scanned) return "working"
   const statuses = checks.map((check) => check?.status || "none")
   if (statuses.some((s) => s === "noFace" || s === "noPhoto")) return "noFace"
   if (photoStatus === "pending") return "sending"
@@ -136,6 +140,12 @@ const buildEntry = ({ profile, row, machines, statesByPin, scans }) => {
   const face = row?.face?.ref ? row.face : null
   const faceSha = faceShaOf(face)
   const held = statesByPin.get(key(rollNumber)) || new Map()
+  const scansHere = scans.get(key(rollNumber)) || new Map()
+  // Face scans count only from the moment the current photo was saved.
+  const scannedOn = (sn) => {
+    const at = scansHere.get(sn)
+    return at && face?.storedAt && new Date(at) >= new Date(face.storedAt) ? at : null
+  }
   const perMachine = machines.map((machine) => {
     const machineRow = held.get(machine.sn)
     const state = faceSha ? machineState(machineRow, faceSha) : "none"
@@ -145,8 +155,9 @@ const buildEntry = ({ profile, row, machines, statesByPin, scans }) => {
       state === "refused"
         ? { code: result.error || (result.code != null ? String(result.code) : ""), message: result.message || "The machine didn't accept this photo", at: result.at || null }
         : null
-    return { alias: machine.alias, sn: machine.sn, state, refusal, check: photoCheckResult(machineRow, faceSha) }
+    return { alias: machine.alias, sn: machine.sn, state, refusal, check: photoCheckResult(machineRow, faceSha), scannedAt: scannedOn(machine.sn) }
   })
+  const latest = perMachine.filter((machine) => machine.scannedAt).sort((a, b) => new Date(b.scannedAt) - new Date(a.scannedAt))[0]
   const status = derivePhotoStatus(faceSha, perMachine.map((machine) => machine.state))
   return {
     rollNumber,
@@ -155,20 +166,14 @@ const buildEntry = ({ profile, row, machines, statesByPin, scans }) => {
     profileImage: profile.userId?.profileImage || "",
     photoStatus: status,
     checkSummary: faceSha ? summarizeChecks(perMachine.map((machine) => machine.check)) : null,
-    reason: reasonOf(status, perMachine.map((machine) => machine.check)),
+    reason: reasonOf(status, perMachine.map((machine) => machine.check), { scanned: Boolean(latest) }),
     photo: face
       ? { present: true, source: face.source || "", sourceLabel: FACE_SOURCES[face.source] || "", storedAt: face.storedAt || null, width: face.width || 0, height: face.height || 0, version: (face.sha256 || face.ref).slice(0, 12) }
       : { present: false },
     machines: perMachine,
     profileAttempt: row?.profileAttempt?.at ? { at: row.profileAttempt.at, outcome: row.profileAttempt.outcome, message: row.profileAttempt.message || "" } : null,
-    lastScan: scanSince(scans.get(key(rollNumber)), face, machines),
+    lastScan: latest ? { at: latest.scannedAt, machine: latest.alias } : null,
   }
-}
-
-/** The student's latest face scan since the current photo was saved, or null. */
-const scanSince = (scan, face, machines) => {
-  if (!scan || !face?.storedAt || new Date(scan.at) < new Date(face.storedAt)) return null
-  return { at: scan.at, machine: machines.find((machine) => machine.sn === scan.sn)?.alias || scan.sn }
 }
 
 /** Every active student (or one roll) with their photo and machine states. */
@@ -180,7 +185,7 @@ const loadBoard = async ({ rollNumber } = {}) => {
   ])
   const rowByRoll = new Map(rows.map((row) => [key(row.rollNumber), row]))
   const states = machines.length ? await iclockQueries.listRosterStates(machines.map((machine) => machine.sn), rollNumber ? { pin: rollNumber } : {}) : []
-  // Face scans since the oldest current photo (each student's own photo date is checked in scanSince).
+  // Face scans since the oldest current photo (each student's own photo date is checked in buildEntry).
   const oldestPhoto = rows.reduce((min, row) => (row.face?.storedAt && (!min || row.face.storedAt < min) ? row.face.storedAt : min), null)
   const scans = oldestPhoto ? await iclockQueries.lastFaceScans({ since: oldestPhoto, pin: rollNumber }) : new Map()
   const statesByPin = new Map()

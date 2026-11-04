@@ -110,8 +110,8 @@ describe("list", () => {
     expect(byRoll[none.rollNumber]).toMatchObject({ name: "No Photo", photoStatus: "missing", photo: { present: false } })
     expect(byRoll[working.rollNumber]).toMatchObject({ photoStatus: "valid", photo: { present: true, source: "request", sourceLabel: "Student upload" } })
     expect(byRoll[working.rollNumber].machines).toEqual([
-      { alias: "m2", sn: machines[0], state: "ok", refusal: null, check: { status: "none" } },
-      { alias: "m3", sn: machines[1], state: "ok", refusal: null, check: { status: "none" } },
+      { alias: "m2", sn: machines[0], state: "ok", refusal: null, check: { status: "none" }, scannedAt: null },
+      { alias: "m3", sn: machines[1], state: "ok", refusal: null, check: { status: "none" }, scannedAt: null },
     ])
     expect(byRoll[sending.rollNumber]).toMatchObject({ photoStatus: "pending", machines: [{ alias: "m2", state: "ok" }, { alias: "m3", state: "waiting" }] })
     expect(byRoll[refused.rollNumber]).toMatchObject({
@@ -303,6 +303,24 @@ describe("face scans", () => {
     expect(new Date(item.lastScan.at).getTime()).toBe(now + 2000)
     expect((await api.get(`${BASE}/${old.rollNumber}`)).body.data.item.lastScan).toBeNull()
     expect((await api.get(`${BASE}/stats`)).body.data.scannedSinceUpdate).toBe(before + 1)
+    expect(item.machines.map((m) => Boolean(m.scannedAt))).toEqual([true, true, ...item.machines.slice(2).map(() => false)])
+  })
+
+  it("a face scan since the photo outranks a no-face check: working, and not a profile-photo candidate", async () => {
+    const student = await makeStudent({ profileImage: putFile(await image(720, 720)) })
+    await giveFace(student.rollNumber, "sf1")
+    const asked = new Date(Date.now() - 60_000)
+    const answered = new Date()
+    await hold(0, student.rollNumber, { onMachine: true, faceSha: "sf1", check: { requestedAt: asked, answeredAt: answered, faceSha: "sf1" }, machinePhoto: { sha256: "sf1", at: answered }, faceTemplateAt: new Date(0) })
+    const api = await as(await seed.admin())
+    expect((await api.get(`${BASE}/${student.rollNumber}`)).body.data.item.reason).toBe("noFace")
+
+    await IclockPunch.create({ sn: machines[1], pin: student.rollNumber, localTime: "sf", punchedAt: new Date(Date.now() + 1000), verify: "15" })
+    const item = (await api.get(`${BASE}/${student.rollNumber}`)).body.data.item
+    expect(item.reason).toBe("working")
+    expect(item.machines[0].check.status).toBe("noFace") // the check itself is still shown as it came back
+    const notWorking = (await api.get(`${BASE}?reason=noFace&search=${student.rollNumber}`)).body.data.items
+    expect(notWorking.map((row) => row.rollNumber)).not.toContain(student.rollNumber)
   })
 })
 

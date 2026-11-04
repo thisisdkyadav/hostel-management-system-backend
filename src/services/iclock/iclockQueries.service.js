@@ -28,14 +28,17 @@ export const iclockQueries = {
    * Each person's latest face scan (verify 15 = face) at or after `since`:
    * Map pin → { at, sn }. One person when `pin` is given.
    */
+  /** Latest face scan (verify 15) per person per machine since `since`: Map<PIN, Map<sn, Date>>. */
   async lastFaceScans({ since, pin } = {}) {
     const match = { verify: "15", ...(since ? { punchedAt: { $gte: since } } : {}), ...(pin ? { pin } : {}) }
-    const rows = await IclockPunch.aggregate([
-      { $match: match },
-      { $sort: { punchedAt: -1 } },
-      { $group: { _id: "$pin", at: { $first: "$punchedAt" }, sn: { $first: "$sn" } } },
-    ])
-    return new Map(rows.map((row) => [String(row._id).trim().toUpperCase(), { at: row.at, sn: row.sn }]))
+    const rows = await IclockPunch.aggregate([{ $match: match }, { $group: { _id: { pin: "$pin", sn: "$sn" }, at: { $max: "$punchedAt" } } }])
+    const byPin = new Map()
+    for (const row of rows) {
+      const k = String(row._id.pin).trim().toUpperCase()
+      if (!byPin.has(k)) byPin.set(k, new Map())
+      byPin.get(k).set(row._id.sn, row.at)
+    }
+    return byPin
   },
 
   /** Per-machine counts for the machines page: punches since `since`, command states. */
