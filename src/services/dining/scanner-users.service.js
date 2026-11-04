@@ -41,6 +41,8 @@ export const CHECK_SUMMARIES = ["match", "mismatch", "noFace", "checking", "unch
 const LIST_FILTERS = ["all", ...PHOTO_STATUSES, ...CHECK_SUMMARIES]
 const MAX_PAGE_SIZE = 100
 const DEFAULT_PAGE_SIZE = 10
+/** A machine polls every few seconds; quiet for this long means it's off or unreachable. */
+const MACHINE_ONLINE_MS = 5 * 60_000
 
 const idOf = (value) => String(value?._id || value || "")
 const key = (roll) => String(roll ?? "").trim().toUpperCase()
@@ -103,7 +105,9 @@ export const summarizeChecks = (checks) => {
 /** Machines with roster sync on: { sn, alias }. */
 const syncMachines = async () => {
   const devices = await iclockQueries.listSyncDevices()
-  return devices.map((device) => ({ sn: device.sn, alias: device.alias || device.sn })).sort((a, b) => a.alias.localeCompare(b.alias))
+  return devices
+    .map((device) => ({ sn: device.sn, alias: device.alias || device.sn, lastSeenAt: device.lastSeenAt || null }))
+    .sort((a, b) => a.alias.localeCompare(b.alias))
 }
 
 const FACE_SOURCES = { request: "Student upload", profile: "Profile photo", easywdms: "Imported from EasyWDMS" }
@@ -235,7 +239,7 @@ export const getScannerStats = async () => {
   const [{ entries, machines }, profileJob] = await Promise.all([loadBoard(), readState(PROFILE_JOB_CONFIG_KEY)])
   const status = { valid: 0, pending: 0, failed: 0, missing: 0 }
   const checks = Object.fromEntries(CHECK_SUMMARIES.map((name) => [name, 0]))
-  const perMachine = machines.map((machine) => ({ alias: machine.alias, sn: machine.sn, ok: 0, waiting: 0, refused: 0, match: 0, lastCheckAt: null }))
+  const perMachine = machines.map((machine) => ({ alias: machine.alias, sn: machine.sn, lastSeenAt: machine.lastSeenAt, ok: 0, waiting: 0, refused: 0, match: 0, lastCheckAt: null }))
   let missingWithProfile = 0
   for (const entry of entries) {
     status[entry.photoStatus]++
@@ -248,6 +252,8 @@ export const getScannerStats = async () => {
       if (machine.check?.at && (!tally.lastCheckAt || new Date(machine.check.at) > new Date(tally.lastCheckAt))) tally.lastCheckAt = machine.check.at
     })
   }
+  const now = Date.now()
+  for (const tally of perMachine) tally.online = Boolean(tally.lastSeenAt && now - new Date(tally.lastSeenAt).getTime() < MACHINE_ONLINE_MS)
   return success({
     total: entries.length,
     withPhoto: entries.length - status.missing,
