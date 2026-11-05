@@ -97,11 +97,33 @@ describe("scanner faces", () => {
 
 describe("machines API", () => {
   const BASE = "/api/v1/face-scanner/machines"
-  const machineSn = () => `MSN${Date.now().toString(36)}${++seq}`.toUpperCase()
+  const newSn = () => `MSN${Date.now().toString(36)}${++seq}`.toUpperCase()
+  const machineSn = async () => {
+    const sn = newSn()
+    await iclockOwner.createDevice({ sn })
+    return sn
+  }
   const post = (path, body) => request(app).post(path).set("Content-Type", "text/plain").send(body)
 
+  it("adds a machine by serial number; until then the receiver ignores it", async () => {
+    const sn = newSn()
+    expect((await request(app).get(`/iclock/getrequest?SN=${sn}`)).status).toBe(403)
+    expect(await IclockDevice.findOne({ sn }).lean()).toBeNull()
+
+    const api = await as(await seed.admin())
+    expect((await api.post(BASE).send({ sn: "x!" })).status).toBe(400)
+    const added = await api.post(BASE).send({ sn: sn.toLowerCase(), alias: "Mess B door" })
+    expect(added.status).toBe(200)
+    expect(added.body.data.machines.find((m) => m.sn === sn)).toMatchObject({ alias: "Mess B door", mode: "shadow", online: false, lastSeenAt: null })
+    expect((await api.post(BASE).send({ sn })).status).toBe(400) // already added
+
+    const poll = await request(app).get(`/iclock/getrequest?SN=${sn}`)
+    expect(poll.status).toBe(200)
+    expect(poll.text).toBe("OK")
+  })
+
   it("lists what the machine reported about itself; a poll's INFO doesn't wipe the options upload", async () => {
-    const sn = machineSn()
+    const sn = await machineSn()
     await post(
       `/iclock/cdata?SN=${sn}&table=options`,
       "~DeviceName=SpeedFace-V5L,UserCount=4206,FaceCount=4035,~MaxFaceCount=10000,FWVersion=ZAM230-NF50VA-Ver1.1.9,PushVersion=Ver 3.1.6S-20251028,MultiBioPhotoCount=0:0:0:0:0:0:0:0:0:3585:0,IPAddress=10.230.8.111",
@@ -120,7 +142,7 @@ describe("machines API", () => {
   })
 
   it("links a machine to a scanner, refuses live without a link, and shows activity", async () => {
-    const sn = machineSn()
+    const sn = await machineSn()
     await request(app).get(`/iclock/ping?SN=${sn}`)
     const api = await as(await seed.admin())
 

@@ -1,5 +1,6 @@
 import { handler } from "../../../../lib/api-kit/index.js"
 import {
+  createMachine,
   getMachineActivity,
   getMachineRoster,
   listMachines,
@@ -11,6 +12,7 @@ import {
 } from "./machines.service.js"
 
 export const machines = handler(() => listMachines())
+export const machineCreate = handler((req) => createMachine(req.body))
 export const machineUpdate = handler((req) => updateMachine(req.params.sn, req.body))
 export const machineActivity = handler((req) => getMachineActivity(req.params.sn))
 export const machineRoster = handler((req) => getMachineRoster(req.params.sn))

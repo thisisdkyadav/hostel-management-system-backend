@@ -219,6 +219,16 @@ const dispatch = async ({ method, route, query, body, device, now }) => {
   return "OK"
 }
 
+// One warning per unknown serial per hour, and a bounded memory of them.
+const unknownWarned = new Map()
+const warnUnknown = (sn, from) => {
+  const now = Date.now()
+  if (now - (unknownWarned.get(sn) || 0) < 3600e3) return
+  if (unknownWarned.size >= 500) unknownWarned.clear()
+  unknownWarned.set(sn, now)
+  console.warn(`[iclock] rejected unknown machine SN=${String(sn).slice(0, 40)} from ${String(from || "?").slice(0, 120)}`)
+}
+
 /**
  * @param {{ method: string, path: string, query: object, body: Buffer|string, headers?: object, ip?: string }} req
  * @returns {Promise<{ status: number, body: string }>}
@@ -235,6 +245,12 @@ export const handleIclockRequest = async ({ method, path, query = {}, body, head
   let answer
   try {
     const device = await iclockOwner.touchDevice(sn, deviceSetFromRequest({ query, ip, headers }))
+    // The PUSH protocol has no login; the serial number list is the gate. Unknown
+    // serials get nothing and leave no trace in the database (only a throttled warning).
+    if (!device) {
+      warnUnknown(sn, headers?.["x-forwarded-for"] || ip)
+      return { status: 403, body: "Unknown device" }
+    }
     answer = await dispatch({ method, route, query, body: bodyText, device, now: started })
   } catch (error) {
     console.error(`[iclock] ${sn} ${method} ${route} failed:`, error?.message || error)

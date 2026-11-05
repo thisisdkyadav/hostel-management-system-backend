@@ -127,6 +127,18 @@ export const listMachines = async () => {
   return success({ machines, faces })
 }
 
+const SN_PATTERN = /^[A-Za-z0-9]{6,32}$/
+
+/** Add a machine by the serial number on its label (Menu › System Info). Until then HMS ignores it. */
+export const createMachine = async (body = {}) => {
+  const sn = String(body.sn || "").trim().toUpperCase()
+  if (!SN_PATTERN.test(sn)) return badRequest("Enter the machine's serial number: 6–32 letters and digits")
+  if (await iclockQueries.findDevice(sn)) return badRequest("That machine is already added")
+  await iclockOwner.createDevice({ sn, alias: String(body.alias || "").trim().slice(0, 60) })
+  clearIclockCaches()
+  return listMachines()
+}
+
 export const updateMachine = async (sn, body = {}) => {
   const device = await iclockQueries.findDevice(sn)
   if (!device) return notFound("Machine not found")

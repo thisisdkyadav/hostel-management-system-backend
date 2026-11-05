@@ -35,6 +35,7 @@ import {
   machineRosterSync,
   machineUpdate,
   machines,
+  machineCreate,
 } from './machines.controller.js';
 
 const router = express.Router();
@@ -64,6 +65,7 @@ router.use(guard.access);
 
 // Machines that talk to HMS directly (iclock receiver). Must precede /:id.
 router.get('/machines', machines);
+router.post('/machines', machineCreate);
 router.get('/machines/:sn/activity', machineActivity);
 router.patch('/machines/:sn', machineUpdate);
 router.get('/machines/:sn/roster', machineRoster);

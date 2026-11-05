@@ -39,6 +39,12 @@ const machineTime = (d) => {
 }
 let snSeq = 0
 const newSn = () => `TESTSN${Date.now().toString(36)}${++snSeq}`.toUpperCase()
+/** A machine an admin has added (unknown serials are refused). */
+const newMachine = async () => {
+  const sn = newSn()
+  await iclockOwner.createDevice({ sn })
+  return sn
+}
 
 const post = (path, body) => request(app).post(path).set("User-Agent", "iClock Proxy/1.09").set("Content-Type", "text/plain").send(body)
 const get = (path) => request(app).get(path).set("User-Agent", "iClock Proxy/1.09")
@@ -106,18 +112,30 @@ describe("iclock protocol parsing", () => {
 })
 
 describe("iclock receiver", () => {
-  it("answers idle polls and pings with OK and registers the machine in shadow mode", async () => {
-    const sn = newSn()
+  it("answers idle polls and pings with OK; an added machine starts in shadow mode", async () => {
+    const sn = await newMachine()
     const poll = await get(`/iclock/getrequest?SN=${sn}`)
     expect(poll.status).toBe(200)
     expect(poll.text).toBe("OK")
     expect((await get(`/iclock/ping?SN=${sn}`)).text).toBe("OK")
     const device = await IclockDevice.findOne({ sn }).lean()
     expect(device).toMatchObject({ sn, mode: "shadow" })
+    expect(device.lastSeenAt).toBeInstanceOf(Date)
+  })
+
+  it("refuses unknown serial numbers without storing anything", async () => {
+    const sn = newSn()
+    const before = await IclockPunch.countDocuments({ sn })
+    expect((await get(`/iclock/getrequest?SN=${sn}`)).status).toBe(403)
+    expect((await get(`/iclock/cdata?SN=${sn}&options=all`)).status).toBe(403)
+    const upload = await post(`/iclock/cdata?SN=${sn}&table=ATTLOG`, `1\t${machineTime(new Date())}\t0\t15\t0\n`)
+    expect(upload.status).toBe(403)
+    expect(await IclockDevice.findOne({ sn }).lean()).toBeNull()
+    expect(await IclockPunch.countDocuments({ sn })).toBe(before)
   })
 
   it("stores the options upload on the machine", async () => {
-    const sn = newSn()
+    const sn = await newMachine()
     const res = await post(`/iclock/cdata?SN=${sn}&table=options`, "~DeviceName=SpeedFace-V5L,UserCount=12,FaceCount=10")
     expect(res.text).toBe("OK\n")
     const device = await IclockDevice.findOne({ sn }).lean()
@@ -125,7 +143,7 @@ describe("iclock receiver", () => {
   })
 
   it("answers the handshake with option lines", async () => {
-    const sn = newSn()
+    const sn = await newMachine()
     const res = await get(`/iclock/cdata?SN=${sn}&options=all&pushver=3.1.6`)
     expect(res.text.startsWith(`GET OPTION FROM: ${sn}\nStamp=9999\nOpStamp=9999\n`)).toBe(true)
     expect(res.text).toContain("\nTimeZone=330\n") // minutes, not hours
@@ -138,7 +156,7 @@ describe("iclock receiver", () => {
 
   it("shadow machine: records punches, creates no meal record, dedupes a re-sent batch", async () => {
     const { profile, scanner } = await diningFixture()
-    const sn = newSn()
+    const sn = await newMachine()
     await get(`/iclock/ping?SN=${sn}`)
     await IclockDevice.updateOne({ sn }, { $set: { faceScannerId: scanner._id } })
     const body = `${profile.rollNumber}\t${machineTime(new Date())}\t0\t15\t0\t0\t0\t0\t0\t0\n`
@@ -157,7 +175,7 @@ describe("iclock receiver", () => {
 
   it("live machine: a fresh punch becomes a meal record in-process; an old one is only stored", async () => {
     const { profile, scanner } = await diningFixture()
-    const sn = newSn()
+    const sn = await newMachine()
     await get(`/iclock/ping?SN=${sn}`)
     await IclockDevice.updateOne({ sn }, { $set: { faceScannerId: scanner._id, mode: "live" } })
     clearIclockCaches()
@@ -180,7 +198,7 @@ describe("iclock receiver", () => {
   })
 
   it("live but unlinked machine: stored as unlinked", async () => {
-    const sn = newSn()
+    const sn = await newMachine()
     await get(`/iclock/ping?SN=${sn}`)
     await IclockDevice.updateOne({ sn }, { $set: { mode: "live" } })
     await post(`/iclock/cdata?SN=${sn}&table=ATTLOG`, `999\t${machineTime(new Date())}\t0\t15\t0\n`)
@@ -188,7 +206,7 @@ describe("iclock receiver", () => {
   })
 
   it("command queue: queued → sent on poll → done/failed from devicecmd", async () => {
-    const sn = newSn()
+    const sn = await newMachine()
     await get(`/iclock/ping?SN=${sn}`)
     const a = await iclockOwner.queueCommand({ sn, command: userInfoCommand({ pin: "1", name: "A" }) })
     const b = await iclockOwner.queueCommand({ sn, command: bioPhotoCommand({ pin: "1", url: "iclock/file/biophoto/x/1.jpg" }) })

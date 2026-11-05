@@ -32,6 +32,7 @@ afterAll(teardownTestDb)
 
 const machine = async () => {
   const sn = `RSN${uniq()}`
+  await iclockOwner.createDevice({ sn })
   await request(app).get(`/iclock/ping?SN=${sn}`)
   return sn
 }

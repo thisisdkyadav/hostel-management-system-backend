@@ -10,12 +10,18 @@ export const iclockOwner = {
   },
 
   /** Upsert the machine on every request and return it (lean). */
+  /**
+   * Mark a KNOWN machine as seen. Returns null for a serial number HMS doesn't know:
+   * machines are added by an admin, never by whoever happens to send a request.
+   */
   async touchDevice(sn, set = {}) {
-    return IclockDevice.findOneAndUpdate(
-      { sn },
-      { $set: { lastSeenAt: new Date(), ...set }, $setOnInsert: { sn, firstSeenAt: new Date() } },
-      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
-    ).lean()
+    return IclockDevice.findOneAndUpdate({ sn }, { $set: { lastSeenAt: new Date(), ...set } }, { returnDocument: "after" }).lean()
+  },
+
+  /** Add a machine by serial number (admin). New machines start recording-only. */
+  async createDevice({ sn, alias = "" }) {
+    const doc = await IclockDevice.create({ sn, alias, firstSeenAt: null })
+    return doc.toObject()
   },
 
   async setStamp(sn, table, stamp) {

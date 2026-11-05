@@ -41,6 +41,7 @@ afterAll(teardownTestDb)
 
 const machine = async ({ sync = false } = {}) => {
   const sn = `PSN${uniq()}`
+  await iclockOwner.createDevice({ sn })
   await request(app).get(`/iclock/ping?SN=${sn}`)
   if (sync) await iclockOwner.updateDevice(sn, { "sync.enabled": true })
   return sn
