@@ -28,7 +28,6 @@ const student = (extra) => ({
   instituteAddress: "Indore",
   course: "BTech",
   department: "Physics",
-  payerType: "intern",
   stay: { fromDate: ymd(5), toDate: ymd(10), purpose: "Summer research", checkInTime: "11:00", checkOutTime: "11:00" },
   ...extra,
 })
@@ -52,7 +51,7 @@ const action = async (api, r, suffix, body = {}) => {
 const approved = async (creatorApi, faculty, desk, extra = {}) => {
   let [r] = await create(creatorApi, faculty, extra)
   if (r.currentStage === "faculty")
-    r = await action(await as(faculty), r, "decision/faculty", { action: "approve", confirmPayer: true })
+    r = await action(await as(faculty), r, "decision/faculty", { action: "approve" })
   r = await action(desk.office, r, "decision/office", { action: "approve", confirmAvailability: true })
   r = await action(desk.chief, r, "decision/chief", { action: "approve" })
   return r
@@ -76,7 +75,7 @@ describe("H4 notification recovery", () => {
     const original = await accommodationOwner.claimH4Notification()
     expect(String(original.requestId)).toBe(r._id)
     expect(await accommodationOwner.claimH4Notification()).toBeNull()
-    r = await action(facultyApi, r, "decision/faculty", { action: "approve", confirmPayer: true })
+    r = await action(facultyApi, r, "decision/faculty", { action: "approve" })
     await accommodationOwner.queueH4Notification(r._id, 0)
     await accommodationOwner.completeH4Notification(original)
     const pending = await readH4Notification(r._id)
@@ -124,7 +123,7 @@ describe("H4 eligibility, batches and review", () => {
       (
         await other
           .post(`${base}/requests/${r._id}/decision/faculty`)
-          .send({ revision: 0, action: "approve", confirmPayer: true })
+          .send({ revision: 0, action: "approve" })
       ).status,
     ).toBe(403)
     const guestApi = await as(await seed.student())
@@ -171,13 +170,13 @@ describe("H4 eligibility, batches and review", () => {
       api = await as(f)
     const rows = await create(api, f, {
       recommend: true,
-      students: [student({ payerType: "faculty" }), student({ name: "Intern Two", email: "two@example.com" })],
+      students: [student(), student({ name: "Intern Two", email: "two@example.com" })],
     })
     expect(rows).toHaveLength(2)
     expect(rows[0].h4.batchId).toBe(rows[1].h4.batchId)
     expect(rows[0].status).toBe("Pending CWO Capacity Check")
-    expect(rows[0].h4.payer.name).toBe(f.name)
-    expect(rows[0].h4.payer.verifiedBy).toBe(String(f._id))
+    // The student always pays; there is no payer to confirm.
+    expect(rows[0].h4.payer).toMatchObject({ type: "intern", name: rows[0].applicantName })
     const bad = await api.post(`${base}/batches`).send({
       label: "Invalid atomic batch",
       facultyUserId: f._id,
@@ -212,7 +211,7 @@ describe("H4 eligibility, batches and review", () => {
     expect(r.status).toBe("Pending FA Recommendation")
     expect((await facultyApi.get(`${base}/requests/${r._id}`)).status).toBe(200)
   })
-  it("enforces review stages, payer confirmation, revisions and manual Chief Warden approval", async () => {
+  it("enforces review stages, revisions and manual Chief Warden approval", async () => {
     const f = await academic(),
       api = await as(await requester()),
       desk = await desks()
@@ -225,15 +224,12 @@ describe("H4 eligibility, batches and review", () => {
       ).status,
     ).toBe(400)
     const fa = await as(f)
-    expect(
-      (await fa.post(`${base}/requests/${r._id}/decision/faculty`).send({ revision: 0, action: "approve" })).status,
-    ).toBe(400)
-    r = await action(fa, r, "decision/faculty", { action: "approve", confirmPayer: true })
+    r = await action(fa, r, "decision/faculty", { action: "approve" })
     expect(
       (
         await fa
           .post(`${base}/requests/${r._id}/decision/faculty`)
-          .send({ revision: 0, action: "approve", confirmPayer: true })
+          .send({ revision: 0, action: "approve" })
       ).status,
     ).toBe(409)
     r = await action(desk.office, r, "decision/office", { action: "approve", confirmAvailability: true })
@@ -249,7 +245,6 @@ describe("H4 eligibility, batches and review", () => {
       student: student({ stay: { ...student().stay, purpose: "Updated research purpose" } }),
     })
     expect(r.status).toBe("Pending FA Recommendation")
-    expect(r.h4.payer.verifiedAt).toBeNull()
   })
 })
 
@@ -372,8 +367,8 @@ describe("H4 rooms, payments, stay and invoice", () => {
       desk = await desks(),
       hostel = await createHostel()
     let r = await approved(api, f, desk)
-    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { accommodationPaymentLink: "javascript:alert(1)" } })).status).toBe(400)
-    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { accommodationPaymentLink: "https://payments.example.com/accommodation" } })).status).toBe(200)
+    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { paymentLink: "javascript:alert(1)" } })).status).toBe(400)
+    expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { paymentLink: "https://payments.example.com/accommodation" } })).status).toBe(200)
     r = await action(desk.office, r, "offer", {
       hostelId: hostel._id,
       mess: "without",
@@ -384,15 +379,15 @@ describe("H4 rooms, payments, stay and invoice", () => {
     })
     const { h4Notifications } =
       await import("../../../src/apps/visitors/modules/intern-accommodation/h4.notifications.js")
-    const internLink = await h4Notifications.accessLink(r, "intern"),
-      payerLink = await h4Notifications.accessLink(r, "payer")
+    const internLink = await h4Notifications.accessLink(r, "intern")
     const internToken = internLink.split("/").at(-1),
-      payerToken = payerLink.split("/").at(-1),
+      payerToken = internToken,
       anonymous = await anon()
     const view = await anonymous.get(`${base}/access/${internToken}`)
     expect(view.status).toBe(200)
     expect(view.body.data.applicantName).toBe(r.applicantName)
-    expect(view.body.data.payment).toBeUndefined()
+    expect(view.body.data.payment.amount).toBe(200)
+    expect(view.body.data.payment.paymentLink).toBe("https://payments.example.com/accommodation")
     expect(view.body.data.h4.facultyEmail).toBeUndefined()
     const { createActionLinkToken } = await import("../../../src/services/action-links/action-link-token.service.js")
     const expired = await createActionLinkToken({
@@ -405,9 +400,19 @@ describe("H4 rooms, payments, stay and invoice", () => {
     })
     expect((await anonymous.get(`${base}/access/${expired.rawToken}`)).status).toBe(404)
     expect((await anonymous.get(`${base}/access/not-a-valid-token`)).status).toBe(404)
+    // Old purpose-"payer" links no longer open anything.
+    const legacy = await createActionLinkToken({
+      type: "h4_request_access",
+      subjectModel: "AccommodationRequest",
+      subjectId: r._id,
+      recipientEmail: r.applicantEmail,
+      payload: { purpose: "payer" },
+      expiresAt: new Date(Date.now() + 60000),
+    })
+    expect((await anonymous.get(`${base}/access/${legacy.rawToken}`)).status).toBe(404)
     expect(
       (await anonymous.post(`${base}/access/${internToken}/payment`).send({ revision: r.h4.revision })).status,
-    ).toBe(403)
+    ).toBe(400)
     expect((await anonymous.get(`${base}/access/${payerToken}`)).body.data.payment.remarks).toBe(
       "Use the institute accommodation payment portal",
     )
@@ -465,7 +470,7 @@ describe("H4 rooms, payments, stay and invoice", () => {
     })
     expect(r.stay.toDate).toBe(originalTo)
     expect(r.h4.amendment.stage).toBe("faculty")
-    r = await action(api, r, "decision/faculty", { action: "approve", confirmPayer: true })
+    r = await action(api, r, "decision/faculty", { action: "approve" })
     r = await action(desk.office, r, "decision/office", {
       action: "approve",
       confirmAvailability: true,
@@ -506,18 +511,17 @@ describe("H4 rooms, payments, stay and invoice", () => {
     const rows = await create(api, f, {
       students: [student(), student({ email: "batch-two@example.com", name: "Batch Two" })],
     })
-    await action(facultyApi, rows[0], "decision/faculty", { action: "approve", confirmPayer: true })
+    await action(facultyApi, rows[0], "decision/faculty", { action: "approve" })
     const result = await facultyApi.post(`${base}/batch-decision`).send({
       stage: "faculty",
       action: "approve",
-      confirmPayer: true,
       requests: rows.map((r) => ({ id: r._id, revision: 0 })),
     })
     expect(result.status).toBe(200)
     expect(result.body.data.results.map((r) => r.success)).toEqual([false, true])
     expect(result.body.data.results[0].statusCode).toBe(409)
   })
-  it("runs approvals through payment, warning override, room move, gate checkout and faculty invoice", async () => {
+  it("runs approvals through payment, warning override, room move, gate checkout and student invoice", async () => {
     const f = await academic(),
       api = await as(f),
       desk = await desks()
@@ -526,9 +530,9 @@ describe("H4 rooms, payments, stay and invoice", () => {
     const second = await createRoom({ hostelId: hostel._id, roomNumber: "402", capacity: 2 })
     const { user: sup } = await seedHostelSupervisorProfile({ hostels: [hostel], activeHostel: hostel })
     const supervisor = await as(sup)
-    let r = await approved(api, f, desk, { recommend: true, students: [student({ payerType: "faculty" })] })
+    let r = await approved(api, f, desk, { recommend: true, students: [student()] })
     expect((await desk.office.put("/api/v1/config/internAccommodation").send({ value: { gstPercentage: 18 } })).status).toBe(200)
-    r = await action(desk.office, r, "offer", { hostelId: hostel._id, mess: "with", messAmount: 0, price: 1000 })
+    r = await action(desk.office, r, "offer", { hostelId: hostel._id, mess: "without", price: 1000 })
     expect(r.payment.amount).toBe(1180)
     expect(
       (await supervisor.post(`${base}/requests/${r._id}/assign`).send({ revision: r.h4.revision, roomNumber: "401" }))
@@ -585,7 +589,7 @@ describe("H4 rooms, payments, stay and invoice", () => {
     expect(pdf.headers["content-type"]).toContain("application/pdf")
     const { buildInvoiceModel } =
       await import("../../../src/apps/visitors/modules/accommodation/accommodation.invoice-pdf.js")
-    expect(buildInvoiceModel({ request: closed }).requestedBy).toBe(f.name)
+    expect(buildInvoiceModel({ request: closed }).requestedBy).toBe(closed.applicantName)
     const { hostelQueries } = await import("../../../src/services/hostel/hostelQueries.service.js")
     const unchanged = await hostelQueries.findRoomById(room._id)
     expect(unchanged.status).toBe("Active")

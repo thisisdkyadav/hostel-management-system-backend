@@ -46,11 +46,15 @@ export const upload = call((req) => h4Access.upload(id(req), req.file, req.user,
 export const resend = call((req) => h4Access.resend(id(req), req.body, req.user))
 export const invoice = file((req) => h4Service.invoice(id(req), req.user))
 export const qr = file((req) => h4Access.requestQr(id(req), req.user))
-export const proof = file((req) => h4Payments.attachment(id(req), req.user, req.query.additionalPaymentId, req.query.paymentType))
+export const proof = file((req) => h4Payments.attachment(id(req), req.user, req.query.additionalPaymentId))
+export const photo = file((req) => h4Payments.photo(id(req), req.user))
+export const photoReview = call((req) => h4Payments.photoReview(id(req), req.body, req.user))
 export const exportInvoices = file((req) => h4Service.exportInvoices(req.query, req.user))
 export const publicView = call((req) => h4Access.view(req.h4Access))
 export const publicInvoice = file((req) => h4Access.invoice(req.h4Access))
 export const publicQr = file((req) => h4Access.qr(req.h4Access))
+export const publicPhoto = file((req) => h4Access.messPhotoFile(req.h4Access))
+export const publicPhotoUpload = call((req) => h4Access.messPhoto(req.h4Access, req.file, Number(req.body.revision)))
 export const publicPayment = call(async (req) =>
   h4Access.response(
     await h4Payments.submit(String(req.h4Access.request._id), req.body, req.h4Access.user),

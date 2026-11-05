@@ -12,6 +12,7 @@ import {
   isOffice,
   isChief,
   paid,
+  messReady,
   mutate,
   audit,
   clean,
@@ -174,6 +175,8 @@ export const h4Rooms = {
       if (actor.role !== "Hostel Supervisor") return forbidden()
       if (![S.PAYMENT_VERIFIED, S.ROOMS_ASSIGNED, S.CHECKED_IN].includes(r.status) || !paid(r))
         return badRequest("Verify all payments before assigning rooms")
+      if (!r.rooms.length && !messReady(r))
+        return badRequest("Waiting for the mess caterer and the student's approved mess photo")
       if (r.h4.amendment?.stage) return badRequest("Complete the pending date change first")
       const preview = await inspectRoom(r, body, actor, { session })
       const failure = acknowledgePreview(preview, body)

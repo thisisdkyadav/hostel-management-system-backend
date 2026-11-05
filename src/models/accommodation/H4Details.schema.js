@@ -1,22 +1,23 @@
 import mongoose from "mongoose"
 const id = { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null }
 const str = { type: String, trim: true, default: "" }
-const MessPaymentSchema = new mongoose.Schema({
+// Mess is billed inside the single student payment (r.payment); this keeps the
+// breakdown for the email, access page and invoice.
+const MessChargeSchema = new mongoose.Schema({
   dailyRate: { type: Number, default: 0 },
   days: { type: Number, default: 0 },
   calculatedAmount: { type: Number, default: 0 },
   amountOverridden: { type: Boolean, default: false },
   amount: { type: Number, default: 0 },
-  status: { type: String, enum: ["Pending", "Deferred", "Submitted", "Verified", "Rejected"], default: "Pending" },
-  paymentLink: str,
-  mode: { type: String, enum: ["now", "later", null], default: null },
-  screenshotFileRef: str,
-  utr: str,
-  paidAt: { type: Date, default: null },
+}, { _id: false })
+// Student's photo for the mess, uploaded from the access link once a caterer is
+// assigned. CW Office checks it manually; it is only stored, never sent to a scanner.
+const MessPhotoSchema = new mongoose.Schema({
+  status: { type: String, enum: ["Pending", "Submitted", "Approved", "Rejected"], default: "Pending" },
+  fileRef: str,
   submittedAt: { type: Date, default: null },
-  verifiedBy: id,
-  verifiedAt: { type: Date, default: null },
-  remarks: str,
+  reviewedBy: id,
+  reviewedAt: { type: Date, default: null },
   note: str,
 }, { _id: false })
 export const H4DetailsSchema = new mongoose.Schema(
@@ -35,6 +36,7 @@ export const H4DetailsSchema = new mongoose.Schema(
     instituteAddress: str,
     course: str,
     department: str,
+    // Always the student since the combined bill; kept for the invoice addressee.
     payer: {
       type: { type: String, enum: ["intern", "faculty"], default: "intern" },
       name: str,
@@ -47,8 +49,8 @@ export const H4DetailsSchema = new mongoose.Schema(
     accommodationCalculatedAmount: { type: Number, default: 0 },
     accommodationAmountOverridden: { type: Boolean, default: false },
     mess: { type: String, enum: ["with", "without"], default: "without" },
-    messPayment: { type: MessPaymentSchema, default: null },
-    // Dining caterer chosen by Accounts when the mess payment is verified.
+    messCharge: { type: MessChargeSchema, default: null },
+    // Dining caterer chosen by Accounts when the payment is verified.
     caterer: {
       type: new mongoose.Schema(
         {
@@ -61,6 +63,7 @@ export const H4DetailsSchema = new mongoose.Schema(
       ),
       default: null,
     },
+    messPhoto: { type: MessPhotoSchema, default: null },
     proofRefs: { type: [String], default: [] },
     amendment: {
       changeId: { type: mongoose.Schema.Types.ObjectId, default: null },

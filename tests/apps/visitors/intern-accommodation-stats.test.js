@@ -9,7 +9,7 @@ const base = "/api/v1/intern-accommodation"
 const ymd = (offset = 0) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10)
 const student = (gender, i) => ({
   name: `Intern ${i}`, gender, category: "intern", email: `intern${i}@example.com`,
-  mobile: "9876543210", institute: "Institute", instituteAddress: "Indore", course: "BTech", department: "Physics", payerType: "intern",
+  mobile: "9876543210", institute: "Institute", instituteAddress: "Indore", course: "BTech", department: "Physics",
   stay: { fromDate: ymd(5), toDate: ymd(10), purpose: "Research" },
 })
 

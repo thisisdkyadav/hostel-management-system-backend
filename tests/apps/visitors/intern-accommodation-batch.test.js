@@ -10,13 +10,13 @@ const base = "/api/v1/intern-accommodation"
 const ymd = (offset = 0) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10)
 const student = (i, gender = "Male") => ({
   name: `Batch intern ${i}`, gender, category: "intern", email: `batch${i}-${Date.now()}@example.com`,
-  mobile: "9876543210", institute: "Institute", instituteAddress: "Indore", course: "BTech", department: "Physics", payerType: "intern",
+  mobile: "9876543210", institute: "Institute", instituteAddress: "Indore", course: "BTech", department: "Physics",
   stay: { fromDate: ymd(5), toDate: ymd(10), purpose: "Research" },
 })
 const asStudent = (r) => ({
   name: r.applicantName, gender: r.h4.gender, category: r.h4.category, email: r.applicantEmail, mobile: r.applicantPhone,
   institute: r.h4.institute, instituteAddress: r.h4.instituteAddress, course: r.h4.course, department: r.h4.department,
-  payerType: r.h4.payer.type, stay: { fromDate: ymd(5), toDate: ymd(10), purpose: r.stay.purpose },
+  stay: { fromDate: ymd(5), toDate: ymd(10), purpose: r.stay.purpose },
 })
 const models = () => import("../../../src/models/index.js")
 const notifications = async () =>
@@ -103,7 +103,7 @@ describe("H4 bulk actions", () => {
     expect(r.currentStage).toBe("chief")
     expect(r.applicantName).toBe("Corrected Name")
     expect(r.nights).toBe(6)
-    expect(r.h4.payer.verifiedAt).toBeTruthy()
+    expect(r.h4.payer.type).toBe("intern")
     expect(r.timeline.at(-1).note).toContain("name")
 
     await post(chief, "decision/chief", { action: "approve" })

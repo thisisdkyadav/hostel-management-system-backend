@@ -34,8 +34,10 @@ export const isAccounts = (u) => u?.role === "Admin" && u.subRole === "Accountan
 export const isDesk = (u) => isOffice(u) || isChief(u) || isAccounts(u)
 export const isClosed = (r) => [S.CANCELLED, S.REJECTED, S.CHECKED_OUT, S.INVOICED].includes(r.status)
 export const paid = (r) =>
-  r.payment?.status === "Verified" && (r.additionalPayments || []).every((p) => p.status === "Verified") &&
-  (!r.h4?.messPayment || r.h4.messPayment.status === "Verified")
+  r.payment?.status === "Verified" && (r.additionalPayments || []).every((p) => p.status === "Verified")
+// A stay with mess goes to the hostel for a room only after Accounts picks the
+// caterer and CW Office approves the student's mess photo.
+export const messReady = (r) => r.h4?.mess !== "with" || (!!r.h4.caterer && r.h4.messPhoto?.status === "Approved")
 export const audit = (r, u, note, status = r.status) => {
   r.status = status
   r.stageDeadlineAt = null // H4 requires an explicit Chief Warden decision.
@@ -92,7 +94,6 @@ export const mutate = async (id, body, user, change, { notify = true, digest = f
         const r = await queries.findH4ById(id, { session })
         if (r.h4.revision !== body.revision) return conflict("This request changed. Refresh and try again.")
         if (!u.external && !(await canRead(r, u))) return forbidden()
-        if (u.external === "payer" && u.email !== r.h4.payer.email) return forbidden("Payer access changed")
         if (u.external === "intern" && u.email !== r.applicantEmail) return forbidden("Intern access changed")
         const failure = await change(r, u, session)
         if (failure?.success === false) return failure

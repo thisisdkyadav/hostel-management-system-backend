@@ -14,12 +14,12 @@ import { S, validId, isCreator, isFaculty, isOffice, isAccounts, freshUser, muta
 export const resolveAccess = async (raw) => {
   if (typeof raw !== "string" || raw.length > 128) return null
   const token = await findActionLinkTokenByRawToken(raw, { type: H4_TOKEN_TYPE })
-  if (!token || isActionLinkTokenExpired(token) || !["intern", "payer"].includes(token.payload?.purpose)) return null
+  // Only the student gets a link now; they pay and upload the mess photo.
+  if (!token || isActionLinkTokenExpired(token) || token.payload?.purpose !== "intern") return null
   const r = await queries.findH4ById(token.subjectId, { lean: true })
   if (!r || [S.DRAFT, S.REJECTED, S.CANCELLED].includes(r.status) || !r.allotment?.hostelId) return null
-  const email = token.payload.purpose === "payer" ? r.h4.payer.email : r.applicantEmail
-  if (email !== token.recipientEmail) return null
-  return { request: r, user: { external: token.payload.purpose, email }, expiresAt: token.expiresAt }
+  if (r.applicantEmail !== token.recipientEmail) return null
+  return { request: r, user: { external: "intern", email: r.applicantEmail }, expiresAt: token.expiresAt }
 }
 export const h4Access = {
   async response(result, access) {
@@ -53,10 +53,15 @@ export const h4Access = {
       stay: r.stay,
       checkInAt: r.checkInAt,
       checkOutAt: r.checkOutAt,
+      quote: { subtotal: r.quote?.subtotal, gstPercentage: r.quote?.gstPercentage, gstAmount: r.quote?.gstAmount, total: r.quote?.total },
       h4: {
         revision: r.h4.revision,
         mess: r.h4.mess,
-        payer: { type: r.h4.payer.type, name: r.h4.payer.name },
+        messCharge: r.h4.messCharge || null,
+        caterer: r.h4.caterer ? { name: r.h4.caterer.name } : null,
+        messPhoto: r.h4.messPhoto
+          ? { status: r.h4.messPhoto.status, note: r.h4.messPhoto.note, submittedAt: r.h4.messPhoto.submittedAt, hasFile: !!r.h4.messPhoto.fileRef }
+          : null,
         amendment: r.h4.amendment,
       },
       hostel: hostel ? { name: hostel.name } : null,
@@ -64,16 +69,10 @@ export const h4Access = {
       timeline: r.timeline.map((t) => ({ status: t.status, at: t.at })),
       purpose: access.user.external,
       expiresAt: access.expiresAt,
-    }
-    if (access.user.external === "payer") {
-      data.payment = payment(r.payment)
-      data.additionalPayments = r.additionalPayments.map(payment)
-      data.invoice = r.invoice?.generatedAt ? { number: r.invoice.number, generatedAt: r.invoice.generatedAt } : null
-      data.hasQr = !!r.payment.qrRef
-    }
-    if (access.user.external === "intern" || access.user.email === r.applicantEmail) {
-      data.h4.messPayment = r.h4.messPayment ? payment(r.h4.messPayment) : null
-      data.h4.caterer = r.h4.caterer ? { name: r.h4.caterer.name } : null
+      payment: payment(r.payment),
+      additionalPayments: r.additionalPayments.map(payment),
+      invoice: r.invoice?.generatedAt ? { number: r.invoice.number, generatedAt: r.invoice.generatedAt } : null,
+      hasQr: !!r.payment.qrRef,
     }
     return success(data)
   },
@@ -82,8 +81,7 @@ export const h4Access = {
     const r = await queries.findH4ById(id, { lean: true })
     if (!r) return notFound("H4 request")
     const u = user.external ? user : await freshUser(user)
-    if (!u || !(u.external === "payer" || (u.external === "intern" && r.h4.messPayment) || isCreator(r, u) || (isFaculty(r, u) && r.h4.payer.type === "faculty")))
-      return forbidden()
+    if (!u || !(u.external === "intern" || isCreator(r, u))) return forbidden()
     if ([S.DRAFT, S.REJECTED, S.CANCELLED, S.INVOICED].includes(r.status) || !r.allotment?.hostelId)
       return badRequest("There is no published accommodation bill")
     if (r.h4.revision !== revision) return badRequest("This request changed. Refresh before uploading.")
@@ -114,6 +112,45 @@ export const h4Access = {
     )
     return result.success ? success({ fileRef: ref, revision: result.data.h4.revision }) : result
   },
+  // Student's mess photo, from the access link after Accounts picks the caterer.
+  // Stored for CW Office's manual check only; nothing is sent to the scanners.
+  async messPhoto(access, file, revision) {
+    const r = access.request
+    if (!Number.isInteger(revision)) return badRequest("Refresh the page before uploading")
+    if (r.h4.mess !== "with" || !r.h4.caterer) return badRequest("The mess photo opens once your mess is assigned")
+    if (!["Pending", "Rejected", "Submitted"].includes(r.h4.messPhoto?.status))
+      return badRequest("Your mess photo is already approved")
+    if ([S.CHECKED_OUT, S.INVOICED].includes(r.status)) return badRequest("This stay is closed")
+    if (r.h4.revision !== revision) return badRequest("This request changed. Refresh before uploading.")
+    const png = file?.buffer?.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    const jpg = file?.buffer?.[0] === 255 && file?.buffer?.[1] === 216 && file?.buffer?.[2] === 255
+    if (!file || file.size > 5 * 1024 * 1024 || !(png || jpg)) return badRequest("Upload a PNG or JPG photo up to 5 MB")
+    const stored = await storageClient.upload({
+      file: { ...file, mimetype: png ? "image/png" : "image/jpeg" },
+      policy: "dining-bio-photo",
+      actorId: r.requesterUserId,
+      actorRole: "System",
+      sourceService: "intern-accommodation",
+      entityHint: String(r._id),
+      timeoutMs: 15000,
+    })
+    const ref = stored?.file_ref || stored?.fileRef || stored?.data?.fileRef
+    if (!ref) return badRequest("Photo upload failed")
+    const result = await mutate(String(r._id), { revision }, access.user, (request) => {
+      if (request.h4.mess !== "with" || !request.h4.caterer || request.h4.messPhoto?.status === "Approved")
+        return badRequest("The mess photo cannot be changed now")
+      request.h4.messPhoto = { status: "Submitted", fileRef: ref, submittedAt: new Date(), reviewedBy: null, reviewedAt: null, note: "" }
+      audit(request, access.user, "Mess photo submitted by the student")
+    })
+    if (result.success) await h4Notifications.handoff(result.data)
+    return this.response(result, access)
+  },
+  async messPhotoFile(access) {
+    const ref = access.request.h4.messPhoto?.fileRef
+    if (!ref) return notFound("Mess photo")
+    const file = await fileAccessService.getBuffer(ref)
+    return success({ ...file, contentType: file.contentType || "image/jpeg", filename: "mess-photo" })
+  },
   async resend(id, body, user) {
     if (!validId(id)) return badRequest("Invalid request ID")
     const r = await queries.findH4ById(id, { lean: true })
@@ -127,11 +164,9 @@ export const h4Access = {
     return success({ queued: true }, 200, "Notifications queued")
   },
   async invoice(access) {
-    if (access.user.external !== "payer") return forbidden()
     return h4Service.invoice(String(access.request._id), access.user, true)
   },
   async qr(access) {
-    if (access.user.external !== "payer") return forbidden()
     if (!access.request.payment?.qrRef) return notFound("Payment QR")
     const file = await fileAccessService.getBuffer(access.request.payment.qrRef)
     const contentType = file.contentType || (file.buffer[0] === 137 ? "image/png" : "image/jpeg")
@@ -142,6 +177,6 @@ export const h4Access = {
     const result = await h4Service.get(id, u)
     if (!result.success) return result
     if (!(isCreator(result.data, u) || isFaculty(result.data, u) || isOffice(u) || isAccounts(u))) return forbidden()
-    return this.qr({ request: result.data, user: { external: "payer" } })
+    return this.qr({ request: result.data, user: { external: "intern" } })
   },
 }

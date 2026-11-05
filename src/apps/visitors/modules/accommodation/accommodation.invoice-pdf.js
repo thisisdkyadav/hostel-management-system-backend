@@ -537,7 +537,23 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
         }]
       : []
 
-  const rows = [...chargeRows, ...extraPaymentRows({ extras: settled, stay, nights })]
+  // H4 bills mess inside the same student payment; show it as its own line so
+  // the rows add up to what was paid. No GST on mess.
+  const messAmount = request?.typeKey === "intern" ? Number(request.h4?.messCharge?.amount) || 0 : 0
+  const messRows = messAmount > 0
+    ? [{
+        guests: "1",
+        details: `Mess charges · ${String(request.applicantName || "").trim()}`,
+        hostel: "",
+        from: sheetDate(stay.fromDate),
+        to: sheetDate(stay.toDate),
+        days: nights,
+        tariff: money(Number(request.h4.messCharge.dailyRate) || messAmount / (Number(request.h4.messCharge.days) || 1)),
+        gst: money(0),
+        total: money(messAmount),
+      }]
+    : []
+  const rows = [...chargeRows, ...messRows, ...extraPaymentRows({ extras: settled, stay, nights })]
 
   return {
     invoiceNumber: request?.invoice?.number || buildInvoiceNumber({ serial: 0 }),
@@ -547,7 +563,7 @@ export const buildInvoiceModel = ({ request, hostelName = "", hostelNameByGuestI
     utr: utrs.join(" · ") || request?.payment?.utr || "",
     requestedBy: request?.typeKey === "intern" ? request.h4?.payer?.name || request.applicantName : studentName || request?.applicantName || "",
     purpose: stay.purpose || "",
-    source: request?.typeKey === "intern" && request.h4?.payer?.type === "faculty" ? "Faculty" : "Self",
+    source: "Self",
     rows,
   }
 }

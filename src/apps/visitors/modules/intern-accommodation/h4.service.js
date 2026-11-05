@@ -12,6 +12,8 @@ import { accommodationOwner as owner } from "../../../../services/accommodation/
 import { userQueries } from "../../../../services/user/userQueries.service.js"
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { diningQueries } from "../../../../services/dining/diningQueries.service.js"
+import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
+import { coversDayFilter } from "../../../../services/dining/periodDay.js"
 import { computeNights, emptyQuote, getAccommodationConfig } from "../accommodation/accommodation.quote.js"
 import { getH4Config } from "./h4.config.js"
 import { accommodationService } from "../accommodation/accommodation.service.js"
@@ -81,7 +83,6 @@ const validateStudent = (s, draft = false, keepFrom = null) => {
   if (draft) {
     if (s.gender && !["Male", "Female", "Other"].includes(s.gender)) return "Select gender"
     if (s.category && !["intern", "unregistered-student"].includes(s.category)) return "Select student category"
-    if (s.payerType && !["intern", "faculty"].includes(s.payerType)) return "Select who pays"
     for (const k of ["fromDate", "toDate"])
       if (s.stay?.[k] && !Number.isFinite(+new Date(s.stay[k]))) return "Enter a valid date"
     return null
@@ -89,11 +90,10 @@ const validateStudent = (s, draft = false, keepFrom = null) => {
   if (!clean(s?.name, 120)) return "Enter the student name"
   if (!["Male", "Female", "Other"].includes(s.gender)) return "Select gender"
   if (!["intern", "unregistered-student"].includes(s.category || "intern")) return "Select student category"
-  if (!["intern", "faculty"].includes(s.payerType)) return "Select who pays"
   if (!draft && (!emailValid(s.email) || !/^[+\d()\s-]{7,20}$/.test(String(s.mobile || ""))))
     return "Enter a valid student email and mobile number"
   if (!draft && ["institute", "instituteAddress", "course", "department"].some((k) => !clean(s[k])))
-    return "Complete institute, address, course and department"
+    return "Complete the student's institute name and address, course and department"
   const stay = stayInput(s.stay)
   if (stay.error) return stay.error
   if (!draft && !stay.purpose) return "Enter the reason for stay"
@@ -129,27 +129,55 @@ const applyStudent = (r, s, faculty, draft = false) => {
   r.h4.facultyName = faculty.name
   r.h4.facultyEmail = faculty.email
   r.facultyAdvisorEmail = faculty.email
-  r.h4.payer = {
-    type: s.payerType || "intern",
-    name: s.payerType === "faculty" ? faculty.name : r.applicantName,
-    email: s.payerType === "faculty" ? faculty.email : r.applicantEmail,
-    verifiedBy: null,
-    verifiedAt: null,
-  }
+  // The student always pays the combined accommodation + mess bill.
+  r.h4.payer = { type: "intern", name: r.applicantName, email: r.applicantEmail, verifiedBy: null, verifiedAt: null }
 }
 const routeSubmission = (r, u, selfRecommend) => {
   r.currentStage = "faculty"
   audit(r, u, "Submitted for faculty recommendation", S.PENDING_FA_RECOMMENDATION)
   if (selfRecommend) {
-    r.h4.payer.verifiedBy = u._id
-    r.h4.payer.verifiedAt = new Date()
-    approve(r, u, "faculty", "recommend", "Payer confirmed on submission")
+    approve(r, u, "faculty", "recommend", "Recommended on submission")
     r.currentStage = "office"
-    audit(r, u, "Submitted and recommended; payer confirmed", S.PENDING_CWO_CAPACITY)
+    audit(r, u, "Submitted and recommended", S.PENDING_CWO_CAPACITY)
   }
 }
 const approvalStage = (r) => r.h4.amendment?.stage || r.currentStage
 const changeRow = (r) => r.scheduleChanges.id(r.h4.amendment?.changeId)
+const CLOSED_FOR_MESS = [S.DRAFT, S.CANCELLED, S.REJECTED, S.CHECKED_OUT, S.INVOICED]
+// Accounts picks a caterer with this month's numbers in view: students allotted
+// to each caterer in the dining period(s) covering today, the period capacity,
+// and interns already eating there whose stay overlaps those periods.
+const catererLoad = async (caterers) => {
+  if (!caterers.length) return caterers
+  const periods = await diningQueries.findPeriods(coversDayFilter(new Date()), {
+    select: "startDate endDate catererCapacities",
+    lean: true,
+  })
+  const counts = periods.length
+    ? await allocationQueries.countAllocationsByPeriodsAndCaterer(periods.map((p) => p._id))
+    : []
+  const from = periods.length ? new Date(Math.min(...periods.map((p) => +p.startDate))) : new Date(instituteDay())
+  const to = periods.length
+    ? new Date(Math.max(...periods.map((p) => +p.endDate)) + 86400000)
+    : new Date(+new Date(instituteDay()) + 86400000)
+  return Promise.all(
+    caterers.map(async (c) => {
+      const id = String(c._id)
+      const caps = periods.flatMap((p) => p.catererCapacities || []).filter((x) => String(x.catererId) === id)
+      return {
+        ...c,
+        allocated: counts.filter((x) => String(x._id.catererId) === id).reduce((n, x) => n + x.count, 0),
+        capacity: caps.length ? caps.reduce((n, x) => n + (x.maxStudentCount || 0), 0) : null,
+        interns: await queries.countH4({
+          "h4.caterer.catererId": c._id,
+          status: { $nin: CLOSED_FOR_MESS },
+          "stay.fromDate": { $lt: to },
+          "stay.toDate": { $gt: from },
+        }),
+      }
+    }),
+  ).then((rows) => Object.assign(rows, { period: periods.length ? { from, to: new Date(+to - 86400000) } : null }))
+}
 const notifyResult = async (result, digest = false) => {
   if (result.success) await h4Notifications.handoff(result.data, { digest })
   return result
@@ -210,10 +238,13 @@ export const h4Service = {
     const scope = await hostelScope(u)
     const config = isOffice(u) ? await getH4Config() : null
     const caterers = isAccounts(u)
-      ? await diningQueries.findCaterers({ isArchived: { $ne: true } }, { select: "name", lean: true, sort: { name: 1 } })
+      ? await catererLoad(
+          await diningQueries.findCaterers({ isArchived: { $ne: true } }, { select: "name", lean: true, sort: { name: 1 } }),
+        )
       : []
     return success({
-      caterers,
+      caterers: [...caterers],
+      messPeriod: caterers.period || null,
       faculty,
       hostels: isDesk(u)
         ? hostels.map((h) => ({ _id: h._id, name: h.name, type: h.type }))
@@ -242,13 +273,17 @@ export const h4Service = {
     if (params.queue === "chief")
       conditions.push({ $or: [{ currentStage: "chief" }, { "h4.amendment.stage": "chief" }] })
     if (params.queue === "payments")
-      conditions.push({ $or: [{ "payment.status": "Submitted" }, { "h4.messPayment.status": "Submitted" }, { "additionalPayments.status": "Submitted" }] })
+      conditions.push({ $or: [{ "payment.status": "Submitted" }, { "additionalPayments.status": "Submitted" }] })
+    if (params.queue === "mess")
+      conditions.push({ "h4.mess": "with", "h4.caterer": null, "payment.status": "Verified", status: { $nin: CLOSED_FOR_MESS } })
+    if (params.queue === "photos") conditions.push({ "h4.messPhoto.status": "Submitted", status: { $nin: CLOSED_FOR_MESS } })
     if (params.queue === "rooms")
       conditions.push({
         status: S.PAYMENT_VERIFIED,
         "h4.amendment.stage": "",
         "payment.status": "Verified",
         additionalPayments: { $not: { $elemMatch: { status: { $ne: "Verified" } } } },
+        $or: [{ "h4.mess": { $ne: "with" } }, { "h4.caterer": { $ne: null }, "h4.messPhoto.status": "Approved" }],
       })
     if (params.status && Object.values(S).includes(params.status)) conditions.push({ status: params.status })
     for (const [param, path] of [
@@ -390,7 +425,7 @@ export const h4Service = {
     return result
   },
   // CW Office corrects details at any open stage without restarting approvals.
-  // Once charges are issued, dates/faculty/payer are tied to the bill and room
+  // Once charges are issued, dates/faculty are tied to the bill and room
   // reservation, so those move only through the date-change flow.
   async officeEdit(id, body, user) {
     let resend = false
@@ -408,34 +443,28 @@ export const h4Service = {
         if (!faculty) return badRequest("Select an eligible faculty")
         const stay = stayInput(s.stay)
         const facultyChanged = String(faculty._id) !== String(r.h4.facultyUserId)
-        const payerChanged = s.payerType !== r.h4.payer.type
         const datesChanged = +stay.fromDate !== +r.stay.fromDate || +stay.toDate !== +r.stay.toDate
-        if (r.allotment?.hostelId && (facultyChanged || payerChanged || datesChanged))
-          return badRequest("Charges are issued: dates, faculty and payer are locked. Use a date change for new dates.")
+        if (r.allotment?.hostelId && (facultyChanged || datesChanged))
+          return badRequest("Charges are issued: dates and faculty are locked. Use a date change for new dates.")
         const before = {
           name: r.applicantName, email: r.applicantEmail, mobile: r.applicantPhone, gender: r.h4.gender,
           category: r.h4.category, institute: r.h4.institute, address: r.h4.instituteAddress, course: r.h4.course,
-          department: r.h4.department, purpose: r.stay.purpose, payerEmail: r.h4.payer.email,
+          department: r.h4.department, purpose: r.stay.purpose,
         }
-        const verified = { verifiedBy: r.h4.payer.verifiedBy, verifiedAt: r.h4.payer.verifiedAt }
         const quote = r.quote
         applyStudent(r, s, faculty)
-        // The payer stays confirmed; a CW Office change of payer is its own confirmation.
-        if (verified.verifiedAt)
-          Object.assign(r.h4.payer, facultyChanged || payerChanged ? { verifiedBy: u._id, verifiedAt: new Date() } : verified)
         if (r.allotment?.hostelId) r.quote = quote
         else r.quote = emptyQuote({ persons: 1, nights: r.nights })
         const after = {
           name: r.applicantName, email: r.applicantEmail, mobile: r.applicantPhone, gender: r.h4.gender,
           category: r.h4.category, institute: r.h4.institute, address: r.h4.instituteAddress, course: r.h4.course,
-          department: r.h4.department, purpose: r.stay.purpose, payerEmail: r.h4.payer.email,
+          department: r.h4.department, purpose: r.stay.purpose,
         }
         const changed = Object.keys(before).filter((k) => before[k] !== after[k])
         if (facultyChanged) changed.push("faculty")
-        if (payerChanged) changed.push("payer")
         if (datesChanged) changed.push("dates")
         if (!changed.length) return badRequest("Nothing changed")
-        resend = before.email !== after.email || before.payerEmail !== after.payerEmail || facultyChanged
+        resend = before.email !== after.email || facultyChanged
         audit(r, u, `Details corrected by CW Office: ${changed.join(", ")}`)
       },
       { notify: false },
@@ -482,8 +511,6 @@ export const h4Service = {
       if (!["approve", "request_modification", "reject"].includes(action)) return badRequest("Choose a valid decision")
       const reason = clean(body.reason, 1000)
       if (action !== "approve" && !reason) return badRequest("Enter a reason")
-      if (action === "approve" && stage === "faculty" && body.confirmPayer !== true)
-        return badRequest("Confirm who will pay the accommodation charge")
       if (action === "approve" && stage === "office" && body.confirmAvailability !== true)
         return badRequest("Confirm that accommodation availability has been checked")
       const amendment = !!r.h4.amendment?.stage
@@ -508,8 +535,6 @@ export const h4Service = {
       if (stage === "faculty") {
         // Check the current user record again; revoked Academics users cannot recommend.
         if (!(await facultyFor(u._id))) return forbidden("Faculty eligibility changed")
-        r.h4.payer.verifiedBy = u._id
-        r.h4.payer.verifiedAt = new Date()
       }
       if (amendment && stage === "office") {
         const amount = Number(body.extraAmount ?? 0)
@@ -566,7 +591,7 @@ export const h4Service = {
         audit(
           r,
           u,
-          `${stage === "faculty" ? "Faculty recommended; payer confirmed" : stage === "office" ? "CW Office checked availability" : "Chief Warden approved"}`,
+          `${stage === "faculty" ? "Faculty recommended" : stage === "office" ? "CW Office checked availability" : "Chief Warden approved"}`,
           { faculty: S.PENDING_CWO_CAPACITY, office: S.PENDING_CW_APPROVAL, chief: S.CW_APPROVED }[stage],
         )
       }

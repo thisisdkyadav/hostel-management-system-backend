@@ -18,21 +18,19 @@ import {
   clean,
   parsePaidAt,
 } from "./h4.helpers.js"
+import { fileAccessService } from "../../../../services/storage/file-access.service.js"
 import { h4Notifications } from "./h4.notifications.js"
 import { h4Service } from "./h4.service.js"
 import { getH4Config } from "./h4.config.js"
 
-const canPay = (r, u, body) => body.paymentType === "mess"
-  ? u.external === "intern" || (u.external === "payer" && u.email === r.applicantEmail) || isCreator(r, u)
-  : u.external === "payer" || isCreator(r, u) || (isFaculty(r, u) && r.h4.payer.type === "faculty")
-const openPayment = (r, body) =>
-  body.paymentType === "mess"
-    ? body.additionalPaymentId ? null : r.h4.messPayment
-    : body.paymentType && body.paymentType !== "accommodation"
-      ? null
-      : body.additionalPaymentId ? r.additionalPayments.id(body.additionalPaymentId) : r.payment
-// Mess interns eat with a dining caterer; Accounts picks it when the mess
-// payment is confirmed. Re-sending the current caterer is a no-op.
+// The student pays one combined bill (accommodation + GST + mess). The IIT
+// requester may still submit proof on the student's behalf.
+const canPay = (r, u) => u.external === "intern" || isCreator(r, u)
+const openPayment = (r, body) => (body.additionalPaymentId ? r.additionalPayments.id(body.additionalPaymentId) : r.payment)
+const needsCaterer = (r, body) => r.h4.mess === "with" && !body.additionalPaymentId
+// Interns with mess eat with a dining caterer; Accounts picks it when the main
+// payment is confirmed. Re-sending the current caterer is a no-op. A new
+// caterer opens the student's mess-photo step.
 const assignCaterer = async (r, u, catererId) => {
   if (!catererId && r.h4.caterer) return null
   if (!validId(catererId)) return badRequest("Select a caterer")
@@ -40,6 +38,7 @@ const assignCaterer = async (r, u, catererId) => {
   const caterer = await diningQueries.findCatererById(catererId, { select: "name isArchived", lean: true })
   if (!caterer || caterer.isArchived) return badRequest("Select an active caterer")
   r.h4.caterer = { catererId: caterer._id, name: caterer.name, assignedBy: u._id, assignedAt: new Date() }
+  if (!r.h4.messPhoto) r.h4.messPhoto = { status: "Pending" }
   audit(r, u, `Mess caterer assigned: ${caterer.name}`)
   return null
 }
@@ -69,14 +68,11 @@ export const h4Payments = {
     const [config, visitorConfig] = await Promise.all([getH4Config(), getAccommodationConfig()])
     const result = await mutate(id, body, user, async (r, u, session) => {
       if (!isOffice(u)) return forbidden()
-      if (r.status !== S.CW_APPROVED || !r.h4.payer.verifiedAt)
-        return badRequest("Chief Warden approval and faculty payer confirmation are required")
+      if (r.status !== S.CW_APPROVED) return badRequest("Chief Warden approval is required")
       if (!validId(body.hostelId)) return badRequest("Select the allotted hostel")
       const hostel = await hostelQueries.findHostelById(body.hostelId, { session })
       if (!hostel || hostel.isArchived) return badRequest("Select an active hostel")
       if (!["with", "without"].includes(body.mess)) return badRequest("Choose with or without mess")
-      const paymentLink = config.accommodationPaymentLink
-      const messPaymentLink = config.messPaymentLink
       const days = r.nights
       const rate = (raw, fallback) => raw == null ? fallback : raw === "" ? NaN : Number(raw)
       const accommodationDailyRate = rate(body.accommodationDailyRate, config.accommodationDailyRate)
@@ -89,11 +85,10 @@ export const h4Payments = {
       const messAmount = body.mess === "with" ? rate(body.messAmount, messCalculatedAmount) : 0
       if ([price, messAmount].some((n) => !Number.isFinite(n) || n < 0 || n > 10000000))
         return badRequest("Enter valid total charges")
-      const gstPercentage = config.gstPercentage
       const quote = buildQuoteFromGuestCharges({
         guests: r.guests,
         nights: r.nights,
-        guestCharges: [{ guestIndex: 0, price, gstPercentage }],
+        guestCharges: [{ guestIndex: 0, price, gstPercentage: config.gstPercentage }],
       })
       if (quote.error) return badRequest(quote.error)
       if (quote.total === 0 && !clean(body.reason))
@@ -104,27 +99,25 @@ export const h4Payments = {
       r.h4.accommodationCalculatedAmount = accommodationCalculatedAmount
       r.h4.accommodationAmountOverridden = price !== accommodationCalculatedAmount
       r.h4.mess = body.mess
-      r.h4.messPayment = body.mess === "with" ? {
+      r.h4.messCharge = body.mess === "with" ? {
         dailyRate: messDailyRate,
         days,
         calculatedAmount: messCalculatedAmount,
         amountOverridden: messAmount !== messCalculatedAmount,
         amount: Math.round(messAmount * 100) / 100,
-        status: messAmount === 0 ? "Verified" : "Pending",
-        paymentLink: messPaymentLink,
-        verifiedBy: messAmount === 0 ? u._id : null,
-        verifiedAt: messAmount === 0 ? new Date() : null,
       } : null
       r.allotment = { hostelId: hostel._id, allottedBy: u._id, allottedAt: new Date() }
       r.guestAllotments = [{ guestIndex: 0, hostelId: hostel._id }]
+      // One bill for the student: accommodation (with GST) plus mess.
+      const total = Math.round((quote.total + (r.h4.messCharge?.amount || 0)) * 100) / 100
       r.payment = {
-        amount: quote.total,
-        status: quote.total === 0 ? "Verified" : "Pending",
+        amount: total,
+        status: total === 0 ? "Verified" : "Pending",
         qrRef: visitorConfig.defaultPaymentQR,
-        paymentLink,
+        paymentLink: config.paymentLink,
         remarks: clean(body.remarks, 1000),
-        verifiedBy: quote.total === 0 ? u._id : null,
-        verifiedAt: quote.total === 0 ? new Date() : null,
+        verifiedBy: total === 0 ? u._id : null,
+        verifiedAt: total === 0 ? new Date() : null,
       }
       r.currentStage = null
       audit(
@@ -132,16 +125,16 @@ export const h4Payments = {
         u,
         quote.total === 0
           ? `Accommodation charge waived: ${clean(body.reason)}`
-          : "Hostel, mess and accommodation charges issued to intern and payer",
+          : "Hostel, mess and charges issued to the student",
         paid(r) ? S.PAYMENT_VERIFIED : S.PAYMENT_REQUESTED,
       )
     }, { digest })
-    if (result.success) result.message = "Charges saved. Payment emails queued for delivery."
+    if (result.success) result.message = "Charges saved. Payment email queued for the student."
     return notify(result, digest)
   },
   async submit(id, body, user) {
     const result = await mutate(id, body, user, (r, u) => {
-      if (!canPay(r, u, body)) return forbidden()
+      if (!canPay(r, u)) return forbidden()
       if ([S.REJECTED, S.CANCELLED, S.INVOICED].includes(r.status) || r.h4.amendment?.stage)
         return badRequest("This request cannot accept payment proof now")
       const payment = openPayment(r, body)
@@ -161,7 +154,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `${body.paymentType === "mess" ? "Mess payment" : "Payment"} proof submitted${u.external ? " by payer" : " through an IIT requester"}`,
+        `Payment proof submitted${u.external ? " by the student" : " through an IIT requester"}`,
         !body.additionalPaymentId && [S.PAYMENT_REQUESTED, S.PAYMENT_DEFERRED, S.PAYMENT_SUBMITTED].includes(r.status)
           ? S.PAYMENT_SUBMITTED
           : r.status,
@@ -171,7 +164,7 @@ export const h4Payments = {
   },
   async defer(id, body, user) {
     return mutate(id, body, user, (r, u) => {
-      if (!canPay(r, u, body)) return forbidden()
+      if (!canPay(r, u)) return forbidden()
       if ([S.REJECTED, S.CANCELLED, S.INVOICED].includes(r.status)) return badRequest("The financial record is closed")
       if (r.h4.amendment?.stage) return badRequest("Complete the pending date change first")
       const p = openPayment(r, body)
@@ -183,7 +176,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `${body.paymentType === "mess" ? "Mess payment" : "Payment"} deferred; room assignment still requires verification`,
+        "Payment deferred; room assignment still requires verification",
         body.additionalPaymentId || operational ? r.status : S.PAYMENT_DEFERRED,
       )
     })
@@ -196,7 +189,7 @@ export const h4Payments = {
       if (!p || p.status !== "Submitted") return badRequest("Select a submitted payment")
       if (!["verify", "reject"].includes(body.action)) return badRequest("Choose verify or reject")
       if (body.action === "reject" && !clean(body.reason)) return badRequest("Enter a rejection reason")
-      if (body.action === "verify" && body.paymentType === "mess") {
+      if (body.action === "verify" && needsCaterer(r, body)) {
         const failure = await assignCaterer(r, u, body.catererId)
         if (failure) return failure
       }
@@ -208,7 +201,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `${body.paymentType === "mess" ? "Mess payment" : "Payment"} ${body.action === "verify" ? "verified" : `rejected: ${clean(body.reason)}`}`,
+        `Payment ${body.action === "verify" ? "verified" : `rejected: ${clean(body.reason)}`}`,
         operational
           ? r.status
           : paid(r)
@@ -230,7 +223,7 @@ export const h4Payments = {
       if (!p || !p.amount || !clean(body.reason)) return badRequest("Select a payment and enter an accounts note")
       if (!["mark_paid", "mark_unpaid", "correct"].includes(body.action))
         return badRequest("Choose a valid accounts action")
-      if (body.action === "mark_paid" && body.paymentType === "mess") {
+      if (body.action === "mark_paid" && needsCaterer(r, body)) {
         const failure = await assignCaterer(r, u, body.catererId)
         if (failure) return failure
       }
@@ -250,7 +243,7 @@ export const h4Payments = {
       audit(
         r,
         u,
-        `Accounts ${body.paymentType === "mess" ? "mess " : ""}${body.action}: ${clean(body.reason)}`,
+        `Accounts ${body.action}: ${clean(body.reason)}`,
         operational || body.action === "correct" ? r.status : paid(r) ? S.PAYMENT_VERIFIED : S.PAYMENT_REQUESTED,
       )
     })
@@ -262,22 +255,48 @@ export const h4Payments = {
       if (!isAccounts(u)) return forbidden()
       if (r.h4.mess !== "with") return badRequest("This stay is without mess")
       if ([S.CANCELLED, S.REJECTED, S.INVOICED].includes(r.status)) return badRequest("This request is closed")
+      if (r.payment?.status !== "Verified") return badRequest("Verify the payment first")
       if (!validId(body.catererId)) return badRequest("Select a caterer")
       if (String(r.h4.caterer?.catererId) === String(body.catererId)) return badRequest("This caterer is already assigned")
       return assignCaterer(r, u, body.catererId)
     })
     return notify(result)
   },
-  async attachment(id, user, additionalPaymentId, paymentType) {
+  // CW Office checks the student's mess photo by eye: a clear face, nothing more.
+  // A rejection asks the student to upload again from the same access link.
+  async photoReview(id, body, user) {
+    const result = await mutate(id, body, user, (r, u) => {
+      if (!isOffice(u)) return forbidden()
+      if (isClosed(r)) return badRequest("This request is closed")
+      if (r.h4.messPhoto?.status !== "Submitted") return badRequest("There is no submitted photo to review")
+      if (!["approve", "reject"].includes(body.action)) return badRequest("Choose approve or reject")
+      const reason = clean(body.reason, 500)
+      if (body.action === "reject" && !reason) return badRequest("Enter what is wrong with the photo")
+      r.h4.messPhoto.status = body.action === "approve" ? "Approved" : "Rejected"
+      r.h4.messPhoto.reviewedBy = u._id
+      r.h4.messPhoto.reviewedAt = new Date()
+      r.h4.messPhoto.note = reason
+      audit(r, u, body.action === "approve" ? "Mess photo approved" : `Mess photo rejected: ${reason}`)
+    })
+    return notify(result)
+  },
+  async photo(id, user) {
+    const result = await h4Service.get(id, user)
+    if (!result.success) return result
+    const ref = result.data.h4.messPhoto?.fileRef
+    if (!ref) return notFound("Mess photo")
+    const file = await fileAccessService.getBuffer(ref)
+    return success({ ...file, contentType: file.contentType || "image/jpeg", filename: "mess-photo" })
+  },
+  async attachment(id, user, additionalPaymentId) {
     if (!validId(id)) return badRequest("Invalid request ID")
     const result = await h4Service.get(id, user)
     if (!result.success) return result
     const r = result.data
     // Gate and supervisors only need stay information, never payment screenshots.
     if (!(isCreator(r, user) || isFaculty(r, user) || isOffice(user) || isAccounts(user))) return forbidden()
-    const p = paymentType === "mess" ? r.h4.messPayment : additionalPaymentId ? r.additionalPayments.find((p) => String(p._id) === additionalPaymentId) : r.payment
+    const p = additionalPaymentId ? r.additionalPayments.find((p) => String(p._id) === additionalPaymentId) : r.payment
     if (!p?.screenshotFileRef) return notFound("Payment proof")
-    const { fileAccessService } = await import("../../../../services/storage/file-access.service.js")
     return success(await fileAccessService.getBuffer(p.screenshotFileRef))
   },
 }

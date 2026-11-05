@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest"
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest"
 import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as, anon } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
@@ -12,9 +12,9 @@ afterAll(teardownTestDb)
 const base = "/api/v1/intern-accommodation"
 const ymd = (offset = 0) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10)
 const academic = (extra = {}) => seed.createUser({ role: "Academics", email: `h4-${Date.now()}-${Math.random()}@iiti.ac.in`, ...extra })
-const student = (payerType = "faculty") => ({
+const student = () => ({
   name: "Research student", gender: "Male", category: "intern", email: "research@example.com",
-  mobile: "9876543210", institute: "Institute", instituteAddress: "Indore", course: "BTech", department: "Physics", payerType,
+  mobile: "9876543210", institute: "Institute", instituteAddress: "Indore", course: "BTech", department: "Physics",
   stay: { fromDate: ymd(5), toDate: ymd(10), purpose: "Research", checkInTime: "11:00", checkOutTime: "11:00" },
 })
 const action = async (api, r, suffix, extra = {}) => {
@@ -23,7 +23,7 @@ const action = async (api, r, suffix, extra = {}) => {
   return result.body.data
 }
 
-describe("H4 academic categories and separate payments", () => {
+describe("H4 academic categories and the combined student payment", () => {
   it("defaults Personal users to themselves and creates without a batch title", async () => {
     const professor = await academic()
     const other = await academic()
@@ -55,7 +55,7 @@ describe("H4 academic categories and separate payments", () => {
     expect(result.status).toBe(201)
     let r = result.body.data.items[0]
     expect(r.status).toBe("Pending FA Recommendation")
-    r = await action(await as(professor), r, "decision/faculty", { action: "approve", confirmPayer: true })
+    r = await action(await as(professor), r, "decision/faculty", { action: "approve" })
     expect(r.status).toBe("Pending CWO Capacity Check")
   })
 
@@ -70,10 +70,11 @@ describe("H4 academic categories and separate payments", () => {
     expect((await chief.get(settingsPath)).status).toBe(403)
     expect((await office.put(settingsPath).send({ value: { gstPercentage: 101 } })).status).toBe(400)
     expect((await office.put(settingsPath).send({ value: { messDailyRate: -10 } })).status).toBe(400)
-    expect((await office.put(settingsPath).send({ value: { accommodationPaymentLink: "javascript:alert(1)" } })).status).toBe(400)
-    const value = { accommodationPaymentLink: "payments.example.com/hostel", messPaymentLink: "payments.example.com/mess", gstPercentage: 18, accommodationDailyRate: 100, messDailyRate: 50 }
+    expect((await office.put(settingsPath).send({ value: { paymentLink: "javascript:alert(1)" } })).status).toBe(400)
+    const value = { paymentLink: "payments.example.com/hostel", gstPercentage: 18, accommodationDailyRate: 100, messDailyRate: 50 }
     expect((await office.put(settingsPath).send({ value })).status).toBe(200)
-    expect((await office.get(settingsPath)).body.value.accommodationPaymentLink).toBe("https://payments.example.com/hostel")
+    expect((await office.get(settingsPath)).body.value.paymentLink).toBe("https://payments.example.com/hostel")
+    expect((await office.get(settingsPath)).body.value.messPaymentLink).toBeUndefined()
     expect((await office.get(`${base}/options`)).body.data.config.messDailyRate).toBe(50)
     const ready = async () => {
       const data = student()
@@ -96,92 +97,132 @@ describe("H4 academic categories and separate payments", () => {
     expect(r.nights).toBe(5)
     expect(r.quote.subtotal).toBe(500)
     expect(r.quote.gstPercentage).toBe(18)
-    expect(r.payment.amount).toBe(590)
+    // One bill: 500 + 18% GST + 250 mess.
+    expect(r.payment.amount).toBe(840)
     expect(r.payment.paymentLink).toBe("https://payments.example.com/hostel")
-    expect(r.h4.messPayment).toMatchObject({ dailyRate: 50, days: 5, calculatedAmount: 250, amount: 250, amountOverridden: false, paymentLink: "https://payments.example.com/mess" })
+    expect(r.h4.messCharge).toMatchObject({ dailyRate: 50, days: 5, calculatedAmount: 250, amount: 250, amountOverridden: false })
     expect((await office.put(settingsPath).send({ value: { ...value, messDailyRate: 90 } })).status).toBe(200)
-    expect((await api.get(`${base}/requests/${initial._id}`)).body.data.h4.messPayment.amount).toBe(250)
+    expect((await api.get(`${base}/requests/${initial._id}`)).body.data.h4.messCharge.amount).toBe(250)
     r = await ready()
     r = await action(office, r, "offer", { hostelId: hostel._id, mess: "with", accommodationDailyRate: 120, price: 550, messDailyRate: 60, messAmount: 275 })
     expect(r.h4.accommodationCalculatedAmount).toBe(600)
     expect(r.h4.accommodationAmountOverridden).toBe(true)
-    expect(r.payment.amount).toBe(649)
+    expect(r.payment.amount).toBe(924)
     const { buildInvoiceModel } = await import("../../../src/apps/visitors/modules/accommodation/accommodation.invoice-pdf.js")
-    expect(buildInvoiceModel({ request: r }).rows[0].tariff).toBe("110.00")
-    expect(r.h4.messPayment).toMatchObject({ dailyRate: 60, calculatedAmount: 300, amount: 275, amountOverridden: true })
+    const rows = buildInvoiceModel({ request: r }).rows
+    expect(rows[0].tariff).toBe("110.00")
+    expect(rows[1]).toMatchObject({ tariff: "60.00", gst: "0.00", total: "275.00" })
+    expect(r.h4.messCharge).toMatchObject({ dailyRate: 60, calculatedAmount: 300, amount: 275, amountOverridden: true })
   })
 
-  it.each(["faculty", "intern"])("keeps mess paid by the student, with accommodation paid by %s and invoiced only after checkout", async (payerType) => {
+  it("bills accommodation and mess to the student once; caterer then approved mess photo before rooms", async () => {
     const professor = await academic()
     const api = await as(professor)
-    const office = await as(await seed.admin({ subRole: "Chief Warden Office" }))
+    const officeUser = await seed.admin({ subRole: "Chief Warden Office" })
+    const office = await as(officeUser)
     const chief = await as(await seed.admin({ subRole: "Chief Warden" }))
     const accounts = await as(await seed.admin({ subRole: "Accountant" }))
     const hostel = await createHostel()
     await createRoom({ hostelId: hostel._id, roomNumber: "601", capacity: 2 })
     const { user: supervisorUser } = await seedHostelSupervisorProfile({ hostels: [hostel], activeHostel: hostel })
     const supervisor = await as(supervisorUser)
-    const creation = await api.post(`${base}/batches`).send({ students: [student(payerType)], recommend: true })
+    // A legacy payer choice is ignored: the student always pays.
+    const creation = await api.post(`${base}/batches`).send({ students: [{ ...student(), payerType: "faculty" }], recommend: true })
     expect(creation.status).toBe(201)
     let r = creation.body.data.items[0]
+    expect(r.h4.payer).toMatchObject({ type: "intern", email: "research@example.com" })
     r = await action(office, r, "decision/office", { action: "approve", confirmAvailability: true })
     r = await action(chief, r, "decision/chief", { action: "approve" })
-    expect((await office.put("/api/v1/config/internAccommodation").send({ value: { gstPercentage: 18, accommodationPaymentLink: "payments.example.com/hostel", messPaymentLink: "https://payments.example.com/mess" } })).status).toBe(200)
-    r = await action(office, r, "offer", {
-      hostelId: hostel._id, mess: "with", price: 100, gstPercentage: 18, messAmount: 250,
-      paymentLink: "payments.example.com/hostel", messPaymentLink: "https://payments.example.com/mess",
-    })
-    expect(r.payment.paymentLink).toBe("https://payments.example.com/hostel")
-    expect(r.payment.amount).toBe(118)
-    expect(r.h4.messPayment.amount).toBe(250)
+    expect((await office.put("/api/v1/config/internAccommodation").send({ value: { gstPercentage: 18, paymentLink: "payments.example.com/hostel" } })).status).toBe(200)
+    r = await action(office, r, "offer", { hostelId: hostel._id, mess: "with", price: 100, messAmount: 250 })
+    expect(r.payment).toMatchObject({ amount: 368, status: "Pending", paymentLink: "https://payments.example.com/hostel" })
+    expect(r.h4.messCharge.amount).toBe(250)
+    expect(r.additionalPayments).toHaveLength(0)
+
     const { h4Notifications } = await import("../../../src/apps/visitors/modules/intern-accommodation/h4.notifications.js")
-    const token = async (purpose) => (await h4Notifications.accessLink(r, purpose)).split("/").at(-1)
-    const internPath = `${base}/access/${await token("intern")}`
-    const payerPath = `${base}/access/${await token("payer")}`
+    let messages = await h4Notifications.messages(r)
+    const links = messages.flatMap((m) => [...m.body.matchAll(/intern-accommodation\/access\/([^"]+)/g)].map((x) => ({ to: m.to, token: x[1] })))
+    expect(links.map((l) => l.to)).toEqual([r.applicantEmail])
+    expect(messages.find((m) => m.to === professor.email).body).not.toContain("/access/")
+    const studentMail = messages.find((m) => m.to === r.applicantEmail).body
+    expect(studentMail).toContain("Amount payable: <strong>₹368.00</strong> (Accommodation ₹118.00 incl. GST + Mess ₹250.00)")
+    expect(studentMail).toContain("https://payments.example.com/hostel")
+    const internPath = `${base}/access/${links[0].token}`
     const external = await anon()
-    const internView = (await external.get(internPath)).body.data
-    expect(internView.payment).toBeUndefined()
-    expect(internView.h4.messPayment.amount).toBe(250)
-    const payerView = (await external.get(payerPath)).body.data
-    expect(payerView.payment.amount).toBe(118)
-    if (payerType === "faculty") expect(payerView.h4.messPayment).toBeUndefined()
-    expect((await external.post(`${internPath}/payment`).send({ revision: r.h4.revision })).status).toBe(403)
-    if (payerType === "faculty")
-      expect((await external.post(`${payerPath}/payment`).send({ revision: r.h4.revision, paymentType: "mess" })).status).toBe(403)
-    expect((await external.get(`${payerPath}/invoice`)).status).toBe(404)
-    await registerH4Proof(r._id, "hostel-proof")
-    r = await action(api, r, "payment", { utr: "123456789012", paidAt: ymd(), screenshotFileRef: "hostel-proof" })
-    r = await action(accounts, r, "verify", { action: "verify" })
-    expect(r.status).not.toBe("Payment Verified")
-    expect((await supervisor.post(`${base}/requests/${r._id}/assign`).send({ revision: r.h4.revision, roomNumber: "601" })).status).toBe(400)
-    await registerH4Proof(r._id, "mess-proof")
-    const submitted = await external.post(`${internPath}/payment`).send({ revision: r.h4.revision, paymentType: "mess", utr: "999999999999", paidAt: ymd(), screenshotFileRef: "mess-proof" })
-    expect(submitted.status, JSON.stringify(submitted.body)).toBe(200)
+    const view = (await external.get(internPath)).body.data
+    expect(view.payment.amount).toBe(368)
+    expect(view.h4.messCharge.amount).toBe(250)
+    expect(view.quote.total).toBe(118)
+    expect((await external.get(`${internPath}/invoice`)).status).toBe(404)
+
+    await registerH4Proof(r._id, "combined-proof")
+    const paid = await external.post(`${internPath}/payment`).send({ revision: r.h4.revision, utr: "123456789012", paidAt: ymd(), screenshotFileRef: "combined-proof" })
+    expect(paid.status, JSON.stringify(paid.body)).toBe(200)
     r = (await api.get(`${base}/requests/${r._id}`)).body.data
+    expect(r.payment.status).toBe("Submitted")
     expect((await accounts.get(`${base}/requests`).query({ queue: "payments" })).body.data.items.some((item) => item._id === r._id)).toBe(true)
-    r = await action(accounts, r, "verify", { action: "reject", paymentType: "mess", reason: "Unreadable proof" })
-    expect(r.h4.messPayment.status).toBe("Rejected")
-    const retry = await external.post(`${internPath}/payment`).send({ revision: r.h4.revision, paymentType: "mess", utr: "999999999999", paidAt: ymd(), screenshotFileRef: "mess-proof" })
-    expect(retry.status).toBe(200)
-    r = (await api.get(`${base}/requests/${r._id}`)).body.data
-    // Verifying mess needs a dining caterer; the student is told where to collect the mess card.
+
+    // Verifying a with-mess stay needs a caterer; Accounts sees this month's load per caterer.
     const [{ caterer }, { caterer: other }] = [await catererFixture(), await catererFixture()]
-    expect((await accounts.get(`${base}/options`)).body.data.caterers.some((c) => String(c._id) === String(caterer._id))).toBe(true)
-    expect((await accounts.post(`${base}/requests/${r._id}/verify`).send({ revision: r.h4.revision, action: "verify", paymentType: "mess" })).status).toBe(400)
-    r = await action(accounts, r, "verify", { action: "verify", paymentType: "mess", catererId: caterer._id })
+    const { DiningPeriod } = await import("../../../src/models/index.js")
+    const today = new Date(`${ymd()}T00:00:00Z`)
+    await DiningPeriod.create({
+      startDate: new Date(+today - 5 * 86400000), endDate: new Date(+today + 20 * 86400000), registrationEnabled: false,
+      catererIds: [caterer._id, other._id], catererCapacities: [{ catererId: caterer._id, maxStudentCount: 300 }],
+    })
+    let catererRows = (await accounts.get(`${base}/options`)).body.data.caterers
+    expect(catererRows.find((c) => String(c._id) === String(caterer._id))).toMatchObject({ capacity: 300, allocated: 0, interns: 0 })
+    expect(catererRows.find((c) => String(c._id) === String(other._id)).capacity).toBeNull()
+    expect((await accounts.post(`${base}/requests/${r._id}/verify`).send({ revision: r.h4.revision, action: "verify" })).status).toBe(400)
+    r = await action(accounts, r, "verify", { action: "verify", catererId: caterer._id })
     expect(r.status).toBe("Payment Verified")
     expect(r.h4.caterer.name).toBe(caterer.name)
-    expect((await api.post(`${base}/requests/${r._id}/caterer`).send({ revision: r.h4.revision, catererId: other._id })).status).toBe(403)
+    expect(r.h4.messPhoto.status).toBe("Pending")
+    catererRows = (await accounts.get(`${base}/options`)).body.data.caterers
+    expect(catererRows.find((c) => String(c._id) === String(caterer._id)).interns).toBe(1)
     r = await action(accounts, r, "caterer", { catererId: other._id })
     expect(r.h4.caterer.name).toBe(other.name)
-    expect((await external.get(internPath)).body.data.h4.caterer.name).toBe(other.name)
-    const studentEmail = (await h4Notifications.messages(r)).find((m) => m.to === r.applicantEmail)
-    expect(studentEmail.body).toContain(`Mess caterer: <strong>${other.name}</strong>`)
-    expect(studentEmail.body).toContain("hostel office")
-    expect(studentEmail.body).toContain("Mess payment received: ₹250.00")
-    expect(studentEmail.body).toContain("Accommodation payment received: ₹118.00")
-    expect(studentEmail.attachments).toHaveLength(0)
-    expect(r.invoice?.generatedAt).toBeFalsy()
+
+    // No room until CW Office approves the student's photo.
+    expect((await supervisor.get(`${base}/requests`).query({ queue: "rooms" })).body.data.items.some((i) => i._id === r._id)).toBe(false)
+    const blocked = await supervisor.post(`${base}/requests/${r._id}/assign`).send({ revision: r.h4.revision, roomNumber: "601" })
+    expect(blocked.status).toBe(400)
+    expect(blocked.body.message).toContain("mess photo")
+    messages = await h4Notifications.messages(r)
+    expect(messages.find((m) => m.to === r.applicantEmail).body).toContain(`Your mess: <strong>${other.name}</strong>. Upload a clear photo`)
+    expect(messages.find((m) => m.to === r.applicantEmail).body).not.toContain("hostel office")
+
+    const { storageClient } = await import("../../../src/services/storage/storage.client.js")
+    const { fileAccessService } = await import("../../../src/services/storage/file-access.service.js")
+    const jpeg = Buffer.from([255, 216, 255, 224, 0, 16, 74, 70, 73, 70])
+    const upload = vi.spyOn(storageClient, "upload").mockResolvedValue({ file_ref: "media://mess-photo-1" })
+    const read = vi.spyOn(fileAccessService, "getBuffer").mockResolvedValue({ buffer: jpeg, contentType: "image/jpeg" })
+    try {
+      expect((await external.post(`${internPath}/photo`).field("revision", String(r.h4.revision)).attach("image", Buffer.from("nope"), "a.txt")).status).toBe(400)
+      let sent = await external.post(`${internPath}/photo`).field("revision", String(r.h4.revision)).attach("image", jpeg, "me.jpg")
+      expect(sent.status, JSON.stringify(sent.body)).toBe(200)
+      expect(upload.mock.calls.at(-1)[0].policy).toBe("dining-bio-photo")
+      expect(sent.body.data.h4.messPhoto).toMatchObject({ status: "Submitted", hasFile: true })
+      expect((await external.get(`${internPath}/photo`)).status).toBe(200)
+      r = (await office.get(`${base}/requests/${r._id}`)).body.data
+      expect((await office.get(`${base}/requests`).query({ queue: "photos" })).body.data.items.some((i) => i._id === r._id)).toBe(true)
+      expect((await office.get(`${base}/requests/${r._id}/photo`)).status).toBe(200)
+      expect((await accounts.post(`${base}/requests/${r._id}/photo-review`).send({ revision: r.h4.revision, action: "approve" })).status).toBe(403)
+      expect((await office.post(`${base}/requests/${r._id}/photo-review`).send({ revision: r.h4.revision, action: "reject" })).status).toBe(400)
+      r = await action(office, r, "photo-review", { action: "reject", reason: "Face not visible" })
+      expect(r.h4.messPhoto.status).toBe("Rejected")
+      expect((await h4Notifications.messages(r)).find((m) => m.to === r.applicantEmail).body).toContain("not accepted: Face not visible")
+      sent = await external.post(`${internPath}/photo`).field("revision", String(r.h4.revision)).attach("image", jpeg, "me.jpg")
+      expect(sent.status).toBe(200)
+      r = (await office.get(`${base}/requests/${r._id}`)).body.data
+      r = await action(office, r, "photo-review", { action: "approve" })
+      expect(r.h4.messPhoto.status).toBe("Approved")
+      expect((await external.post(`${internPath}/photo`).field("revision", String(r.h4.revision)).attach("image", jpeg, "me.jpg")).status).toBe(400)
+    } finally {
+      upload.mockRestore()
+      read.mockRestore()
+    }
+    expect((await supervisor.get(`${base}/requests`).query({ queue: "rooms" })).body.data.items.some((i) => i._id === r._id)).toBe(true)
     const preview = await supervisor.post(`${base}/requests/${r._id}/room-check`).send({ roomNumber: "601" })
     r = await action(supervisor, r, "assign", { roomNumber: "601", fingerprint: preview.body.data.fingerprint })
     r = await action(supervisor, r, "checkin")
@@ -190,12 +231,13 @@ describe("H4 academic categories and separate payments", () => {
     expect(r.status).toBe("Invoiced")
     const { buildInvoiceModel, listSettledPayments } = await import("../../../src/apps/visitors/modules/accommodation/accommodation.invoice-pdf.js")
     const model = buildInvoiceModel({ request: r })
-    expect(listSettledPayments(r).reduce((sum, p) => sum + p.amount, 0)).toBe(118)
-    expect(model.utr).not.toContain("999999999999")
-    expect(model.requestedBy).toBe(payerType === "faculty" ? professor.name : r.applicantName)
-    const messages = await h4Notifications.messages(r)
-    expect(messages.find((m) => m.to === r.h4.payer.email).attachments).toHaveLength(1)
-    expect((await external.get(`${payerPath}/invoice`)).status).toBe(200)
-    expect((await external.get(`${internPath}/invoice`)).status).toBe(403)
+    expect(listSettledPayments(r).reduce((sum, p) => sum + p.amount, 0)).toBe(368)
+    expect(model.total).toBe(368)
+    expect(model.rows.map((row) => row.total)).toEqual(["118.00", "250.00"])
+    expect(model.requestedBy).toBe(r.applicantName)
+    expect(model.source).toBe("Self")
+    messages = await h4Notifications.messages(r)
+    expect(messages.find((m) => m.to === r.applicantEmail).attachments).toHaveLength(1)
+    expect((await external.get(`${internPath}/invoice`)).status).toBe(200)
   })
 })

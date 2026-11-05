@@ -29,8 +29,8 @@ export const defaultConfigs = {
     description: "System-wide settings for the hostel management system",
   },
   internAccommodation: {
-    value: { accommodationPaymentLink: "", messPaymentLink: "", gstPercentage: 0, accommodationDailyRate: 0, messDailyRate: 0 },
-    description: "Intern accommodation: payment links, GST and daily accommodation/mess rates.",
+    value: { paymentLink: "", gstPercentage: 0, accommodationDailyRate: 0, messDailyRate: 0 },
+    description: "Intern accommodation: payment link (one bill for accommodation and mess), GST and daily accommodation/mess rates.",
   },
   accommodation: {
     value: {

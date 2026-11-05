@@ -4,10 +4,10 @@ import { normalizeH4PaymentLink } from "./h4.payment-link.js"
 export const validateH4Config = (raw) => {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { error: "Intern accommodation settings must be an object" }
   const value = {}
-  for (const key of ["accommodationPaymentLink", "messPaymentLink"]) {
-    value[key] = normalizeH4PaymentLink(raw[key])
-    if (value[key] === null) return { error: "Enter valid payment links" }
-  }
+  // One link for the combined accommodation + mess bill. Older saves stored it
+  // as accommodationPaymentLink.
+  value.paymentLink = normalizeH4PaymentLink(raw.paymentLink ?? raw.accommodationPaymentLink)
+  if (value.paymentLink === null) return { error: "Enter a valid payment link" }
   for (const key of ["gstPercentage", "accommodationDailyRate", "messDailyRate"]) {
     const n = Number(raw[key] ?? 0)
     if (!Number.isFinite(n) || n < 0 || n > (key === "gstPercentage" ? 100 : 10000000))
