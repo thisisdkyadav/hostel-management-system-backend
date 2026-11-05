@@ -21,6 +21,8 @@ import {
 import { startJobScheduler, stopJobScheduler } from './jobs/scheduler.js';
 
 const PORT = env.PORT || 5000;
+// LISTEN_HOST=127.0.0.1 in production: only nginx (same VM) may reach the API directly.
+const LISTEN_HOST = process.env.LISTEN_HOST || '0.0.0.0';
 
 /**
  * Start the server
@@ -40,8 +42,8 @@ const startServer = async () => {
     const { app, sessionMiddleware } = createApp();
 
     // 3. Start HTTP server
-    const server = app.listen(PORT,'0.0.0.0', () => {
-      console.log(`🚀 Server is running on port ${PORT}`);
+    const server = app.listen(PORT, LISTEN_HOST, () => {
+      console.log(`🚀 Server is running on ${LISTEN_HOST}:${PORT}`);
       console.log(`📍 Environment: ${env.NODE_ENV}`);
     });
 
