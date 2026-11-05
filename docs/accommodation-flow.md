@@ -12,7 +12,7 @@ ends in a GST invoice. The **front half** of the workflow (eligibility,
 recommendation, approval) varies by accommodation *type*; the **back half**
 (payment → verify → allot → assign rooms → invoice) is universal. The variable
 part is driven by an `AccommodationType` config row. H4 has a dedicated workflow
-because its requester, faculty, payer and room override rules differ from H2.
+because its requester, faculty, payment, mess and room override rules differ from H2.
 
 ## 2. Actors & roles
 
@@ -217,7 +217,7 @@ lock and double-sends on multi-core.)
 H4 has its own **Intern Accommodation** navigation item and role page at
 `/<role>/intern-accommodation`. H2 and the legacy visitor pages retain their
 existing workflows. The original visual plan is in
-[the H4 flow diagrams](h4-accommodation/flow.html).
+[the H4 flow diagrams](h4-accommodation/flow.html) (drawn before the 2026-11-05 one-payment change: their payer / faculty-pays steps are out of date; this section is current).
 
 ```mermaid
 flowchart TD
@@ -225,16 +225,19 @@ flowchart TD
     B --> D[Private draft]
     D --> E[Submit complete details]
     B --> E
-    E --> F[Selected Academics faculty confirms payer and recommends]
+    E --> F[Selected Academics faculty recommends]
     E --> G{Creator is selected faculty?}
     G -->|Explicit submit and recommend| O[CW Office checks availability]
     F --> O
     O --> C[Chief Warden manually approves]
     C --> Q[Office sets hostel, accommodation charge, GST and mess]
-    Q --> L[Expiring intern and payer links emailed]
-    L --> P[Payer uploads proof and UTR / accountant records collection]
-    P --> V[Accountant verifies all bills]
-    V --> R[Supervisor types unit / room and checks conflicts]
+    Q --> L[Expiring student link emailed: one bill, accommodation + mess]
+    L --> P[Student uploads proof and UTR / accountant records collection]
+    P --> V[Accountant verifies all bills and assigns mess caterer]
+    V --> K{With mess?}
+    K -->|Yes| H[Student uploads face photo; CW Office approves]
+    K -->|No| R
+    H --> R[Supervisor types unit / room and checks conflicts]
     R --> W{Recorded conflicts?}
     W -->|Yes| X[Acknowledge warnings and record override reason]
     W -->|No| Y[Create dated H4 reservation]
@@ -242,7 +245,7 @@ flowchart TD
     Y --> I[Gate / supervisor records arrival]
     I --> T[Checkout or scheduled stay end releases reservation]
     T --> Z{All bills verified?}
-    Z -->|Yes| N[Invoice addressed to designated payer]
+    Z -->|Yes| N[Invoice addressed to the student]
     Z -->|No| M[Stay closed; accounts collection remains open]
     M --> N
 ```
@@ -271,14 +274,26 @@ faculty or creator within the current page. Multi-student decisions report
 individual successes and failures; stale records do not prevent other rows
 from being reviewed.
 
-Faculty confirms whether the intern or faculty pays. CW Office sets the total
-accommodation price for the stay and GST manually, selects the hostel and mess
-option, and adds payment instructions. A zero charge requires a waiver reason.
-The existing accommodation payment QR configuration is reused; office may also
-enter a payment portal URL with the offer. Food
-charges are handled separately and never added to accommodation invoices.
+The student always pays; there is no payer choice. The form asks for the
+*student's* institute name and address. CW Office sets the accommodation price
+and GST, selects the hostel and mess option, and adds a note for the student.
+A zero charge requires a waiver reason. With mess, the mess charge
+(`h4.messCharge`, daily mess rate × nights, overridable) is added to the same
+bill, so the student gets **one payment link** (`internAccommodation.paymentLink`
+in Settings; the old `accommodationPaymentLink` key is read as a fallback) and
+one amount, shown as a breakdown. The invoice lists Mess charges as its own row
+(GST 0). The existing accommodation payment QR is reused.
 
-Payers submit a 12-digit UTR, payment date and PNG/JPG proof up to 5 MB. Uploaded
+For with-mess stays the Accountant picks the caterer before verifying or
+recording payment. Each option shows students allotted in the dining period
+covering today against its capacity (`catererCapacities`), plus interns
+already on that caterer. The student's link then asks for a face photo
+(PNG/JPG, 5 MB, stored with the `dining-bio-photo` policy). CW Office approves
+or rejects it (reject needs a reason). The photo is only stored; nothing is
+sent to the face scanners. Room assignment opens once the caterer is set and
+the photo is approved (`messReady`).
+
+Students (or the request creator on their behalf) submit a 12-digit UTR, payment date and PNG/JPG proof up to 5 MB. Uploaded
 refs are registered against that request before submission; arbitrary media
 refs are rejected. Accountant actions support verification, rejection,
 recording reconciled collection, correcting references and marking a reversed
@@ -317,13 +332,13 @@ allocation rather than permitting unchecked writes.
   sets any extra charge; Chief Warden must recheck an assigned room for the new
   dates and acknowledge conflicts. The current reservation remains effective
   until approval. Additional bills require verification before assignment or
-  arrival. Material identity/payer edits before the offer restart approvals;
+  arrival. Material identity edits before the offer restart approvals;
   published financial details remain fixed.
 - Cancellation releases the H4 reservation, retains payment records and stores
   an accounts/refund note. It does not process a refund or alter resident rooms.
 - Gate/supervisor closure releases the reservation even if payment was later
   reversed. The hourly scheduler also closes ended stays at the configured IST
-  departure time. Closed, fully paid stays receive a payer-addressed invoice.
+  departure time. Closed, fully paid stays receive a student-addressed invoice.
 - Invoice numbers use the existing shared serial counter. PDF storage failure
   leaves an invoice available through authenticated regeneration; interruption
   after number issuance does not allocate another number on retry. The hourly
@@ -332,9 +347,10 @@ allocation rather than permitting unchecked writes.
   runs each minute, retries failures with backoff and coalesces newer request
   revisions. Requests remain usable during SMTP failure; delivery errors appear
   in their details and a resend action is available.
-- Intern and payer links are request-specific, expire after 30 days and are
-  revocable. Intern links show stay information and permit date-change requests;
-  payer links also expose payment submission, QR and invoice download. Public
+- Only the student gets a link (purpose `intern`); it is request-specific,
+  expires after 30 days and is revocable. It shows the stay, the bill and its
+  breakdown, payment submission, QR, invoice download, mess photo upload and
+  date-change requests. Nothing is sent to faculty or a separate payer. Public
   responses omit internal approvals, identities, proof refs and room warnings.
   Media and exports have separate request/desk access checks.
 
