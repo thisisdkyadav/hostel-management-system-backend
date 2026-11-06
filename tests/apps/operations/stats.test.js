@@ -151,6 +151,7 @@ describe("GET /api/v1/stats/maintenancestaff", () => {
       cleanliness: 0,
       internet: 0,
       civil: 0,
+      carpenter: 0,
     })
   })
 })
