@@ -10,10 +10,12 @@ import { defineConfig } from "vitest/config"
 // Namespace knobs so parallel runs (e.g. per-area during development) never
 // share state. The plain `npm test` run uses the defaults.
 const NS = process.env.ITEST_NS ? `${process.env.ITEST_NS}-` : ""
+// Another MongoDB to test against (e.g. a new server version): "host:port/replicaSetName".
+const [MONGO_HOST, MONGO_RS] = (process.env.ITEST_MONGO || "127.0.0.1:27017/rs0").split("/")
 
 const TEST_ENV = {
   NODE_ENV: "development",
-  MONGO_URI: `mongodb://127.0.0.1:27017/hms_integration_tests_${NS}main?replicaSet=rs0`,
+  MONGO_URI: `mongodb://${MONGO_HOST}/hms_integration_tests_${NS}main?replicaSet=${MONGO_RS}`,
   REDIS_URL: "redis://127.0.0.1:6379",
   REDIS_SESSION_PREFIX: `itest${NS ? "-" + NS : ""}:sess:`,
   SESSION_SECRET: "integration-test-session-secret-do-not-use-in-prod",
