@@ -498,12 +498,10 @@ describe("upload — signature image by staff roles", () => {
 })
 
 describe("upload — election nomination at the exact 10MB boundary", () => {
-  it("SUSPECTED BUG: a file of exactly 10*1024*1024 bytes is rejected by multer (limit is exclusive)", async () => {
-    // The route documents "Document size must be 10MB or smaller" and the
-    // service-level validateSize uses `>` (inclusive), but busboy truncates a
-    // file as soon as fileSize === fileSizeLimit and fires 'limit', so multer
-    // raises LIMIT_FILE_SIZE for a payload of EXACTLY 10MB. Off-by-one: the
-    // largest accepted document is actually 10MB - 1 byte.
+  it("accepts a file of exactly 10*1024*1024 bytes (limit is inclusive since multer 2.5)", async () => {
+    // The route documents "Document size must be 10MB or smaller". multer < 2.5
+    // rejected a payload of EXACTLY 10MB (busboy fired 'limit' at
+    // fileSize === fileSizeLimit); multer 2.5 fixed that off-by-one.
     const header = Buffer.from("%PDF-1.4\n")
     const exactPdf = () =>
       Buffer.concat([header, Buffer.alloc(10 * 1024 * 1024 - header.length, 0)])
@@ -512,8 +510,8 @@ describe("upload — election nomination at the exact 10MB boundary", () => {
     const res = await api
       .post("/api/v1/upload/election-nomination-document")
       .attach("document", exactPdf(), "exact.pdf")
-    expect(res.status).toBe(400) // current behavior; arguably should be 200
-    expect(JSON.stringify(res.body)).toMatch(/10MB or smaller/)
+    expect(res.status).toBe(200)
+    expectStoragePayload(res.body)
   })
 
   it("accepts one byte under the 10MB limit (the true inclusive boundary)", async () => {
