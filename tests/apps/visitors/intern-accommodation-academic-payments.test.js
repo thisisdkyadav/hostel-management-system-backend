@@ -143,10 +143,23 @@ describe("H4 academic categories and the combined student payment", () => {
     let messages = await h4Notifications.messages(r)
     const links = messages.flatMap((m) => [...m.body.matchAll(/intern-accommodation\/access\/([^"]+)/g)].map((x) => ({ to: m.to, token: x[1] })))
     expect(links.map((l) => l.to)).toEqual([r.applicantEmail])
-    expect(messages.find((m) => m.to === professor.email).body).not.toContain("/access/")
-    const studentMail = messages.find((m) => m.to === r.applicantEmail).body
-    expect(studentMail).toContain("Amount payable: <strong>₹368.00</strong> (Accommodation ₹118.00 incl. GST + Mess ₹250.00)")
+    // The professor (creator and faculty) has nothing to act on: they are copied
+    // on the student's letter instead of getting a separate status email.
+    expect(messages.find((m) => m.to === professor.email)).toBeUndefined()
+    const letter = messages.find((m) => m.to === r.applicantEmail)
+    expect(letter).toMatchObject({ cc: professor.email, useTemplate: false })
+    expect(letter.subject).toBe("Accommodation approved: charges and payment link – IIT Indore hostel accommodation")
+    const studentMail = letter.body
+    expect(studentMail).toContain(`in <strong>${hostel.name}</strong>, on a double occupancy basis`)
+    expect(studentMail).toContain("<li>One Almirah</li>")
+    expect(studentMail).toContain("Rs. 118/-")
+    expect(studentMail).toContain("including GST at 18%")
+    expect(studentMail).toContain("Rs. 250/-")
+    expect(studentMail).toContain("Rs. 368/-")
+    expect(studentMail).toContain("strictly non-refundable")
     expect(studentMail).toContain("https://payments.example.com/hostel")
+    expect(studentMail).toContain("Opens payments.example.com")
+    expect(studentMail).toContain("About this email")
     const internPath = `${base}/access/${links[0].token}`
     const external = await anon()
     const view = (await external.get(internPath)).body.data
@@ -189,8 +202,11 @@ describe("H4 academic categories and the combined student payment", () => {
     expect(blocked.status).toBe(400)
     expect(blocked.body.message).toContain("mess photo")
     messages = await h4Notifications.messages(r)
-    expect(messages.find((m) => m.to === r.applicantEmail).body).toContain(`Your mess: <strong>${other.name}</strong>. Upload a clear photo`)
-    expect(messages.find((m) => m.to === r.applicantEmail).body).not.toContain("hostel office")
+    const photoLetter = messages.find((m) => m.to === r.applicantEmail)
+    expect(photoLetter.subject).toContain("upload your mess photo")
+    expect(photoLetter.body).toContain(`your mess is <strong>${other.name}</strong>`)
+    expect(photoLetter.body).toContain("Upload your photo")
+    expect(photoLetter.body).not.toContain("hostel office")
 
     const { storageClient } = await import("../../../src/services/storage/storage.client.js")
     const { fileAccessService } = await import("../../../src/services/storage/file-access.service.js")
@@ -211,7 +227,7 @@ describe("H4 academic categories and the combined student payment", () => {
       expect((await office.post(`${base}/requests/${r._id}/photo-review`).send({ revision: r.h4.revision, action: "reject" })).status).toBe(400)
       r = await action(office, r, "photo-review", { action: "reject", reason: "Face not visible" })
       expect(r.h4.messPhoto.status).toBe("Rejected")
-      expect((await h4Notifications.messages(r)).find((m) => m.to === r.applicantEmail).body).toContain("not accepted: Face not visible")
+      expect((await h4Notifications.messages(r)).find((m) => m.to === r.applicantEmail).body).toContain("Your mess photo was not accepted: <strong>Face not visible</strong>")
       sent = await external.post(`${internPath}/photo`).field("revision", String(r.h4.revision)).attach("image", jpeg, "me.jpg")
       expect(sent.status).toBe(200)
       r = (await office.get(`${base}/requests/${r._id}`)).body.data

@@ -17,6 +17,9 @@ import {
 } from "../accommodation/accommodation.recipients.js"
 import { S, isClosed, messReady } from "./h4.helpers.js"
 import { h4Service } from "./h4.service.js"
+import { getH4Config } from "./h4.config.js"
+import { studentLetterKind, studentLetter } from "./h4.letters.js"
+import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 
 export const H4_TOKEN_TYPE = "h4_request_access"
 const esc = (v) =>
@@ -89,70 +92,85 @@ export const h4Notifications = {
     recipients.push({ email: r.h4.creatorEmail, role: "academics", label: "" })
     return recipients
   },
+  // Staff get a short status email; the student gets a full letter (h4.letters.js)
+  // only when there is something new for them, with the faculty in CC.
   async messages(r, { skipInternal = false } = {}) {
-    const recipients = skipInternal
-      ? []
-      : (await this.internal(r)).map((x) => ({ email: x.email, link: x.label ? roleLink(r, x.role) : "", label: x.label }))
-    const published = !!r.allotment?.hostelId && ![S.REJECTED, S.CANCELLED].includes(r.status)
-    // Only the student gets an access link: they pay the one combined bill and
-    // upload the mess photo there.
-    if (published)
-      recipients.push({
-        email: r.applicantEmail,
-        link: await this.accessLink(r),
-        label: r.h4.caterer && r.h4.messPhoto?.status !== "Approved" ? "View your stay, pay and upload your mess photo" : "View your stay and payment",
-      })
-    if ([S.CANCELLED, S.REJECTED].includes(r.status)) recipients.push({ email: r.applicantEmail, link: "", label: "" })
-    const messages = []
+    const letter = await this.studentMessage(r)
     const unique = new Map()
-    for (const recipient of recipients) {
-      if (!unique.has(recipient.email)) unique.set(recipient.email, { email: recipient.email, links: new Map() })
-      if (recipient.link) unique.get(recipient.email).links.set(recipient.link, recipient.label)
+    for (const x of skipInternal ? [] : await this.internal(r)) {
+      if (!x.email) continue
+      const key = x.email.toLowerCase()
+      if (!unique.has(key)) unique.set(key, { email: x.email, links: new Map() })
+      if (x.label) unique.get(key).links.set(roleLink(r, x.role), x.label)
     }
-    for (const recipient of unique.values()) {
-      if (!recipient.email) continue
-      const student = recipient.email === r.applicantEmail
-      const links = [...recipient.links]
-        .map(([url, label]) => `<p><a href="${esc(url)}">${esc(label)}</a></p>`)
-        .join("")
-      const expires = [...recipient.links.keys()].some((url) => url.includes("/intern-accommodation/access/"))
+    const published = !!r.allotment?.hostelId && ![S.REJECTED, S.CANCELLED].includes(r.status)
+    const messages = []
+    for (const [key, recipient] of unique) {
+      if (key === String(r.applicantEmail || "").toLowerCase()) continue
+      // Nothing to act on and copied on the student's letter: that is enough.
+      if (!recipient.links.size && letter?.cc && key === letter.cc.toLowerCase()) continue
+      const links = [...recipient.links].map(([url, label]) => `<p><a href="${esc(url)}">${esc(label)}</a></p>`).join("")
       messages.push({
         to: recipient.email,
         subject: `H4 · ${r.applicantName} · ${r.h4.amendment?.stage ? "Date change review" : r.status}`,
-        body: `<p><strong>${esc(r.applicantName)}</strong></p><p>${esc(r.status)}${r.h4.amendment?.stage ? " · Date change pending" : ""}</p><p>Stay: ${esc(new Date(r.stay.fromDate).toISOString().slice(0, 10))} to ${esc(new Date(r.stay.toDate).toISOString().slice(0, 10))}</p>${published ? this.billHtml(r, student) : ""}${published && student ? this.messHtml(r) : ""}${links}${expires ? "<p>This link expires in 30 days.</p>" : ""}`,
-        attachments:
-          r.invoice?.generatedAt && [S.CHECKED_OUT, S.INVOICED].includes(r.status) && student
-            ? [
-                {
-                  filename: `${r.invoice.number.replace(/[^\w-]/g, "-")}.pdf`,
-                  content: (r.invoice.pdfFileRef ? await fileAccessService.getBuffer(r.invoice.pdfFileRef) : (await h4Service.invoice(String(r._id), { external: "intern" }, true)).data).buffer,
-                  contentType: "application/pdf",
-                },
-              ]
-            : [],
+        body: `<p><strong>${esc(r.applicantName)}</strong></p><p>${esc(r.status)}${r.h4.amendment?.stage ? " · Date change pending" : ""}</p><p>Stay: ${esc(new Date(r.stay.fromDate).toISOString().slice(0, 10))} to ${esc(new Date(r.stay.toDate).toISOString().slice(0, 10))}</p>${published ? this.billHtml(r) : ""}${letter ? `<p>The student has been emailed: ${esc(letter.kindLabel)}.</p>` : ""}${links}`,
       })
     }
+    if (letter) messages.push(letter)
     return messages
   },
-  // One bill: accommodation (with GST) plus mess, paid by the student.
-  billHtml(r, student) {
+  async studentMessage(r) {
+    const pick = studentLetterKind(r)
+    if (!pick || pick.key === r.h4.studentLetter?.key) return null
+    const config = await getH4Config()
+    const published = !!r.allotment?.hostelId && ![S.REJECTED, S.CANCELLED].includes(r.status)
+    const [hostel, rooms] = published
+      ? await Promise.all([
+          hostelQueries.findHostelById(r.allotment.hostelId),
+          r.rooms?.length ? hostelQueries.findRoomsByIds(r.rooms.map((x) => x.roomId)) : [],
+        ])
+      : [null, []]
+    const room = rooms[0]
+    const letter = studentLetter(r, pick.kind, {
+      config,
+      link: published && pick.kind !== "completed" ? await this.accessLink(r) : "",
+      hostelName: hostel?.name || "",
+      roomLabel: room ? `Room ${[room.unitId?.unitNumber, room.roomNumber].filter(Boolean).join(" / ")}` : "",
+      change: r.h4.amendment?.changeId
+        ? (r.scheduleChanges || []).find((c) => String(c._id) === String(r.h4.amendment.changeId))
+        : null,
+    })
+    if (!letter) return null
+    const faculty = r.h4.facultyEmail
+    return {
+      to: r.applicantEmail,
+      cc: faculty && faculty.toLowerCase() !== r.applicantEmail.toLowerCase() ? faculty : undefined,
+      replyTo: config.contactEmail || undefined,
+      subject: letter.subject,
+      body: letter.html,
+      useTemplate: false,
+      studentKey: pick.key,
+      kindLabel: letter.subject.split(" – ")[0],
+      attachments:
+        pick.kind === "completed"
+          ? [
+              {
+                filename: `${r.invoice.number.replace(/[^\w-]/g, "-")}.pdf`,
+                content: (r.invoice.pdfFileRef ? await fileAccessService.getBuffer(r.invoice.pdfFileRef) : (await h4Service.invoice(String(r._id), { external: "intern" }, true)).data).buffer,
+                contentType: "application/pdf",
+              },
+            ]
+          : [],
+    }
+  },
+  // Staff summary of the one bill: accommodation (with GST) plus mess.
+  billHtml(r) {
     const rupees = (n) => `₹${Number(n || 0).toFixed(2)}`
     const mess = r.h4.messCharge?.amount || 0
     const parts = [`Accommodation ${rupees(r.quote?.total)}${r.quote?.gstAmount ? " incl. GST" : ""}`, ...(r.h4.mess === "with" ? [`Mess ${rupees(mess)}`] : [])]
     const due = [r.payment, ...(r.additionalPayments || [])].filter((p) => p && p.status !== "Verified").reduce((n, p) => n + (p.amount || 0), 0)
     const open = r.payment && r.payment.status !== "Verified"
-    return `<p>${open ? "Amount payable" : "Payment received"}: <strong>${rupees(open ? due : r.payment?.amount)}</strong> (${parts.join(" + ")}).${open ? " Paid by the student." : ""}</p>${student && open && r.payment.paymentLink ? `<p><a href="${esc(r.payment.paymentLink)}">Pay online</a>, then submit the UTR and payment screenshot from the link below.</p>` : ""}${student && r.payment?.remarks ? `<p>${esc(r.payment.remarks)}</p>` : ""}<p>The invoice is issued after checkout.</p>`
-  },
-  messHtml(r) {
-    if (r.h4.mess !== "with" || !r.h4.caterer) return ""
-    const photo = r.h4.messPhoto || { status: "Pending" }
-    const next = {
-      Pending: "Upload a clear photo of your face using the link below. The Chief Warden Office will check it, and then your hostel will allot your room.",
-      Submitted: "Your photo is with the Chief Warden Office for review.",
-      Rejected: `Your photo was not accepted${photo.note ? `: ${esc(photo.note)}` : ""}. Upload a new photo using the link below.`,
-      Approved: "Your photo is approved. Your hostel will allot your room.",
-    }[photo.status]
-    return `<p>Your mess: <strong>${esc(r.h4.caterer.name)}</strong>. ${next}</p>`
+    return `<p>${open ? "Amount payable" : "Payment received"}: <strong>${rupees(open ? due : r.payment?.amount)}</strong> (${parts.join(" + ")}).${open ? " Paid by the student." : ""}</p>`
   },
   async digestMessages(job) {
     const requests = await queries.listH4({ _id: { $in: job.requestIds } }, { limit: job.requestIds.length })
@@ -209,9 +227,10 @@ export const h4Notifications = {
     let failure = ""
     try {
       const failures = []
-      for (const message of await this.messages(r, { skipInternal })) {
+      for (const { studentKey, kindLabel, ...message } of await this.messages(r, { skipInternal })) {
         const result = await emailService.sendCustomEmail(message)
         if (!result?.success) failures.push(result?.error || "Email delivery failed")
+        else if (studentKey) await owner.setH4StudentLetter(r._id, studentKey)
       }
       failure = failures.length
         ? "Email delivery failed. Delivery will retry automatically; you can also resend links."

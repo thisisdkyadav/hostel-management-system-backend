@@ -29,8 +29,17 @@ export const defaultConfigs = {
     description: "System-wide settings for the hostel management system",
   },
   internAccommodation: {
-    value: { paymentLink: "", gstPercentage: 0, accommodationDailyRate: 0, messDailyRate: 0 },
-    description: "Intern accommodation: payment link (one bill for accommodation and mess), GST and daily accommodation/mess rates.",
+    value: {
+      paymentLink: "",
+      gstPercentage: 0,
+      accommodationDailyRate: 0,
+      messDailyRate: 0,
+      occupancy: "double occupancy",
+      roomFacilities: ["One Bed", "One Table", "One Chair", "One Mattress", "One Almirah"],
+      contactEmail: "",
+      contactPhone: "",
+    },
+    description: "Intern accommodation: payment link (one bill for accommodation and mess), GST, daily accommodation/mess rates, and the student letter wording (occupancy, room facilities, CWO contact).",
   },
   accommodation: {
     value: {

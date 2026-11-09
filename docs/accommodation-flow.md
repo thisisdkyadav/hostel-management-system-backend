@@ -347,10 +347,23 @@ allocation rather than permitting unchecked writes.
   runs each minute, retries failures with backoff and coalesces newer request
   revisions. Requests remain usable during SMTP failure; delivery errors appear
   in their details and a resend action is available.
+- Staff get short status emails. The student (external, unaware of SMS) gets a
+  full Chief Warden Office letter (`h4.letters.js`) with the faculty in CC:
+  request received (on submission, no link), charges and payment (hostel,
+  occupancy, facilities, accommodation/mess/total, payment link, steps,
+  non-refundable note), payment received/verified, mess photo asked/rejected/
+  approved, room allotted, date change under review, stay completed (invoice
+  attached), rejected/cancelled. Each letter has an "About this email"
+  authenticity box and the CWO contact. `studentLetterKind` picks the letter;
+  its key is stored in `h4.studentLetter.key` after a successful send, so the
+  student is written to only when the key changes. Resend clears the key. A
+  faculty with nothing to act on gets the CC instead of a status email.
+  Occupancy, facilities and the CWO contact email (also the Reply-To) and phone
+  live in Settings › Intern accommodation.
 - Only the student gets a link (purpose `intern`); it is request-specific,
   expires after 30 days and is revocable. It shows the stay, the bill and its
   breakdown, payment submission, QR, invoice download, mess photo upload and
-  date-change requests. Nothing is sent to faculty or a separate payer. Public
+  date-change requests. Faculty only get the student's letters in CC; nothing goes to a separate payer. Public
   responses omit internal approvals, identities, proof refs and room warnings.
   Media and exports have separate request/desk access checks.
 

@@ -84,6 +84,9 @@ export const H4DetailsSchema = new mongoose.Schema(
     ],
     cancellation: { reason: str, by: id, at: Date, refundNote: str },
     lastNotificationError: str,
+    // Last letter emailed to the student (see h4.letters.js studentLetterKind);
+    // the student is written to again only when the key changes.
+    studentLetter: { key: str, sentAt: { type: Date, default: null } },
   },
   { _id: false },
 )

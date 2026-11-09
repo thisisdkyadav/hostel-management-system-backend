@@ -1,5 +1,6 @@
 import { success, badRequest, forbidden, notFound } from "../../../../services/base/index.js"
 import { accommodationQueries as queries } from "../../../../services/accommodation/accommodationQueries.service.js"
+import { accommodationOwner as owner } from "../../../../services/accommodation/accommodationOwner.service.js"
 import {
   findActionLinkTokenByRawToken,
   isActionLinkTokenExpired,
@@ -160,6 +161,8 @@ export const h4Access = {
     if ([S.DRAFT, S.CANCELLED, S.REJECTED].includes(r.status))
       return badRequest("This request cannot send access links")
     if (body.rotate === true) await h4Notifications.invalidateAccess(id)
+    // Send the student's current letter again, with a working link.
+    await owner.clearH4StudentLetter(id)
     await h4Notifications.handoff(r, { resendLinks: true })
     return success({ queued: true }, 200, "Notifications queued")
   },

@@ -270,7 +270,7 @@ class EmailService {
    * @param {string} [options.text] - Plain text fallback
    * @returns {Promise<{success: boolean, messageId?: string, error?: string}>}
    */
-  async sendEmail({ to, subject, html, text, attachments = [], deliveryMode = 'single' }) {
+  async sendEmail({ to, subject, html, text, attachments = [], deliveryMode = 'single', cc, replyTo }) {
     if (!this.isConfigured) {
       logger.warn('Email not sent - SMTP not configured', { to, subject });
       return { success: false, error: 'Email service not configured' };
@@ -280,10 +280,11 @@ class EmailService {
       return this.sendBulkEmails(to, subject, html, text, attachments, { deliveryMode });
     }
 
-    return this.sendSingleEmail({ to, subject, html, text, attachments, deliveryMode });
+    return this.sendSingleEmail({ to, subject, html, text, attachments, deliveryMode, cc, replyTo });
   }
 
-  async sendSingleEmail({ to, subject, html, text, attachments = [], deliveryMode = 'single' }) {
+  // cc / replyTo are optional; cc is dropped while the development redirect is on.
+  async sendSingleEmail({ to, subject, html, text, attachments = [], deliveryMode = 'single', cc, replyTo }) {
     const transporterEntry = this.getTransporterEntry(deliveryMode);
 
     if (!transporterEntry) {
@@ -317,8 +318,9 @@ class EmailService {
       const result = await this.queueEmailSend(async () => {
         const mailOptions = {
           from: env.smtp.sendAs || env.smtp.from,
-          replyTo: env.smtp.sendAs || env.smtp.from,
+          replyTo: replyTo || env.smtp.sendAs || env.smtp.from,
           to: effectiveRecipients.join(', '),
+          ...(cc && !shouldRedirectInDevelopment ? { cc } : {}),
           subject,
           html: effectiveHtml,
           text: effectiveText,
@@ -478,7 +480,7 @@ class EmailService {
    * @param {boolean} [options.useTemplate=true] - Wrap in base template
    * @returns {Promise<{success: boolean, error?: string}>}
    */
-  async sendCustomEmail({ to, subject, body, useTemplate = true, attachments = [] }) {
+  async sendCustomEmail({ to, subject, body, useTemplate = true, attachments = [], cc, replyTo }) {
     const html = useTemplate ? customEmailTemplate(body, subject) : body;
 
     if (Array.isArray(to) && to.length > 1) {
@@ -486,7 +488,7 @@ class EmailService {
       return this.sendBulkEmails(to, subject, html, undefined, attachments);
     }
 
-    return this.sendEmail({ to, subject, html, attachments });
+    return this.sendEmail({ to, subject, html, attachments, cc, replyTo });
   }
 
   /**

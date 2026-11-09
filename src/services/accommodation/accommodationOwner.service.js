@@ -49,6 +49,12 @@ export const accommodationOwner = {
   async setNotificationError(requestId, message) {
     return AccommodationRequest.updateOne({ _id: requestId, typeKey: "intern" }, { $set: { "h4.lastNotificationError": message } })
   },
+  async setH4StudentLetter(requestId, key) {
+    return AccommodationRequest.updateOne({ _id: requestId, typeKey: "intern" }, { $set: { "h4.studentLetter": { key, sentAt: new Date() } } })
+  },
+  async clearH4StudentLetter(requestId) {
+    return AccommodationRequest.updateOne({ _id: requestId, typeKey: "intern" }, { $set: { "h4.studentLetter.key": "" } })
+  },
   async createBatch(data, { session } = {}) {
     const batch = new AccommodationBatch(data)
     await batch.save({ session })

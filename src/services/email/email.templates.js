@@ -11,7 +11,12 @@
  * @param {string} content - Email body content
  * @returns {string} Full HTML email
  */
-export const baseEmailTemplate = (content) => `
+// The letterhead and footer can be replaced, e.g. for letters to people outside IIT
+// Indore who do not know what SMS is.
+export const baseEmailTemplate = (
+  content,
+  { title = 'SMS', subtitle = 'Student Management System', footer = '<p>This is an automated message from the Student Management System.</p>\n      <p style="margin-top: 4px;">IIT Indore</p>' } = {},
+) => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -143,15 +148,14 @@ export const baseEmailTemplate = (content) => `
 <body>
   <div class="container">
     <div class="header">
-      <h1>SMS</h1>
-      <p>Student Management System</p>
+      <h1>${title}</h1>
+      <p>${subtitle}</p>
     </div>
     <div class="content">
       ${content}
     </div>
     <div class="footer">
-      <p>This is an automated message from the Student Management System.</p>
-      <p style="margin-top: 4px;">IIT Indore</p>
+      ${footer}
     </div>
   </div>
 </body>
