@@ -204,7 +204,9 @@ describe("H4 academic categories and the combined student payment", () => {
     messages = await h4Notifications.messages(r)
     const photoLetter = messages.find((m) => m.to === r.applicantEmail)
     expect(photoLetter.subject).toContain("upload your mess photo")
-    expect(photoLetter.body).toContain(`your mess is <strong>${other.name}</strong>`)
+    expect(photoLetter.body).toContain(`Your mess is <strong>${other.name}</strong>`)
+    expect(photoLetter.body).toContain("Photo guidelines")
+    expect(photoLetter.body).toContain("select Submit photo")
     expect(photoLetter.body).toContain("Upload your photo")
     expect(photoLetter.body).not.toContain("hostel office")
 

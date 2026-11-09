@@ -169,6 +169,22 @@ const paySteps = (r, { kind }) => {
   return `<ol style="margin:0 0 16px;padding-left:20px;line-height:1.7;font-size:14px;color:#334155;">${steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>`
 }
 
+// Mess photo: what to do and what a good photo looks like (same list as the
+// student's accommodation page).
+const photoSteps = (r) =>
+  `<p><strong>How to upload</strong></p><ol style="margin:0 0 16px;padding-left:20px;line-height:1.7;font-size:14px;color:#334155;">${[
+    "Open your accommodation page using the button below.",
+    "In the Mess section, select Choose photo and pick a photo of your face.",
+    "Check the preview, then select Submit photo.",
+    `The Chief Warden Office checks the photo. Once it is approved, the hostel allots your room and you receive an email with the room number. Please upload it as soon as possible, before ${date(r.stay.fromDate)}.`,
+  ].map((x) => `<li>${esc(x)}</li>`).join("")}</ol>`
+const photoTips = `<p><strong>Photo guidelines</strong></p><ul style="margin:0 0 16px;padding-left:20px;line-height:1.7;font-size:14px;color:#334155;">${[
+  "A recent photo facing the camera, with your full face visible",
+  "Good light and a plain background",
+  "No sunglasses, cap or mask; only you in the photo",
+  "PNG or JPG, up to 5 MB",
+].map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
+
 const nonRefundable = (r) =>
   p(
     `Please note that the amount paid towards accommodation${r.h4.mess === "with" ? " and mess facilities" : ""} is strictly non-refundable. You are requested to complete the payment within the stipulated time, and before your stay begins on ${esc(date(r.stay.fromDate))}, to confirm your accommodation.`,
@@ -265,14 +281,18 @@ export const studentLetter = (r, kind, ctx) => {
     ],
     photo: () => [
       intro(r, "confirmed", ctx),
-      p(pay.amount > 0 ? `Your payment of <strong>${rs(pay.amount)}</strong> has been verified.` : "No payment is required for your accommodation."),
-      box("warning", `<strong>One more step:</strong> your mess is <strong>${esc(r.h4.caterer?.name)}</strong>. Please upload a clear, recent photo of your face on your accommodation page. It is used to identify you at the mess. The Chief Warden Office will check it, and then the hostel will allot your room.`),
+      p(pay.amount > 0 ? `Your payment of <strong>${rs(pay.amount)}</strong> has been verified. Thank you.` : "No payment is required for your accommodation."),
+      box("warning", `<strong>One more step before your room is allotted: upload your photo for the mess.</strong><br>Your mess is <strong>${esc(r.h4.caterer?.name)}</strong>. The mess staff use this photo to identify you at meals.`),
+      photoSteps(r),
+      photoTips,
       pageButton(link, "Upload your photo"),
       details,
     ],
     "photo-rejected": () => [
-      p("This is with reference to your hostel accommodation at IIT Indore."),
-      box("warning", `Your mess photo was not accepted${r.h4.messPhoto?.note ? `: <strong>${esc(r.h4.messPhoto.note)}</strong>` : "."} Please upload a new, clear photo of your face. Your room is allotted after the photo is approved.`),
+      p(`This is with reference to your hostel accommodation at IIT Indore. Your mess is <strong>${esc(r.h4.caterer?.name)}</strong>.`),
+      box("warning", `Your mess photo was not accepted${r.h4.messPhoto?.note ? `: <strong>${esc(r.h4.messPhoto.note)}</strong>` : "."}<br>Please upload a new photo. Your room is allotted only after the photo is approved.`),
+      photoSteps(r),
+      photoTips,
       pageButton(link, "Upload a new photo"),
       details,
     ],

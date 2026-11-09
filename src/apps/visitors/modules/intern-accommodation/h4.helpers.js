@@ -31,7 +31,9 @@ export const isFaculty = (r, u) =>
 export const isOffice = (u) => u?.role === "Admin" && u.subRole === "Chief Warden Office"
 export const isChief = (u) => u?.role === "Admin" && u.subRole === "Chief Warden"
 export const isAccounts = (u) => u?.role === "Admin" && u.subRole === "Accountant"
-export const isDesk = (u) => isOffice(u) || isChief(u) || isAccounts(u)
+// Any admin sees every submitted request (read-only unless their sub-role has
+// an H4 step: CW Office, Chief Warden, Accountant).
+export const isDesk = (u) => u?.role === "Admin"
 export const isClosed = (r) => [S.CANCELLED, S.REJECTED, S.CHECKED_OUT, S.INVOICED].includes(r.status)
 export const paid = (r) =>
   r.payment?.status === "Verified" && (r.additionalPayments || []).every((p) => p.status === "Verified")

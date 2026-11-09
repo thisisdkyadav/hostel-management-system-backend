@@ -235,8 +235,8 @@ export const buildEffectiveAuthz = ({ role, subRole = null, override = {} }) => 
   }
 
   const h4Routes = { Academics: "route.academics.internAccommodation", "Hostel Supervisor": "route.hostelSupervisor.internAccommodation", "Hostel Gate": "route.hostelGate.internAccommodation" }
-  const h4Route = role === "Admin" && ["Chief Warden Office", "Chief Warden", "Accountant"].includes(subRole)
-    ? "route.admin.internAccommodation" : h4Routes[role]
+  // Every admin can open H4 (read-only unless their sub-role has a step).
+  const h4Route = role === "Admin" ? "route.admin.internAccommodation" : h4Routes[role]
   for (const key of Object.keys(routeAccess)) {
     if (key.endsWith(".internAccommodation") && key !== h4Route) routeAccess[key] = false
   }

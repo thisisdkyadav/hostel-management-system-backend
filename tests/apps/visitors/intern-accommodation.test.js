@@ -150,7 +150,7 @@ describe("H4 eligibility, batches and review", () => {
     const user = await seed.createUser({ role, subRole, email: `blocked-${Date.now()}-${Math.random()}@iiti.ac.in` })
     const api = await as(user)
     const options = await api.get(`${base}/options`)
-    const blockedFromH4 = !["Hostel Supervisor", "Hostel Gate"].includes(role) && !(role === "Admin" && ["Chief Warden Office", "Chief Warden", "Accountant"].includes(subRole))
+    const blockedFromH4 = !["Hostel Supervisor", "Hostel Gate", "Admin"].includes(role)
     expect(options.status).toBe(blockedFromH4 ? 403 : 200)
     if (!blockedFromH4) expect(options.body.data.canCreate).toBe(false)
     for (const draft of [false, true]) {
