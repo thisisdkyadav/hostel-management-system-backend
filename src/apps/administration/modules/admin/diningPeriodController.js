@@ -68,7 +68,7 @@ export const getDiningRebateRequests = asyncHandler(async (req, res) => {
 });
 
 export const approveDiningRebateRequest = asyncHandler(async (req, res) => {
-  const result = await approveDiningRebate({ rebateId: req.params.id, adminUserId: req.user._id });
+  const result = await approveDiningRebate({ rebateId: req.params.id, adminUserId: req.user._id, user: req.user });
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,
@@ -80,6 +80,7 @@ export const rejectDiningRebateRequest = asyncHandler(async (req, res) => {
   const result = await rejectDiningRebate({
     rebateId: req.params.id,
     adminUserId: req.user._id,
+    user: req.user,
     comment: req.body?.comment,
   });
   res.status(result.statusCode).json({

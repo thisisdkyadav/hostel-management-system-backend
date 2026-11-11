@@ -114,6 +114,38 @@ const DiningRebateSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Set when Admin / Dining Office created the rebate for the student (null: the student asked).
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    lastEditedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    lastEditedAt: {
+      type: Date,
+      default: null,
+    },
+    // Archived = deleted but kept. Every rebate read in diningQueries skips archived
+    // rows unless the filter names `archivedAt`, so an archived rebate counts nowhere
+    // (charges, caterer counts, overlap checks, student portal).
+    archivedAt: {
+      type: Date,
+      default: null,
+    },
+    archivedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    archiveReason: {
+      type: String,
+      trim: true,
+      default: "",
+    },
   },
   {
     timestamps: true,

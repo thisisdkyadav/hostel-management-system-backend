@@ -48,9 +48,17 @@ const REBATE_POPULATE = [
   {
     path: "studentProfileId",
     select: "rollNumber userId",
-    populate: { path: "userId", select: "name email" },
+    populate: { path: "userId", select: "name email profileImage" },
   },
 ]
+
+/**
+ * Archived rebates are deleted-but-kept: every rebate read skips them unless the
+ * filter itself names `archivedAt` (the admin rebate board's Archived view).
+ */
+const liveRebates = (filter = {}, includeArchived = false) => (
+  includeArchived || (filter && Object.prototype.hasOwnProperty.call(filter, "archivedAt")) ? filter : { ...filter, archivedAt: null }
+)
 
 const populateRebate = (query) => {
   REBATE_POPULATE.forEach((p) => {
@@ -147,7 +155,7 @@ export const diningQueries = {
 
   /** Database-side search, status-independent counts, and pagination. */
   async findCatererRebatePage(filter, { search = "", status = "all", skip = 0, limit = 20 } = {}) {
-    const pipeline = [{ $match: filter }]
+    const pipeline = [{ $match: liveRebates(filter) }]
     if (search) {
       const pattern = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
       pipeline.push(
@@ -166,9 +174,17 @@ export const diningQueries = {
     return (await DiningRebate.aggregate(pipeline))[0]
   },
 
-  /** Rebates by filter. Options: { select, lean, sort }. */
-  async findRebates(filter = {}, { select, lean, sort } = {}) {
-    let query = DiningRebate.find(filter)
+  /**
+   * Raw aggregation over ALL rebates, archived included: the pipeline must
+   * handle `archivedAt` itself (admin rebate board).
+   */
+  async aggregateRebatesIncludingArchived(pipeline) {
+    return DiningRebate.aggregate(pipeline)
+  },
+
+  /** Rebates by filter (archived skipped unless includeArchived). Options: { select, lean, sort, includeArchived }. */
+  async findRebates(filter = {}, { select, lean, sort, includeArchived = false } = {}) {
+    let query = DiningRebate.find(liveRebates(filter, includeArchived))
     if (select) query = query.select(select)
     if (sort) query = query.sort(sort)
     if (lean) query = query.lean()
@@ -177,12 +193,12 @@ export const diningQueries = {
 
   /** Count rebates matching a filter (dashboard tiles). */
   async countRebates(filter = {}) {
-    return DiningRebate.countDocuments(filter)
+    return DiningRebate.countDocuments(liveRebates(filter))
   },
 
   /** One rebate by filter. Options: { select, lean }. */
   async findOneRebate(filter, { select, lean } = {}) {
-    let query = DiningRebate.findOne(filter)
+    let query = DiningRebate.findOne(liveRebates(filter))
     if (select) query = query.select(select)
     if (lean) query = query.lean()
     return query
@@ -203,9 +219,9 @@ export const diningQueries = {
     return query
   },
 
-  /** Rebates by filter with the canonical populate. Options: { sort, skip, limit, lean }. */
-  async findRebatesPopulated(filter = {}, { sort, skip, limit, lean } = {}) {
-    let query = populateRebate(DiningRebate.find(filter))
+  /** Rebates by filter with the canonical populate. Options: { sort, skip, limit, lean, includeArchived }. */
+  async findRebatesPopulated(filter = {}, { sort, skip, limit, lean, includeArchived = false } = {}) {
+    let query = populateRebate(DiningRebate.find(liveRebates(filter, includeArchived)))
     if (sort) query = query.sort(sort)
     if (skip) query = query.skip(skip)
     if (limit) query = query.limit(limit)

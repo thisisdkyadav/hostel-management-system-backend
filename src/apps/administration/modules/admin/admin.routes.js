@@ -113,6 +113,18 @@ import {
   updateHostelGate,
   deleteHostelGate,
 } from './hostelGateController.js';
+import {
+  archiveRebate,
+  createRebates,
+  getRebate,
+  getRebateHistory,
+  getRebateList,
+  getRebateOverview,
+  getRebateStudents,
+  previewRebate,
+  restoreRebate,
+  updateRebate,
+} from './diningRebateBoardController.js';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { authorizeRoles } from '../../../../middlewares/authorize.middleware.js';
 import { requireAnyCapability, requireRouteAccess } from '../../../../middlewares/authz.middleware.js';
@@ -188,6 +200,18 @@ router.delete('/dining-periods/:id/allocations/:studentUserId', diningStaff, req
 router.get('/dining-rebates', diningStaff, requireRouteAccess('route.admin.diningPeriods'), getDiningRebateRequests);
 router.put('/dining-rebates/:id/approve', diningStaff, requireRouteAccess('route.admin.diningPeriods'), approveDiningRebateRequest);
 router.put('/dining-rebates/:id/reject', diningStaff, requireRouteAccess('route.admin.diningPeriods'), rejectDiningRebateRequest);
+// Rebate board: by dining period + office create / edit / archive / restore
+const rebateBoard = [diningStaff, requireRouteAccess('route.admin.diningRebates')];
+router.get('/dining-rebates/board/overview', rebateBoard, getRebateOverview);
+router.get('/dining-rebates/board/list', rebateBoard, getRebateList);
+router.get('/dining-rebates/board/students', rebateBoard, getRebateStudents);
+router.post('/dining-rebates/board/preview', rebateBoard, previewRebate);
+router.post('/dining-rebates/board', rebateBoard, createRebates);
+router.get('/dining-rebates/board/:id', rebateBoard, getRebate);
+router.get('/dining-rebates/board/:id/history', rebateBoard, getRebateHistory);
+router.put('/dining-rebates/board/:id', rebateBoard, updateRebate);
+router.put('/dining-rebates/board/:id/archive', rebateBoard, archiveRebate);
+router.put('/dining-rebates/board/:id/restore', rebateBoard, restoreRebate);
 
 // Dining billing management
 router.get('/dining-billing-periods', diningStaff, requireRouteAccess('route.admin.diningBilling'), getDiningBillingPeriods);

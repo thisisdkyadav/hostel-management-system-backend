@@ -8,6 +8,7 @@ import { configQueries } from "../config/configQueries.service.js"
 import { fileAccessService } from "../storage/file-access.service.js"
 import { isMediaRef } from "../storage/file-ref.service.js"
 import { badRequest, notFound, success } from "../base/index.js"
+import { auditService } from "../audit/audit.service.js"
 import { countsRebates, keysInRange, periodKeyRange, rebateEligibleAllocations, rebateScopeFilter } from "./rebateScope.js"
 import { DINING_REBATE_CONFIG_KEY, REBATE_MAX_ADVANCE_MONTHS, resolveRebateRules } from "./rebateRules.js"
 
@@ -84,6 +85,7 @@ const serializeStudent = (profile = null) => {
     profileId: profile._id || profile.id,
     name: user?.name || "",
     email: user?.email || "",
+    profileImage: user?.profileImage || "",
     rollNumber: profile.rollNumber,
   }
 }
@@ -137,6 +139,10 @@ export const serializeDiningRebate = (rebate = {}) => ({
   unplacedDayCount: Number.isFinite(rebate.unplacedDayCount) ? rebate.unplacedDayCount : null,
   approvedAt: rebate.approvedAt,
   rejectedAt: rebate.rejectedAt,
+  createdBy: rebate.createdBy || null,
+  lastEditedAt: rebate.lastEditedAt || null,
+  archivedAt: rebate.archivedAt || null,
+  archiveReason: rebate.archiveReason || "",
   createdAt: rebate.createdAt,
   updatedAt: rebate.updatedAt,
 })
@@ -566,11 +572,22 @@ export const getAdminDiningRebates = async ({ status = "" } = {}) => {
   return success({ rebates: await serializeWithPlacements(rebates) })
 }
 
-export const approveDiningRebate = async ({ rebateId, adminUserId }) => {
+/** Audit a status decision on the rebate board's history (best-effort). */
+const recordDecision = (rebate, before, user, reason = null) => auditService.recordUpdate({
+  entityType: "DiningRebate",
+  entityId: rebate._id,
+  before,
+  after: { status: rebate.status, adminComment: rebate.adminComment || "" },
+  actor: user,
+  reason,
+  feature: "dining-rebates",
+})
+
+export const approveDiningRebate = async ({ rebateId, adminUserId, user = null }) => {
   if (!mongoose.Types.ObjectId.isValid(rebateId)) return badRequest("Invalid rebate request")
 
   const rebate = await diningQueries.findRebateById(rebateId)
-  if (!rebate) return notFound("Dining rebate")
+  if (!rebate || rebate.archivedAt) return notFound("Dining rebate")
   if (rebate.status !== PENDING_STATUS) return badRequest("Only pending long-term rebates can be approved")
 
   const overlaps = await hasRebateOverlap({
@@ -580,30 +597,34 @@ export const approveDiningRebate = async ({ rebateId, adminUserId }) => {
   })
   if (overlaps) return badRequest("This rebate overlaps with another active rebate request")
 
+  const before = { status: rebate.status, adminComment: rebate.adminComment || "" }
   rebate.status = APPROVED_STATUS
   rebate.approvedBy = adminUserId
   rebate.approvedAt = new Date()
   rebate.rejectedBy = null
   rebate.rejectedAt = null
   await diningOwner.persistRebate(rebate)
+  await recordDecision(rebate, before, user || { _id: adminUserId })
 
   const populated = await diningQueries.findRebateByIdPopulated(rebate._id, { lean: true })
   const [serialized] = await serializeWithPlacements([populated])
   return success({ rebate: serialized }, 200, "Rebate approved successfully")
 }
 
-export const rejectDiningRebate = async ({ rebateId, adminUserId, comment = "" }) => {
+export const rejectDiningRebate = async ({ rebateId, adminUserId, comment = "", user = null }) => {
   if (!mongoose.Types.ObjectId.isValid(rebateId)) return badRequest("Invalid rebate request")
 
   const rebate = await diningQueries.findRebateById(rebateId)
-  if (!rebate) return notFound("Dining rebate")
+  if (!rebate || rebate.archivedAt) return notFound("Dining rebate")
   if (rebate.status !== PENDING_STATUS) return badRequest("Only pending long-term rebates can be rejected")
 
+  const before = { status: rebate.status, adminComment: rebate.adminComment || "" }
   rebate.status = REJECTED_STATUS
   rebate.adminComment = String(comment || "").trim()
   rebate.rejectedBy = adminUserId
   rebate.rejectedAt = new Date()
   await diningOwner.persistRebate(rebate)
+  await recordDecision(rebate, before, user || { _id: adminUserId })
 
   const populated = await diningQueries.findRebateByIdPopulated(rebate._id, { lean: true })
   const [serialized] = await serializeWithPlacements([populated])
