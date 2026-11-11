@@ -229,7 +229,7 @@ export const getRebateBoardOverview = async ({ query = {} } = {}) => {
 
 /**
  * One page of rebates in the scope.
- * query: { periodId, status (all|approved|pending|rejected|archived), type, search, day, sort (start|newest), page, limit }
+ * query: { periodId, status (all|approved|pending|rejected|archived), type, search, day, sort (newest [default] | start), page, limit }
  */
 export const getRebateBoardList = async ({ query = {} } = {}) => {
   const periods = await listPeriods()
@@ -240,7 +240,7 @@ export const getRebateBoardList = async ({ query = {} } = {}) => {
   const day = KEY_RE.test(String(query.day || "")) ? String(query.day) : ""
   const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(query.limit, 10) || DEFAULT_LIMIT))
   const page = Math.max(1, parseInt(query.page, 10) || 1)
-  const sort = query.sort === "newest" ? { createdAt: -1, _id: -1 } : { startDate: 1, createdAt: 1, _id: 1 }
+  const sort = query.sort === "start" ? { startDate: 1, createdAt: 1, _id: 1 } : { createdAt: -1, _id: -1 }
 
   const clauses = [scopeMatch(scope)]
   if (type) clauses.push({ type })
