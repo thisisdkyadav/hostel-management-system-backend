@@ -65,6 +65,7 @@ import {
   getMaintenanceStaffStats,
   createGymkhana,
   createAcademics,
+  createAcademicsBulk,
   getAllGymkhanaUsers,
   getAllAcademicsUsers,
   updateGymkhana,
@@ -273,6 +274,7 @@ router.delete('/gymkhana/:id', requireRouteAccess('route.admin.gymkhana'), delet
 // Academics user management
 router.get('/academics', requireRouteAccess('route.admin.academics'), getAllAcademicsUsers);
 router.post('/academics', requireRouteAccess('route.admin.academics'), createAcademics);
+router.post('/academics/bulk', requireRouteAccess('route.admin.academics'), createAcademicsBulk);
 router.put('/academics/:id', requireRouteAccess('route.admin.academics'), updateAcademics);
 router.delete('/academics/:id', requireRouteAccess('route.admin.academics'), deleteAcademics);
 

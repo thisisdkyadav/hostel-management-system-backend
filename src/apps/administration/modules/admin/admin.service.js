@@ -30,6 +30,9 @@ const GYMKHANA_SUBROLES = [
 
 const ACADEMICS_SUBROLES = [SUBROLES.HOD];
 
+const ACADEMICS_BULK_LIMIT = 500;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const normalizeOptionalText = (value) => {
   if (value === undefined || value === null) return '';
   return String(value).trim();
@@ -367,6 +370,79 @@ class AdminService {
     await userOwner.createUser(userPayload);
 
     return success(null, 201, 'Academics user created successfully');
+  }
+
+  /**
+   * Bulk-create Academics users from a CSV import. Every row is checked first
+   * (required fields, email format, category, sub-role, duplicates in the file
+   * and existing accounts); if any row is wrong nothing is created and each
+   * problem is returned with its row index, so the file can be fixed and
+   * uploaded again as a whole.
+   */
+  async createAcademicsBulk(users) {
+    if (!Array.isArray(users) || users.length === 0) {
+      return badRequest('Upload at least one row');
+    }
+    if (users.length > ACADEMICS_BULK_LIMIT) {
+      return badRequest(`Upload at most ${ACADEMICS_BULK_LIMIT} rows at a time`);
+    }
+
+    const errors = [];
+    const seen = new Map();
+    const rows = users.map((raw, index) => {
+      const row = raw && typeof raw === 'object' ? raw : {};
+      const name = normalizeOptionalText(row.name);
+      const email = normalizeOptionalText(row.email);
+      const password = normalizeOptionalText(row.password);
+      const categoryText = normalizeOptionalText(row.academicCategory).toLowerCase();
+      const subRoleText = normalizeOptionalText(row.subRole);
+      const fail = (message) => errors.push({ index, email, message });
+
+      if (!name) fail('Name is required');
+      if (!email) fail('Email is required');
+      else if (!EMAIL_PATTERN.test(email)) fail('Email is not valid');
+      else {
+        const key = email.toLowerCase();
+        if (seen.has(key)) fail(`Email repeats row ${seen.get(key) + 1}`);
+        else seen.set(key, index);
+      }
+      const academicCategory = categoryText || 'personal';
+      if (!['personal', 'office'].includes(academicCategory)) fail('Category must be Personal or Office');
+      const subRole = !subRoleText || subRoleText.toLowerCase() === 'none'
+        ? null
+        : ACADEMICS_SUBROLES.find((value) => value.toLowerCase() === subRoleText.toLowerCase());
+      if (subRole === undefined) fail(`Sub role must be blank or ${ACADEMICS_SUBROLES.join(', ')}`);
+
+      return { name, email, password, academicCategory, subRole: subRole || null };
+    });
+
+    const existing = await userQueries.findUsersByEmailsCI(rows.map((r) => r.email), { select: 'email', lean: true });
+    const taken = new Set(existing.map((u) => String(u.email).toLowerCase()));
+    rows.forEach((r, index) => {
+      if (r.email && taken.has(r.email.toLowerCase())) errors.push({ index, email: r.email, message: 'An account with this email already exists' });
+    });
+
+    if (errors.length) {
+      errors.sort((a, b) => a.index - b.index);
+      return { success: false, statusCode: 400, message: `${errors.length} problem${errors.length === 1 ? '' : 's'} found. Nothing was created.`, errors };
+    }
+
+    const created = [];
+    const failed = [];
+    for (const [index, r] of rows.entries()) {
+      const payload = { name: r.name, email: r.email, role: ROLES.ACADEMICS, subRole: r.subRole, academicCategory: r.academicCategory };
+      if (r.password) payload.password = await bcrypt.hash(r.password, await bcrypt.genSalt(10));
+      try {
+        await userOwner.createUser(payload);
+        created.push(r.email);
+      } catch (error) {
+        // Only a race (same email added meanwhile) can get here after the checks.
+        failed.push({ index, email: r.email, message: error?.code === 11000 ? 'An account with this email already exists' : 'Could not be created' });
+      }
+    }
+
+    const message = `${created.length} Academics user${created.length === 1 ? '' : 's'} created${failed.length ? `, ${failed.length} failed` : ''}`;
+    return { success: true, statusCode: 201, message, data: { created: created.length, failed } };
   }
 
   /**

@@ -529,6 +529,43 @@ describe("academics users", () => {
 
     expect((await adminApi.delete(`${BASE}/academics/${objectId()}`)).status).toBe(404)
   })
+
+  it("bulk-creates from a CSV upload, all or nothing", async () => {
+    const existing = payload()
+    await adminApi.post(`${BASE}/academics`).send(existing)
+    const a = emailFor("bulk-a"), b = emailFor("bulk-b")
+
+    const bad = await adminApi.post(`${BASE}/academics/bulk`).send({ users: [
+      { name: "Prof A", email: a },
+      { name: "", email: "not-an-email", academicCategory: "admin", subRole: "Dean" },
+      { name: "Dup", email: a.toUpperCase() },
+      { name: "Taken", email: existing.email.toUpperCase() },
+    ] })
+    expect(bad.status).toBe(400)
+    expect(bad.body.message).toMatch(/Nothing was created/)
+    const msgs = bad.body.errors.map((e) => `${e.index}:${e.message}`)
+    expect(msgs).toEqual(expect.arrayContaining([
+      "1:Name is required", "1:Email is not valid", "1:Category must be Personal or Office",
+      "1:Sub role must be blank or HOD", "2:Email repeats row 1", "3:An account with this email already exists",
+    ]))
+    expect(bad.body.errors.some((e) => e.index === 0)).toBe(false)
+    expect(byEmail((await adminApi.get(`${BASE}/academics`)).body, a)).toBeUndefined()
+
+    const ok = await adminApi.post(`${BASE}/academics/bulk`).send({ users: [
+      { name: "Prof A", email: a, academicCategory: "Personal", subRole: "hod", password: "secret123" },
+      { name: "Physics Office", email: b, academicCategory: "OFFICE", subRole: "None" },
+    ] })
+    expect(ok.status).toBe(201)
+    expect(ok.body).toMatchObject({ success: true, created: 2, failed: [] })
+    const list = (await adminApi.get(`${BASE}/academics`)).body
+    expect(byEmail(list, a)).toMatchObject({ academicCategory: "personal", subRole: "HOD" })
+    expect(byEmail(list, b)).toMatchObject({ academicCategory: "office", subRole: null })
+
+    expect((await adminApi.post(`${BASE}/academics/bulk`).send({ users: [] })).status).toBe(400)
+    expect((await adminApi.post(`${BASE}/academics/bulk`).send({ users: Array.from({ length: 501 }, () => ({})) })).status).toBe(400)
+    const student = await as(await seed.student())
+    expect((await student.post(`${BASE}/academics/bulk`).send({ users: [{ name: "x", email: emailFor("x") }] })).status).toBe(403)
+  })
 })
 
 // ---------------------------------------------------------------------------

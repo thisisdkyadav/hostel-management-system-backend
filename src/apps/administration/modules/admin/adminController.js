@@ -123,6 +123,16 @@ export const createAcademics = asyncHandler(async (req, res) => {
   });
 });
 
+export const createAcademicsBulk = asyncHandler(async (req, res) => {
+  const result = await adminService.createAcademicsBulk(req.body?.users);
+
+  if (!result.success) {
+    return res.status(result.statusCode).json({ message: result.message, errors: result.errors || [] });
+  }
+
+  return res.status(result.statusCode).json({ message: result.message, success: true, ...result.data });
+});
+
 /**
  * Get all Gymkhana users
  */
