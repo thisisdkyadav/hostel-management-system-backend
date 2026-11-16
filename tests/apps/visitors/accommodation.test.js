@@ -1595,15 +1595,84 @@ describe("accommodation — CWO office edit & extra payments", () => {
     expect(res.status).toBe(403)
 
     const cwoApi = await as(await cwo())
+    // Student details are the student's own profile: changing them is refused.
     res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
       stay: { fromDate: dateOnly(day(8)), toDate: dateOnly(day(12)), purpose: "Updated visit" },
       applicantPhone: "9000011111",
     })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/student's profile/i)
+
+    res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      stay: { fromDate: dateOnly(day(8)), toDate: dateOnly(day(12)), purpose: "Updated visit" },
+      applicantEmail: request.applicantEmail.toUpperCase(),
+      note: "Dates moved on the phone",
+      notifyStudent: false,
+    })
     expect(res.status).toBe(200)
     expect(res.body.data.stay.purpose).toBe("Updated visit")
-    expect(res.body.data.applicantPhone).toBe("9000011111")
     expect(res.body.data.nights).toBe(4)
     expect(res.body.data.payment.amount || 0).toBe(0)
+    expect(res.body.data.timeline.at(-1).note).toMatch(/Office edit: Stay .* — Dates moved on the phone/)
+
+    // Draft charges and guest remarks before any payment request
+    res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      guests: request.guests.map((g) => ({ ...g, remarks: "Needs ground floor" })),
+      guestCharges: request.guests.map((_, i) => ({ guestIndex: i, price: 300, gstPercentage: 0 })),
+    })
+    expect(res.status).toBe(200)
+    expect(res.body.data.guests[0].remarks).toBe("Needs ground floor")
+    expect(res.body.data.quote.total).toBe(300 * request.guests.length)
+    expect(res.body.data.payment.amount || 0).toBe(0)
+
+    // Hostels are only chosen with the payment request
+    const someHostel = await createHostel()
+    res = await cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send({
+      guestAllotments: request.guests.map((_, i) => ({ guestIndex: i, hostelId: someHostel._id })),
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it("moves guests to another hostel after allotment; checks capacity; locked once rooms are assigned", async () => {
+    const student = await iitiStudent()
+    const { request, hostel } = await paymentRequested(student)
+    const cwoApi = await as(await cwo())
+    const edit = (body) => cwoApi.post(`/api/v1/accommodation/requests/${request._id}/office-edit`).send(body)
+    const to = (h) => request.guests.map((_, i) => ({ guestIndex: i, hostelId: h._id }))
+
+    const empty = await createHostel()
+    let res = await edit({ guestAllotments: to(empty) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/Not enough guest rooms free at/)
+
+    const other = await createHostel()
+    await createRoom({ hostelId: other._id, roomNumber: `MV-${Date.now() % 100000}`, capacity: 2 })
+    res = await edit({ guestAllotments: to(other) })
+    expect(res.status).toBe(200)
+    expect(res.body.data.guestAllotments.map((a) => String(a.hostelId))).toEqual(request.guests.map(() => String(other._id)))
+    expect(String(res.body.data.allotment.hostelId)).toBe(String(other._id))
+    expect(res.body.data.timeline.at(-1).note).toMatch(/Office edit: Hostel:/)
+
+    // Paying and assigning a room ties the guests to that hostel.
+    await as(student).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment`).send({
+        utr: "999988887777", paidAt: new Date().toISOString(), screenshotFileRef: "media://payments/mv.png",
+      })
+    )
+    await as(await accountant()).then((a) =>
+      a.post(`/api/v1/accommodation/requests/${request._id}/payment-verify`).send({ action: "verify" })
+    )
+    const room = (await (await as(await supervisorFor(other))).get(`/api/v1/accommodation/requests/${request._id}/room-availability`)).body.data.rooms[0]
+    const assigned = await (await as(await supervisorFor(other))).post(`/api/v1/accommodation/requests/${request._id}/assign-rooms`).send({
+      rooms: [{ roomId: room.roomId, guestIndexes: request.guests.map((_, i) => i) }],
+    })
+    expect(assigned.status).toBe(200)
+    res = await edit({ guestAllotments: to(hostel) })
+    expect(res.status).toBe(400)
+    expect(res.body.message).toMatch(/after rooms are assigned/)
+    // Sending the same hostels is not a change.
+    res = await edit({ guestAllotments: to(other), stay: { purpose: "Still fine" } })
+    expect(res.status).toBe(200)
   })
 
   it("unpaid payment request: date + guestCharges update the open bill in place", async () => {

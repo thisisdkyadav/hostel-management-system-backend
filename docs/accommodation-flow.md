@@ -108,6 +108,27 @@ CANCELLED: the student may cancel before payment is initiated; after payment is 
 
 New requests must be submitted at least **3 working days** before the check-in date (Monday–Friday; weekends are not counted).
 
+### Office edit (`POST /requests/:id/office-edit`, Chief Warden Office)
+
+The office can change everything about a live booking except the student:
+stay dates/times/purpose, room preference, guests (incl. remarks) and their
+address, the hostel per guest, charges and the faculty advisor email.
+`applicantName/Phone/Email` are a snapshot of the student's profile — a
+different value is refused (400); an unchanged one is ignored.
+
+- Hostels: only after the payment request has allotted them (`guestAllotments`),
+  and not once rooms are assigned. New hostels must exist and not be archived.
+- One capacity check runs on the final booking whenever dates, party size or
+  hostels change (all current + requested hostels are locked meanwhile).
+- Charges: draft quote before the payment request; open bill replaced while
+  unpaid; after payment the bill is locked and `extraAmount` opens/updates an
+  additional payment.
+- `note` is appended to the timeline entry (and the student email);
+  `notifyStudent: false` skips the "Request updated" email. Payment-request
+  emails are always sent.
+- The UI (`AccommodationOfficeEdit.jsx`) sends only changed parts, after a
+  review step that lists every change before → after.
+
 A **deferred** bill is settled from the student's portal any time after room
 assignment — including after the stay closes. That payment moves only
 `payment.status` (the stay has already moved on), and the invoice is issued the

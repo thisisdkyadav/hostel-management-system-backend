@@ -443,6 +443,7 @@ const normalizeGuests = (guests = []) =>
     aadharNumber: String(guest?.aadharNumber || "").replace(/\s/g, ""),
     relation: String(guest?.relation || "").trim(),
     name: String(guest?.name || "").trim(),
+    remarks: String(guest?.remarks || "").trim().slice(0, 300),
   }))
 
 const assignedH4Conflict = async (request, stay) => {
@@ -1983,7 +1984,11 @@ export const accommodationService = {
   async officeEditRequest(requestId, body, user) {
     const request = await accommodationQueries.findRequestByIdLean(requestId)
     if (!request) return notFound("Accommodation request not found")
-    const result = await withHostelLocks(uniqueAllottedHostelIds(request), () => this._officeEditRequestLocked(requestId, body, user))
+    const requested = Array.isArray(body?.guestAllotments)
+      ? body.guestAllotments.map((a) => String(a?.hostelId || "")).filter(Boolean)
+      : []
+    const lockIds = [...new Set([...uniqueAllottedHostelIds(request), ...requested])]
+    const result = await withHostelLocks(lockIds, () => this._officeEditRequestLocked(requestId, body, user))
     return result === LOCK_NOT_ACQUIRED ? badRequest("Room availability is being updated — try again") : result
   },
 
@@ -1998,25 +2003,69 @@ export const accommodationService = {
     const roomsAssigned = Array.isArray(request.rooms) && request.rooms.length > 0
     const stayClosed = stayClosedForInvoice(request)
 
+    // Student details are a snapshot of the student's own profile. The office
+    // edits the booking, not the student: an unchanged value (older clients
+    // send the whole form) is fine, a different one is refused.
+    for (const [field, lower] of [["applicantName", false], ["applicantPhone", false], ["applicantEmail", true]]) {
+      if (body?.[field] == null) continue
+      const norm = (v) => (lower ? String(v || "").trim().toLowerCase() : String(v || "").trim())
+      if (norm(body[field]) !== norm(request[field])) {
+        return badRequest("Student details come from the student's profile and cannot be changed here")
+      }
+    }
+
+    const allottedBefore = uniqueAllottedHostelIds(request).length > 0
+    let guestCountChanged = false
     if (body?.guests) {
       const guestError = validateOfficeGuests(body.guests)
       if (guestError) return badRequest(guestError)
       const nextGuests = normalizeGuests(body.guests)
-      if (roomsAssigned && nextGuests.length !== (request.guests?.length || 0)) {
+      guestCountChanged = nextGuests.length !== (request.guests?.length || 0)
+      if (roomsAssigned && guestCountChanged) {
         return badRequest("Guest count cannot change after rooms are assigned")
-      }
-      if (uniqueAllottedHostelIds(request).length && nextGuests.length !== (request.guests?.length || 0)) {
-        const parsed = parseGuestAllotmentBody(body, nextGuests)
-        if (parsed.error) {
-          return badRequest("Select a hostel for every guest when changing the party after allotment")
-        }
-        request.guestAllotments = parsed.allotments
-        request.allotment.hostelId = parsed.hostelIds[0] || request.allotment.hostelId
       }
       request.guests = nextGuests
       request.persons = nextGuests.length
       if (request.quote) request.quote.persons = nextGuests.length
       notes.push(`Guests updated (${nextGuests.length})`)
+    }
+
+    // Hostel per guest. Only once a hostel has been allotted (the payment
+    // request does the first allotment), and not after rooms are assigned —
+    // the rooms belong to the hostel.
+    let allotmentChanged = false
+    const sendsAllotment = Array.isArray(body?.guestAllotments) && body.guestAllotments.length > 0
+    if (sendsAllotment && !allottedBefore) {
+      return badRequest("Hostels are allotted when the payment request is sent")
+    }
+    if (allottedBefore && (sendsAllotment || guestCountChanged)) {
+      const parsed = parseGuestAllotmentBody(body, request.guests || [])
+      if (parsed.error) {
+        return badRequest(guestCountChanged ? "Select a hostel for every guest when changing the party after allotment" : parsed.error)
+      }
+      const before = (request.guests || []).map((_, i) =>
+        uniqueAllottedHostelIds(request).find((hid) => guestIndexesForHostel(request, hid).includes(i)) || ""
+      )
+      allotmentChanged = guestCountChanged || parsed.allotments.some((a) => String(a.hostelId) !== String(before[a.guestIndex] || ""))
+      if (allotmentChanged) {
+        if (roomsAssigned) {
+          return badRequest("Hostels cannot change after rooms are assigned. Ask the hostel to clear the room assignment first.")
+        }
+        const hostelDocs = await hostelQueries.findHostelsByIds(parsed.hostelIds)
+        const byId = new Map(hostelDocs.map((h) => [String(h._id), h]))
+        for (const hid of parsed.hostelIds) {
+          const hostel = byId.get(String(hid))
+          if (!hostel) return notFound("Hostel not found")
+          if (hostel.isArchived) return badRequest("Cannot allot an archived hostel")
+        }
+        request.guestAllotments = parsed.allotments
+        request.allotment.hostelId = parsed.hostelIds[0]
+        request.allotment.allottedBy = user._id
+        request.allotment.allottedAt = new Date()
+        if (!guestCountChanged || sendsAllotment) {
+          notes.push(`Hostel: ${formatHostelNames(parsed.hostelIds.map((id) => byId.get(String(id))?.name).filter(Boolean))}`)
+        }
+      }
     }
 
     if (body?.roomPreference != null && body.roomPreference !== "") {
@@ -2030,16 +2079,6 @@ export const accommodationService = {
     if (body?.permanentAddress != null) {
       request.permanentAddress = String(body.permanentAddress || "").trim()
       notes.push("Address updated")
-    }
-    if (body?.applicantPhone != null) {
-      request.applicantPhone = String(body.applicantPhone || "").trim()
-      notes.push("Phone updated")
-    }
-    if (body?.applicantEmail != null) {
-      const email = String(body.applicantEmail || "").trim().toLowerCase()
-      if (email && !EMAIL_RE.test(email)) return badRequest("Enter a valid applicant email")
-      request.applicantEmail = email
-      notes.push("Email updated")
     }
     if (body?.facultyAdvisorEmail != null) {
       const fa = String(body.facultyAdvisorEmail || "").trim().toLowerCase()
@@ -2072,40 +2111,6 @@ export const accommodationService = {
         if (h4Conflict) return h4Conflict
       }
 
-      if (datesChanged && !stayClosed && uniqueAllottedHostelIds(request).length) {
-        const allottedIds = uniqueAllottedHostelIds(request)
-        const claim = await (async () => {
-          for (const hostelId of allottedIds) {
-            const need = personsAllottedToHostel(request, hostelId)
-            if (!need) continue
-            const availability = await getHostelGuestAvailability({
-              hostelId,
-              from: nextFrom,
-              to: nextTo,
-              checkInTime: times.checkInTime,
-              checkOutTime: times.checkOutTime,
-              excludeRequestId: request._id,
-            })
-            const roomsNeeded = roomsNeededFor(need, availability.largestRoom)
-            if (availability.availableRooms < roomsNeeded) {
-              return badRequest(
-                `Not enough guest rooms free for the new dates (need ${roomsNeeded}, ${availability.availableRooms} free)`
-              )
-            }
-            if (availability.available < need) {
-              return badRequest(
-                `Not enough beds free for the new dates (need ${need}, available ${availability.available})`
-              )
-            }
-          }
-          return null
-        })()
-        if (claim === LOCK_NOT_ACQUIRED) {
-          return badRequest("This hostel is being updated right now — try again in a moment")
-        }
-        if (claim) return claim
-      }
-
       request.stay.fromDate = nextFrom
       request.stay.toDate = nextTo
       request.stay.checkInTime = times.checkInTime
@@ -2115,10 +2120,35 @@ export const accommodationService = {
       if (body.stay.purpose != null) request.stay.purpose = String(body.stay.purpose || "").trim()
       request.nights = computeNights(nextFrom, nextTo)
       if (request.quote) request.quote.nights = request.nights
-      notes.push(`Stay ${dayKey(nextFrom)} to ${dayKey(nextTo)}`)
-    } else if (body?.stay?.purpose != null && request.stay) {
-      request.stay.purpose = String(body.stay.purpose || "").trim()
-      notes.push("Purpose updated")
+      if (datesChanged) notes.push(`Stay ${dayKey(nextFrom)} to ${dayKey(nextTo)}`)
+      else if (body.stay.purpose != null) notes.push("Purpose updated")
+    }
+
+    // One capacity check against the final booking: new dates, a different
+    // party size or a different hostel all have to fit what is free.
+    if (!stayClosed && uniqueAllottedHostelIds(request).length && (datesChanged || allotmentChanged || guestCountChanged)) {
+      for (const hostelId of uniqueAllottedHostelIds(request)) {
+        const need = personsAllottedToHostel(request, hostelId)
+        if (!need) continue
+        const availability = await getHostelGuestAvailability({
+          hostelId,
+          from: request.stay.fromDate,
+          to: request.stay.toDate,
+          checkInTime: request.stay.checkInTime,
+          checkOutTime: request.stay.checkOutTime,
+          excludeRequestId: request._id,
+        })
+        const roomsNeeded = roomsNeededFor(need, availability.largestRoom)
+        if (availability.availableRooms < roomsNeeded || availability.available < need) {
+          const hostel = await hostelQueries.findHostelById(hostelId)
+          const where = hostel?.name || "the allotted hostel"
+          return badRequest(
+            availability.availableRooms < roomsNeeded
+              ? `Not enough guest rooms free at ${where} (need ${roomsNeeded}, ${availability.availableRooms} free)`
+              : `Not enough beds free at ${where} (need ${need}, available ${availability.available})`
+          )
+        }
+      }
     }
 
     const hasCharges = Array.isArray(body?.guestCharges)
@@ -2197,11 +2227,12 @@ export const accommodationService = {
 
     if (notes.length === 0) return badRequest("Nothing to update")
 
+    const officeNote = String(body?.note || "").trim().slice(0, 500)
     request.timeline.push({
       status: request.status,
       by: user._id,
       at: new Date(),
-      note: `Office edit: ${notes.join(" · ")}`,
+      note: `Office edit: ${notes.join(" · ")}${officeNote ? ` — ${officeNote}` : ""}`,
     })
     await accommodationOwner.persist(request)
 
@@ -2217,13 +2248,15 @@ export const accommodationService = {
         })
         .catch(() => {})
     }
-    accommodationEmails
+    // A payment request is always emailed; a plain correction (a typo, a
+    // hostel swap) can be saved without writing to the student.
+    if (body?.notifyStudent !== false) accommodationEmails
       .sendStudentDecisionEmail({
         requestId: request._id,
         to: request.applicantEmail,
         studentName: request.applicantName,
         status: "Request updated",
-        reason: `${notes.join(". ")}.${paymentNotice ? ` ${paymentNotice}` : ""}`,
+        reason: `${notes.join(". ")}.${officeNote ? ` Note from the office: ${officeNote}` : ""}${paymentNotice ? ` ${paymentNotice}` : ""}`,
       })
       .catch(() => {})
 
