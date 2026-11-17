@@ -361,6 +361,24 @@ describe("H4 rooms, payments, stay and invoice", () => {
       await accommodationQueries.findReservations({ roomIds: [room._id], from: ymd(5), to: ymd(10) }),
     ).toHaveLength(0)
   })
+  it("issues bills with the intern payment QR, falling back to the visitor QR", async () => {
+    const f = await academic(),
+      api = await as(await requester()),
+      desk = await desks(),
+      hostel = await createHostel()
+    const offer = { hostelId: hostel._id, mess: "without", price: 200, gstPercentage: 0 }
+    const { getConfigWithDefault } = await import("../../../src/utils/configDefaults.js")
+    const visitor = (await getConfigWithDefault("accommodation")).value
+    expect((await desk.office.put("/api/v1/config/accommodation").send({ value: { ...visitor, defaultPaymentQR: "visitor-qr-ref" } })).status).toBe(200)
+    let r = await action(desk.office, await approved(api, f, desk), "offer", offer)
+    expect(r.payment.qrRef).toBe("visitor-qr-ref")
+    const saved = await desk.office.put("/api/v1/config/internAccommodation").send({ value: { paymentQR: "  intern-qr-ref  " } })
+    expect(saved.status).toBe(200)
+    expect(saved.body.configuration.value.paymentQR).toBe("intern-qr-ref")
+    r = await action(desk.office, await approved(api, f, desk), "offer", offer)
+    expect(r.payment.qrRef).toBe("intern-qr-ref")
+    await desk.office.put("/api/v1/config/internAccommodation").send({ value: { paymentQR: "" } })
+  })
   it("scopes external links, payment proof and cancellation revocation", async () => {
     const f = await academic(),
       api = await as(await requester()),

@@ -10,6 +10,8 @@ import { fileAccessService } from "../../../../services/storage/file-access.serv
 import { hostelQueries } from "../../../../services/hostel/hostelQueries.service.js"
 import { H4_TOKEN_TYPE, h4Notifications } from "./h4.notifications.js"
 import { h4Service } from "./h4.service.js"
+import { getAccommodationConfig } from "../accommodation/accommodation.quote.js"
+import { getH4Config, h4PaymentQr } from "./h4.config.js"
 import { S, validId, isCreator, isFaculty, isOffice, isAccounts, freshUser, mutate, audit } from "./h4.helpers.js"
 
 export const resolveAccess = async (raw) => {
@@ -171,7 +173,11 @@ export const h4Access = {
   },
   async qr(access) {
     if (!access.request.payment?.qrRef) return notFound("Payment QR")
-    const file = await fileAccessService.getBuffer(access.request.payment.qrRef)
+    // The latest QR in settings, so a changed QR reaches bills already sent;
+    // the one saved on the bill if settings have none.
+    const [config, visitorConfig] = await Promise.all([getH4Config(), getAccommodationConfig()])
+    const ref = h4PaymentQr(config, visitorConfig) || access.request.payment.qrRef
+    const file = await fileAccessService.getBuffer(ref)
     const contentType = file.contentType || (file.buffer[0] === 137 ? "image/png" : "image/jpeg")
     return success({ ...file, contentType, filename: "payment-qr" })
   },

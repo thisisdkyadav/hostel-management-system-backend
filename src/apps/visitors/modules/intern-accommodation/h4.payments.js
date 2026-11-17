@@ -21,7 +21,7 @@ import {
 import { fileAccessService } from "../../../../services/storage/file-access.service.js"
 import { h4Notifications } from "./h4.notifications.js"
 import { h4Service } from "./h4.service.js"
-import { getH4Config } from "./h4.config.js"
+import { getH4Config, h4PaymentQr } from "./h4.config.js"
 
 // The student pays one combined bill (accommodation + GST + mess). The IIT
 // requester may still submit proof on the student's behalf.
@@ -113,7 +113,7 @@ export const h4Payments = {
       r.payment = {
         amount: total,
         status: total === 0 ? "Verified" : "Pending",
-        qrRef: visitorConfig.defaultPaymentQR,
+        qrRef: h4PaymentQr(config, visitorConfig),
         paymentLink: config.paymentLink,
         remarks: clean(body.remarks, 1000),
         verifiedBy: total === 0 ? u._id : null,

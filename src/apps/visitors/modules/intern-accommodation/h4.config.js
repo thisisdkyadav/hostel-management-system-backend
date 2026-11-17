@@ -13,6 +13,9 @@ export const validateH4Config = (raw) => {
   // as accommodationPaymentLink.
   value.paymentLink = normalizeH4PaymentLink(raw.paymentLink ?? raw.accommodationPaymentLink)
   if (value.paymentLink === null) return { error: "Enter a valid payment link" }
+  // Uploaded UPI QR image (storage ref). Empty falls back to the visitor
+  // accommodation QR.
+  value.paymentQR = String(raw.paymentQR ?? "").trim().slice(0, 500)
   for (const key of ["gstPercentage", "accommodationDailyRate", "messDailyRate"]) {
     const n = Number(raw[key] ?? 0)
     if (!Number.isFinite(n) || n < 0 || n > (key === "gstPercentage" ? 100 : 10000000))
@@ -31,6 +34,8 @@ export const validateH4Config = (raw) => {
   value.contactPhone = text(raw.contactPhone, 40)
   return { value }
 }
+// The QR students scan: the intern one, else the visitor accommodation one.
+export const h4PaymentQr = (config, visitorConfig) => config?.paymentQR || visitorConfig?.defaultPaymentQR || ""
 export const getH4Config = async () => {
   const doc = await getConfigWithDefault("internAccommodation")
   const result = validateH4Config(doc?.value || {})

@@ -31,6 +31,7 @@ export const defaultConfigs = {
   internAccommodation: {
     value: {
       paymentLink: "",
+      paymentQR: "",
       gstPercentage: 0,
       accommodationDailyRate: 0,
       messDailyRate: 0,
@@ -39,7 +40,7 @@ export const defaultConfigs = {
       contactEmail: "",
       contactPhone: "",
     },
-    description: "Intern accommodation: payment link (one bill for accommodation and mess), GST, daily accommodation/mess rates, and the student letter wording (occupancy, room facilities, CWO contact).",
+    description: "Intern accommodation: payment link and UPI QR image (one bill for accommodation and mess), GST, daily accommodation/mess rates, and the student letter wording (occupancy, room facilities, CWO contact).",
   },
   accommodation: {
     value: {
