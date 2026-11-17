@@ -148,7 +148,7 @@ describe("H4 academic categories and the combined student payment", () => {
     expect(messages.find((m) => m.to === professor.email)).toBeUndefined()
     const letter = messages.find((m) => m.to === r.applicantEmail)
     expect(letter).toMatchObject({ cc: professor.email, useTemplate: false })
-    expect(letter.subject).toBe("Accommodation approved: charges and payment link – IIT Indore hostel accommodation")
+    expect(letter.subject).toBe("Accommodation approved: charges and payment – IIT Indore hostel accommodation")
     const studentMail = letter.body
     expect(studentMail).toContain(`in <strong>${hostel.name}</strong>, on a double occupancy basis`)
     expect(studentMail).toContain("<li>One Almirah</li>")

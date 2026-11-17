@@ -32,7 +32,7 @@ export const requestReference = (r) => `H4-${String(r._id).slice(-8).toUpperCase
 const TITLE = "IIT Indore hostel accommodation"
 const SUBJECTS = {
   received: "Accommodation request received",
-  charges: "Accommodation approved: charges and payment link",
+  charges: "Accommodation approved: charges and payment",
   "charges-rejected": "Payment not verified: please submit again",
   extra: "Additional charge payable",
   "extra-rejected": "Additional payment not verified: please submit again",
@@ -158,7 +158,9 @@ const payBlock = (amount, paymentLink) =>
 
 const paySteps = (r, { kind }) => {
   const steps = [
-    "Pay the total amount using the payment link above.",
+    r.payment?.paymentLink
+      ? "Pay the total amount using the payment link above."
+      : "Open your accommodation page using the button below and pay the total amount by scanning the UPI QR code shown there.",
     "Open your accommodation page using the button below and submit the 12-digit UTR (transaction reference), the payment date and a screenshot of the payment.",
     r.h4.mess === "with"
       ? "Once your payment is verified, upload a clear photo of your face on the same page. It is used to identify you at the mess."
@@ -243,7 +245,7 @@ export const studentLetter = (r, kind, ctx) => {
     "charges-rejected": () => [
       p("This is with reference to your hostel accommodation at IIT Indore."),
       box("warning", `The payment details you submitted could not be verified${pay.note ? `: <strong>${esc(pay.note)}</strong>` : "."}`),
-      p("Please check the payment and submit the correct UTR, payment date and screenshot again. If you have not paid yet, use the payment link below."),
+      p("Please check the payment and submit the correct UTR, payment date and screenshot again. If you have not paid yet, pay as shown below."),
       chargesTable(r, config),
       payBlock(pay.amount, pay.paymentLink),
       pageButton(link, "Open your accommodation page"),

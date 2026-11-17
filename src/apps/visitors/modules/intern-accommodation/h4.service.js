@@ -15,7 +15,7 @@ import { diningQueries } from "../../../../services/dining/diningQueries.service
 import { allocationQueries } from "../../../../services/dining/allocationQueries.service.js"
 import { coversDayFilter } from "../../../../services/dining/periodDay.js"
 import { computeNights, emptyQuote, getAccommodationConfig } from "../accommodation/accommodation.quote.js"
-import { getH4Config } from "./h4.config.js"
+import { getH4Config, h4PaymentQr } from "./h4.config.js"
 import { accommodationService } from "../accommodation/accommodation.service.js"
 import { buildInvoiceModel, renderInvoicePdf } from "../accommodation/accommodation.invoice-pdf.js"
 import { buildInvoiceExportExcel, invoiceExportRows } from "../accommodation/accommodation.invoice-export.js"
@@ -237,6 +237,8 @@ export const h4Service = {
         : []
     const scope = await hostelScope(u)
     const config = isOffice(u) ? await getH4Config() : null
+    // The bill QR falls back to the visitor accommodation QR.
+    if (config) config.hasPaymentQr = !!h4PaymentQr(config, await getAccommodationConfig())
     const caterers = isAccounts(u)
       ? await catererLoad(
           await diningQueries.findCaterers({ isArchived: { $ne: true } }, { select: "name", lean: true, sort: { name: 1 } }),
