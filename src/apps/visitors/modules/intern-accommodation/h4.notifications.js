@@ -66,8 +66,6 @@ export const h4Notifications = {
   async internal(r) {
     const recipients = []
     const stage = r.h4.amendment?.stage || r.currentStage
-    if (stage === "faculty")
-      recipients.push({ email: r.h4.facultyEmail, role: "academics", label: "Review and recommend" })
     if (stage === "office")
       for (const email of await chiefWardenOfficeEmails())
         recipients.push({ email, role: "admin", label: "Check accommodation availability" })
@@ -90,7 +88,10 @@ export const h4Notifications = {
       for (const email of await supervisorsForHostel(r.allotment?.hostelId))
         recipients.push({ email, role: "hostel-supervisor", label: "Assign room" })
     recipients.push({ email: r.h4.creatorEmail, role: "academics", label: "" })
-    return recipients
+    // The faculty gets one email only: CC on the student's "request received"
+    // letter. They follow the request in the portal after that.
+    const faculty = String(r.h4.facultyEmail || "").toLowerCase()
+    return recipients.filter((x) => !faculty || String(x.email || "").toLowerCase() !== faculty)
   },
   // Staff get a short status email; the student gets a full letter (h4.letters.js)
   // only when there is something new for them, with the faculty in CC.
@@ -144,7 +145,7 @@ export const h4Notifications = {
     const faculty = r.h4.facultyEmail
     return {
       to: r.applicantEmail,
-      cc: faculty && faculty.toLowerCase() !== r.applicantEmail.toLowerCase() ? faculty : undefined,
+      cc: pick.kind === "received" && faculty && faculty.toLowerCase() !== r.applicantEmail.toLowerCase() ? faculty : undefined,
       replyTo: config.contactEmail || undefined,
       subject: letter.subject,
       body: letter.html,

@@ -51,8 +51,8 @@ describe("H4 student letters", () => {
     expect(letter.body).toContain("cwo@iiti.ac.in")
     expect(letter.body).toContain("IIT Indore")
     expect(letter.body).not.toContain("/access/")
-    // The professor still has to recommend, so they keep their own action email.
-    expect(messages.find((m) => m.to === professor.email).body).toContain("Review and recommend")
+    // The faculty gets no email of their own: only the CC on this first letter.
+    expect(messages.find((m) => m.to === professor.email)).toBeUndefined()
     expect(messages.find((m) => m.to === officeUser.email).body).toContain("The student has been emailed: Accommodation request received")
 
     const { emailService } = await import("../../../src/services/email/index.js")

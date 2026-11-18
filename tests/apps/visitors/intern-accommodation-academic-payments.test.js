@@ -143,11 +143,10 @@ describe("H4 academic categories and the combined student payment", () => {
     let messages = await h4Notifications.messages(r)
     const links = messages.flatMap((m) => [...m.body.matchAll(/intern-accommodation\/access\/([^"]+)/g)].map((x) => ({ to: m.to, token: x[1] })))
     expect(links.map((l) => l.to)).toEqual([r.applicantEmail])
-    // The professor (creator and faculty) has nothing to act on: they are copied
-    // on the student's letter instead of getting a separate status email.
+    // The faculty gets only the first "request received" email; later letters do not copy them.
     expect(messages.find((m) => m.to === professor.email)).toBeUndefined()
     const letter = messages.find((m) => m.to === r.applicantEmail)
-    expect(letter).toMatchObject({ cc: professor.email, useTemplate: false })
+    expect(letter).toMatchObject({ cc: undefined, useTemplate: false })
     expect(letter.subject).toBe("Accommodation approved: charges and payment – IIT Indore hostel accommodation")
     const studentMail = letter.body
     expect(studentMail).toContain(`in <strong>${hostel.name}</strong>, on a double occupancy basis`)

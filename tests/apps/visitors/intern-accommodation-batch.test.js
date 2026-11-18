@@ -48,7 +48,7 @@ describe("H4 bulk actions", () => {
     const officeMail = mails.find((m) => m.to === officeUser.email)
     expect(officeMail.body).toContain("Check accommodation availability (3)")
     expect(officeMail.body).toContain("/admin/intern-accommodation")
-    expect(mails.find((m) => m.to === professor.email).body).toContain("Updated (3)")
+    expect(mails.find((m) => m.to === professor.email)).toBeUndefined()
 
     const decided = await office.post(`${base}/batch-decision`).send({
       stage: "office", action: "approve", confirmAvailability: true,
