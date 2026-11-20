@@ -104,7 +104,7 @@ const UserSchema = new mongoose.Schema(
     },
     sidebarMode: {
       type: String,
-      enum: ["v1", "v2", "v3", "v4", "v5", "v6", "v7"],
+      enum: ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"],
       default: undefined,
     },
     theme: {
