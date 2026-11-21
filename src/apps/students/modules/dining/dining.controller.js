@@ -7,7 +7,7 @@ import {
   selectStudentDiningCaterer,
 } from './dining.service.js';
 import { getStudentDiningMeals } from './dining.meals.service.js';
-import { getStudentMenu } from '../../../operations/modules/dining-menu/dining-menu.service.js';
+import { getStudentMenuWithTurnout } from './dining.menu-turnout.service.js';
 import { answerStudentDiningTag, listStudentDiningTags } from './dining.tags.service.js';
 import {
   cancelStudentBioPhotoRequest,
@@ -80,7 +80,7 @@ export const getDiningMeals = asyncHandler(async (req, res) => {
 });
 
 export const getDiningMenu = asyncHandler(async (req, res) => {
-  const result = await getStudentMenu({ userId: req.user._id, query: req.query });
+  const result = await getStudentMenuWithTurnout({ userId: req.user._id, query: req.query });
   res.status(result.statusCode).json({
     success: result.success,
     message: result.message,
