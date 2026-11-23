@@ -919,14 +919,24 @@ class CalendarService {
       typeof calendar.toObject === "function" ? calendar.toObject() : { ...calendar }
 
     const events = await this._loadCalendarEvents(serializedCalendar._id)
-    const billedTotal = await eventExpenseQueries.sumTotalExpenditureForEvents(
+    const billedRows = await eventExpenseQueries.sumTotalExpenditureByEvent(
       events.map((event) => event._id)
     )
+    const categoryByEvent = new Map(events.map((event) => [String(event._id), event.category]))
+    let billedTotal = 0
+    const billedByCategory = {}
+    for (const row of billedRows) {
+      const amount = Number(row.total || 0)
+      const category = categoryByEvent.get(String(row._id))
+      billedTotal += amount
+      if (category) billedByCategory[category] = (billedByCategory[category] || 0) + amount
+    }
 
     return {
       ...serializedCalendar,
       events,
       billedTotal,
+      billedByCategory,
       categoryDefinitions: resolvedCategoryDefinitions,
       budgetCaps: normalizeCategoryBudgetCaps(serializedCalendar.budgetCaps, resolvedCategoryDefinitions),
     }
