@@ -16,6 +16,7 @@ import { activityCalendarOwner } from "../../../../services/gymkhana/activityCal
 import { activityCalendarQueries } from "../../../../services/gymkhana/activityCalendarQueries.service.js"
 import { gymkhanaEventOwner } from "../../../../services/gymkhana/gymkhanaEventOwner.service.js"
 import { gymkhanaEventQueries } from "../../../../services/gymkhana/gymkhanaEventQueries.service.js"
+import { eventExpenseQueries } from "../../../../services/gymkhana/eventExpenseQueries.service.js"
 import { approvalLogOwner } from "../../../../services/gymkhana/approvalLogOwner.service.js"
 import { approvalLogQueries } from "../../../../services/gymkhana/approvalLogQueries.service.js"
 import { userQueries } from "../../../../services/user/userQueries.service.js"
@@ -917,9 +918,15 @@ class CalendarService {
     const serializedCalendar =
       typeof calendar.toObject === "function" ? calendar.toObject() : { ...calendar }
 
+    const events = await this._loadCalendarEvents(serializedCalendar._id)
+    const billedTotal = await eventExpenseQueries.sumTotalExpenditureForEvents(
+      events.map((event) => event._id)
+    )
+
     return {
       ...serializedCalendar,
-      events: await this._loadCalendarEvents(serializedCalendar._id),
+      events,
+      billedTotal,
       categoryDefinitions: resolvedCategoryDefinitions,
       budgetCaps: normalizeCategoryBudgetCaps(serializedCalendar.budgetCaps, resolvedCategoryDefinitions),
     }

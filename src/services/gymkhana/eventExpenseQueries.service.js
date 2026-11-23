@@ -76,6 +76,26 @@ export const eventExpenseQueries = {
       .limit(limit)
   },
 
+  /**
+   * Sum of bill totals across the given events (calendar "Remaining" stat).
+   * Aggregates skip the soft-delete find guard, so isDeleted is filtered here.
+   * Rejected bills are not counted as spent.
+   */
+  async sumTotalExpenditureForEvents(eventIds = []) {
+    if (!eventIds.length) return 0
+    const [row] = await EventExpense.aggregate([
+      {
+        $match: {
+          eventId: { $in: eventIds },
+          isDeleted: { $ne: true },
+          approvalStatus: { $ne: "rejected" },
+        },
+      },
+      { $group: { _id: null, total: { $sum: "$totalExpenditure" } } },
+    ])
+    return Number(row?.total || 0)
+  },
+
   /** Count expenses matching a filter (admin-list pagination). */
   async countExpenses(filter = {}) {
     return EventExpense.countDocuments(filter)
