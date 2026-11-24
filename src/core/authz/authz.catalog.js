@@ -25,7 +25,7 @@ export const AUTHZ_CONSTRAINT_TYPES = {
   ANY: "any",
 }
 
-export const AUTHZ_CATALOG_VERSION = 28
+export const AUTHZ_CATALOG_VERSION = 29
 export const AUTHZ_DEFAULT_POLICY = AUTHZ_EFFECT.ALLOW
 
 const route = (key, label, paths = []) => ({ key, label, paths })
@@ -90,6 +90,7 @@ export const AUTHZ_ROUTE_DEFINITIONS = [
   route("route.admin.clubs", "Clubs", ["/admin/clubs"]),
   route("route.admin.por", "POR Verification", ["/admin/por"]),
   route("route.admin.attendance", "Attendance", ["/admin/attendance", "/admin/attendance/:occurrenceId"]),
+  route("route.admin.appUsage", "App Usage", ["/admin/app-usage"]),
   route("route.admin.gymkhanaEvents", "Gymkhana Events", ["/admin/gymkhana-events"]),
   route("route.admin.megaEvents", "Mega Events", ["/admin/mega-events"]),
   route("route.admin.overallBestPerformer", "Overall Best Performer", ["/admin/overall-best-performer"]),

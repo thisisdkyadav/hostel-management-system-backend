@@ -88,3 +88,6 @@ export * from './action-link/index.js'
 
 // Generic audit-log models
 export * from './audit/index.js'
+
+// App usage (student devices / installed SMS app)
+export * from './app-usage/index.js'
