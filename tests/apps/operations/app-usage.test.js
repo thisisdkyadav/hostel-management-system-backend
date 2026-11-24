@@ -7,7 +7,7 @@ import { setupTestDb, teardownTestDb } from "../../helpers/db.js"
 import { as } from "../../helpers/http.js"
 import { seed } from "../../helpers/seed.js"
 import { createStudentProfile } from "../../helpers/seed/students.js"
-import { AppDevice } from "../../../src/models/index.js"
+import { AppDevice, PageVisit, PageVisitTotal } from "../../../src/models/index.js"
 
 const BASE = "/api/v1/app-usage"
 const tag = `AU${Date.now().toString(36).slice(-5)}`.toUpperCase()
@@ -66,5 +66,53 @@ describe("app usage", () => {
     expect((await ping(api, { deviceId: `${tag}-bad-plat`, platform: "windows", mode: "app" })).status).toBe(400)
     expect((await (await as(await seed.admin())).post(`${BASE}/ping`).send({ deviceId: `${tag}-adm`, platform: "ios", mode: "app" })).status).toBe(403)
     expect((await api.get(`${BASE}/stats`)).status).toBe(403)
+  })
+})
+
+describe("page visits", () => {
+  it("records every role's pages and shows per-page totals and the last 7 days", async () => {
+    const warden = await seed.warden({ name: `Visit Warden ${tag}` })
+    const api = await as(warden)
+    const visit = (path, extra = {}) => api.post(`${BASE}/visit`).send({ path, ...extra })
+    expect((await visit("/warden/students?tab=1")).status).toBe(200)
+    await visit("/warden/students")
+    await visit("/warden/complaints", { platform: "android", mode: "app" })
+    expect((await visit("not-a-path")).status).toBe(400)
+
+    const totals = await PageVisitTotal.find({ userId: warden._id }).lean()
+    expect(totals.find((t) => t.page === "/warden/students")).toMatchObject({ count: 2, role: "Warden", label: "Warden Students" })
+
+    // Old visits fall out of the 7-day list but stay in the totals.
+    await PageVisit.create({ userId: warden._id, role: "Warden", page: "/warden/students", label: "Warden Students", path: "/warden/students", at: new Date(Date.now() - 10 * 86400_000) })
+
+    const admin = await as(await seed.admin())
+    const roles = (await admin.get(`${BASE}/roles`)).body.data.roles
+    const wardens = roles.find((r) => r.role === "Warden")
+    expect(wardens.activeUsers).toBeGreaterThanOrEqual(1)
+    expect(wardens.users).toBeGreaterThanOrEqual(wardens.tracked)
+
+    const list = (await admin.get(`${BASE}/users`).query({ role: "Warden", search: tag })).body.data
+    expect(list.items[0]).toMatchObject({ userId: String(warden._id), visits: 3, pages: 2, recentVisits: 3 })
+
+    const detail = (await admin.get(`${BASE}/users/${warden._id}`)).body.data
+    expect(detail.user).toMatchObject({ role: "Warden" })
+    expect(detail.totalVisits).toBe(3)
+    expect(detail.pages[0]).toMatchObject({ page: "/warden/complaints", count: 1 })
+    expect(detail.days).toHaveLength(7)
+    const today = detail.days[0].visits
+    expect(today.map((v) => v.page)).toEqual(["/warden/students", "/warden/students", "/warden/complaints"])
+    expect(today[2]).toMatchObject({ mode: "app", platform: "android" })
+    expect(detail.days.flatMap((d) => d.visits)).toHaveLength(3) // the 10-day-old one isn't listed
+
+    expect((await admin.get(`${BASE}/users`).query({ role: "Nobody" })).status).toBe(400)
+    expect((await api.get(`${BASE}/roles`)).status).toBe(403)
+    expect((await api.get(`${BASE}/users/${warden._id}`)).status).toBe(403)
+  })
+
+  it("search lists matching users who never opened SMS too", async () => {
+    const quiet = await seed.warden({ name: `Quiet Warden ${tag}` })
+    const admin = await as(await seed.admin())
+    const list = (await admin.get(`${BASE}/users`).query({ role: "Warden", search: `Quiet Warden ${tag}` })).body.data
+    expect(list.items).toEqual([expect.objectContaining({ userId: String(quiet._id), visits: 0, lastAt: null })])
   })
 })

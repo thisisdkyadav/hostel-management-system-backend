@@ -7,7 +7,11 @@
  * can't report an uninstall, so "used the app in the last 30 days" is shown too.
  */
 
-import { success, badRequest } from "../../../../services/base/index.js"
+import mongoose from "mongoose"
+import { success, badRequest, notFound } from "../../../../services/base/index.js"
+import { userQueries } from "../../../../services/user/userQueries.service.js"
+import { AUTHZ_ROUTE_DEFINITIONS } from "../../../../core/authz/authz.catalog.js"
+import { ROLES } from "../../../../core/constants/roles.constants.js"
 import { appUsageOwner } from "../../../../services/app-usage/appUsageOwner.service.js"
 import { appUsageQueries } from "../../../../services/app-usage/appUsageQueries.service.js"
 import { studentProfileQueries } from "../../../../services/student/studentProfileQueries.service.js"
@@ -141,5 +145,168 @@ export const getStats = async () => {
     trend,
     recent,
     generatedAt: new Date(now).toISOString(),
+  })
+}
+
+// ==================== page visits (every role) ====================
+
+const VISIT_DAYS = 7
+const USERS_PAGE = 40
+
+// Catalog paths as matchers, most specific first (literal before :param).
+const PAGE_MATCHERS = AUTHZ_ROUTE_DEFINITIONS.flatMap((route) =>
+  (route.paths || []).map((pattern) => ({
+    pattern,
+    label: route.label,
+    params: (pattern.match(/:/g) || []).length,
+    re: new RegExp(`^${pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:[A-Za-z_]+/g, "[^/]+")}$`),
+  }))
+).sort((a, b) => a.params - b.params || b.pattern.length - a.pattern.length)
+
+const ID_SEGMENT = /^(?:[0-9a-f]{24}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|\d+|[A-Za-z0-9_-]{20,})$/i
+
+/** The page a path belongs to: its catalog pattern + name, or the path with ids replaced by :id. */
+export const pageForPath = (rawPath) => {
+  let path = String(rawPath || "").split(/[?#]/)[0].slice(0, 300)
+  if (path.length > 1) path = path.replace(/\/+$/, "")
+  const match = PAGE_MATCHERS.find((m) => m.re.test(path))
+  if (match) return { path, page: match.pattern, label: match.label }
+  const page = path
+    .split("/")
+    .map((segment) => (segment && ID_SEGMENT.test(segment) ? ":id" : segment))
+    .join("/")
+  // Not in the catalog (a sub-page): name it after its nearest catalog parent.
+  const parent = PAGE_MATCHERS.filter((m) => !m.params && m.pattern.length > 1 && path.startsWith(`${m.pattern}/`)).sort((a, b) => b.pattern.length - a.pattern.length)[0]
+  return { path, page, label: parent ? parent.label : "" }
+}
+
+export const recordPageVisit = async ({ user, body = {} }) => {
+  const raw = typeof body.path === "string" ? body.path : ""
+  if (!raw.startsWith("/")) return badRequest("Invalid path")
+  const { path, page, label } = pageForPath(raw)
+  await appUsageOwner.recordPageVisit({
+    userId: user._id,
+    role: user.role,
+    page,
+    label,
+    path,
+    platform: APP_PLATFORMS.includes(body.platform) ? body.platform : "desktop",
+    mode: body.mode === "app" ? "app" : "browser",
+  })
+  return success({ ok: true })
+}
+
+/** Start of the day (India time) `daysAgo` days back. */
+const istDayStart = (daysAgo = 0) => {
+  const today = istDay(Date.now())
+  return new Date(new Date(`${today}T00:00:00+05:30`).getTime() - daysAgo * DAY)
+}
+
+/** Every role: users, users who have opened SMS, and the last 7 days. */
+export const getRoleSummary = async () => {
+  const since = istDayStart(VISIT_DAYS - 1)
+  const roles = Object.values(ROLES)
+  const [recent, totals, counts] = await Promise.all([
+    appUsageQueries.recentVisitsByRole(since),
+    appUsageQueries.totalsByRole(),
+    Promise.all(roles.map((role) => userQueries.countUsers({ role }))),
+  ])
+  const recentBy = new Map(recent.map((r) => [r._id, r]))
+  const totalBy = new Map(totals.map((r) => [r._id, r]))
+  return success({
+    days: VISIT_DAYS,
+    roles: roles.map((role, index) => ({
+      role,
+      users: counts[index],
+      tracked: totalBy.get(role)?.users || 0,
+      visits: totalBy.get(role)?.visits || 0,
+      activeUsers: recentBy.get(role)?.users || 0,
+      recentVisits: recentBy.get(role)?.visits || 0,
+    })),
+  })
+}
+
+const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+
+/** Users of one role, most recently active first; `search` (name/email) also finds users who never opened SMS. */
+export const listRoleUsers = async ({ query = {} }) => {
+  const role = String(query.role || "")
+  if (!Object.values(ROLES).includes(role)) return badRequest("Unknown role")
+  const page = Math.max(1, parseInt(query.page, 10) || 1)
+  const search = String(query.search || "").trim().slice(0, 80)
+  const since = istDayStart(VISIT_DAYS - 1)
+
+  let matched = null
+  if (search) {
+    const re = new RegExp(escapeRegex(search), "i")
+    matched = await userQueries.findUsers({ role, $or: [{ name: re }, { email: re }] }, { select: "name email", lean: true, sort: { name: 1 }, limit: 200 })
+  }
+  const { items, total } = await appUsageQueries.usersWithTotals({
+    role,
+    userIds: matched ? matched.map((u) => u._id) : null,
+    skip: (page - 1) * USERS_PAGE,
+    limit: USERS_PAGE,
+  })
+
+  let rows = items
+  let count = total
+  // Searching also lists matching users with no visits (after those with visits).
+  if (matched) {
+    const seen = new Set(items.map((i) => String(i._id)))
+    const never = matched.filter((u) => !seen.has(String(u._id))).map((u) => ({ _id: u._id, visits: 0, pages: 0, lastAt: null }))
+    count = total + never.length
+    if (items.length < USERS_PAGE) {
+      const offset = Math.max(0, (page - 1) * USERS_PAGE - total)
+      rows = items.concat(never.slice(offset, offset + USERS_PAGE - items.length))
+    }
+  }
+
+  const ids = rows.map((r) => r._id)
+  const [users, recent] = await Promise.all([
+    ids.length ? userQueries.findUsers({ _id: { $in: ids } }, { select: "name email subRole", lean: true }) : [],
+    ids.length ? appUsageQueries.recentVisitsForUsers(ids, since) : [],
+  ])
+  const userBy = new Map(users.map((u) => [String(u._id), u]))
+  const recentBy = new Map(recent.map((r) => [String(r._id), r.visits]))
+  return success({
+    role,
+    page,
+    limit: USERS_PAGE,
+    total: count,
+    items: rows.map((r) => {
+      const u = userBy.get(String(r._id)) || {}
+      return {
+        userId: String(r._id),
+        name: u.name || "",
+        email: u.email || "",
+        subRole: u.subRole || null,
+        visits: r.visits,
+        pages: r.pages,
+        recentVisits: recentBy.get(String(r._id)) || 0,
+        lastAt: r.lastAt,
+      }
+    }),
+  })
+}
+
+/** One user: all-time per-page counts with the latest visit, and the last 7 days visit by visit. */
+export const getUserActivity = async ({ userId }) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) return badRequest("Invalid user id")
+  const user = await userQueries.findUserById(userId, { select: "name email role subRole", lean: true })
+  if (!user) return notFound("User not found")
+  const since = istDayStart(VISIT_DAYS - 1)
+  const [pages, visits] = await Promise.all([appUsageQueries.pageTotalsForUser(user._id), appUsageQueries.visitsForUser(user._id, since)])
+
+  const days = []
+  for (let i = 0; i < VISIT_DAYS; i += 1) days.push({ day: istDay(istDayStart(i)), visits: [] })
+  const byDay = new Map(days.map((d) => [d.day, d]))
+  for (const v of visits) byDay.get(istDay(v.at))?.visits.push({ at: v.at, page: v.page, label: v.label, path: v.path, platform: v.platform, mode: v.mode })
+
+  return success({
+    user: { userId: String(user._id), name: user.name || "", email: user.email || "", role: user.role, subRole: user.subRole || null },
+    totalVisits: pages.reduce((sum, p) => sum + p.count, 0),
+    lastAt: pages[0]?.lastAt || null,
+    pages: pages.map((p) => ({ page: p.page, label: p.label, count: p.count, firstAt: p.firstAt, lastAt: p.lastAt })),
+    days,
   })
 }
