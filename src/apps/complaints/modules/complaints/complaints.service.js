@@ -265,7 +265,11 @@ class ComplaintService {
     }
 
     if (category) query.category = category;
-    if (status) query.status = status;
+    if (status) {
+      // "Pending,In Progress" style lists filter on any of them (the phone app's Open filter).
+      const statuses = String(status).split(',').map((value) => value.trim()).filter(Boolean);
+      query.status = statuses.length > 1 ? { $in: statuses } : statuses[0];
+    }
     if (feedbackRating) query.feedbackRating = Number(feedbackRating);
     if (satisfactionStatus) query.satisfactionStatus = satisfactionStatus;
 
