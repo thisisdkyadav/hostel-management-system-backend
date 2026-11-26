@@ -107,6 +107,12 @@ const UserSchema = new mongoose.Schema(
       enum: ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19"],
       default: undefined,
     },
+    // Written by the Go auth service when the layout changes (see app-usage admin view).
+    sidebarModeUpdatedAt: { type: Date, default: undefined },
+    sidebarModeHistory: {
+      type: [{ _id: false, mode: String, at: Date }],
+      default: undefined,
+    },
     theme: {
       type: String,
       enum: ["light", "dark"],

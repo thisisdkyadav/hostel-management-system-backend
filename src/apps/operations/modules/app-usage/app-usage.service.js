@@ -228,6 +228,20 @@ export const getRoleSummary = async () => {
 
 const escapeRegex = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
+/** Admins per saved sidebar layout and sub-role (mode null = never picked one). The page folds these into what each admin sees. */
+const sidebarModeCounts = async () => {
+  const admins = await userQueries.findUsers({ role: ROLES.ADMIN }, { select: "sidebarMode subRole", lean: true })
+  const counts = new Map()
+  for (const admin of admins) {
+    const key = JSON.stringify([admin.sidebarMode || null, admin.subRole || null])
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  return [...counts].map(([key, users]) => {
+    const [mode, subRole] = JSON.parse(key)
+    return { mode, subRole, users }
+  })
+}
+
 /** Users of one role, most recently active first; `search` (name/email) also finds users who never opened SMS. */
 export const listRoleUsers = async ({ query = {} }) => {
   const role = String(query.role || "")
@@ -263,7 +277,7 @@ export const listRoleUsers = async ({ query = {} }) => {
 
   const ids = rows.map((r) => r._id)
   const [users, recent] = await Promise.all([
-    ids.length ? userQueries.findUsers({ _id: { $in: ids } }, { select: "name email subRole", lean: true }) : [],
+    ids.length ? userQueries.findUsers({ _id: { $in: ids } }, { select: "name email subRole sidebarMode sidebarModeUpdatedAt", lean: true }) : [],
     ids.length ? appUsageQueries.recentVisitsForUsers(ids, since) : [],
   ])
   const userBy = new Map(users.map((u) => [String(u._id), u]))
@@ -284,15 +298,18 @@ export const listRoleUsers = async ({ query = {} }) => {
         pages: r.pages,
         recentVisits: recentBy.get(String(r._id)) || 0,
         lastAt: r.lastAt,
+        sidebarMode: u.sidebarMode || null,
+        sidebarModeUpdatedAt: u.sidebarModeUpdatedAt || null,
       }
     }),
+    sidebarModes: role === ROLES.ADMIN ? await sidebarModeCounts() : undefined,
   })
 }
 
 /** One user: all-time per-page counts with the latest visit, and the last 7 days visit by visit. */
 export const getUserActivity = async ({ userId }) => {
   if (!mongoose.Types.ObjectId.isValid(userId)) return badRequest("Invalid user id")
-  const user = await userQueries.findUserById(userId, { select: "name email role subRole", lean: true })
+  const user = await userQueries.findUserById(userId, { select: "name email role subRole sidebarMode sidebarModeUpdatedAt sidebarModeHistory", lean: true })
   if (!user) return notFound("User not found")
   const since = istDayStart(VISIT_DAYS - 1)
   const [pages, visits] = await Promise.all([appUsageQueries.pageTotalsForUser(user._id), appUsageQueries.visitsForUser(user._id, since)])
@@ -304,6 +321,11 @@ export const getUserActivity = async ({ userId }) => {
 
   return success({
     user: { userId: String(user._id), name: user.name || "", email: user.email || "", role: user.role, subRole: user.subRole || null },
+    sidebar: {
+      mode: user.sidebarMode || null,
+      updatedAt: user.sidebarModeUpdatedAt || null,
+      history: (user.sidebarModeHistory || []).map((h) => ({ mode: h.mode, at: h.at || null })),
+    },
     totalVisits: pages.reduce((sum, p) => sum + p.count, 0),
     lastAt: pages[0]?.lastAt || null,
     pages: pages.map((p) => ({ page: p.page, label: p.label, count: p.count, firstAt: p.firstAt, lastAt: p.lastAt })),
