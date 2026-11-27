@@ -285,6 +285,61 @@ export const getRebateBoardList = async ({ query = {} } = {}) => {
   })
 }
 
+/**
+ * Per-student rebate days for one dining period, for the CSV export: every
+ * student allocated in the period, plus anyone else with approved days in it.
+ * Only approved, non-archived rebates count, and only their days inside the
+ * period. query: { periodId } (the days outside every period can't be exported).
+ */
+export const getRebateBoardExport = async ({ query = {} } = {}) => {
+  const periods = await listPeriods()
+  if (!periods.length || String(query.periodId || "") === OUTSIDE) return badRequest("Pick a dining period to export")
+  const scope = resolveScope(periods, query.periodId)
+  const daysOfType = (type) => ({ $sum: { $cond: [{ $eq: ["$type", type] }, "$days", 0] } })
+  const [allocations, sums] = await Promise.all([
+    allocationQueries.findAllocationsByPeriod(scope.period.id, { populateStudent: true }),
+    diningQueries.aggregateRebatesIncludingArchived([
+      { $match: { archivedAt: null, status: "approved", ...scopeMatch(scope) } },
+      { $project: { studentUserId: 1, rollNumber: 1, type: 1, days: { $size: scopeKeysExpr(scope) } } },
+      { $group: { _id: "$studentUserId", rollNumber: { $first: "$rollNumber" }, shortTerm: daysOfType("short-term"), longTerm: daysOfType("long-term") } },
+    ]),
+  ])
+
+  const byStudent = new Map(sums.map((row) => [String(row._id), row]))
+  const allocated = new Set(allocations.map((allocation) => String(allocation.studentUserId)))
+  const others = sums.filter((row) => !allocated.has(String(row._id))).map((row) => row._id)
+  const catererIds = [...new Set(allocations.map((allocation) => String(allocation.catererId)).filter(Boolean))]
+  const [caterers, otherUsers] = await Promise.all([
+    catererIds.length ? diningQueries.findCaterers({ _id: { $in: catererIds } }, { select: "name", lean: true }) : [],
+    others.length ? userQueries.findUsers({ _id: { $in: others } }, { select: "name email", lean: true }) : [],
+  ])
+  const catererName = new Map(caterers.map((caterer) => [String(caterer._id), caterer.name || ""]))
+  const userById = new Map(otherUsers.map((user) => [String(user._id), user]))
+
+  const row = (id, { rollNumber, name, email, caterer }) => {
+    const sum = byStudent.get(String(id)) || { shortTerm: 0, longTerm: 0 }
+    return { rollNumber: rollNumber || sum.rollNumber || "", name: name || "", email: email || "", caterer, shortTermDays: sum.shortTerm, longTermDays: sum.longTerm, totalDays: sum.shortTerm + sum.longTerm }
+  }
+  const rows = [
+    ...allocations.map((allocation) => {
+      const profile = allocation.studentProfileId || {}
+      const user = profile.userId || {}
+      return row(allocation.studentUserId, {
+        rollNumber: profile.rollNumber || allocation.rollNumber,
+        name: user.name,
+        email: user.email,
+        caterer: catererName.get(String(allocation.catererId)) || "",
+      })
+    }),
+    ...others.map((id) => {
+      const user = userById.get(String(id)) || {}
+      return row(id, { name: user.name, email: user.email, caterer: "" })
+    }),
+  ].sort((a, b) => a.rollNumber.localeCompare(b.rollNumber, "en", { numeric: true }))
+
+  return success({ period: scope.period, rows })
+}
+
 export const getRebateBoardItem = async ({ rebateId }) => {
   if (!isId(rebateId)) return badRequest("Invalid rebate")
   const rebate = await loadBoardRebate(rebateId)
@@ -660,6 +715,7 @@ export const restoreBoardRebate = async ({ rebateId, user }) => {
 }
 
 export default {
+  getRebateBoardExport,
   getRebateBoardOverview,
   getRebateBoardList,
   getRebateBoardItem,

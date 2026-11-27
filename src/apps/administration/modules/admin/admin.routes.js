@@ -119,6 +119,7 @@ import {
   createRebates,
   getRebate,
   getRebateHistory,
+  getRebateExport,
   getRebateList,
   getRebateOverview,
   getRebateStudents,
@@ -205,6 +206,7 @@ router.put('/dining-rebates/:id/reject', diningStaff, requireRouteAccess('route.
 const rebateBoard = [diningStaff, requireRouteAccess('route.admin.diningRebates')];
 router.get('/dining-rebates/board/overview', rebateBoard, getRebateOverview);
 router.get('/dining-rebates/board/list', rebateBoard, getRebateList);
+router.get('/dining-rebates/board/export', rebateBoard, getRebateExport);
 router.get('/dining-rebates/board/students', rebateBoard, getRebateStudents);
 router.post('/dining-rebates/board/preview', rebateBoard, previewRebate);
 router.post('/dining-rebates/board', rebateBoard, createRebates);

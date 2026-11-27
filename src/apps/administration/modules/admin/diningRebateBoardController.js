@@ -8,6 +8,7 @@ import { asyncHandler } from '../../../../utils/index.js';
 import {
   archiveBoardRebate,
   createBoardRebates,
+  getRebateBoardExport,
   getRebateBoardHistory,
   getRebateBoardItem,
   getRebateBoardList,
@@ -23,6 +24,7 @@ const send = (res, result) => {
 };
 
 export const getRebateOverview = asyncHandler(async (req, res) => send(res, await getRebateBoardOverview({ query: req.query })));
+export const getRebateExport = asyncHandler(async (req, res) => send(res, await getRebateBoardExport({ query: req.query })));
 export const getRebateList = asyncHandler(async (req, res) => send(res, await getRebateBoardList({ query: req.query })));
 export const getRebateStudents = asyncHandler(async (req, res) => send(res, await searchRebateStudents({ query: req.query })));
 export const previewRebate = asyncHandler(async (req, res) => send(res, await previewBoardRebate({ payload: req.body || {} })));
